@@ -41,6 +41,7 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
+from products.conversations.backend.api.ticket_brief import TicketBriefSerializer
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import (
     ComposeTicketSerializer,
@@ -88,6 +89,61 @@ class TestComposeTicketSerializer(SimpleTestCase):
 
     def test_accepts_up_to_100_tags(self):
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
+        assert serializer.is_valid(), serializer.errors
+
+
+class TestTicketBriefSerializer(SimpleTestCase):
+    def _brief(self, **overrides):
+        data = {
+            "ask": "Explain why the flag returns false at 100% rollout.",
+            "area": "Feature flags",
+            "questions": ["Why does it return false?"],
+        }
+        data.update(overrides)
+        return data
+
+    @parameterized.expand(
+        [
+            ("ask_missing", {"ask": None}, "ask"),
+            ("ask_over_cap", {"ask": "x" * 401}, "ask"),
+            ("area_over_cap", {"area": "x" * 81}, "area"),
+            ("too_many_questions", {"questions": [f"q{i}?" for i in range(7)]}, "questions"),
+            ("question_over_cap", {"questions": ["x" * 201]}, "questions"),
+            (
+                "unknown_item_kind",
+                {"affected_items": [{"kind": "notebook", "url": "https://e.com", "label": "N"}]},
+                "affected_items",
+            ),
+            ("item_without_url", {"affected_items": [{"kind": "insight", "label": "Conversion"}]}, "affected_items"),
+            ("replay_url_not_a_url", {"replay_url": "not-a-url"}, "replay_url"),
+        ]
+    )
+    def test_rejects_brief_the_panel_cannot_render(self, _name, overrides, expected_error_field):
+        # The writer is an agent, so an uncapped or unknown-shaped field reaches the sidebar as
+        # a wall of text or an undefined label. Every cap here is what keeps the brief readable.
+        brief = self._brief(**overrides)
+        if brief.get("ask") is None:
+            del brief["ask"]
+        serializer = TicketBriefSerializer(data=brief)
+        assert not serializer.is_valid()
+        assert expected_error_field in serializer.errors
+
+    def test_accepts_a_full_brief(self):
+        serializer = TicketBriefSerializer(
+            data=self._brief(
+                affected_items=[
+                    {
+                        "kind": "feature_flag",
+                        "url": "https://us.posthog.com/project/1/feature_flags/123",
+                        "label": "checkout-redesign",
+                    }
+                ],
+                replay_url="https://us.posthog.com/project/1/replay/00000000-0000-4000-8000-000000000000",
+                screenshot_urls=["https://example.com/uploaded_media/panel.png"],
+                facts=["Web SDK 1.240.0"],
+                tried=["Reset the rollout to 100%"],
+            )
+        )
         assert serializer.is_valid(), serializer.errors
 
 
@@ -401,6 +457,13 @@ class TestTicketAPI(APIBaseTest):
         [
             ("status", Status.RESOLVED, Status.RESOLVED),
             ("priority", Priority.HIGH, Priority.HIGH),
+            # The brief's own validation is covered without a database in TestTicketBriefSerializer.
+            # This case is the wiring guard: the viewset reaches that serializer and stores the result.
+            (
+                "ticket_brief",
+                {"ask": "Raise the ingestion limit.", "area": "Billing", "questions": []},
+                {"ask": "Raise the ingestion limit.", "area": "Billing", "questions": []},
+            ),
         ]
     )
     def test_update_ticket_field(self, mock_on_commit, field_name, update_value, expected_response_value):

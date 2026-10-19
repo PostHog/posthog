@@ -44,6 +44,17 @@ class Priority(models.TextChoices):
     CRITICAL = "critical", "Critical"
 
 
+class TicketBriefItemKind(models.TextChoices):
+    DASHBOARD = "dashboard", "Dashboard"
+    EXPERIMENT = "experiment", "Experiment"
+    FEATURE_FLAG = "feature_flag", "Feature flag"
+    INSIGHT = "insight", "Insight"
+    PROJECT = "project", "Project"
+    REPLAY = "replay", "Replay"
+    SURVEY = "survey", "Survey"
+    OTHER = "other", "Other"
+
+
 class TicketMessageType(models.TextChoices):
     CUSTOMER_MESSAGE = "customer_message", "Customer message"
     SENT_REPLY = "sent_reply", "Sent reply"

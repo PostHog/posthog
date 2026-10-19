@@ -76794,6 +76794,99 @@ export namespace Schemas {
       readonly role: TicketAssignmentRole;
     }
 
+    /**
+     * * `dashboard` - Dashboard
+     * * `experiment` - Experiment
+     * * `feature_flag` - Feature flag
+     * * `insight` - Insight
+     * * `project` - Project
+     * * `replay` - Replay
+     * * `survey` - Survey
+     * * `other` - Other
+     */
+    export type TicketBriefItemKindEnum = typeof TicketBriefItemKindEnum[keyof typeof TicketBriefItemKindEnum];
+
+
+    export const TicketBriefItemKindEnum = {
+      Dashboard: 'dashboard',
+      Experiment: 'experiment',
+      FeatureFlag: 'feature_flag',
+      Insight: 'insight',
+      Project: 'project',
+      Replay: 'replay',
+      Survey: 'survey',
+      Other: 'other',
+    } as const;
+
+    export interface TicketBriefAffectedItem {
+      /** What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.
+       *
+       * * `dashboard` - Dashboard
+       * * `experiment` - Experiment
+       * * `feature_flag` - Feature flag
+       * * `insight` - Insight
+       * * `project` - Project
+       * * `replay` - Replay
+       * * `survey` - Survey
+       * * `other` - Other */
+      kind: TicketBriefItemKindEnum;
+      /**
+         * Link to the item in PostHog, so the engineer can open it without a search.
+         * @maxLength 2000
+         */
+      url: string;
+      /**
+         * Name of the item as the customer would recognize it.
+         * @maxLength 120
+         */
+      label: string;
+    }
+
+    export interface TicketBrief {
+      /**
+         * What the customer needs from PostHog, in one or two sentences. The line to read first.
+         * @maxLength 400
+         */
+      ask: string;
+      /**
+         * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
+         * @maxLength 80
+         */
+      area: string;
+      /**
+         * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
+         * @maxItems 6
+         * @items.maxLength 200
+         */
+      questions: string[];
+      /** The PostHog items the ticket is about, with a link to each one. */
+      affected_items?: TicketBriefAffectedItem[];
+      /**
+         * Replay of the session the ticket came from. Null when the ticket has no session.
+         * @maxLength 2000
+         * @nullable
+         */
+      replay_url?: string | null;
+      /**
+         * Images the customer attached, in the order they sent them.
+         * @maxItems 5
+         * @items.maxLength 2000
+         */
+      screenshot_urls?: string[];
+      /**
+         * Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.
+         * @maxItems 5
+         * @items.maxLength 160
+         */
+      facts?: string[];
+      /**
+         * What the customer says they already did to fix or diagnose the problem.
+         * @maxItems 5
+         * @items.maxLength 160
+         */
+      tried?: string[];
+    }
+
     export type TicketPersonProperties = { [key: string]: unknown };
 
     /**
@@ -76856,6 +76949,8 @@ export namespace Schemas {
       escalation_reason?: string | null;
       /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
       readonly ai_triage: unknown;
+      /** Structured summary of the ticket for the support engineer. Null until support triage writes it. */
+      readonly ticket_brief: TicketBrief | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly message_count: number;
@@ -87608,6 +87703,8 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
+      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. */
+      ticket_brief?: TicketBrief;
     }
 
     export interface PatchedTicketView {
@@ -113270,6 +113367,8 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
+      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. */
+      ticket_brief?: TicketBrief;
     }
 
     export interface TolerationPileupEntry {

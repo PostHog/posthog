@@ -19827,6 +19827,67 @@ export namespace Schemas {
         | UserTicketAssigneeRequest
         | RoleTicketAssigneeRequest;
     /**
+     * * `dashboard` - Dashboard
+     * * `experiment` - Experiment
+     * * `feature_flag` - Feature flag
+     * * `insight` - Insight
+     * * `project` - Project
+     * * `replay` - Replay
+     * * `survey` - Survey
+     * * `other` - Other
+     */
+    export type TicketBriefItemKindEnum =
+        | "dashboard"
+        | "experiment"
+        | "feature_flag"
+        | "insight"
+        | "project"
+        | "replay"
+        | "survey"
+        | "other";
+    export type TicketBriefAffectedItem = {
+        /**
+         * What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.
+         *
+         * * `dashboard` - Dashboard
+         * * `experiment` - Experiment
+         * * `feature_flag` - Feature flag
+         * * `insight` - Insight
+         * * `project` - Project
+         * * `replay` - Replay
+         * * `survey` - Survey
+         * * `other` - Other
+         */
+        kind: TicketBriefItemKindEnum;
+        /**
+         * Link to the item in PostHog, so the engineer can open it without a search.
+         */
+        url: string;
+        /**
+         * Name of the item as the customer would recognize it.
+         */
+        label: string;
+    };
+    export type TicketBrief = {
+        /**
+         * What the customer needs from PostHog, in one or two sentences. The line to read first.
+         */
+        ask: string;
+        /**
+         * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
+         */
+        area: string;
+        /**
+         * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
+         */
+        questions: Array<string>;
+        affected_items?: Array<TicketBriefAffectedItem> | undefined;
+        replay_url?: (string | null) | undefined;
+        screenshot_urls?: Array<string> | undefined;
+        facts?: Array<string> | undefined;
+        tried?: Array<string> | undefined;
+    };
+    /**
      * Fields accepted when updating a ticket.
      */
     export type PatchedTicketUpdateRequest = Partial<{
@@ -19839,6 +19900,7 @@ export namespace Schemas {
         sla_due_at: string | null;
         snoozed_until: string | null;
         tags: Array<string>;
+        ticket_brief: TicketBrief;
     }>;
     export type PatchedUser = Partial<{
         date_joined: string;
@@ -21532,6 +21594,10 @@ export namespace Schemas {
          * AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations.
          */
         ai_triage: unknown;
+        /**
+         * Structured summary of the ticket for the support engineer. Null until support triage writes it.
+         */
+        ticket_brief: TicketBrief | null;
         created_at: string;
         updated_at: string;
         message_count: number;
@@ -21604,6 +21670,7 @@ export namespace Schemas {
         sla_due_at: string | null;
         snoozed_until: string | null;
         tags: Array<string>;
+        ticket_brief: TicketBrief;
     }>;
     export type UserGithubLogin = {
         /**
