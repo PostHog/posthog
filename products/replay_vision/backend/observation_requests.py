@@ -16,9 +16,9 @@ from django.db import IntegrityError, OperationalError, connection, models, tran
 from django.db.models import F, Q
 from django.utils import timezone
 
-import psycopg
 import structlog
 
+from posthog.api.statement_timeout import is_query_canceled
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.organization import OrganizationMembership
@@ -62,8 +62,8 @@ MAX_STARTS_PER_TICK = 50
 # How many waiting requests one tick checks for ended sessions.
 MAX_CHECKS_PER_TICK = 200
 
-# Each sweep gets its own budget, and together they leave headroom inside the query budget of the completion
-# activity, so a slow start sweep can't starve the completion sweep or the reverse.
+# Each sweep gets its own budget, and together they leave headroom inside the completion activity's query
+# budget (75% of its timeout), so a slow start sweep can't starve the completion sweep or the reverse.
 START_SWEEP_BUDGET_SECONDS = 15
 COMPLETION_SWEEP_BUDGET_SECONDS = 20
 
@@ -72,6 +72,8 @@ COMPLETION_SWEEP_BUDGET_SECONDS = 20
 WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
+# The completion sweep stops this long before the query budget ends, so its last page can flush and stamp.
+COMPLETION_STAMP_HEADROOM_SECONDS = _DELIVERY_TIMEOUT_SECONDS + 5
 _SWEEP_CURSOR_KEY = "replay_vision:completion_sweep_cursor"
 _WRITER = "default"
 _SWEEP_CURSOR_TTL_SECONDS = 60 * 60
@@ -318,6 +320,8 @@ def start_waiting_requests(*, now: datetime | None = None, budget_seconds: float
                 logger.exception("replay_vision.observation_request.deferred_start_failed", request_id=str(request.id))
                 continue
             started += 1
+    if (overrun := time.monotonic() - deadline) > 0:
+        logger.warning("replay_vision.observation_request.start_sweep_overran", overrun_seconds=round(overrun, 1))
     return started
 
 
@@ -507,7 +511,7 @@ def complete_settled_requests(
     except OperationalError as err:
         # The activity's query budget can run out before this sweep's own budget does. The page it cancels
         # starts the next tick, so stop here instead of failing the activity.
-        if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
+        if not is_query_canceled(err):
             raise
         logger.warning("replay_vision.observation_request.completion_sweep_canceled", completed=completed)
     _store_sweep_cursor(cursor)

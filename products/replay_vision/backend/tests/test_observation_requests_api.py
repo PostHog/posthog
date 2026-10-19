@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -435,22 +436,34 @@ class TestCompleteSettledRequests(APIBaseTest):
         assert ReplayObservationRequest.objects.for_team(self.team.id).filter(completed_at__isnull=True).count() == 0
         assert cache.get(_SWEEP_CURSOR_KEY) is None
 
+    @parameterized.expand(
+        [
+            ("query_canceled", psycopg.errors.QueryCanceled, False),
+            ("admin_shutdown", psycopg.errors.AdminShutdown, True),
+        ]
+    )
     @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
     @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
-    def test_a_canceled_statement_ends_the_tick_and_keeps_its_cursor(self, _produce: MagicMock) -> None:
+    def test_a_failed_second_page_read(
+        self, _name: str, cause: type[Exception], raises: bool, _produce: MagicMock
+    ) -> None:
         first = self._request({"s1": "skipped_quota"})
         second = self._request({"s2": "skipped_quota"})
         page_reads = 0
 
-        def cancel_second_page_read(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+        def fail_second_page_read(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
             nonlocal page_reads
             if sql.startswith("SELECT") and '"completed_at" IS NULL' in sql and "LIMIT" in sql:
                 page_reads += 1
                 if page_reads == 2:
-                    raise OperationalError("statement timeout") from psycopg.errors.QueryCanceled()
+                    raise OperationalError("statement failed") from cause()
             return execute(sql, params, many, context)
 
-        with connection.execute_wrapper(cancel_second_page_read):
+        with connection.execute_wrapper(fail_second_page_read):
+            if raises:
+                with pytest.raises(OperationalError):
+                    complete_settled_requests()
+                return
             assert complete_settled_requests() == 1
 
         first.refresh_from_db()
