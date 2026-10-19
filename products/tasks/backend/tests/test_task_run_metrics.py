@@ -384,6 +384,35 @@ class TestTaskRunMetrics(TestCase):
 
         assert _sample_value("posthog_tasks_task_run_terminal_total", labels) == before + 1
 
+    @parameterized.expand([("mark_failed",), ("mark_completed",)])
+    def test_finalizer_on_a_stale_instance_does_not_count_a_run_another_writer_ended(self, writer: str) -> None:
+        def terminal_total() -> float:
+            return sum(
+                _sample_value(
+                    "posthog_tasks_task_run_terminal_total",
+                    {
+                        "origin_product": "user_created",
+                        "run_environment": "cloud",
+                        "status": status,
+                        "error_type": error_type,
+                        "termination_reason": "unknown",
+                    },
+                )
+                for status, error_type in (("failed", "janitor_timeout"), ("completed", "unknown"))
+            )
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.CANCELLED)
+        before = terminal_total()
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
+            if writer == "mark_failed":
+                run.mark_failed("stuck", error_type="janitor_timeout")
+            else:
+                run.mark_completed(notify=False)
+
+        assert terminal_total() == before
+
     def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:
         # Warm Runs provisioned before this ships have await_user_message but no prewarmed marker;
         # activating them must not inflate the numerator (would push hit rate above 1).
