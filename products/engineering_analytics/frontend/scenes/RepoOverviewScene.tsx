@@ -138,6 +138,19 @@ export function RepoOverviewScene(): JSX.Element {
                                 }
                                 tooltip="Estimated CI cost of every run in the window, divided by the pull requests merged in it. Includes runs on the default branch and on pull requests that never merged. Per-workflow spend is in Workflows below."
                             />
+
+                            <WindowComparisonCard
+                                title="Reverts among merged PRs"
+                                value={overview?.revert_share}
+                                previousValue={overview?.revert_share_prev}
+                                formatValue={(value) => percent(value, 1)}
+                                goodWhenDown
+                                deltaUnit="pt"
+                                deltaPrecision={1}
+                                loading={overviewPending}
+                                tooltip="Pull requests merged in the window whose title says they revert another change, as a share of all merged pull requests. Counts the revert when it merges, not the change it undid. Bots included."
+                                emptyText="Nothing merged in the window."
+                            />
                         </div>
                     </div>
                 </Section>

@@ -136,6 +136,10 @@ def _repo_overview() -> contracts.RepoOverview:
         rerun_cycles_prev=1,
         merged_pr_count=42,
         merged_pr_count_prev=40,
+        reverting_pr_count=2,
+        reverting_pr_count_prev=1,
+        revert_share=2 / 42,
+        revert_share_prev=1 / 40,
         median_open_to_merge_seconds=3600.0,
         median_open_to_merge_seconds_prev=4000.0,
         median_ready_to_merge_seconds=3000.0,
@@ -185,6 +189,8 @@ def _repo_overview() -> contracts.RepoOverview:
         open_to_merge_series_granularity="day",
         ready_to_merge_series=[],
         ready_to_merge_series_granularity="day",
+        revert_share_series=[],
+        revert_share_series_granularity="day",
         delivery_pipeline=contracts.DeliveryPipeline(
             merged_pr_count=38,
             stages=[
@@ -410,6 +416,8 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         data = response.json()
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
+        assert data["reverting_pr_count"] == 2
+        assert data["revert_share"] == 2 / 42
         assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
         assert data["depot_ci_billable_minutes"] == 20.0  # the digest's Depot CI row reads this key
         assert data["merge_queue_merged_pr_count"] == 38

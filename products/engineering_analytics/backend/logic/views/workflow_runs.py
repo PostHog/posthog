@@ -85,6 +85,7 @@ nothing registers it as a global HogQL view.
 """
 
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_number_expr
+from products.engineering_analytics.backend.logic.reverts import SQUASH_MERGE_PR_SUFFIX_PATTERN
 
 # The source PR of a merge-queue gate branch, corroborated against the run's actor so a
 # contributor-named branch can't re-key someone else's runs onto their PR (see logic.merge_queue).
@@ -115,7 +116,8 @@ ASSOCIATION_PR_NUMBER = f"JSONExtractInt({_OWN_REPO_PR}, 'number')"
 # ('Revert "x (#A)" (#B)') to the reverted PR instead of the reverting one.
 _MESSAGE_PR_NUMBER = (
     "accurateCastOrNull("
-    "regexpExtract(JSONExtractString(ifNull(head_commit, '{}'), 'message'), '(?m)[(]#([0-9]+)[)]$'), 'Int64')"
+    "regexpExtract(JSONExtractString(ifNull(head_commit, '{}'), 'message'), "
+    f"'(?m){SQUASH_MERGE_PR_SUFFIX_PATTERN}$'), 'Int64')"
 )
 
 
