@@ -53,6 +53,8 @@ The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
 
+GitHub credentials that require user action fail the run without retrying. Fresh runs and resumed sandboxes preserve the actionable error, and Temporal does not report these expected failures to error tracking.
+
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
