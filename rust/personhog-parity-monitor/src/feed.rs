@@ -75,7 +75,13 @@ impl TopicReader {
         }
         let mut assignment = TopicPartitionList::new();
         for partition in &partitions {
-            assignment.add_partition_offset(&name, *partition, Offset::End)?;
+            // The end offset is read here, before anyone learns the reader is
+            // up; `Offset::End` would resolve later, in the fetcher, and a row
+            // produced in between would be skipped.
+            let (_, end) = consumer
+                .fetch_watermarks(&name, *partition, METADATA_TIMEOUT)
+                .with_context(|| format!("fetching the end offset of {name}/{partition}"))?;
+            assignment.add_partition_offset(&name, *partition, Offset::Offset(end))?;
         }
         consumer
             .assign(&assignment)
