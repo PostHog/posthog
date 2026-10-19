@@ -239,3 +239,54 @@ def run_metrics_sql(
         ],
         fill=0.0 if on_interval_starts else None,
     )
+
+
+_VARIABLE_VALUE_COLUMN = "__variable_value"
+
+
+def _name_first_column(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+    """The name of the first column, aliased when it has none. The other columns stay, so ORDER BY can use them."""
+    select_query = query
+    while isinstance(select_query, ast.SelectSetQuery):
+        select_query = select_query.initial_select_query
+    if not select_query.select:
+        raise ExposedHogQLError("A SQL variable query must select the values in its first column.")
+    first = select_query.select[0]
+    if isinstance(first, ast.Field) and first.chain[-1] == "*":
+        raise ExposedHogQLError("A SQL variable query must name its first column. SELECT * is not supported.")
+    if isinstance(first, ast.Alias):
+        return first.alias
+    select_query.select[0] = ast.Alias(alias=_VARIABLE_VALUE_COLUMN, expr=first)
+    return _VARIABLE_VALUE_COLUMN
+
+
+def run_metrics_sql_values(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    limit: int,
+    variables: Mapping[str, ast.Expr] | None = None,
+) -> list[str]:
+    """The distinct values of the first column, for the options of a dashboard variable.
+
+    The outer query reads only the first column, and ClickHouse removes duplicates and stops at the limit.
+    """
+    inner = _parse_metrics_sql(team, sql, date_from, date_to, None, variables)
+    name = _name_first_column(inner)
+    query = parse_select(
+        "SELECT DISTINCT {value} FROM {inner} LIMIT {limit}",
+        placeholders={
+            "value": ast.Field(chain=[name]),
+            "inner": inner,
+            "limit": ast.Constant(value=limit),
+        },
+    )
+    response = execute_hogql_query(
+        query_type="MetricsSQLVariableQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        settings=_QUERY_SETTINGS,
+    )
+    return [str(row[0]) for row in response.results or [] if row and row[0] is not None]

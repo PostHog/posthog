@@ -1,5 +1,7 @@
 import datetime as dt
-from typing import cast
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -24,6 +26,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -94,6 +97,50 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert runner.query.variables is not None and runner.query.variables["job"].values == ["api"]
+
+    def test_sql_tiles_check_the_budget_and_load_all_options_before_taking_a_concurrency_slot(self) -> None:
+        events: list[str] = []
+
+        @contextmanager
+        def slot(*args: Any, **kwargs: Any) -> Iterator[None]:
+            events.append("slot")
+            yield
+
+        def fill(*args: Any, variables: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+            events.append("options")
+            return variables
+
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[], language="sql", sql="SELECT now() AS time, 1 AS value WHERE 'a' IN $job"),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job",
+                        source="sql",
+                        query="SELECT 'a'",
+                        includeAll=True,
+                        current=MetricsDashboardVariableSelection(values=[], all=True),
+                    )
+                ]
+            )
+        )
+        with (
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.get_query_tag_value", return_value=True),
+            patch.object(
+                MetricsQueryRunner, "_enforce_api_queries_budget", side_effect=lambda: events.append("budget")
+            ),
+            patch("posthog.hogql_queries.query_runner.app_org_concurrency_slot", side_effect=slot),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.fill_all_values", side_effect=fill),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.substitute_sql") as substitute,
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+        ):
+            substitute.return_value.unresolved = ()
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert events.index("budget") < events.index("options") < events.index("slot")
 
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
