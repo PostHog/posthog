@@ -68,6 +68,7 @@ QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, op
             'label_replace(rate(x{env="pro\\"d"}[$__rate_interval]), "a", "$1", "b", "(.*)")',
         ),
         ("escaped_dollar_in_a_matcher", 'up{c=~"\\\\$env", env="$env"}', ONE, 'up{c=~"\\\\$env", env="pro\\"d"}'),
+        ("escaped_backslash_in_an_equality_matcher", 'up{c="C:\\\\$env"}', DOTTED, 'up{c="C:\\\\10.0.0.1"}'),
         ("escaped_dollar_in_a_raw_string", "up{c=~`\\$env`}", ONE, "up{c=~`\\$env`}"),
         (
             "named_regex_groups_stay",
@@ -180,6 +181,7 @@ def test_sql_reference_inside_a_longer_string_is_rejected() -> None:
         ("all_value", MetricsFilterOp.EQ, "$env", ALL_WITH_VALUE, (MetricsFilterOp.REGEX, "api-.*")),
         ("inside_a_regex", MetricsFilterOp.REGEX, "^$env-.*", MANY, (MetricsFilterOp.REGEX, "^(?:a\\.b|c)-.*")),
         ("all_inside_a_regex", MetricsFilterOp.REGEX, "^$env$", ALL, (MetricsFilterOp.REGEX, "^.*$")),
+        ("whitespace_around_a_reference", MetricsFilterOp.EQ, " $env ", ONE, (MetricsFilterOp.EQ, ' pro"d ')),
         (
             "escaped_dollar_in_a_regex",
             MetricsFilterOp.REGEX,

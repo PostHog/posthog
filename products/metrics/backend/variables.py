@@ -272,7 +272,7 @@ def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Col
         if context is None:
             return match.group(0)
         # A regex reads `\$` as a literal dollar sign. A quoted string writes that backslash as `\\`.
-        if context.quote is not None:
+        if context.in_regex:
             backslashes = _backslashes_before(expr, match.start())
             if (backslashes if context.quote == "`" else backslashes // 2) % 2 == 1:
                 return match.group(0)
@@ -404,7 +404,7 @@ def _anchored_alternation(values: Iterable[str]) -> str:
 def substitute_filter(metric_filter: MetricsQueryFilter, variables: Mapping[str, Variable]) -> FilterSubstitution:
     negated = metric_filter.op in (MetricsFilterOp.NEQ, MetricsFilterOp.NOT_REGEX)
     is_regex = metric_filter.op in (MetricsFilterOp.REGEX, MetricsFilterOp.NOT_REGEX)
-    match = REFERENCE.fullmatch(metric_filter.value.strip())
+    match = REFERENCE.fullmatch(metric_filter.value)
     if match is not None and _is_variable_reference(reference_name(match)):
         name = reference_name(match)
         variable = variables.get(name)
