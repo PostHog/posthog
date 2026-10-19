@@ -32,7 +32,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
-import { WatchPage } from 'products/replay_vision/frontend/replay_scanners/components/WatchPage'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
@@ -181,7 +180,7 @@ function AttachScenePlaylistLogic({
 }
 
 function MainPanel(): JSX.Element {
-    const { tab, watchPicksVariant, showWatchTab } = useValues(sessionReplaySceneLogic)
+    const { tab, picksInList } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     return (
@@ -196,20 +195,11 @@ function MainPanel(): JSX.Element {
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist
-                            {...SCENE_PLAYLIST_LOGIC_PROPS}
-                            watchPicksVariant={watchPicksVariant}
-                        />
+                        <SessionRecordingsPlaylist {...SCENE_PLAYLIST_LOGIC_PROPS} picksInList={picksInList} />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
-            ) : tab === ReplayTabs.WhatToWatch ? (
-                showWatchTab ? (
-                    <WatchPage />
-                ) : (
-                    <Spinner />
-                )
             ) : null}
         </div>
     )
@@ -231,23 +221,15 @@ const ReplayPageTabs: ReplayTab[] = [
     },
 ]
 
-const WhatToWatchTab: ReplayTab = {
-    label: 'What to watch',
-    key: ReplayTabs.WhatToWatch,
-    tooltip: 'Recordings that Replay vision scanners picked out for you',
-    'data-attr': 'session-recordings-what-to-watch-tab',
-}
-
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, showWatchTab } = useValues(sessionReplaySceneLogic)
-    const tabs = showWatchTab ? [WhatToWatchTab, ...ReplayPageTabs] : ReplayPageTabs
+    const { tab } = useValues(sessionReplaySceneLogic)
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset
             className="-mt-4"
-            tabs={tabs.map((replayTab): LemonTab<string> => {
+            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: replayTab.label,
                     key: replayTab.key,

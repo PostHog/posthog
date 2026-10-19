@@ -1,7 +1,15 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { getRetainedResponse, responseCacheKey, retainResponse } from './responseCache'
+import {
+    MAX_RETAINED_RESPONSE_LENGTH,
+    getInflightResponse,
+    getRetainedResponse,
+    reclaimReleasedQuery,
+    responseCacheKey,
+    retainResponse,
+    trackInflightResponse,
+} from './responseCache'
 
 beforeEach(() => initKeaTests())
 
@@ -25,18 +33,32 @@ test.each([
     { result: null },
     { results: [], query_status: { complete: false } },
     { results: [], error: 'failed' },
-    { results: ['x'.repeat(200_001)] },
+    { results: ['x'.repeat(MAX_RETAINED_RESPONSE_LENGTH)] },
 ])('does not retain unusable or oversized results: %p', (response) => {
     retainResponse('example', response)
     expect(getRetainedResponse('example')).toBeNull()
 })
 
-test('evicts the least recently used result when capacity is reached', () => {
-    for (let index = 0; index < 100; index++) {
-        retainResponse(String(index), { results: [index] })
-    }
-    getRetainedResponse('0')
-    retainResponse('next', { results: [] })
-    expect(getRetainedResponse('0')).toEqual({ results: [0] })
-    expect(getRetainedResponse('1')).toBeNull()
+test('reclaims the oldest released query first, and never one a node still uses', () => {
+    const abandoned: string[] = []
+    const track = (key: string): ReturnType<typeof trackInflightResponse> =>
+        trackInflightResponse(key, new Promise(() => {}), {
+            queryId: key,
+            abort: () => {},
+            abandon: () => abandoned.push(key),
+        })
+    const inUse = track('in use')
+    const older = track('older')
+    const newer = track('newer')
+    older.release()
+    newer.release()
+    inUse.release()
+    inUse.adopt()
+
+    expect(reclaimReleasedQuery()).toBe(true)
+    expect(reclaimReleasedQuery()).toBe(true)
+    expect(reclaimReleasedQuery()).toBe(false)
+    expect(abandoned).toEqual(['older', 'newer'])
+    expect(getInflightResponse('in use')).toBe(inUse)
+    expect(getInflightResponse('older')).toBeNull()
 })

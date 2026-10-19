@@ -34,7 +34,7 @@ request
   │     only an explicit useWebAnalyticsPrecompute: false rejects
   │   shape: family dispatch (see per-runner tables), no conversion goal,
   │     no sampling, integer timezone, `sessionsV2JoinMode` ≠ uuid,
-  │     range ≤ 90d, filters events-evaluable
+  │     range ≤ MAX_PRECOMPUTE_DAYS, filters events-evaluable
   │     (restricted teams: single exact $host only)
   │   freshness: all day-buckets fresh per TTL band ──▶ serve *_lazy_query (~80–200ms)
   │     expired within the SWR grace (default 4h) ──▶ serve stale + enqueue revalidation
@@ -161,12 +161,13 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 | 8–14d          | 7d     |
 | 15–21d         | 10d    |
 | 22–35d         | 12–14d |
-| 36d+           | 21d    |
+| 36d+           | 90d    |
 
 - Stale-while-revalidate: 4h grace by default, set by `WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS` (read per call, so a new env value applies once the process restarts; must stay under the framework's 48h ClickHouse expiry buffer, which the executor enforces). User reads inside the grace get the stale row instantly (tagged `precompute_stale=true`) with a Celery revalidation enqueued (10-min debounce). Background warmers and forced refreshes are never served stale — they are the refresh.
 - Session settling: 24h forward pad on event scans, matching the SDK session length cap.
 - OOM protection: a team that OOMs during a build gets Redis-pinned for 14 days to 1-day insert windows.
-- Max range: 90 days; wider requests are permanently live.
+- Max range: `MAX_PRECOMPUTE_DAYS`; wider requests are permanently live.
+- Framework rationale (freshness, stale grace, settling, OOM pin): see [design decisions](../../products/analytics_platform/backend/lazy_computation/README.md#design-decisions).
 
 ## Session-grain precompute schema
 
@@ -225,7 +226,7 @@ Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_la
 
 Find the request in query_log and check `query_type`.
 A `*_lazy_query` taking seconds is a bucket-read problem (rare).
-A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
+A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, range over `MAX_PRECOMPUTE_DAYS`, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
 
@@ -279,9 +280,33 @@ The destination keeps the date range; Web analytics property filters are not for
 An explicit open end date clears any end date saved during a previous Marketing analytics visit.
 Dismissal persists per project in the browser.
 
+### Paid traffic experiment
+
+`web-analytics-marketing-cross-sell-v2` splits teams with paid traffic into `control` and `test`.
+The flag is read only after the Channels response shows paid traffic, so teams without paid traffic are never exposed.
+`control` keeps the suggestion above.
+`test` changes three surfaces:
+
+| Surface                                                                                             | Shows when                                                                               | Leads to                                                                          |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Quantified card under the Sources table                                                             | Paid traffic meets the threshold, no ad source is connected, and the card is not snoozed | The wizard for the top detected ad platform, or source setup                      |
+| "See ad spend" link next to the row label, shown on row hover, in the Channel and UTM source tables | A paid channel row, or a UTM source that maps to an enabled ad platform                  | Marketing analytics when connected, otherwise the platform wizard or source setup |
+| Banner above the dashboard                                                                          | A session filter on a paid `$channel_type` or a mapped `$entry_utm_source`               | The same destination as the row action                                            |
+
+The threshold is at least 50 paid visitors and a 3% share of the top channel rows.
+The flag payload can override it with `min_visitors` and `min_share`.
+Platform detection loads the UTM source table node only for teams that see the quantified card.
+It maps each `utm_source` through the default and custom source mappings that Marketing analytics uses.
+The platform wizard finishes with "Return to Marketing analytics", which opens Marketing analytics with the Web analytics date range.
+"Not now" on the card or the banner snoozes both for 30 days per project. A second dismissal hides them for good.
+
 ### Cross-sell attribution
 
 `web analytics marketing cross sell clicked` records `cross_sell_id`, `cross_sell_clicked_at` (Unix milliseconds), `team_id`, the table breakdown, and whether ad sources were already connected.
+It also records the surface: `cross_sell_placement` (`sources_table`, `table_row` or `filter_hint`), `cross_sell_variant`, and the targeted `platform`.
+`web analytics marketing cross sell shown` fires once per session for each project, placement and variant, with the paid visitor count, paid share and detected platforms where known.
+Row actions do not report `shown`.
+`web analytics marketing cross sell dismissed` records the surface and the dismissal count.
 `web analytics marketing cross sell source created` records the same attribution plus `source_id` and `source_type`, only after the source creation API succeeds.
 The model is the first Advertising source created after the latest click within 24 hours, in the same browser tab, project and identified user.
 Session storage preserves the click across a same-tab OAuth redirect and reload; a successful connection consumes it.

@@ -701,6 +701,12 @@ class TestPostgresSourceNonRetryableErrors:
             # in-process fallback already retries elsewhere, unlike the "kept canceling reads..."/"no
             # key that can resume..." exhausted-retry aborts below, which stay non-retryable.
             "canceling statement due to conflict with recovery\nDETAIL:  User query might have needed to see row versions that must be removed.",
+            # Not our own client-side deadline (that path always converts to
+            # ClientDeadlineExceededError first) — either our watchdog's cancel request landed on a
+            # later statement after its own one already finished, or an external cancel (a pooler
+            # recycling the connection, an admin cancel) hit the query. Neither is a verdict on this
+            # query, so a fresh connection on retry recovers.
+            "canceling statement due to user request",
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -725,6 +731,10 @@ class TestPostgresSourceNonRetryableErrors:
             (
                 'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: sorry, too many clients already',
                 "connection slots",
+            ),
+            (
+                "canceling statement due to user request",
+                "canceled",
             ),
         ],
     )
@@ -1668,6 +1678,18 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "cannot delete path in scalar",
+            "InvalidParameterValue: cannot delete path in scalar",
+        ],
+    )
+    def test_jsonb_delete_path_on_scalar_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"jsonb path-deletion on scalar error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -8800,6 +8822,50 @@ class TestGetTable:
         cursor.connection.rollback.assert_not_called()
 
     @pytest.mark.django_db
+    def test_failed_numeric_probe_clears_aborted_transaction(self):
+        # `with cursor.connection.transaction():` rolls back the BEGIN it opened when the probe
+        # query raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+        # probe's client-side deadline canceled it mid-flight) instead of raising — silently
+        # leaving the session `InFailedSqlTransaction`. Without a defensive rollback here, every
+        # later statement on this connection (the read-replica check, primary key lookup, the
+        # actual read) fails as a downstream symptom of this best-effort probe.
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        probe_error = psycopg.errors.InFailedSqlTransaction(
+            "current transaction is aborted, commands ignored until end of transaction block"
+        )
+
+        def execute_side_effect(query: Any, *args: Any, **kwargs: Any) -> Any:
+            try:
+                text = query.as_string(None)
+            except Exception:
+                text = str(query)
+            if "MAX(scale(" in text:
+                raise probe_error
+            return cursor
+
+        def fetchone_side_effect() -> Any:
+            return (False,)  # is_mat_view / is_view checks: neither
+
+        cursor.execute.side_effect = execute_side_effect
+        cursor.fetchone.side_effect = fetchone_side_effect
+        cursor.fetchall.return_value = [("val", "numeric", True, None, None)]
+
+        table = _get_table(
+            cast(Any, cursor),
+            "public",
+            "test_get_table_probe_rollback",
+            logger,
+            probe_unconstrained_numeric_scale=True,
+        )
+
+        # The probe's failure is tolerated (falls back to the default scale)...
+        val_col = next(c for c in table.columns if c.name == "val")
+        assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+        # ...and the connection is defensively cleared so later statements aren't left poisoned.
+        cursor.connection.rollback.assert_called_once()
+
+    @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
         """`_schemas_from_conn` (the discovery path `sync_new_schemas_activity` and credential
         validation use) raises statement_timeout before scanning the catalog, so a short
@@ -10001,6 +10067,23 @@ class TestRlsActiveFromConnErrorHandling:
                 "(server_login_retry)"
             )
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_activity_cancelled_error_is_not_captured(self):
+        # Temporal injects a `temporalio.exceptions.CancelledError` into whatever statement is
+        # running when the activity is cancelled (user cancels the sync, or it hits its
+        # start_to_close_timeout). That's expected, not a bug in this best-effort lookup — don't
+        # flood error tracking with it. Matched by type name, like `sync_lock._is_cancellation`,
+        # so the fake class here doesn't need to depend on temporalio.
+        class CancelledError(Exception):
+            pass
+
+        conn = self._conn_raising(CancelledError("Cancelled"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
