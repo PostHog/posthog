@@ -716,11 +716,11 @@ export interface autoresearchPipelineLogicActions {
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
     }
-    setShowChallengersInTrend: (show: boolean) => {
-        show: boolean
-    }
     setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => {
         thresholds: PredictionSegmentThresholdsApi
+    }
+    setShowChallengersInTrend: (show: boolean) => {
+        show: boolean
     }
     setSuggestionDraft: (draft: string) => {
         draft: string
