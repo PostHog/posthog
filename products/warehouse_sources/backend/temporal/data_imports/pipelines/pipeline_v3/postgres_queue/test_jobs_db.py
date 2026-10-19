@@ -326,6 +326,21 @@ class TestBatchQueueGetUnprocessed:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestRandomTeamCursor:
+    @pytest.mark.asyncio
+    async def test_includes_teams_with_no_claimable_batches(self, conn):
+        # Regression: a prior version filtered this query to claimable-state, recent
+        # rows, so a team with only terminal batches was invisible to it and the
+        # cursor fell back to 0 instead of a point near the team's real id.
+        bid = await _insert_batch(conn, team_id=42)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        cursor = await BatchQueue._random_team_cursor(conn)
+
+        assert cursor in (41, 42)
+
+
+@pytest.mark.django_db(transaction=True)
 class TestBatchQueueUpdateStatus:
     @pytest.mark.asyncio
     async def test_appends_multiple_statuses(self, conn):

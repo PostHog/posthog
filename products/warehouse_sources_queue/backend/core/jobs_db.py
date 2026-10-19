@@ -1614,15 +1614,17 @@ class BatchQueue:
 
     @staticmethod
     async def _random_team_cursor(conn: psycopg.AsyncConnection[Any]) -> int:
-        """A uniform point between the lowest and highest team_id that hold claimable-state batches."""
-        cur = await conn.execute(
-            f"""
-            SELECT min(b.team_id), max(b.team_id)
-            FROM {BATCH_TABLE} b
-            WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
-                AND b.latest_state IN ('pending', 'waiting_retry')
-            """
-        )
+        """A uniform starting point for the next ``window_teams`` walk.
+
+        Deliberately unfiltered: a claimable-state, recent-only predicate doesn't lead
+        with team_id on any index, so min/max(team_id) would have to scan past every
+        stale row at the low or high end of the range before it can confirm the next
+        team_id, which is the same plain-aggregate cost ``_claim_window_sql``'s
+        ``window_teams`` CTE was written to avoid. Landing on a team with no claimable
+        work is fine: the walk it seeds already finds the actual next claimable team_id
+        from here.
+        """
+        cur = await conn.execute(f"SELECT min(b.team_id), max(b.team_id) FROM {BATCH_TABLE} b")
         row = await cur.fetchone()
         if row is None or row[0] is None:
             return 0
