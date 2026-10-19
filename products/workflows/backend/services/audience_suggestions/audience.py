@@ -91,8 +91,8 @@ def reachable_count(
             """
     # The email comes from the person, not the events, because the send reads it from the person.
     query = parse_select(
-        f"SELECT count() FROM ({inner}) WHERE person_id IN (SELECT id FROM persons WHERE notEmpty(toString({{email}})))",
-        placeholders=placeholders,
+        "SELECT count() FROM {matched} WHERE person_id IN (SELECT id FROM persons WHERE notEmpty(toString({email})))",
+        placeholders={"matched": parse_select(inner, placeholders=placeholders), "email": placeholders["email"]},
     )
     response = _run(team, query, "workflows_audience_suggestions_size")
     rows = response.results or []
