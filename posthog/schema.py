@@ -30479,6 +30479,9 @@ class CachedHogQLQueryResponse(BaseModel):
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
     columns: list | None = Field(default=None, description="Returned columns")
+    column_formats: list[str | None] | None = Field(
+        default=None, description="Display formats for directly selected virtual properties, aligned with columns."
+    )
     error: str | None = Field(
         default=None,
         description=(
