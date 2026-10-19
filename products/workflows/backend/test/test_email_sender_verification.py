@@ -397,9 +397,16 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
     def _workflow(self, flow_id: str) -> dict:
         return self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
 
-    def _verify(self, sender: Integration) -> list[Callable[[], None]]:
+    def _verify(self, sender: Integration, write: str) -> list[Callable[[], None]]:
+        email_integration = EmailIntegration(sender)
         with self.captureOnCommitCallbacks() as callbacks:
-            EmailIntegration(sender).apply_verification({"status": "success", "dnsRecords": []})
+            match write:
+                case "sweep":
+                    email_integration.apply_verification({"status": "success", "dnsRecords": []})
+                case "wizard_verify":
+                    email_integration.verify()
+                case "wizard_status_poll":
+                    email_integration.status(refresh=True)
         return callbacks
 
     def _captured_events(self) -> list[tuple[str, str, dict]]:
@@ -414,12 +421,15 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
             param("only_sender_flag_off", flag_on=False, expected_status="active"),
             param("second_sender_unverified", second_sender=True, expected_status="waiting_for_domain"),
             param("turned_off_before_the_task", turned_off=True, expected_status="draft"),
+            param("wizard_verify", write="wizard_verify", expected_status="active"),
+            param("wizard_status_poll", write="wizard_status_poll", expected_status="active"),
         ]
     )
     def test_verifying_a_sender_takes_its_waiting_workflows_live(
         self,
         _name: str,
         expected_status: str,
+        write: str = "sweep",
         flag_on: bool = True,
         second_sender: bool = False,
         turned_off: bool = False,
@@ -439,7 +449,7 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
                 side_effect=lambda key, *args, **kwargs: flag_on and key == "workflows-email-domain-wizard",
             ),
         ):
-            callbacks = self._verify(sender)
+            callbacks = self._verify(sender, write)
             for _ in range(2):
                 for callback in callbacks:
                     callback()

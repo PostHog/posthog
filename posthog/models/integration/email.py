@@ -286,6 +286,11 @@ class EmailIntegration:
         raise ValueError(f"Invalid provider: {provider}")
 
     def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
+        from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            enable_waiting_workflows,
+            set_default_email_sender_if_unset,
+        )
+
         with transaction.atomic():
             senders = list(self._matching_senders().select_for_update().order_by("id"))
             sender_ids = [sender.id for sender in senders]
@@ -293,11 +298,6 @@ class EmailIntegration:
             model.Integration.objects.filter(id__in=unverified_ids).update(config=_with_config_key("verified", True))
             # A concurrent edit can move this sender off the checked MAIL FROM subdomain, so it may not be among them.
             verifies_this_sender = self.integration.id in sender_ids
-            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
-                enable_waiting_workflows,
-                set_default_email_sender_if_unset,
-            )
-
             if verifies_this_sender:
                 set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
             enable_waiting_workflows(team_id=self.integration.team_id, sender_ids=sender_ids)
