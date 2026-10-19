@@ -22,20 +22,25 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
-/** Follows the backend: a `#` comment holds no references, and a regex-escaped `$` in a string is a literal. */
+/** Follows the backend: a `#` comment holds no references, and a regex-escaped `$` in a regex matcher is a literal. */
 export function promqlReferencedNames(query: string | null | undefined): string[] {
     const text = query ?? ''
     // The quote of the string that holds each position, or '#' inside a comment.
     const contexts: (string | null)[] = []
+    // The positions inside the string of a regex matcher, such as `=~"..."`.
+    const inRegex: boolean[] = []
     let quote: string | null = null
+    let regex = false
     for (let index = 0; index < text.length; index++) {
         const char = text[index]
         contexts[index] = quote
+        inRegex[index] = regex
         if (quote === '#') {
             quote = char === '\n' || char === '\r' ? null : quote
         } else if (quote) {
             if (char === '\\' && quote !== '`') {
                 contexts[index + 1] = quote
+                inRegex[index + 1] = regex
                 index++
             } else if (char === quote) {
                 quote = null
@@ -43,6 +48,7 @@ export function promqlReferencedNames(query: string | null | undefined): string[
         } else if (char === '#' || char === '"' || char === "'" || char === '`') {
             quote = char
             contexts[index] = char === '#' ? '#' : null
+            regex = char !== '#' && /[=!]~\s*$/.test(text.slice(0, index))
         }
     }
     const names = new Set<string>()
@@ -51,7 +57,7 @@ export function promqlReferencedNames(query: string | null | undefined): string[
         if (context === '#') {
             continue
         }
-        if (context) {
+        if (context && inRegex[match.index]) {
             let backslashes = 0
             while (text[match.index - backslashes - 1] === '\\') {
                 backslashes++
@@ -79,8 +85,8 @@ export function sqlReferencedNames(sql: string | null | undefined): string[] {
             text.startsWith('//', index) ||
             (char === '#' && !/[0-9]/.test(text[index + 1] ?? ''))
         if (lineComment) {
-            const end = text.indexOf('\n', index)
-            index = end < 0 ? text.length : end
+            const end = text.slice(index).search(/[\r\n]/)
+            index = end < 0 ? text.length : index + end
         } else if (text.startsWith('/*', index)) {
             const end = text.indexOf('*/', index + 2)
             index = end < 0 ? text.length : end + 2
@@ -284,6 +290,11 @@ export function selectionsForRequest(
     return variables
         .filter((other) => parents.has(other.name))
         .filter((other) => other.current && (other.current.values.length || other.current.all))
+        // The server reads All as the options sent, so a SQL query waits until they load.
+        .filter(
+            (other) =>
+                !(variable.source === 'sql' && other.current!.all && other.includeAll && !ownValue(options, other.name))
+        )
         .map((other) => {
             const all = !!(other.current!.all && other.includeAll)
             return {

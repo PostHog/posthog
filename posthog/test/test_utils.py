@@ -22,6 +22,7 @@ from django.utils.timezone import now
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -1109,6 +1110,14 @@ class TestSharingOverrideProtection(SimpleTestCase):
         result = filters_override_requested_by_client(request, dashboard)
 
         assert result["metricVariables"] == [{**saved, "current": {"values": ["b"]}}]
+
+    def test_filters_override_rejects_a_metric_variable_name_that_is_not_a_string(self):
+        override = {"metricVariables": [{"name": []}]}
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
+        dashboard = type("Dashboard", (), {"filters": {}})()
+
+        with pytest.raises(serializers.ValidationError):
+            filters_override_requested_by_client(request, dashboard)
 
     @parameterized.expand(
         [

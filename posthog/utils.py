@@ -1877,15 +1877,18 @@ def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict)
     if not isinstance(requested, list):
         return request_filters
     saved = {
-        variable.get("name"): variable
+        variable["name"]: variable
         for variable in dashboard_filters.get("metricVariables") or []
-        if isinstance(variable, dict)
+        if isinstance(variable, dict) and isinstance(variable.get("name"), str)
     }
     metric_variables = []
     for variable in requested:
         if not isinstance(variable, dict) or variable.get("source"):
             metric_variables.append(variable)
-        elif variable.get("name") in saved:
+            continue
+        if not isinstance(variable.get("name"), str):
+            raise serializers.ValidationError({"filters_override": "A metric variable name must be a string."})
+        if variable["name"] in saved:
             metric_variables.append({**saved[variable["name"]], "current": variable.get("current")})
     return {**request_filters, "metricVariables": metric_variables}
 

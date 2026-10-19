@@ -39,6 +39,13 @@ describe('metricVariables', () => {
         expect(orderVariables([sqlWithComments]).cycle).toEqual([])
         const escaped = [promql('env', 'label_values(up{a=~`\\$env`, b=~"\\\\$env"}, env) # $env')]
         expect(orderVariables(escaped).cycle).toEqual([])
+        expect(orderVariables([promql('env', 'label_values(up{c="C:\\\\$env"}, env)')]).cycle).toEqual(['env'])
+        const sqlWithCarriageReturn: MetricsDashboardVariable = {
+            name: 'env',
+            source: 'sql',
+            query: 'SELECT 1 -- note\rWHERE env = $env',
+        }
+        expect(orderVariables([sqlWithCarriageReturn]).cycle).toEqual(['env'])
     })
 
     it.each([
@@ -50,6 +57,15 @@ describe('metricVariables', () => {
         expect(selectionsForRequest(query, [zone, cluster, query], { zone: ['a', 'b'] })).toEqual([
             { name: 'zone', values, all: true, allValue: null },
         ])
+    })
+
+    it.each([
+        ['loaded options, which can be none', { zone: [] }, [{ name: 'zone', values: [], all: true, allValue: null }]],
+        ['options that have not loaded', {}, []],
+    ])('a SQL query sends All with %s', (_name, options, expected) => {
+        const zone = { ...custom('zone', []), includeAll: true, current: { values: [], all: true } }
+        const query: MetricsDashboardVariable = { name: 'q', source: 'sql', query: 'SELECT a WHERE zone IN $zone' }
+        expect(selectionsForRequest(query, [zone, query], options)).toEqual(expected)
     })
 
     it.each([
