@@ -28,6 +28,19 @@ _PROVIDER_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+# Gateway refusals a retry can clear: key, binding, budget and rate limits. Others repeat on every attempt.
+_GATEWAY_CLEARING_CODES = frozenset({401, 402, 403, 408, 409, 429})
+
+
+def is_gateway_refusal(error: BaseException) -> bool:
+    """A 4xx the AI gateway wrote itself, marked with a `google.rpc.ErrorInfo` in the posthog.com domain."""
+    if not isinstance(error, APIError) or not isinstance(error.code, int) or not 400 <= error.code < 500:
+        return False
+    body = error.details.get("error") if isinstance(error.details, dict) else None
+    details = body.get("details") if isinstance(body, dict) else None
+    return isinstance(details, list) and any(isinstance(d, dict) and d.get("domain") == "posthog.com" for d in details)
+
+
 def describe_gemini_error(error: BaseException) -> str:
     """Fixed-shape summary for user-visible error reasons.
 
@@ -52,6 +65,9 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
         return FailureKind.PROVIDER_TRANSIENT
     if not isinstance(error, APIError):
         return None
+    # A gateway refusal is a PostHog-side fault, never the input's.
+    if is_gateway_refusal(error):
+        return FailureKind.INFRA_TRANSIENT if error.code in _GATEWAY_CLEARING_CODES else FailureKind.INTERNAL_ERROR
     if error.code in _TRANSIENT_STATUS_CODES:
         return FailureKind.PROVIDER_TRANSIENT
     # A 4xx we didn't list is the provider refusing this input (unsupported video, too large, safety block).

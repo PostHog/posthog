@@ -155,6 +155,12 @@
             "label": "AI cache read audio tokens (LLM)",
             "type": "Numeric"
         },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23],
@@ -215,7 +221,7 @@
         },
         "$ai_eval_source": {
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
             "label": "AI eval source (LLM)"
         },
         "$ai_evaluation_allows_na": {
@@ -310,21 +316,9 @@
             "examples": ["llm_judge", "hog"],
             "label": "AI evaluation type (LLM)"
         },
-        "$ai_expected": {
-            "description": "The expected output for comparison in this evaluation.",
-            "label": "AI expected output (LLM)"
-        },
         "$ai_experiment_id": {
             "description": "The unique identifier of the experiment this event belongs to.",
             "label": "AI experiment ID (LLM)"
-        },
-        "$ai_experiment_item_id": {
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item ID (LLM)"
-        },
-        "$ai_experiment_item_name": {
-            "description": "The name of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item name (LLM)"
         },
         "$ai_experiment_name": {
             "description": "The name of the experiment this event belongs to.",
@@ -441,10 +435,6 @@
             "examples": ["negative", "95"],
             "label": "AI Metric Value (LLM)"
         },
-        "$ai_metric_version": {
-            "description": "The version of the metric used for evaluation.",
-            "label": "AI metric version (LLM)"
-        },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"],
@@ -553,26 +543,6 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
-        },
-        "$ai_result_type": {
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-            "label": "AI result type (LLM)"
-        },
-        "$ai_score": {
-            "description": "The numeric score assigned by this evaluation metric.",
-            "label": "AI score (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_max": {
-            "description": "The maximum possible score for this evaluation metric.",
-            "label": "AI score max (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_min": {
-            "description": "The minimum possible score for this evaluation metric.",
-            "label": "AI score min (LLM)",
-            "type": "Numeric"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
@@ -4020,6 +3990,12 @@
             "label": "AI cache read audio tokens (LLM)",
             "type": "Numeric"
         },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23],
@@ -4080,7 +4056,7 @@
         },
         "$ai_eval_source": {
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
             "label": "AI eval source (LLM)"
         },
         "$ai_evaluation_allows_na": {
@@ -4175,21 +4151,9 @@
             "examples": ["llm_judge", "hog"],
             "label": "AI evaluation type (LLM)"
         },
-        "$ai_expected": {
-            "description": "The expected output for comparison in this evaluation.",
-            "label": "AI expected output (LLM)"
-        },
         "$ai_experiment_id": {
             "description": "The unique identifier of the experiment this event belongs to.",
             "label": "AI experiment ID (LLM)"
-        },
-        "$ai_experiment_item_id": {
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item ID (LLM)"
-        },
-        "$ai_experiment_item_name": {
-            "description": "The name of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item name (LLM)"
         },
         "$ai_experiment_name": {
             "description": "The name of the experiment this event belongs to.",
@@ -4306,10 +4270,6 @@
             "examples": ["negative", "95"],
             "label": "AI Metric Value (LLM)"
         },
-        "$ai_metric_version": {
-            "description": "The version of the metric used for evaluation.",
-            "label": "AI metric version (LLM)"
-        },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"],
@@ -4418,26 +4378,6 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
-        },
-        "$ai_result_type": {
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-            "label": "AI result type (LLM)"
-        },
-        "$ai_score": {
-            "description": "The numeric score assigned by this evaluation metric.",
-            "label": "AI score (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_max": {
-            "description": "The maximum possible score for this evaluation metric.",
-            "label": "AI score max (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_min": {
-            "description": "The minimum possible score for this evaluation metric.",
-            "label": "AI score min (LLM)",
-            "type": "Numeric"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",

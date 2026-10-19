@@ -6,9 +6,12 @@ import { IconStack, IconStackItem } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { isExternalHref } from './todayBriefingItems'
 import type { TodayRowIcon } from './todayRowIcons'
 import { isPlainClick, navigateWithCrossfade } from './todayViewTransition'
+
+function isExternalHref(href: string): boolean {
+    return /^https?:\/\//.test(href)
+}
 
 export type TodayRowTone = 'risk' | 'neutral' | 'quiet'
 

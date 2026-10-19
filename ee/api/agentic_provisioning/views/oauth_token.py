@@ -21,9 +21,16 @@ import structlog
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.oauth.client_assertion import ClientAssertionError, extract_client_assertion, verify_client_assertion
+from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    UNREADABLE_CLIENT_ASSERTION_MESSAGE,
+    ClientAssertionError,
+    extract_client_assertion,
+    presents_client_assertion,
+    verify_client_assertion,
+)
 from posthog.api.oauth.client_auth import extract_client_credentials, verify_client_secret
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, ProvisioningSigning
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
@@ -47,20 +54,33 @@ from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
 logger = structlog.get_logger(__name__)
 
 
-def _require_client_authentication(request: Request, oauth_app: OAuthApplication, grant_type: str) -> None:
-    """Make confidential partners prove themselves before their grant is spent.
+def _require_client_authentication(request: Request, oauth_app: OAuthApplication, grant_type: str) -> str:
+    """Make confidential partners, and partners that must sign, prove themselves before their grant is spent.
 
     Public partners keep ``code_verifier`` as their only client authentication, which is what
-    RFC 7636 prescribes and RFC 6749 section 3.2.1 expects. The app is resolved from the grant
-    rather than from a caller-supplied client_id, so a confidential partner cannot reach the
-    public path by presenting nothing.
+    RFC 7636 prescribes and RFC 6749 section 3.2.1 expects, unless they must sign: see
+    ``OAuthApplication.provisioning_signing``. The app is resolved from the grant rather than
+    from a caller-supplied client_id, so a confidential partner cannot reach the public path by
+    presenting nothing. Returns the request's signing tag for analytics.
     """
-    if not oauth_app.requires_client_authentication:
-        return
-
+    signing = oauth_app.provisioning_signing
     if oauth_app.uses_private_key_jwt_auth:
         _verify_assertion_or_fail(request, oauth_app, grant_type)
-        return
+        return signing.request_tag(signed=True)
+
+    signing_tag = signing.request_tag(signed=False)
+    if signing is ProvisioningSigning.REQUIRED:
+        capture_provisioning_event(
+            "token_exchange",
+            "private_key_required",
+            partner=oauth_app,
+            grant_type=grant_type,
+            provisioning_signing=signing_tag,
+        )
+        raise ProvisioningError("invalid_client", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
+
+    if not oauth_app.uses_client_secret_auth:
+        return signing_tag
 
     credentials = extract_client_credentials(request)
     if credentials is None:
@@ -76,15 +96,24 @@ def _require_client_authentication(request: Request, oauth_app: OAuthApplication
             "token_exchange", "invalid_client_credentials", partner=oauth_app, grant_type=grant_type
         )
         raise ProvisioningError("invalid_client", "Invalid client credentials", status=401)
+    return signing_tag
 
 
 def _verify_assertion_or_fail(request: Request, oauth_app: OAuthApplication, grant_type: str) -> None:
     assertion = extract_client_assertion(request)
     if assertion is None:
+        presented = presents_client_assertion(request)
         capture_provisioning_event(
-            "token_exchange", "missing_client_assertion", partner=oauth_app, grant_type=grant_type
+            "token_exchange",
+            "unreadable_client_assertion" if presented else "missing_client_assertion",
+            partner=oauth_app,
+            grant_type=grant_type,
         )
-        raise ProvisioningError("invalid_client", "A client_assertion is required", status=401)
+        raise ProvisioningError(
+            "invalid_client",
+            UNREADABLE_CLIENT_ASSERTION_MESSAGE if presented else "A client_assertion is required",
+            status=401,
+        )
 
     # The assertion is verified against the app the grant names, so an assertion validly
     # signed by a different client cannot be used to redeem this one's grant.
@@ -174,7 +203,7 @@ class OAuthTokenView(ProvisioningAPIView):
             capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
             raise ProvisioningError("invalid_grant", "Unknown application for this authorization code")
 
-        _require_client_authentication(request, oauth_app, "authorization_code")
+        signing_tag = _require_client_authentication(request, oauth_app, "authorization_code")
 
         # Consume the code before rate limiting so a leaked auth code can't be replayed
         # to burn the partner's bucket. Auth codes are single-use by spec, so the
@@ -273,6 +302,7 @@ class OAuthTokenView(ProvisioningAPIView):
             team_id=team_id,
             user_id=user.id,
             granted_team_count=len(scoped_teams),
+            provisioning_signing=signing_tag,
         )
 
         return Response(
@@ -305,10 +335,11 @@ class OAuthTokenView(ProvisioningAPIView):
             .values_list("application_id", flat=True)
             .first()
         )
+        signing_tag: str | None = None
         if application_id:
             unlocked_app = OAuthApplication.objects.filter(id=application_id).first()
             if unlocked_app is not None:
-                _require_client_authentication(request, unlocked_app, "refresh_token")
+                signing_tag = _require_client_authentication(request, unlocked_app, "refresh_token")
 
         # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
         # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
@@ -426,6 +457,7 @@ class OAuthTokenView(ProvisioningAPIView):
             team_id=base_team_id,
             user_id=user.id if user else None,
             granted_team_count=len(scoped_teams),
+            provisioning_signing=signing_tag,
         )
 
         return Response(

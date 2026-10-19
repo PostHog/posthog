@@ -102,6 +102,7 @@ class ClickHouseUser(StrEnum):
     # Notebook frame materializations (Temporal worker streaming to the object store)
     NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
+    SIGNALS = "signals"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
     BUSINESS_KNOWLEDGE = "business_knowledge"
@@ -114,6 +115,10 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # The platform's own bookkeeping, shared by every source: its check history and the default
+    # user of its evaluation worker. A source's checks keep their own user, so a new source never
+    # takes from another source's budget.
+    ALERTS_PLATFORM = "alerts_platform"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -214,13 +219,19 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
         password = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
         password_file = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD_FILE")
+        if (
+            u == ClickHouseUser.SIGNALS
+            and (data_stores.DEBUG or data_stores.TEST)
+            and not any((user, password, password_file))
+        ):
+            user, password = "signals", "signalspass"
         secret = password or password_file
         if user and secret:
             user_dict[u] = ClickHouseCredentials(
                 user=user,
                 password=password or "",
                 password_file=password_file,
-                require_password=u == ClickHouseUser.DELETION_EXECUTOR,
+                require_password=u in (ClickHouseUser.DELETION_EXECUTOR, ClickHouseUser.SIGNALS),
             )
         elif bool(user) != bool(secret):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
@@ -241,13 +252,14 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     Retrieve ClickHouse credentials for the specified user.
 
     This function retrieves the credentials associated with a given ClickHouse
-    user. Most missing dedicated users fall back to the default user credentials.
-    Business Knowledge fails closed so a deployment cannot silently bypass its
-    isolated query limit.
+    user. Most missing dedicated users fall back to the ClickHouseUser.DEFAULT
+    credentials, which belong to the pod's CLICKHOUSE_USER.
+    Business Knowledge and Signals fail closed so a deployment cannot silently
+    bypass their isolated query limits.
 
-    The user and password must be properly passed as ENVs:
+    The user and a password or token file must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
-        CLICKHOUSE_<USER_NAME>_PASSWORD
+        CLICKHOUSE_<USER_NAME>_PASSWORD or CLICKHOUSE_<USER_NAME>_PASSWORD_FILE
 
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need
@@ -260,6 +272,11 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
         raise RuntimeError(
             "Business Knowledge ClickHouse credentials are missing; set "
             "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    if user == ClickHouseUser.SIGNALS:
+        raise RuntimeError(
+            "Signals ClickHouse credentials are missing; set CLICKHOUSE_SIGNALS_USER and "
+            "CLICKHOUSE_SIGNALS_PASSWORD or CLICKHOUSE_SIGNALS_PASSWORD_FILE"
         )
     if user == ClickHouseUser.DELETION_EXECUTOR:
         raise RuntimeError(
@@ -447,7 +464,12 @@ def get_kwargs_for_client(
         return {**base_kwargs, **user_settings}
 
     # Note that `readonly` does nothing if the relevant vars are not set!
-    if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
+    if (
+        readonly
+        and ch_user != ClickHouseUser.SIGNALS
+        and settings.READONLY_CLICKHOUSE_USER is not None
+        and settings.READONLY_CLICKHOUSE_PASSWORD
+    ):
         return {
             "user": settings.READONLY_CLICKHOUSE_USER,
             "password": settings.READONLY_CLICKHOUSE_PASSWORD,
@@ -543,10 +565,18 @@ def default_client(
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
 
-    user and password override CLICKHOUSE_USER and the static CLICKHOUSE_PASSWORD, for example with a
-    dedicated user's resolved file-backed token.
+    When the caller passes neither user nor password, the client authenticates as CLICKHOUSE_USER with the
+    token from CLICKHOUSE_PASSWORD_FILE, and falls back to the static CLICKHOUSE_PASSWORD the way the pool does.
+    The token is read once, so close the client after one short task: a retained client that reconnects
+    after the token expires is rejected.
+    user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
+    if user is None and password is None:
+        user = settings.CLICKHOUSE_USER
+        password = ClickHouseCredentials(
+            user=user, password=settings.CLICKHOUSE_PASSWORD, password_file=settings.CLICKHOUSE_PASSWORD_FILE
+        ).read_password()
     return ClickHouseClient(
         host=host,
         **({"send_receive_timeout": send_receive_timeout} if send_receive_timeout is not None else {}),
@@ -593,8 +623,9 @@ class RefreshingChPool(ClickHouseChPool):
         super().__init__(**kwargs)
 
     def pull(self, key: str | None = None) -> SyncClient:
+        password = self._credential_provider()
         client = super().pull(key)
-        client.connection.password = self._credential_provider()
+        client.connection.password = password
         return client
 
 

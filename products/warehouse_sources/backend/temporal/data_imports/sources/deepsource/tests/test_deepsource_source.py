@@ -22,10 +22,6 @@ class TestDeepsourceSource:
         # both must be host fields — the update serializer then demands the PAT be re-entered.
         assert DeepsourceSource().connection_host_fields == ["account_login", "vcs_provider"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = DeepsourceSource().get_schemas(_CONFIG, team_id=1, names=["repositories", "reports"])
-        assert {s.name for s in schemas} == {"repositories", "reports"}
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_for_pipeline_wires_endpoint_config(self, endpoint: str) -> None:
         connection = {"edges": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}

@@ -1,5 +1,6 @@
 import json
 import datetime
+from functools import cached_property
 from math import ceil
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
@@ -41,7 +42,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
+from posthog.models.filters.mixins.utils import include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 

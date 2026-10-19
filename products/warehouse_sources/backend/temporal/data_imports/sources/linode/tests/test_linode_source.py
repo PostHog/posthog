@@ -35,12 +35,6 @@ class TestLinodeSourceClass:
         assert schema.supports_incremental is supports_incremental
         assert schema.supports_append is supports_append
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(
-            LinodeSourceConfig(api_token="tok"), self.team_id, names=["events", "volumes"]
-        )
-        assert {s.name for s in schemas} == {"events", "volumes"}
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.linode.com/v4/volumes?page=1",),

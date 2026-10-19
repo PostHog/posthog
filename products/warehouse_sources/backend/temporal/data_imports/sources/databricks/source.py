@@ -223,6 +223,12 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # something PostHog's retries can fix. Matched on Databricks' own stable error class,
             # not the redacted JDBC URL around it.
             "[FAILED_JDBC.CONNECTION]": "Databricks couldn't connect to a federated database backing a table you're syncing (a Lakehouse Federation connection). Check that the underlying database is reachable and its connection details in Databricks are still correct, then resync.",
+            # Raised when a synced view's underlying table was altered (a column renamed or dropped)
+            # and the view's own SELECT no longer resolves — a stale view definition on the
+            # customer's side that every retry fails identically until they recreate it. Matched on
+            # Databricks' own stable error class, not the view/column names or the CREATE OR REPLACE
+            # statement it suggests around it.
+            "[INCOMPATIBLE_VIEW_SCHEMA_CHANGE]": "A view this source syncs has an incompatible schema change in Databricks — its underlying table was altered and the view's query can no longer resolve a column. Recreate the view in Databricks to match the new schema, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:

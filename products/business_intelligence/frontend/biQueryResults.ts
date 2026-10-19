@@ -1,9 +1,12 @@
 import { getSeriesColor } from 'lib/colors'
 
+import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { AnyResponseType, ChartAxis, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
+import { hasBIAnalysis } from './biAnalysis'
 import { getBIComparisonGroupLimit } from './biComparisonLimit'
-import { buildBIQuery, getBIResultDimensions, getBIResultMeasureColumns } from './biEditorTypes'
+import { buildBIQuery, fieldExpression, getBIResultDimensions, getBIResultMeasureColumns } from './biEditorTypes'
 
 export function getBISeriesSettings(query: VisualizationNode, settings: ChartAxis['settings']): ChartAxis['settings'] {
     return query.kind === NodeKind.BIVisualizationNode && query.config.colorBy === null
@@ -48,11 +51,20 @@ export function getBIResultSummary(
     }
 }
 
+function getBIDataConfig(config: BIConfig): BIConfig {
+    return config.rows.length + config.columns.length === 2 &&
+        !hasBIAnalysis(config) &&
+        !config.compareFilter?.compare &&
+        !config.missingDates
+        ? { ...config, chartType: ChartDisplayType.ActionsBar }
+        : config
+}
+
 export function getBIVisualizationSource(query: VisualizationNode): VisualizationNode['source'] {
     if (query.kind !== NodeKind.BIVisualizationNode) {
         return query.source
     }
-    const probe = buildBIQuery(query.config, true)
+    const probe = buildBIQuery(getBIDataConfig(query.config), true)
     return probe ? { ...query.source, query: probe.query } : query.source
 }
 
@@ -67,6 +79,24 @@ export function getBIVisualizationResponse(
         !Array.isArray(response.results)
     ) {
         return response
+    }
+    const dataConfig = getBIDataConfig(query.config)
+    if (dataConfig !== query.config && 'columns' in response && Array.isArray(response.columns)) {
+        const dimensions = getBIResultDimensions(query.config)
+        const columns = response.columns
+        const aliases = new Map<string, string>()
+        getBIResultDimensions(dataConfig).forEach(({ column, field }, index) => {
+            if (columns[index] === column || columns[index] === fieldExpression(field)) {
+                aliases.set(columns[index], dimensions[index].column)
+            }
+        })
+        response = {
+            ...response,
+            columns: response.columns.map((column) => aliases.get(column) ?? column),
+            ...('types' in response && Array.isArray(response.types)
+                ? { types: response.types.map(([column, type]) => [aliases.get(column) ?? column, type]) }
+                : {}),
+        }
     }
     const trimmed = {
         ...response,
@@ -84,7 +114,7 @@ export function getBIVisualizationResponse(
         const selected = new Set([...groups].slice(0, getBIComparisonGroupLimit(query.config)))
         return {
             ...response,
-            results: response.results.filter((row) => selected.has(key(row))),
+            results: response.results.filter((row: unknown[]) => selected.has(key(row))),
             hasMore: groups.size > selected.size || ('hasMore' in response && response.hasMore === true),
         }
     }
