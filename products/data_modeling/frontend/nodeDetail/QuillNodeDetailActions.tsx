@@ -4,6 +4,7 @@ import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +23,14 @@ export function QuillNodeDetailActions({
     const { hasMaterializationChanges, savingMaterialization } = useValues(
         materializationJobsLogic({ viewId: savedQuery.id, kind: node.type === 'endpoint' ? 'endpoint' : 'view' })
     )
+    const editDisabledReason =
+        hasMaterializationChanges || savingMaterialization
+            ? 'Save or discard your changes first'
+            : getAccessControlDisabledReason(
+                  AccessControlResourceType.WarehouseObjects,
+                  AccessControlLevel.Editor,
+                  savedQuery.user_access_level
+              )
     return (
         <>
             {node.type === 'endpoint' ? (
@@ -36,12 +45,12 @@ export function QuillNodeDetailActions({
                 >
                     <Button
                         variant="outline"
-                        render={<LinkPrimitive to={urls.sqlEditor({ view_id: savedQuery.id })} />}
-                        disabledReason={
-                            hasMaterializationChanges || savingMaterialization
-                                ? 'Save or discard your changes first'
-                                : undefined
+                        render={
+                            <LinkPrimitive
+                                to={editDisabledReason ? undefined : urls.sqlEditor({ view_id: savedQuery.id })}
+                            />
                         }
+                        disabledReason={editDisabledReason ?? undefined}
                         data-attr="node-detail-edit-in-sql-editor"
                     >
                         Edit in SQL editor
