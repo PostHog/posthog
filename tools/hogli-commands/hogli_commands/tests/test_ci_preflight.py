@@ -27,7 +27,10 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def no_diff_reading_checks() -> Iterator[None]:
     # The real ones shell out to node and semgrep on any changed path.
-    with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]):
+    with (
+        patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]),
+        patch("hogli_commands.ci_preflight.check_stack_depth", return_value=("skipped", "not in a gh stack")),
+    ):
         yield
 
 
@@ -113,6 +116,23 @@ class TestStrictAndFixContracts:
     ) -> None:
         mock_run.return_value = MagicMock(returncode=1, stdout="workflow convention violated", stderr="")
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
+        assert result.exit_code == 1
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.check_stack_depth", return_value=("fail", "6 open layers in this stack"))
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=[])
+    def test_strict_blocks_a_deep_stack_whatever_the_diff(
+        self,
+        mock_changed: MagicMock,
+        mock_depth: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+        assert "6 open layers" in result.output
         assert result.exit_code == 1
 
     @patch("hogli_commands.ci_preflight._emit_telemetry")

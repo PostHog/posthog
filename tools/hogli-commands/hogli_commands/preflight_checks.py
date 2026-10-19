@@ -488,3 +488,29 @@ def check_cross_lane(scope: Scope) -> Outcome:
         "warning",
         f"{mixed}, which fails CI. Split the PR, or add the {CROSS_LANE_LABEL} label if the halves must land together",
     )
+
+
+MAX_OPEN_STACK_DEPTH = 5
+
+
+def check_stack_depth() -> Outcome:
+    if shutil.which("gh") is None:
+        return "skipped", "gh not found"
+    try:
+        result = subprocess.run(
+            ["gh", "stack", "view", "--json"], capture_output=True, text=True, timeout=30, cwd=REPO_ROOT
+        )
+        branches = json.loads(result.stdout)["branches"] if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        branches = None
+    if not branches:
+        return "skipped", "not in a gh stack"
+    # `gh stack push` and `sync` push every layer, so count the whole stack, not only up to HEAD.
+    open_layers = sum(not branch.get("isMerged") for branch in branches)
+    if open_layers <= MAX_OPEN_STACK_DEPTH:
+        return "pass", f"{open_layers} open layer(s) in this stack"
+    return (
+        "fail",
+        f"{open_layers} open layers in this stack, and CI fails every layer above {MAX_OPEN_STACK_DEPTH}. "
+        "Merge the lower layers, or move the upper ones into a new stack on top with `gh stack init --base <branch>`",
+    )

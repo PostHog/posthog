@@ -19,6 +19,7 @@ from hogli_commands.preflight_checks import (
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
+    check_stack_depth,
 )
 
 MANIFEST = """version: 1
@@ -393,3 +394,27 @@ class TestCrossLane:
             check_merge_queue_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
 
         assert run.call_count == 2
+
+
+def _stack_view(merged: int, open_layers: int, returncode: int = 0) -> MagicMock:
+    branches = [{"isMerged": True}] * merged + [{"isMerged": False}] * open_layers
+    return MagicMock(returncode=returncode, stdout=json.dumps({"branches": branches}))
+
+
+class TestStackDepth:
+    @pytest.mark.parametrize(
+        "view, expected_status",
+        [
+            (_stack_view(merged=0, open_layers=5), "pass"),
+            (_stack_view(merged=0, open_layers=6), "fail"),
+            (_stack_view(merged=4, open_layers=3), "pass"),
+            (_stack_view(merged=0, open_layers=0, returncode=2), "skipped"),
+            (MagicMock(returncode=0, stdout="not json"), "skipped"),
+        ],
+    )
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/gh")
+    def test_counts_open_layers(self, mock_which: MagicMock, view: MagicMock, expected_status: str) -> None:
+        with patch("hogli_commands.preflight_checks.subprocess.run", return_value=view):
+            status, _ = check_stack_depth()
+
+        assert status == expected_status
