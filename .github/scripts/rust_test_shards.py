@@ -86,17 +86,17 @@ TARGET_SECONDS = 8 * 60
 
 
 def plan_shards(affected_crates: set[str]) -> list[list[str]]:
-    # An empty affected set means a full build. New crates still receive coverage
-    # before their measured weight has been added to the table.
-    packages = (
-        {name: PACKAGE_WEIGHTS.get(name, DEFAULT_WEIGHT) for name in sorted(affected_crates)}
-        if affected_crates
-        else PACKAGE_WEIGHTS
-    )
+    # An empty affected set means a full build. Affected new crates still receive
+    # coverage before their measured weight has been added to the table.
+    packages = PACKAGE_WEIGHTS.copy()
+    if affected_crates:
+        for name in affected_crates - packages.keys():
+            packages[name] = DEFAULT_WEIGHT
+        packages = {name: weight for name, weight in packages.items() if name in affected_crates}
     shard_count = max(1, math.ceil(sum(packages.values()) / TARGET_SECONDS))
     buckets: list[list[str]] = [[] for _ in range(shard_count)]
     times = [0] * shard_count
-    for name in sorted(packages, key=lambda name: (-packages[name], name)):
+    for name in sorted(packages, key=lambda name: -packages[name]):
         lightest = min(range(shard_count), key=lambda index: times[index])
         buckets[lightest].append(name)
         times[lightest] += packages[name]
@@ -104,17 +104,23 @@ def plan_shards(affected_crates: set[str]) -> list[list[str]]:
 
 
 def main() -> None:
-    affected = json.loads(os.environ.get("AFFECTED_CRATES", "[]"))
-    if not isinstance(affected, list) or not all(isinstance(name, str) for name in affected):
-        raise ValueError("AFFECTED_CRATES must be a JSON array of crate names")
-    unknown = set(affected) - PACKAGE_WEIGHTS.keys()
+    affected: set[str] = set(json.loads(os.environ.get("AFFECTED_CRATES", "[]")))
+    unknown = affected - PACKAGE_WEIGHTS.keys()
     if unknown:
-        print(f"WARNING: using {DEFAULT_WEIGHT}s default weight for: {', '.join(sorted(unknown))}")
-        print("Add measured weights to .github/scripts/rust_test_shards.py.")
-    shards = plan_shards(set(affected))
+        print(
+            f"WARNING: affected crates missing from weight table (using {DEFAULT_WEIGHT}s default): {', '.join(sorted(unknown))}"
+        )
+        print("Add them to the packages dict in .github/scripts/rust_test_shards.py with measured weights.")
+    print(
+        f"Selective build: testing {len(affected)} of affected crates" if affected else "Full build: testing all crates"
+    )
+    shards = plan_shards(affected)
+    total = 0
     for index, shard in enumerate(shards, start=1):
         seconds = sum(PACKAGE_WEIGHTS.get(name, DEFAULT_WEIGHT) for name in shard)
+        total += seconds
         print(f"Shard {index} ({seconds}s): {', '.join(shard)}")
+    print(f"\nTotal: {total}s across {len(shards)} shards (target ≤{TARGET_SECONDS}s/shard)")
     matrix = {"include": [{"packages": " ".join(shard)} for shard in shards]}
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         output.write(f"matrix={json.dumps(matrix)}\n")
