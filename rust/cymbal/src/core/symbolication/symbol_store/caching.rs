@@ -167,7 +167,9 @@ where
             metrics::histogram!(SYMBOL_SET_LARGE_PARSE_WAIT_MS).record(wait_ms as f64);
         }
 
-        if fetched_bytes >= LARGE_FETCHED_BYTES {
+        let log_large_parse = fetched_bytes >= LARGE_FETCHED_BYTES
+            || parse_input_bytes.is_some_and(|bytes| bytes >= LARGE_FETCHED_BYTES);
+        if log_large_parse {
             info!(
                 team_id,
                 cache_key,
@@ -182,12 +184,14 @@ where
         let parse_start = Instant::now();
         let parsed = self.inner.parse(found, permit).await?;
         let bytes = parsed.byte_count();
-        if fetched_bytes >= LARGE_FETCHED_BYTES || bytes >= LARGE_PARSED_BYTES {
+        if log_large_parse || bytes >= LARGE_PARSED_BYTES {
             info!(
                 team_id,
                 cache_key,
                 set_type,
                 fetched_bytes,
+                parse_input_bytes,
+                estimated_parse_bytes,
                 cached_bytes = bytes,
                 parse_ms = parse_start.elapsed().as_millis() as u64,
                 "Parsed large symbol set"
