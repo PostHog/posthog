@@ -127,12 +127,16 @@ describe('MetricCard', () => {
             }
         })
 
-        it('updates the headline value and label when hovering a different point', () => {
+        it.each<[string, ((label: string) => string) | undefined, string]>([
+            ['the raw label', undefined, 'Feb'],
+            ['the label from formatLabel', (label) => `${label} 2026`, 'Feb 2026'],
+        ])('updates the headline value and shows %s when hovering a different point', (_name, formatLabel, label) => {
             const { container, chart } = renderHogChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200, 300, 400]}
                     labels={LABELS}
+                    formatLabel={formatLabel}
                     theme={THEME}
                     animationMs={0}
                     hoverIntentMs={0}
@@ -141,7 +145,7 @@ describe('MetricCard', () => {
             )
             chart.hoverAtIndex(1)
             expect(container.textContent).toContain('$200')
-            expect(container.textContent).toContain('Feb')
+            expect(container.textContent).toContain(label)
         })
 
         it('headlines the supplied `value` at rest while the chart still draws from `data`', () => {

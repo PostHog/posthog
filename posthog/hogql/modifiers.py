@@ -58,11 +58,23 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
+    from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
+
+    if use_new_events_cluster(team.pk, modifiers):
+        if modifiers.useNewEventsSchema is False:
+            from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
+
+            raise ExposedHogQLError("Native events cluster queries require the native events schema.")
+        modifiers.useNewEventsSchema = True
+
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
+            # Cluster routing requires a query opt-in, even if a project stores the modifier.
+            if key == "useNewEventsCluster":
+                continue
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid

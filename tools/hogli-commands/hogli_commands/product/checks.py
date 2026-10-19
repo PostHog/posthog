@@ -1172,6 +1172,11 @@ class ProductYamlCheck(ProductCheck):
         elif not isinstance(owners, list) or not all(isinstance(o, str) for o in owners):
             result.issues.append("product.yaml 'owners' must be a list of strings")
 
+        # The owners resolver ignores a value that is not a boolean, so a typo here would silently leave the paths
+        # not sensitive.
+        if "sensitive" in data and not isinstance(data["sensitive"], bool):
+            result.issues.append("product.yaml 'sensitive' must be true or false")
+
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         else:

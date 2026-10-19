@@ -16,7 +16,7 @@ from posthog.helpers.trigram_search import (
 )
 
 from ..db import WRITER_DB
-from ..facade.enums import RunPurpose, RunStatus, SnapshotResult
+from ..facade.enums import RunPurpose, RunReviewFilter, RunStatus, SnapshotResult
 from ..models import Run, RunSnapshot
 from . import errors
 
@@ -39,17 +39,17 @@ _CURRENT = Q(superseded_by__isnull=True)
 
 _ON_PR = Q(pr_number__isnull=False)
 
-REVIEW_STATE_FILTERS: dict[str, Q] = {
+REVIEW_STATE_FILTERS: dict[RunReviewFilter, Q] = {
     # Only PR runs need human review — master/branch pushes without a PR are just drift
-    "needs_review": Q(status=RunStatus.COMPLETED)
+    RunReviewFilter.NEEDS_REVIEW: Q(status=RunStatus.COMPLETED)
     & _HAS_CHANGES
     & Q(approved=False)
     & _CURRENT
     & _ON_PR
     & Q(purpose=RunPurpose.REVIEW),
-    "clean": (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
-    "processing": Q(status=RunStatus.PROCESSING) & _CURRENT,
-    "stale": Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
+    RunReviewFilter.CLEAN: (Q(status=RunStatus.COMPLETED) & ~_HAS_CHANGES) | Q(approved=True),
+    RunReviewFilter.PROCESSING: Q(status=RunStatus.PROCESSING) & _CURRENT,
+    RunReviewFilter.STALE: Q(superseded_by__isnull=False) & Q(approved=False) & _HAS_CHANGES,
 }
 
 # Free-text search over the runs list uses the shared trigram helper for the
@@ -61,7 +61,7 @@ RUN_SEARCH_FIELDS = (TrigramSearchField("branch"), TrigramSearchField("run_type"
 
 def list_runs_for_team(
     team_id: int,
-    review_state: str | None = None,
+    review_state: RunReviewFilter | None = None,
     repo_id: UUID | None = None,
     pr_number: int | None = None,
     commit_sha: str | None = None,
@@ -71,7 +71,7 @@ def list_runs_for_team(
     qs = Run.objects.filter(team_id=team_id).select_related("repo")
     if repo_id is not None:
         qs = qs.filter(repo_id=repo_id)
-    if review_state and review_state in REVIEW_STATE_FILTERS:
+    if review_state is not None:
         qs = qs.filter(REVIEW_STATE_FILTERS[review_state])
     if pr_number is not None:
         qs = qs.filter(pr_number=pr_number)
@@ -102,10 +102,10 @@ def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[s
     if repo_id is not None:
         qs = qs.filter(repo_id=repo_id)
     return qs.aggregate(
-        needs_review=Count("id", filter=REVIEW_STATE_FILTERS["needs_review"]),
-        clean=Count("id", filter=REVIEW_STATE_FILTERS["clean"]),
-        processing=Count("id", filter=REVIEW_STATE_FILTERS["processing"]),
-        stale=Count("id", filter=REVIEW_STATE_FILTERS["stale"]),
+        needs_review=Count("id", filter=REVIEW_STATE_FILTERS[RunReviewFilter.NEEDS_REVIEW]),
+        clean=Count("id", filter=REVIEW_STATE_FILTERS[RunReviewFilter.CLEAN]),
+        processing=Count("id", filter=REVIEW_STATE_FILTERS[RunReviewFilter.PROCESSING]),
+        stale=Count("id", filter=REVIEW_STATE_FILTERS[RunReviewFilter.STALE]),
     )
 
 

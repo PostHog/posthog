@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorkdaySource(ResumableSource[WorkdaySourceConfig, WorkdayResumeConfig]):
+    codebase_detection = detect(env=("^WORKDAY_",))
+
     # Workday versions each REST service separately. The Staffing service carries all but one
     # of the endpoints below, so its version is what a source pins; the Common service that
     # serves `workers` is fixed at the `/ccx/api/v1` path.

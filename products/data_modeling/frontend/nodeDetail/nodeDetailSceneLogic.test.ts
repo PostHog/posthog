@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
@@ -26,7 +26,6 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
         id: NODE_ID,
         name: 'orders',
         type,
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -42,9 +41,9 @@ describe('nodeDetailSceneLogic', () => {
     let node: DataModelingNode
     let savedQuery: Partial<DataWarehouseSavedQuery>
 
-    const mountScene = async (path: string): Promise<void> => {
+    const mountScene = async (path: string, id = NODE_ID): Promise<void> => {
         router.actions.push(path)
-        logic = nodeDetailSceneLogic({ id: NODE_ID })
+        logic = nodeDetailSceneLogic({ id })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -119,6 +118,16 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
         expect(logic.values.currentTab).toEqual('lineage')
+    })
+
+    it('replaces a backing-resource URL with the canonical node URL', async () => {
+        await mountScene(
+            combineUrl(urls.nodeDetail(SAVED_QUERY_ID, 'lineage'), { lookup: 'saved_query' }).url,
+            SAVED_QUERY_ID
+        )
+
+        expect(router.values.location.pathname).toEqual(`/project/997${urls.nodeDetail(NODE_ID, 'lineage')}`)
+        expect(router.values.searchParams).toEqual({})
     })
 
     it('adds data quality for a warehouse table ID and loads its details', async () => {
@@ -366,6 +375,24 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.savedQueryError).toBe(true)
         expect(logic.values.availableTabs).toContain('materialization')
         expect(logic.values.effectiveTab).toEqual('materialization')
+    })
+
+    it('marks the saved query deleted instead of failing when it returns 404', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSavedQuerySuccess'])
+            .toNotHaveDispatchedActions(['loadSavedQueryFailure'])
+        expect(logic.values.savedQueryDeleted).toBe(true)
+        expect(logic.values.savedQueryError).toBe(false)
     })
 
     // A failed saved-query request leaves the scene rendering with nothing to read is_materialized

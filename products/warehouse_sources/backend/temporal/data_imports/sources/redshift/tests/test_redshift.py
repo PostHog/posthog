@@ -1,4 +1,6 @@
+import threading
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -13,9 +15,11 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     TemporaryHostResolutionError,
@@ -31,8 +35,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
     REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
+    STREAM_FIRST_BATCH_DEADLINE_SECONDS,
+    STREAM_NEXT_BATCH_DEADLINE_SECONDS,
     RedshiftColumn,
     RedshiftImplementation,
+    RedshiftReadTimeoutError,
     SafeDateLoader,
     SafeTimestampLoader,
     SafeTimestamptzLoader,
@@ -523,6 +530,7 @@ class TestFetchAverageRowSize:
 # ---------------------------------------------------------------------------
 
 
+_REDSHIFT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift"
 _STREAM_SCHEMA = pa.schema([pa.field("id", pa.int64())])
 _STREAM_QUERY = sql.SQL("SELECT id FROM public.t").format()
 
@@ -642,6 +650,57 @@ class TestStreamArrowBatches:
             next(stream)
         # Re-running the query here would re-emit rows the pipeline already merged.
         server_cursor.execute.assert_not_called()
+
+    def test_each_batch_gets_its_own_wait_limit(self, logger, mocker):
+        # A limit on the read as a whole would end a long read that is in good health.
+        deadlines: list[float] = []
+
+        @contextmanager
+        def record_deadline(_connection, timeout_seconds):
+            deadlines.append(timeout_seconds)
+            yield
+
+        mocker.patch(f"{_REDSHIFT_MODULE}.client_side_deadline", record_deadline)
+        connection = _stream_connection(_stream_cursor([]), _rows_cursor([(1,), (2,), (3,)]))
+
+        list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
+
+        # Two batches, then the wait that finds the end of the result.
+        assert deadlines == [
+            STREAM_FIRST_BATCH_DEADLINE_SECONDS,
+            STREAM_NEXT_BATCH_DEADLINE_SECONDS,
+            STREAM_NEXT_BATCH_DEADLINE_SECONDS,
+        ]
+
+    @pytest.mark.parametrize("read_path", ["stream", "server_cursor"])
+    def test_a_silent_cluster_ends_the_read_with_a_retryable_error(self, logger, mocker, read_path):
+        mocker.patch(f"{_REDSHIFT_MODULE}.STREAM_FIRST_BATCH_DEADLINE_SECONDS", 0.05)
+        cancelled = threading.Event()
+
+        def silent_until_cancelled(*args, **kwargs):
+            assert cancelled.wait(5)
+            raise psycopg.errors.QueryCanceled("canceling statement due to user request")
+
+        if read_path == "stream":
+            stream_cursor = _rows_cursor([])
+            stream_cursor.stream.side_effect = silent_until_cancelled
+            server_cursor = _stream_cursor([[(9,)]])
+        else:
+            stream_cursor = _rows_cursor(psycopg.errors.FeatureNotSupported("single row mode not supported"))
+            server_cursor = _stream_cursor([])
+            server_cursor.fetchmany.side_effect = silent_until_cancelled
+        connection = _stream_connection(server_cursor, stream_cursor)
+        connection.cancel_safe.side_effect = lambda timeout: cancelled.set()
+
+        with pytest.raises(RedshiftReadTimeoutError) as error:
+            list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
+
+        if read_path == "stream":
+            # The cursor fallback would run the same query on the same silent cluster.
+            server_cursor.execute.assert_not_called()
+        source = RedshiftSource()
+        assert error_message_matches(str(error.value), source.get_retryable_errors())
+        assert not error_message_matches(str(error.value), {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
 
 class TestHasDuplicatePrimaryKeys:

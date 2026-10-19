@@ -7,11 +7,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.teams import TeamsTransport, card_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, pinned_post
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
+from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
 TEAMS_URL = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=fake"
 
@@ -21,6 +20,10 @@ class TestTeamsCard(SimpleTestCase):
         message = alert_message(
             headline="[Checkout](https://evil.example) is firing",
             details=(MessageDetail(label="Value", value="312"), MessageDetail(label="Error", value="no *column*")),
+            context=("Services: [api](https://evil.example)",),
+            data_link=MessageLink(
+                label="View logs", url="https://app.example.com/project/1/logs?serviceNames=%5B%22checkout%22%5D"
+            ),
         )
 
         assert card_for(message) == {
@@ -36,7 +39,7 @@ class TestTeamsCard(SimpleTestCase):
                         "body": [
                             {
                                 "type": "TextBlock",
-                                "text": r"\[Checkout\](https://evil.example) is firing",
+                                "text": "\U0001f534 " + r"\[Checkout\](https://evil.example) is firing",
                                 "weight": "Bolder",
                                 "wrap": True,
                             },
@@ -47,6 +50,21 @@ class TestTeamsCard(SimpleTestCase):
                                     {"title": "Error", "value": r"no \*column\*"},
                                 ],
                             },
+                            {
+                                "type": "TextBlock",
+                                "text": r"Services: \[api\](https://evil.example)",
+                                "isSubtle": True,
+                                "size": "Small",
+                                "wrap": True,
+                            },
+                        ],
+                        "actions": [
+                            {
+                                "type": "Action.OpenUrl",
+                                "title": "View logs",
+                                "url": "https://app.example.com/project/1/logs?serviceNames=%5B%22checkout%22%5D",
+                            },
+                            {"type": "Action.OpenUrl", "title": "View alert", "url": ALERT_URL},
                         ],
                     },
                 }

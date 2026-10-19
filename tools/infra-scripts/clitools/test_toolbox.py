@@ -917,11 +917,48 @@ class TestToolbox(unittest.TestCase):
     @patch("toolbox.tailscale.subprocess.run")
     @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
     def test_ensure_tailscale_connected_passes_silently_when_running(self, mock_which, mock_run):
-        mock_run.return_value = self._tailscale_status_result({"BackendState": "Running"})
+        mock_run.return_value = self._tailscale_status_result(
+            {"BackendState": "Running", "CurrentTailnet": {"Name": "posthog.com"}}
+        )
         exit_code, output = self._run_tailscale_check()
 
         self.assertIsNone(exit_code)
         self.assertEqual(output, "")
+
+    @patch("builtins.input", return_value="n")
+    @patch("toolbox.tailscale.sys.stdin")
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_exits_when_switch_declined(self, mock_which, mock_run, mock_stdin, mock_input):
+        mock_stdin.isatty.return_value = True
+        mock_run.return_value = self._tailscale_status_result(
+            {"BackendState": "Running", "CurrentTailnet": {"Name": "someone@example.com"}}
+        )
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("'someone@example.com' tailnet", output)
+        self.assertIn("tailscale switch posthog.com", output)
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("builtins.input", return_value="")
+    @patch("toolbox.tailscale.sys.stdin")
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_switches_tailnet_by_default(self, mock_which, mock_run, mock_stdin, mock_input):
+        mock_stdin.isatty.return_value = True
+        mock_run.side_effect = [
+            self._tailscale_status_result(
+                {"BackendState": "Running", "CurrentTailnet": {"Name": "someone@example.com"}}
+            ),
+            MagicMock(returncode=0),
+            self._tailscale_status_result({"BackendState": "Running", "CurrentTailnet": {"Name": "posthog.com"}}),
+        ]
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertEqual(mock_run.call_args_list[1].args[0], ["/usr/bin/tailscale", "switch", "posthog.com"])
+        self.assertIn("Connected to the posthog.com tailnet", output)
 
     @patch("toolbox.tailscale.os.path.isfile", return_value=False)
     @patch("toolbox.tailscale.shutil.which", return_value=None)

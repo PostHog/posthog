@@ -14,6 +14,7 @@ export interface ViewTypeInfo {
     pluralLabel: string
     /** One line for the "New" menu. */
     description: string
+    color: string
 }
 
 export const VIEW_TYPES: ViewTypeInfo[] = [
@@ -22,18 +23,22 @@ export const VIEW_TYPES: ViewTypeInfo[] = [
         label: 'Canvas',
         pluralLabel: 'Canvases',
         description: 'A freeform page that AI builds from your prompt',
+        // Canvases have no product color of their own, so they take product analytics'.
+        color: 'var(--color-product-product-analytics-light)',
     },
     {
         type: 'notebook',
         label: 'Notebook',
         pluralLabel: 'Notebooks',
         description: 'A doc that mixes your notes with live insights and replays',
+        color: 'var(--color-product-notebooks-light)',
     },
     {
         type: 'dashboard',
         label: 'Dashboard',
         pluralLabel: 'Dashboards',
         description: 'A grid of saved insights for your key metrics',
+        color: 'var(--color-product-dashboards-light)',
     },
 ]
 

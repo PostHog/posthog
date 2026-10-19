@@ -3,8 +3,10 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
-    buildShadowBlocks,
     buildTeamDigests,
+    buildThreadSliceBlocks,
+    deliverTeamDigests,
+    teamPostsWithheld,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -51,8 +53,8 @@ describe('weekly flaky report', () => {
             () => ({ owner: 'team-devex', repoPath: 'posthog/test/test_example.py' }),
             () => ({
                 evidence: [
-                    { runId: 10, jobId: 20 },
-                    { runId: 11, jobId: 21 },
+                    { url: 'https://github.com/PostHog/posthog/actions/runs/10/job/20' },
+                    { url: 'https://github.com/PostHog/posthog/actions/runs/11/job/21' },
                 ],
             })
         )
@@ -62,7 +64,7 @@ describe('weekly flaky report', () => {
         assert.ok(table)
         assert.deepEqual(
             table.rows[0].map((tableCell) => tableCell.text),
-            ['test', 'runner', 'owner', 'quarantine', 'PRs', 'failed runs', 'recovered runs', 'logs']
+            ['test', 'runner', 'owner', 'quarantine', 'PRs', 'failed runs', 'passed on retry', 'logs']
         )
         // The edit-workflow context block may still render when Actions env vars are set;
         // only the action footer has to be gone.
@@ -88,6 +90,16 @@ describe('weekly flaky report', () => {
         })
         assert.deepEqual(rows[0][1], { type: 'raw_text', text: 'pytest' })
         assert.deepEqual(rows[0][3], { type: 'raw_text', text: '-' })
+        const trunkUrl = 'https://app.trunk.io/posthog/flaky-tests/test/abc?repo=PostHog/posthog'
+        const [quarantinedRow] = tableRows(
+            [{ runner: 'pytest', selector: 'posthog/test/test_example.py::test_masked', trunk: { url: trunkUrl } }],
+            () => ({ owner: 'team-devex', repoPath: null }),
+            () => ({ evidence: [] }),
+            () => 'fix by 2026-08-13'
+        )
+        assert.deepEqual(quarantinedRow[3].elements[0].elements, [
+            { type: 'link', url: trunkUrl, text: 'fix by 2026-08-13' },
+        ])
         assert.deepEqual(rows[0][4], { type: 'raw_text', text: '3' })
         assert.deepEqual(rows[0][5], { type: 'raw_text', text: '4' })
         assert.deepEqual(rows[0][6], { type: 'raw_text', text: '2' })
@@ -251,12 +263,14 @@ describe('weekly flaky report', () => {
         const candidatePools = await fetchCandidatePools(['pytest'], onMasterResolver, async () => ({
             items: [...plainRegressions, trunked, confirmed, expectedFailure, master, trunkedMaster],
         }))
-        const [{ candidates }] = await buildRunnerReports(
+        const withTrunk = await buildRunnerReports(
             candidatePools,
             getEnrichment,
             async () => (item) =>
                 item === trunked || item === trunkedMaster ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         )
+        const [{ candidates }] = withTrunk
+        assert.equal(teamPostsWithheld(withTrunk, true), null)
 
         assert.deepEqual(
             candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
@@ -268,15 +282,17 @@ describe('weekly flaky report', () => {
         )
         assert.ok(logs.mock.calls.some(({ arguments: [message] }) => message.includes(expectedFailure.selector)))
 
-        const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(
+        const withoutTrunk = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [plainRegressions[0], expectedFailure, master] }],
             getEnrichment,
             async () => null
         )
         assert.deepEqual(
-            candidatesWithoutTrunk.map((candidate) => candidate.selector),
+            withoutTrunk[0].candidates.map((candidate) => candidate.selector),
             [plainRegressions[0].selector]
         )
+        // The unproven regression above is why this report must stay out of team channels.
+        assert.equal(teamPostsWithheld(withoutTrunk, true), 'Trunk state unavailable, not sent to')
     })
 
     it('ranks and limits each runner independently', async () => {
@@ -368,10 +384,10 @@ describe('weekly flaky report', () => {
                     [
                         item.selector,
                         [
-                            [100, 10, 20],
-                            [300, 12, 22],
-                            [250, 12, 23],
-                            [200, 11, 21],
+                            [100, 'github_actions', 10, 20, '10', '20'],
+                            [300, 'depot_ci', 12, 22, 'wf12', 'job22'],
+                            [250, 'depot_ci', 12, 23, 'wf12', 'job23'],
+                            [200, 'github_actions', 11, 21, '11', '21'],
                         ],
                     ],
                 ],
@@ -380,8 +396,8 @@ describe('weekly flaky report', () => {
 
         assert.deepEqual(extrasFor(item), {
             evidence: [
-                { runId: 12, jobId: 22 },
-                { runId: 11, jobId: 21 },
+                { url: 'https://depot.dev/orgs/ntsdt08fpt/workflows/wf12?job=job22' },
+                { url: 'https://github.com/PostHog/posthog/actions/runs/11/job/21' },
             ],
         })
         assert.match(request.query, /lower\(f\.repo\) = lower\(\{repository\}\)/)
@@ -477,6 +493,7 @@ describe('weekly flaky report', () => {
             quarantinedAt: '2026-07-29T09:14:22Z',
             overdue: true,
             fixBy: '2026-08-13',
+            url: null,
         })
         assert.equal(pytestFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
         assert.equal(
@@ -600,9 +617,63 @@ describe('weekly flaky report', () => {
                 ['team-replay', '#team-replay', 1],
             ]
         )
-        const [header, table] = buildShadowBlocks(digests[0])
+        const [header, table] = buildThreadSliceBlocks(digests[0], 'shadow: would post to')
         assert.equal(header.text.text, '*devex* _(shadow: would post to #team-devex)_')
         assert.equal(table.rows.length, 3)
+    })
+
+    it('keeps a team slice in the thread when its channel rejects the post and links the rest', async (context) => {
+        context.mock.method(console, 'warn', () => {})
+        const row = (name) => [{ type: 'raw_text', text: name }]
+        const teams = [
+            { owner: 'team-private', channel: '#team-private', rows: [row('test_one')] },
+            { owner: 'team-replay', channel: '#team-replay', rows: [row('renders'), row('plays')] },
+        ]
+        const posts = []
+        const slack = {
+            pause: async () => {},
+            permalink: async ({ channel, ts }) => `https://slack.test/${channel}/${ts}`,
+            post: async (blocks, text, target) => {
+                if (target.channel === '#team-private') {
+                    throw new Error('not_in_channel')
+                }
+                posts.push({ blocks, target })
+                return { ts: String(posts.length), channel: target.channel ? 'C_REPLAY' : 'C_DIGEST' }
+            },
+        }
+
+        const posted = await deliverTeamDigests(teams, {
+            now: new Date('2026-10-05T13:10:00Z'),
+            digest: { ts: '0', channel: 'C_DIGEST' },
+            slack,
+        })
+
+        assert.deepEqual(
+            posted.map(({ owner, url }) => [owner, url]),
+            [['team-replay', 'https://slack.test/C_REPLAY/2']]
+        )
+        const [fallback, teamPost, index] = posts
+        assert.deepEqual(fallback.target, { threadTs: '0' })
+        assert.equal(fallback.blocks[0].text.text, '*private* _(not delivered to #team-private)_')
+        assert.equal(teamPost.target.channel, '#team-replay')
+        assert.equal(
+            teamPost.blocks.at(-1).elements[0].text,
+            '<https://slack.test/C_DIGEST/0|Report for all teams> · Wrong owner, wrong numbers, general feedback? Tell <#C09G8QA6740>!'
+        )
+        assert.deepEqual(index.target, { threadTs: '0' })
+        assert.deepEqual(index.blocks[0].rows[1], [
+            { type: 'raw_text', text: 'replay' },
+            { type: 'raw_text', text: '2' },
+            {
+                type: 'rich_text',
+                elements: [
+                    {
+                        type: 'rich_text_section',
+                        elements: [{ type: 'link', url: 'https://slack.test/C_REPLAY/2', text: '#team-replay' }],
+                    },
+                ],
+            },
+        ])
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {
@@ -630,7 +701,7 @@ describe('weekly flaky report', () => {
                 selector:
                     'frontend/src/lib/components/ActivityLog/activityLogLogic.person.test.tsx::the activity log logic humanizing persons can handle addition of a property',
             }),
-            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: null }
+            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: null, url: null }
         )
     })
 })

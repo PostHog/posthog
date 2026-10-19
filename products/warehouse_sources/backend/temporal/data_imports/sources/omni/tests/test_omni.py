@@ -1,12 +1,18 @@
 import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omni import OmniSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni import omni as omni_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni import (
     OmniDocumentsPaginator,
@@ -17,13 +23,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni 
     get_key_scope,
     get_resource,
     normalize_host,
-    omni_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import PARTITION_KEYS, PRIMARY_KEYS
-
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-OMNI_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.omni.source import OmniSource
 
 
 def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -32,13 +35,6 @@ def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp._content = json.dumps(body).encode()
     resp.headers["Content-Type"] = "application/json"
     return resp
-
-
-def _make_manager(resume_state: OmniResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
 
 
 class TestNormalizeHost:
@@ -121,18 +117,19 @@ class TestValidateCredentials:
             (500, None, False),
         ],
     )
-    @mock.patch.object(omni_module, "_is_host_safe", return_value=(True, None))
-    @mock.patch(OMNI_SESSION_PATCH)
     def test_validate_credentials_status_mapping(
-        self, mock_session, _mock_host_safe, status_code, schema_name, expected_valid
-    ):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, error = validate_credentials("acme.omniapp.co", "test-key", team_id=1, schema_name=schema_name)
+        self, status_code: int, schema_name: str | None, expected_valid: bool
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, error = validate_credentials("acme.omniapp.co", "test-key", team_id=1, schema_name=schema_name)
 
         assert is_valid is expected_valid
         if not expected_valid:
             assert error
+        assert network.requests_log
+        assert {request.path for request in network.requests_log} == {"/api/v1/whoami"}
+        assert all(request.headers["authorization"] == "Bearer test-key" for request in network.requests_log)
+        assert network.session_options[0]["allow_redirects"] is False
 
     @mock.patch.object(omni_module, "_is_host_safe", return_value=(False, "internal address"))
     def test_validate_credentials_blocks_unsafe_host(self, _mock_host_safe):
@@ -148,23 +145,18 @@ class TestValidateCredentials:
 
 
 class TestGetKeyScope:
-    @mock.patch(OMNI_SESSION_PATCH)
-    def test_returns_key_scope_on_success(self, mock_session):
-        response = mock.MagicMock(status_code=200)
-        response.json.return_value = {"keyScope": "organization"}
-        mock_session.return_value.get.return_value = response
+    def test_returns_key_scope_on_success(self) -> None:
+        with scripted_network([ScriptedResponse(json={"keyScope": "organization"})]) as network:
+            assert get_key_scope("acme.omniapp.co", "test-key") == "organization"
+        assert [request.path for request in network.requests_log] == ["/api/v1/whoami"]
 
-        assert get_key_scope("acme.omniapp.co", "test-key") == "organization"
+    def test_returns_none_on_error_status(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]):
+            assert get_key_scope("acme.omniapp.co", "test-key") is None
 
-    @mock.patch(OMNI_SESSION_PATCH)
-    def test_returns_none_on_error_status(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert get_key_scope("acme.omniapp.co", "test-key") is None
-
-    @mock.patch(OMNI_SESSION_PATCH)
-    def test_returns_none_on_request_exception(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert get_key_scope("acme.omniapp.co", "test-key") is None
+    def test_returns_none_on_request_exception(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))):
+            assert get_key_scope("acme.omniapp.co", "test-key") is None
 
 
 class TestGetEndpointPermissions:
@@ -182,93 +174,76 @@ class TestGetEndpointPermissions:
 
 
 class TestOmniSourceEndToEnd:
-    def _drive(self, endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any):
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(OmniSource(), OmniSourceConfig(host="acme.omniapp.co", api_key="test-key"))
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
+    def test_documents_pagination_and_checkpointing(self) -> None:
+        result = self._driver().run(
+            "Documents",
+            [
+                ScriptedResponse(
+                    json={
+                        "pageInfo": {"hasNextPage": True, "nextCursor": "cursor-1"},
+                        "records": [{"identifier": "d1", "updatedAt": "2026-01-02T00:00:00.000Z"}],
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "pageInfo": {"hasNextPage": False, "nextCursor": None},
+                        "records": [{"identifier": "d2", "updatedAt": "2026-01-01T00:00:00.000Z"}],
+                    }
+                ),
+            ],
+        )
 
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
+        assert result.raised is None
+        assert len(result.rows) == 2
+        assert result.params("sortField") == ["updatedAt", "updatedAt"]
+        assert result.params("sortDirection") == ["desc", "desc"]
+        assert result.params("cursor") == [None, "cursor-1"]
+        assert result.saved_states == [OmniResumeConfig(cursor="cursor-1")]
+        assert result.committed_states == [OmniResumeConfig(cursor="cursor-1")]
 
-            response = omni_source(
-                host="acme.omniapp.co",
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=manager,
-                **kwargs,
-            )
-            rows = [row for page in cast(Iterable[Any], response.items()) for row in page]
-            return response, rows, sent_params
+    def test_documents_resumes_from_saved_cursor(self) -> None:
+        result = self._driver().run(
+            "Documents",
+            [ScriptedResponse(json={"pageInfo": {"hasNextPage": False, "nextCursor": None}, "records": []})],
+            resume_state=OmniResumeConfig(cursor="resumed-cursor"),
+        )
 
-    def test_documents_pagination_and_checkpointing(self):
-        manager = _make_manager()
-        responses = [
-            _make_response(
-                {
-                    "pageInfo": {"hasNextPage": True, "nextCursor": "cursor-1"},
-                    "records": [{"identifier": "d1", "updatedAt": "2026-01-02T00:00:00.000Z"}],
-                }
-            ),
-            _make_response(
-                {
-                    "pageInfo": {"hasNextPage": False, "nextCursor": None},
-                    "records": [{"identifier": "d2", "updatedAt": "2026-01-01T00:00:00.000Z"}],
-                }
-            ),
-        ]
-        _, rows, sent_params = self._drive("Documents", manager, responses)
+        assert result.raised is None
+        assert result.params("cursor") == ["resumed-cursor"]
 
-        assert len(rows) == 2
-        assert sent_params[0].get("sortField") == "updatedAt"
-        assert sent_params[0].get("sortDirection") == "desc"
-        assert "cursor" not in sent_params[0]
-        assert sent_params[1]["cursor"] == "cursor-1"
-        manager.save_state.assert_called_once_with(OmniResumeConfig(cursor="cursor-1"))
+    def test_connections_single_page_never_checkpoints(self) -> None:
+        result = self._driver().run(
+            "Connections", [ScriptedResponse(json={"connections": [{"id": "c1"}, {"id": "c2"}]})]
+        )
 
-    def test_documents_resumes_from_saved_cursor(self):
-        manager = _make_manager(OmniResumeConfig(cursor="resumed-cursor"))
-        responses = [_make_response({"pageInfo": {"hasNextPage": False, "nextCursor": None}, "records": []})]
+        assert result.raised is None
+        assert result.rows == [{"id": "c1"}, {"id": "c2"}]
+        assert result.saved_states == []
 
-        _, _rows, sent_params = self._drive("Documents", manager, responses)
+    def test_users_scim_pagination_checkpoints_start_index(self) -> None:
+        result = self._driver().run(
+            "Users",
+            [
+                ScriptedResponse(
+                    json={"Resources": [{"id": "u1"}], "itemsPerPage": 1, "totalResults": 2, "startIndex": 1}
+                ),
+                ScriptedResponse(
+                    json={"Resources": [{"id": "u2"}], "itemsPerPage": 1, "totalResults": 2, "startIndex": 2}
+                ),
+            ],
+        )
 
-        assert sent_params[0]["cursor"] == "resumed-cursor"
-        manager.load_state.assert_called_once()
-
-    def test_connections_single_page_never_checkpoints(self):
-        manager = _make_manager()
-        responses = [_make_response({"connections": [{"id": "c1"}, {"id": "c2"}]})]
-
-        _, rows, _sent_params = self._drive("Connections", manager, responses)
-
-        assert rows == [{"id": "c1"}, {"id": "c2"}]
-        manager.save_state.assert_not_called()
-
-    def test_users_scim_pagination_checkpoints_start_index(self):
-        manager = _make_manager()
-        responses = [
-            _make_response(
-                {"Resources": [{"id": "u1"}], "itemsPerPage": 1, "totalResults": 2, "startIndex": 1},
-            ),
-            _make_response(
-                {"Resources": [{"id": "u2"}], "itemsPerPage": 1, "totalResults": 2, "startIndex": 2},
-            ),
-        ]
-        _, rows, _sent_params = self._drive("Users", manager, responses)
-
-        assert rows == [{"id": "u1"}, {"id": "u2"}]
-        manager.save_state.assert_called_once_with(OmniResumeConfig(start_index=2))
+        assert result.raised is None
+        assert result.rows == [{"id": "u1"}, {"id": "u2"}]
+        assert result.params("startIndex") == ["1", "2"]
+        assert result.saved_states == [OmniResumeConfig(start_index=2)]
 
     @pytest.mark.parametrize("endpoint", list(PRIMARY_KEYS.keys()))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        manager = _make_manager()
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         selector = {
             "Documents": "records",
             "Folders": "records",
@@ -277,14 +252,12 @@ class TestOmniSourceEndToEnd:
             "Users": "Resources",
             "UserGroups": "Resources",
         }[endpoint]
-        responses = [
-            _make_response({"pageInfo": {"hasNextPage": False, "nextCursor": None}, selector: []})
-            if selector != "connections"
-            else _make_response({selector: []})
-        ]
+        body = {"pageInfo": {"hasNextPage": False, "nextCursor": None}, selector: []}
+        result = self._driver().run(endpoint, [ScriptedResponse(json=body)])
+        response = result.response
 
-        response, _rows, _sent_params = self._drive(endpoint, manager, responses)
-
+        assert result.raised is None
+        assert response is not None
         assert response.primary_keys == PRIMARY_KEYS[endpoint]
         assert response.sort_mode == ("desc" if endpoint == "Documents" else "asc")
         partition_key = PARTITION_KEYS[endpoint]
@@ -298,42 +271,29 @@ class TestOmniSourceEndToEnd:
 
 class TestOmniSourceSsrfGuards:
     @mock.patch.object(omni_module, "_is_host_safe", return_value=(False, "internal address"))
-    def test_sync_rejects_unsafe_host(self, _mock_host_safe):
+    def test_sync_rejects_unsafe_host(self, _mock_host_safe: mock.MagicMock) -> None:
         # A hostname that validated publicly can be DNS-rebound to a private address before a
         # scheduled import runs; the sync must re-check rather than trust the stored host.
-        with pytest.raises(ValueError, match="internal address"):
-            omni_source(
-                host="acme.omniapp.co",
-                api_key="test-key",
-                endpoint="Connections",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-            )
+        result = TestOmniSourceEndToEnd._driver().run("Connections", [])
 
-    @mock.patch.object(omni_module, "_is_host_safe", return_value=(True, None))
-    def test_sync_pins_host_and_disables_redirects(self, _mock_host_safe):
-        send_kwargs: list[dict[str, Any]] = []
+        assert isinstance(result.raised, ValueError)
+        assert "internal address" in str(result.raised)
+        assert result.requests == []
 
-        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
-            send_kwargs.append(kwargs)
-            return _make_response({"connections": []})
-
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = omni_source(
-                host="acme.omniapp.co",
-                api_key="test-key",
-                endpoint="Connections",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-            )
-            list(cast(Iterable[Any], response.items()))
+    def test_sync_pins_host_and_disables_redirects(self) -> None:
+        result = TestOmniSourceEndToEnd._driver().run(
+            "Connections",
+            [
+                ScriptedResponse(
+                    status=302,
+                    headers={"Location": "https://other.example.com/steal"},
+                )
+            ],
+        )
 
         # Redirects are never followed, so a 3xx can't bounce the bearer token off-host.
-        assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)
+        assert isinstance(result.raised, ValueError)
+        assert "refusing to follow" in str(result.raised)
+        assert len(result.requests) == 1
+        assert result.requests[0].origin == "https://acme.omniapp.co"
+        assert result.requests[0].headers["authorization"] == "Bearer test-key"

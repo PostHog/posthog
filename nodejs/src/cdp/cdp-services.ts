@@ -208,6 +208,11 @@ export interface CdpCoreServicesDeps {
      * open connections against the SES Valkey instance.
      */
     emailValidationValkey: RedisV2 | null
+    /**
+     * Dedicated frequency cap Valkey pool, opened only on the same pods as `emailValidationValkey`.
+     * `null` elsewhere, and when no host is configured, which turns the cap off.
+     */
+    frequencyCapValkey: RedisV2 | null
 }
 
 /**
@@ -516,7 +521,13 @@ export function createCdpCoreServices(
         hogExecutorAsync
     )
 
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+    const recipientPreferencesService = new RecipientPreferencesService(
+        recipientsManager,
+        emailSuppressionService,
+        deps.frequencyCapValkey
+            ? { teamWorkflowsConfig: teamWorkflowsConfigService, valkey: deps.frequencyCapValkey }
+            : undefined
+    )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null

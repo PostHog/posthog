@@ -37,6 +37,24 @@ _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
 )
 
 
+# Relations onto FeatureFlag that deliberately do not confer ownership. Listed rather than
+# inferred, so "standalone" is a classification somebody made instead of whatever was left over.
+# `test_flag_ownership_relations_are_classified` fails when a relation appears in neither list,
+# which is what stops a new owning product being read as standalone because nobody registered it.
+_REFERENCE_ACCESSORS: frozenset[str] = frozenset(
+    {
+        # A survey or tour may point at another product's flag to target its audience.
+        "surveys_linked_flag",
+        "product_tours_linked_flag",
+        # Evaluation and override bookkeeping, not a product that owns the flag.
+        "flag_evaluation_contexts",
+        "featureflagoverride_set",
+        "featureflagdashboards_set",
+        "access",
+    }
+)
+
+
 def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     """Return the product that owns this flag, or None when nothing owns it.
 

@@ -17,6 +17,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -79,6 +80,7 @@ const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-
 
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
+const PROPOSED_METRIC_STATUS = 'proposed'
 
 export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
     if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
@@ -89,6 +91,12 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     const isDrifted = envelope.is_drifted === true
     if (status === APPROVED_METRIC_STATUS && !isDrifted) {
         return result
+    }
+    if (status === PROPOSED_METRIC_STATUS && !isDrifted) {
+        return {
+            NONCANONICAL: `status=proposed is_drifted=false. Not approved: use it only if its definition fits the question. If you use it, open the answer with '📝 **Proposed definition in your data catalog**: [<display_name>](<url>), not yet approved. Review it and approve it if it fits.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            ...envelope,
+        }
     }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
@@ -233,6 +241,7 @@ export interface ExecToolOptions {
      * degrades to "no third-party tools", never to a broken `exec`.
      */
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
     /**
@@ -607,6 +616,32 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
                 `Tool "${removed}" was removed. It was a deprecation alias for "${replacement}", which takes the same arguments. Call "${replacement}" instead.`,
         ])
     ),
+    // The legacy loops API was removed. Loops are workflows tagged origin_product "loops".
+    ...Object.fromEntries(
+        [
+            ['loops-create', '"workflows-create"'],
+            ['loops-create-execute', '"workflows-create"'],
+            ['loops-create-prepare', '"workflows-create"'],
+            ['loops-destroy', '"workflows-archive"'],
+            ['loops-list', '"workflows-list"'],
+            ['loops-partial-update', '"workflows-patch-graph" or "workflows-update"'],
+            ['loops-preview-create', '"workflows-test-run"'],
+            ['loops-retrieve', '"workflows-get"'],
+            ['loops-review', '"workflows-create"'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed. Loops run on workflows: read the building-loops skill, then use ${replacement} with origin_product "loops".`,
+        ])
+    ),
+    'loops-run-create': () =>
+        'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    'loops-runs-retrieve': () =>
+        'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
+}
+
+export function getDeprecatedToolRedirect(toolName: string, allTools: Tool<ZodObjectAny>[]): string | undefined {
+    return DEPRECATED_TOOL_REDIRECTS[toolName]?.(allTools)
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field
@@ -1637,9 +1672,9 @@ function findTool(
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
-        const redirect = DEPRECATED_TOOL_REDIRECTS[name]
+        const redirect = getDeprecatedToolRedirect(name, tools)
         if (redirect) {
-            throw new ExecCommandError(redirect(tools), 'deprecated_tool')
+            throw new ExecCommandError(redirect, 'deprecated_tool')
         }
         const flagGatedTool = flagGatedTools.find((candidate) => candidate.name === name)
         if (flagGatedTool) {
@@ -1703,6 +1738,12 @@ export function createExecTool(
                 }
                 if (gatewayTools === undefined) {
                     gatewayTools = await options.gatewayToolsProvider()
+                    const filter = options.gatewayToolFilter
+                    gatewayTools = gatewayTools.filter(
+                        (tool) =>
+                            !filter?.excludeTools?.includes(tool.name) &&
+                            (!(filter?.tools?.length || filter?.features?.length) || filter?.tools?.includes(tool.name))
+                    )
                 }
                 return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
             }

@@ -7,9 +7,13 @@ import { Label } from './label'
 import { cn } from './lib/utils'
 import { Separator } from './separator'
 
-function FieldSet({ className, ...props }: React.ComponentProps<'fieldset'>): React.ReactElement {
+const FieldSet = React.forwardRef<HTMLFieldSetElement, React.ComponentProps<'fieldset'>>(function FieldSet(
+    { className, ...props },
+    ref
+) {
     return (
         <fieldset
+            ref={ref}
             data-slot="field-set"
             className={cn(
                 'quill-field-set flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3',
@@ -18,26 +22,30 @@ function FieldSet({ className, ...props }: React.ComponentProps<'fieldset'>): Re
             {...props}
         />
     )
-}
+})
 
-function FieldLegend({
-    className,
-    variant = 'legend',
-    ...props
-}: React.ComponentProps<'legend'> & { variant?: 'legend' | 'label' }): React.ReactElement {
+const FieldLegend = React.forwardRef<
+    HTMLLegendElement,
+    React.ComponentProps<'legend'> & { variant?: 'legend' | 'label' }
+>(function FieldLegend({ className, variant = 'legend', ...props }, ref) {
     return (
         <legend
+            ref={ref}
             data-slot="field-legend"
             data-variant={variant}
             className={cn('quill-field-legend', className)}
             {...props}
         />
     )
-}
+})
 
-function FieldGroup({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const FieldGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function FieldGroup(
+    { className, ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
             data-slot="field-group"
             className={cn(
                 'group/field-group @container/field-group flex w-full flex-col gap-4 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4',
@@ -46,7 +54,7 @@ function FieldGroup({ className, ...props }: React.ComponentProps<'div'>): React
             {...props}
         />
     )
-}
+})
 
 const fieldVariants = cva('quill-field group/field flex w-full gap-x-2 gap-y-1', {
     variants: {
@@ -63,72 +71,91 @@ const fieldVariants = cva('quill-field group/field flex w-full gap-x-2 gap-y-1',
     },
 })
 
-function Field({
-    className,
-    orientation = 'vertical',
-    ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof fieldVariants>): React.ReactElement {
-    return (
-        <div
-            role="group"
-            data-quill
-            data-slot="field"
-            data-orientation={orientation}
-            className={cn(fieldVariants({ orientation }), className)}
-            {...props}
-        />
-    )
-}
+const Field = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'> & VariantProps<typeof fieldVariants>>(
+    function Field({ className, orientation = 'vertical', ...props }, ref) {
+        return (
+            <div
+                ref={ref}
+                role="group"
+                data-quill
+                data-slot="field"
+                data-orientation={orientation}
+                className={cn(fieldVariants({ orientation }), className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function FieldContent({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const FieldContent = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function FieldContent(
+    { className, ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
             data-slot="field-content"
             className={cn('quill-field__content group/field-content flex flex-1 flex-col gap-0.5', className)}
             {...props}
         />
     )
-}
+})
 
-function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>): React.ReactElement {
-    return (
-        <Label
-            data-slot="field-label"
-            className={cn('quill-field__label group/field-label peer/field-label flex w-fit gap-2', className)}
-            {...props}
-        />
-    )
-}
+const FieldLabel = React.forwardRef<React.ComponentRef<typeof Label>, React.ComponentProps<typeof Label>>(
+    function FieldLabel({ className, ...props }, ref) {
+        return (
+            <Label
+                ref={ref}
+                data-slot="field-label"
+                className={cn('quill-field__label group/field-label peer/field-label flex w-fit gap-2', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function FieldTitle({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const FieldTitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function FieldTitle(
+    { className, ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
             data-slot="field-label"
             className={cn('quill-field__title flex w-fit items-center gap-2', className)}
             {...props}
         />
     )
-}
+})
 
-function FieldDescription({ className, ...props }: React.ComponentProps<'p'>): React.ReactElement {
+const FieldDescription = React.forwardRef<HTMLParagraphElement, React.ComponentProps<'p'>>(function FieldDescription(
+    { className, ...props },
+    ref
+) {
     return (
         <p
+            ref={ref}
             data-slot="field-description"
             className={cn('quill-field__description last:mt-0 nth-last-2:mt-0', className)}
             {...props}
         />
     )
-}
+})
 
-function FieldSeparator({
-    children,
-    className,
-    ...props
-}: React.ComponentProps<'div'> & {
-    children?: React.ReactNode
-}): React.ReactElement {
+const FieldSeparator = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & {
+        children?: React.ReactNode
+    }
+>(function FieldSeparator({ children, className, ...props }, ref) {
     return (
-        <div data-slot="field-separator" data-content={!!children} className={cn('quill-field__separator', className)} {...props}>
+        <div
+            ref={ref}
+            data-slot="field-separator"
+            data-content={!!children}
+            className={cn('quill-field__separator', className)}
+            {...props}
+        >
             <Separator className="absolute inset-0 top-1/2" />
             {children && (
                 <span className="quill-field__separator-content" data-slot="field-separator-content">
@@ -137,16 +164,14 @@ function FieldSeparator({
             )}
         </div>
     )
-}
+})
 
-function FieldError({
-    className,
-    children,
-    errors,
-    ...props
-}: React.ComponentProps<'div'> & {
-    errors?: Array<{ message?: string } | undefined>
-}): React.ReactElement | null {
+const FieldError = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & {
+        errors?: Array<{ message?: string } | undefined>
+    }
+>(function FieldError({ className, children, errors, ...props }, ref) {
     const content = useMemo(() => {
         if (children) {
             return children
@@ -174,11 +199,11 @@ function FieldError({
     }
 
     return (
-        <div role="alert" data-slot="field-error" className={cn('quill-field__error', className)} {...props}>
+        <div ref={ref} role="alert" data-slot="field-error" className={cn('quill-field__error', className)} {...props}>
             {content}
         </div>
     )
-}
+})
 
 export {
     Field,

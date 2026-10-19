@@ -40,7 +40,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -48,13 +47,14 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
+import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
@@ -74,7 +74,6 @@ import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import {
     type AccessControlFilterWarning,
     type DataTableNode,
-    type DataWarehouseSyncWarning,
     type HogQLQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -102,7 +101,6 @@ import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
-import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -1171,7 +1169,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     if (!warnings || warnings.length === 0) {
         return null
     }
-    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const syncWarnings = warehouseSyncWarnings(warnings)
     const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
         <>
@@ -1182,24 +1180,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     data-attr="sql-editor-output-pane-sync-warnings"
                 >
                     Some warehouse sources used by this query are out of date — results may not reflect current data:
-                    <ul className="list-disc pl-5">
-                        {syncWarnings.map((warning, index) => (
-                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                                {trimRedundantTail(warning.message)}
-                                {warning.source_id && (
-                                    <>
-                                        {' '}
-                                        <Link
-                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
-                                            target="_blank"
-                                        >
-                                            Manage source
-                                        </Link>
-                                    </>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
+                    <WarehouseSyncWarningList warnings={syncWarnings} />
                 </LemonBanner>
             )}
             {acWarnings.length > 0 && (
@@ -1289,7 +1270,7 @@ const Content = ({
     showQueryScan,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
-    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
@@ -1364,16 +1345,18 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <WarehouseWizardHint
-                        className="max-w-140"
-                        fallback={
-                            <MCPUseCaseCard
-                                surfaceKey="sql.execute"
-                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                className="max-w-140"
-                            />
-                        }
-                    />
+                    {showAgentHints ? (
+                        <WarehouseWizardHint
+                            className="max-w-140"
+                            fallback={
+                                <MCPUseCaseCard
+                                    surfaceKey="sql.execute"
+                                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                    className="max-w-140"
+                                />
+                            }
+                        />
+                    ) : null}
                 </div>
             )
         }
@@ -1431,20 +1414,28 @@ const Content = ({
                 className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
-                    statements with <code>;</code> to run them independently.
-                </span>
-                <WarehouseWizardHint
-                    className="max-w-140"
-                    fallback={
-                        <MCPUseCaseCard
-                            surfaceKey="sql.execute"
-                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                            className="max-w-140"
-                        />
-                    }
-                />
+                {singleStatement ? (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    </span>
+                ) : (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate
+                        multiple statements with <code>;</code> to run them independently.
+                    </span>
+                )}
+                {showAgentHints ? (
+                    <WarehouseWizardHint
+                        className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
+                    />
+                ) : null}
             </div>
         )
     }

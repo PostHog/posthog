@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, SystemsManagerResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_SYSTEMS_MANAGER|AWSSYSTEMSMANAGER)_",),
+        npm=("@aws-sdk/client-ssm",),
+        cargo=("aws-sdk-ssm",),
+        go=("github.com/aws/aws-sdk-go-v2/service/ssm",),
+        maven=("software.amazon.awssdk:ssm", "com.amazonaws:aws-java-sdk-ssm"),
+        rubygems=("aws-sdk-ssm",),
+    )
+
     lists_tables_without_credentials = True
     # SSM uses an unversioned target; the pinned botocore model serializes every request.
     supported_versions = (API_VERSION,)
@@ -101,11 +111,14 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
             name=ExternalDataSourceType.AWSSYSTEMSMANAGER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Systems Manager",
-            caption="""Sync fleet inventory, compliance summaries, associations, and patch baselines from one AWS region.
+            caption="""Sync fleet inventory, compliance, associations, documents, patching, sessions, and OpsItems from one AWS region.
 
 Grant these IAM permissions for the tables you select:
-`ssm:DescribeInstanceInformation`, `ssm:GetInventory`, `ssm:ListResourceComplianceSummaries`,
-`ssm:ListAssociations`, and `ssm:DescribePatchBaselines`.
+`ssm:DescribeInstanceInformation`, `ssm:GetInventory`, `ssm:GetInventorySchema`, `ssm:ListInventoryEntries`,
+`ssm:ListResourceComplianceSummaries`, `ssm:ListComplianceItems`, `ssm:ListAssociations`,
+`ssm:DescribeAssociationExecutions`, `ssm:DescribeAssociationExecutionTargets`, `ssm:ListDocuments`,
+`ssm:DescribePatchBaselines`, `ssm:DescribeInstancePatchStates`, `ssm:DescribeInstancePatches`,
+`ssm:DescribeSessions`, `ssm:DescribeOpsItems`, and `ssm:ListOpsItemEvents`.
 
 Enter an access key ID and secret access key. Include a session token for temporary credentials.
 All tables use full refresh. Create a separate source for each region.""",

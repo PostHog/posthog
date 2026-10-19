@@ -27,15 +27,21 @@ class AdvancedActivityLogFieldDiscovery:
         self.organization_id = organization_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
+        cached = get_cached_fields(str(self.organization_id))
         record_count = self._get_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id))
-            if cached:
+            if cached is not None:
                 return cached
             return {
                 "static_filters": {"users": [], "scopes": [], "activities": [], "clients": []},
                 "detail_fields": {},
+            }
+
+        if cached is not None:
+            return {
+                "static_filters": self._get_static_filters(base_queryset),
+                "detail_fields": cached["detail_fields"],
             }
 
         static_filters = self._get_static_filters(base_queryset)
@@ -58,7 +64,9 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = queryset.values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
+        users_query = (
+            queryset.order_by().values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
+        )
         seen_users = set()
         unique_users = []
 
@@ -75,17 +83,17 @@ class AdvancedActivityLogFieldDiscovery:
         return unique_users
 
     def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes_query = queryset.values_list("scope", flat=True)
+        scopes_query = queryset.order_by().values_list("scope", flat=True).distinct()
         scopes = set(scopes_query)
         return [{"value": scope} for scope in sorted(scopes) if scope]
 
     def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities_query = queryset.values_list("activity", flat=True)
+        activities_query = queryset.order_by().values_list("activity", flat=True).distinct()
         activities = set(activities_query)
         return [{"value": activity} for activity in sorted(activities) if activity]
 
     def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.values_list("client", flat=True)
+        clients_query = queryset.order_by().values_list("client", flat=True).distinct()
         clients = set(clients_query)
         return [{"value": client} for client in sorted(c for c in clients if c)]
 

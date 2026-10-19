@@ -23,10 +23,11 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
-from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.scopes import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
@@ -242,25 +243,21 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Verify user has access to the project
         try:
             team = Team.objects.get(id=project_id)
-            # Check if user has access to this team's organization
-            if not user.organization_memberships.filter(organization=team.organization).exists():
-                return Response(
-                    {"error": "access_denied", "error_description": "You do not have access to this project"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
         except Team.DoesNotExist:
             return Response(
                 {"error": "invalid_project", "error_description": "Project not found"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create Personal API Key for the CLI
-        api_key_value = generate_random_token_personal()
-        mask_value = mask_key_value(api_key_value)
-        secure_value = hash_key_value(api_key_value)
+        try:
+            teams = AccessibleTeams.for_request(request, [team.id])
+        except CredentialScopeDenied:
+            return Response(
+                {"error": "access_denied", "error_description": "You do not have access to this project"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Label max length is 40 chars, so truncate if needed
         timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")
@@ -270,15 +267,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
 
-        PersonalAPIKey.objects.create(
-            user=user,
-            label=label,
-            secure_value=secure_value,
-            mask_value=mask_value,
-            scopes=scopes,
-            scoped_teams=[team.id],
-            scoped_organizations=[],
-        )
+        minted = mint_personal_api_key(user, label=label, scopes=scopes, teams=teams)
 
         # User explicitly authorized this CLI via SessionAuthentication (see
         # CLIAuthViewSet.get_authenticators - authorize is session-only). If they
@@ -292,7 +281,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         # Mark device as authorized and store the API key
         device_data["status"] = "authorized"
-        device_data["personal_api_key"] = api_key_value
+        device_data["personal_api_key"] = minted.value
         device_data["label"] = label
         device_data["project_id"] = str(project_id)
         device_data["scopes"] = scopes
@@ -306,7 +295,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             {
                 "status": "success",
                 "label": label,
-                "mask_value": mask_value,
+                "mask_value": minted.key.mask_value,
             },
             status=status.HTTP_200_OK,
         )

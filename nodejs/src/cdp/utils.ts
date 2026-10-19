@@ -79,6 +79,7 @@ export function convertToHogFunctionInvocationGlobals(
 
     const eventTimestamp = parseClickHouseEventTimestamp(event.timestamp)!
     const eventCapturedAt = parseClickHouseEventTimestamp(event.captured_at)
+    const eventUrl = `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -94,7 +95,12 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
-            url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+            // The events page reads flag calls from flag_evaluations only when the link names the event.
+            // On flag_evaluations_mode 2 a flag call has no events row, so a link without the name finds nothing.
+            url:
+                event.event === '$feature_flag_called'
+                    ? `${eventUrl}?event=${encodeURIComponent(event.event)}`
+                    : eventUrl,
         },
         person,
     }
@@ -350,12 +356,13 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
     // A webhook's `headers` is free-form, so it is not marked secret, but it is where a credential
     // most often sits — and a webhook whose credential is rejected is exactly the case that gets it
     // quoted back. Mask values under header names that carry one, whatever the secret flag says.
-    const collectCredentialHeaders = (obj: any): void => {
+    // Every entry of a secret dictionary is a credential, whatever its header name.
+    const collectCredentialHeaders = (obj: any, anyHeaderName: boolean): void => {
         if (!obj || typeof obj !== 'object') {
             return
         }
         Object.entries(obj).forEach(([key, val]) => {
-            if (typeof val !== 'string' || !CREDENTIAL_HEADER_NAMES.test(key.trim())) {
+            if (typeof val !== 'string' || (!anyHeaderName && !CREDENTIAL_HEADER_NAMES.test(key.trim()))) {
                 return
             }
             values.push(val)
@@ -368,8 +375,8 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
     }
 
     hogFunction.inputs_schema?.forEach((schema) => {
-        if (schema.type === 'dictionary' && !schema.secret) {
-            collectCredentialHeaders(inputs[schema.key])
+        if (schema.type === 'dictionary') {
+            collectCredentialHeaders(inputs[schema.key], !!schema.secret)
         }
         // A function keeps the schema it was saved with, so a credential input that a later template
         // version marks secret is still `secret: false` on older functions.

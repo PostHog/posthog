@@ -1,7 +1,7 @@
 import json
 import uuid
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -338,6 +338,7 @@ class TestTask(TestCase):
             (Task.OriginProduct.SIGNAL_REPORT,),
             (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
             (Task.OriginProduct.AUTORESEARCH,),
+            (Task.OriginProduct.ACCOUNT_AUDIT,),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -1126,6 +1127,23 @@ class TestTaskRun(TestCase):
 
         self.assertNotIn("initial_permission_mode", run.state)
 
+    @parameterized.expand([("immediate", None), ("future", 1), ("overdue", -1)])
+    def test_create_run_stamps_server_startup_time_and_preserves_it_in_analytics(
+        self, _name: str, scheduled_days: int | None
+    ) -> None:
+        requested_at = django_timezone.now()
+        scheduled_at = requested_at + timedelta(days=scheduled_days) if scheduled_days is not None else None
+        run = self.task.create_run(
+            extra_state={"startup_requested_at": "untrusted-time"},
+            startup_requested_at=requested_at,
+            scheduled_at=scheduled_at,
+        )
+        run.refresh_from_db()
+
+        expected = max(requested_at, scheduled_at) if scheduled_at is not None else requested_at
+        self.assertEqual(run.state["startup_requested_at"], expected.isoformat())
+        self.assertEqual(run.analytics_properties()["startup_requested_at"], run.state["startup_requested_at"])
+
     def test_create_run_snapshots_task_ownership_version(self):
         ownership_version = str(uuid.uuid4())
         self.task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: ownership_version}
@@ -1253,6 +1271,7 @@ class TestTaskRun(TestCase):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_prepare_for_cloud_resume_clears_stale_sandbox_routing(self, _publish):
+        requested_at = django_timezone.now() - timedelta(days=1)
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -1266,11 +1285,19 @@ class TestTaskRun(TestCase):
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
+                "failure_error_type": "poll_timeout",
+                "startup_requested_at": requested_at.isoformat(),
             },
         )
 
         run.prepare_for_cloud_resume()
+        run.refresh_from_db()
 
+        self.assertEqual(run.state["startup_requested_at"], requested_at.isoformat())
+        assert run.queued_at is not None
+        self.assertEqual(run.analytics_properties()["startup_requested_at"], run.queued_at.isoformat())
+
+        self.assertNotIn("failure_error_type", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
@@ -1618,22 +1645,6 @@ class TestTaskRun(TestCase):
         self.assertEqual(props.get("sandbox_backend"), expected_backend)
         self.assertEqual(len(props["error_message"]), 500)
         self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
-
-    @parameterized.expand(
-        [
-            ("loop_run", {"loop_id": "loop-abc", "loop_trigger_id": "trig-xyz"}, "loop-abc", "trig-xyz"),
-            ("non_loop_run", {}, None, None),
-        ]
-    )
-    def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.task.create_run(extra_state=extra_state or None)
-        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
-        self.assertEqual(len(created), 1)
-        props = created[0].kwargs["properties"]
-        self.assertEqual(props["loop_id"], expected_loop_id)
-        self.assertEqual(props["loop_trigger_id"], expected_trigger_id)
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(

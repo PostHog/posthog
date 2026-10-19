@@ -96,7 +96,7 @@ def without(document: dict[str, Any], key: str) -> dict[str, Any]:
     return {name: value for name, value in document.items() if name != key}
 
 
-def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str]]:
+def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str | None]]:
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config(document, limits=limits)
     return [(error.code, error.attr) for error in exc_info.value.errors]
@@ -344,9 +344,9 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     (
         "targeted_with_experiment_fields",
-        config(targeted(experiment_id=1, variants=[], holdout=None)),
+        config(targeted(paused=False, variants=[], holdout=None)),
         [
-            ("unknown_field", "filters.rules[0].experiment_id"),
+            ("unknown_field", "filters.rules[0].paused"),
             ("unknown_field", "filters.rules[0].variants"),
             ("unknown_field", "filters.rules[0].holdout"),
         ],

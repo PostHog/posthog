@@ -1,108 +1,68 @@
-import json
 from typing import Any
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semgrep import (
+    SemgrepSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep import (
-    SEMGREP_BASE_URL,
     SemgrepResumeConfig,
-    semgrep_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import (
     ENDPOINTS,
     SEMGREP_ENDPOINTS,
 )
-
-# RESTClient uses the session the semgrep client config hands it, built here via make_tracked_session.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import SemgrepSource
 
 DEPLOYMENT = {"id": 123, "slug": "my-org", "name": "My Org"}
 
 
-def _json_response(body: Any, status: int = 200) -> requests.Response:
-    resp = requests.Response()
-    resp.status_code = status
-    resp.url = f"{SEMGREP_BASE_URL}/deployments"
-    resp.reason = "OK" if status < 400 else "Error"
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(SemgrepSource(), SemgrepSourceConfig(api_token="token"))
 
 
-def _make_manager(resume_state: SemgrepResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    manager.saved = []
-    manager.save_state.side_effect = lambda state: manager.saved.append(state)
-    return manager
+def _json_response(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
-def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per prepare.
-    """
-    session.headers = {}
-    log: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        log.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock(url=request.url, is_redirect=False)
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return log
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _child_requests(log: list[dict[str, Any]], marker: str) -> list[dict[str, Any]]:
-    return [entry for entry in log if marker in entry["url"]]
+def _child_requests(requests_made: list[RecordedRequest], marker: str) -> list[RecordedRequest]:
+    return [request for request in requests_made if marker in request.path]
 
 
 class TestSingleEndpoint:
-    @mock.patch(SESSION_PATCH)
-    def test_non_object_payload_raises_value_error(self, MockSession: Any) -> None:
+    def test_non_object_payload_raises_value_error(self) -> None:
         # A non-object 200 is a permanent contract violation: data_selector_required fails loud
         # instead of silently syncing 0 rows, and it must not be retried.
-        session = MockSession.return_value
-        _wire(session, [_json_response([{"id": 1}])])
+        result = _driver().run("deployments", [_json_response([{"id": 1}])])
 
-        with pytest.raises(ValueError):
-            _rows(
-                semgrep_source("token", "deployments", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 1
 
-    @mock.patch(SESSION_PATCH)
-    def test_client_error_raises_http_error(self, MockSession: Any) -> None:
+    def test_client_error_raises_http_error(self) -> None:
         # A 401/403 surfaces as an HTTPError so get_non_retryable_errors can match and stop the sync.
-        session = MockSession.return_value
-        _wire(session, [_json_response({}, status=401)])
+        result = _driver().run("deployments", [_json_response({}, status=401)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(
-                semgrep_source("token", "deployments", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestPageNumberFanout:
-    @mock.patch(SESSION_PATCH)
-    def test_paginates_until_short_page_and_injects_deployment(self, MockSession: Any) -> None:
-        session = MockSession.return_value
+    def test_paginates_until_short_page_and_injects_deployment(self) -> None:
         page_size = SEMGREP_ENDPOINTS["sast_findings"].page_size
         assert page_size is not None
         full_page = [{"id": i} for i in range(page_size)]
-        log = _wire(
-            session,
+
+        result = _driver().run(
+            "sast_findings",
             [
                 _json_response({"deployments": [DEPLOYMENT]}),
                 _json_response({"findings": full_page}),
@@ -110,47 +70,37 @@ class TestPageNumberFanout:
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(semgrep_source("token", "sast_findings", team_id=1, job_id="j", resumable_source_manager=manager))
-
+        rows = result.rows
         assert len(rows) == page_size + 1
         # Every row carries the parent deployment, keeping the composite primary key unique.
         assert all(row["deployment_id"] == 123 and row["deployment_slug"] == "my-org" for row in rows)
         # sast_findings requests pin issue_type and dedup so counts match the Semgrep UI.
-        findings = _child_requests(log, "/findings")
-        assert all(req["params"]["issue_type"] == "sast" and req["params"]["dedup"] == "true" for req in findings)
-        assert [req["params"]["page"] for req in findings] == [0, 1]
+        findings = _child_requests(result.requests, "/findings")
+        assert all(req.param("issue_type") == "sast" and req.param("dedup") == "true" for req in findings)
+        assert [req.param("page") for req in findings] == ["0", "1"]
         # Checkpoint saved after the full page points at the next page (page 1); short page ends it.
-        assert any((state.fanout_state or {}).get("child_state") == {"page": 1} for state in manager.saved)
+        assert any((state.fanout_state or {}).get("child_state") == {"page": 1} for state in result.saved_states)
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(
-            session,
-            [_json_response({"deployments": [DEPLOYMENT]}), _json_response({"projects": [{"id": 7}]})],
-        )
-
+    def test_resumes_from_saved_page(self) -> None:
         # Resume mid-way through my-org at page 2; pages 0-1 must not be re-fetched.
-        manager = _make_manager(
-            SemgrepResumeConfig(
+        result = _driver().run(
+            "projects",
+            [_json_response({"deployments": [DEPLOYMENT]}), _json_response({"projects": [{"id": 7}]})],
+            resume_state=SemgrepResumeConfig(
                 fanout_state={"completed": [], "current": "/deployments/my-org/projects", "child_state": {"page": 2}}
-            )
+            ),
         )
-        rows = _rows(semgrep_source("token", "projects", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert [row["id"] for row in rows] == [7]
-        project_reqs = _child_requests(log, "/projects")
+        assert [row["id"] for row in result.rows] == [7]
+        project_reqs = _child_requests(result.requests, "/projects")
         assert len(project_reqs) == 1
-        assert project_reqs[0]["params"]["page"] == 2
+        assert project_reqs[0].param("page") == "2"
 
 
 class TestCursorFanout:
-    @mock.patch(SESSION_PATCH)
-    def test_follows_cursor_until_absent(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(
-            session,
+    def test_follows_cursor_until_absent(self) -> None:
+        result = _driver().run(
+            "secrets",
             [
                 _json_response({"deployments": [DEPLOYMENT]}),
                 _json_response({"findings": [{"id": "1"}], "cursor": "abc"}),
@@ -158,48 +108,45 @@ class TestCursorFanout:
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(semgrep_source("token", "secrets", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [row["id"] for row in rows] == ["1", "2"]
+        assert [row["id"] for row in result.rows] == ["1", "2"]
         # secrets fans out on the deployment id, not slug.
-        secrets = _child_requests(log, "/secrets")
-        assert all("/deployments/123/secrets" in req["url"] for req in secrets)
-        assert "cursor" not in secrets[0]["params"]
-        assert secrets[1]["params"]["cursor"] == "abc"
-        assert any((state.fanout_state or {}).get("child_state") == {"cursor": "abc"} for state in manager.saved)
+        secrets = _child_requests(result.requests, "/secrets")
+        assert all("/deployments/123/secrets" in req.path for req in secrets)
+        assert secrets[0].param("cursor") is None
+        assert secrets[1].param("cursor") == "abc"
+        assert any((state.fanout_state or {}).get("child_state") == {"cursor": "abc"} for state in result.saved_states)
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        log = _wire(
-            session,
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "secrets",
             [_json_response({"deployments": [DEPLOYMENT]}), _json_response({"findings": [{"id": "2"}]})],
-        )
-
-        manager = _make_manager(
-            SemgrepResumeConfig(
+            resume_state=SemgrepResumeConfig(
                 fanout_state={
                     "completed": [],
                     "current": "/deployments/123/secrets",
                     "child_state": {"cursor": "abc"},
                 }
-            )
+            ),
         )
-        rows = _rows(semgrep_source("token", "secrets", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert [row["id"] for row in rows] == ["2"]
-        secrets = _child_requests(log, "/secrets")
+        assert [row["id"] for row in result.rows] == ["2"]
+        secrets = _child_requests(result.requests, "/secrets")
         assert len(secrets) == 1
-        assert secrets[0]["params"]["cursor"] == "abc"
+        assert secrets[0].param("cursor") == "abc"
 
 
 class TestSemgrepSourceResponse:
+    @staticmethod
+    def _empty_listing(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/deployments"):
+            return _json_response({"deployments": [DEPLOYMENT]})
+        return _json_response({"findings": [], "projects": []})
+
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_shape(self, name: str) -> None:
         config = SEMGREP_ENDPOINTS[name]
-        with mock.patch(SESSION_PATCH):
-            response = semgrep_source("token", name, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        response = _driver().run(name, self._empty_listing).response
+        assert response is not None
         assert response.name == name
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
@@ -226,7 +173,8 @@ class TestSemgrepSourceResponse:
 
 
 class TestValidateCredentials:
-    @mock.patch(SESSION_PATCH)
-    def test_ok(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("token") is True
+    def test_ok(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=200, json={"deployments": []}))) as network:
+            assert validate_credentials("token") is True
+
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"

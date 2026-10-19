@@ -95,6 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     StripeTransientError,
+    StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
@@ -219,6 +220,80 @@ class TestStripeGetRowsIncrementalCursor:
         rows = [row for table in tables for row in table.to_pylist()]
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
+
+
+class TestStripeFlatResourceResumeCursor:
+    def test_restarts_listing_when_resume_cursor_no_longer_exists(self):
+        # A cursor saved by a previous run can outlive the object it names (e.g. the
+        # invoice_payment it pointed at was voided between runs). Without recovery, every retry
+        # reloads the same stale cursor and 404s identically forever — this locks in restarting
+        # the listing instead of getting the job permanently stuck.
+        calls: list[dict] = []
+
+        def method(params=None):
+            calls.append(params or {})
+            if (params or {}).get("starting_after") == "inpay_gone":
+                raise stripe_lib.InvalidRequestError(
+                    "No such invoice_payment: 'inpay_gone'",
+                    "starting_after",
+                    code="resource_missing",
+                    http_status=404,
+                )
+            return cast(ListObject[Any], _FakeStripeList([{"id": "inpay_1"}, {"id": "inpay_2"}]))
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = True
+        resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_gone")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["inpay_1", "inpay_2"]
+        # First call carries the stale cursor and 404s; the recovery call drops it entirely.
+        assert calls == [{"limit": DEFAULT_LIMIT, "starting_after": "inpay_gone"}, {"limit": DEFAULT_LIMIT}]
+
+    def test_other_invalid_request_errors_still_raise(self):
+        def method(params=None):
+            raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = True
+        resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_1")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            with pytest.raises(stripe_lib.InvalidRequestError):
+                list(
+                    get_rows(
+                        api_key="sk_test_123",
+                        endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                        account_id=None,
+                        db_incremental_field_last_value=None,
+                        db_incremental_field_earliest_value=None,
+                        logger=MagicMock(),
+                        resumable_source_manager=resumable_source_manager,
+                        api_version=STRIPE_API_VERSION_ACACIA,
+                    )
+                )
 
 
 class TestStripeSource:
@@ -419,6 +494,34 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "stripe_error,expected_start",
+        [
+            ("Invalid request (check your request parameters)", "Stripe couldn't read your account"),
+            ("This API call cannot be made with a publishable API key.", "Your Stripe API key is a publishable key"),
+        ],
+    )
+    def test_validate_credentials_validation_error_hides_raw_stripe_text(self, stripe_error, expected_start):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+                side_effect=StripeValidationError({"Customer": stripe_error}),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.capture_exception"
+            ),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert message.startswith(expected_start)
+        assert stripe_error not in message
 
     @pytest.mark.parametrize(
         "body,expected",

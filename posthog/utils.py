@@ -27,7 +27,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError, models
-from django.db.models.functions import Coalesce, Lower
+from django.db.models.functions import Coalesce
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -497,6 +497,17 @@ def get_context_for_template(
         return _build_template_context(template_name, request, context, team_for_public_context)
 
 
+def get_persisted_feature_flags_for_app_context() -> list[str]:
+    static_keys = list(settings.PERSISTED_FEATURE_FLAGS)
+    non_cloud = not is_cloud()
+    if non_cloud and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        static_keys = [*static_keys, *settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    flags = get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    if non_cloud and not settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        return [flag for flag in flags if flag not in settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    return flags
+
+
 def _build_template_context(
     template_name: str,
     request: HttpRequest,
@@ -572,9 +583,7 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
         "run_mode": run_mode().value,
     }
@@ -585,12 +594,10 @@ def _build_template_context(
     # Set the frontend app context
     # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team import TeamSerializer
+        from posthog.api.team.team_serializer import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -609,7 +616,6 @@ def _build_template_context(
             "current_team": None,
             "preflight": preflight_payload,
             "default_event_name": "$pageview",
-            "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "project_access_denied": getattr(request, "project_access_denied", None),
@@ -628,6 +634,13 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            team = user.team
+            if team and not user_access_control.has_project_access:
+                user.current_team = None
+                user.team = None
+                user.save(update_fields=["current_team"])
+                user_permissions = UserPermissions(user=user, team=None)
+                user_access_control = UserAccessControl(user=user, team=None)
             with tracer.start_as_current_span("template.rbac.effective"):
                 effective_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
@@ -682,15 +695,6 @@ def _build_template_context(
                 posthog_app_context["has_screen"] = event_info["has_screen"]
                 posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
-                with tracer.start_as_current_span("template.user_product_list"):
-                    user_product_list = UserProductListSerializer(
-                        UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
-                            Lower("product_path")
-                        ),
-                        many=True,
-                    )
-                    posthog_app_context["custom_products"] = user_product_list.data
-
                 with tracer.start_as_current_span("template.user_home_settings"):
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
@@ -711,7 +715,7 @@ def _build_template_context(
 
     if posthog_distinct_id:
         groups = {}
-        group_properties = {}
+        group_properties: dict[str, dict[str, str | int]] = {}
         person_properties = {}
         if request.user and request.user.is_authenticated:
             user = cast("User", request.user)
@@ -722,6 +726,13 @@ def _build_template_context(
                 group_properties["organization"] = {
                     "name": user.organization.name,
                     "created_at": user.organization.created_at.isoformat(),
+                }
+            if user.team:
+                groups["project"] = str(user.team.uuid)
+                group_properties["project"] = {
+                    "id": user.team.id,
+                    "uuid": str(user.team.uuid),
+                    "name": user.team.name,
                 }
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):
@@ -751,7 +762,9 @@ def _build_template_context(
         stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
         if stable_chunks:
             context["stable_chunks"] = True
-            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(
+                context["js_url"], logged_out=not is_authenticated
+            )
             context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
             if stable_chunks.eager_css_urls:
                 # The stable page links its split stylesheets and loads the full one only as a fallback.
@@ -1813,7 +1826,10 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[(at_location + 1) :], False)
+        return self.is_generic_domain(email[(at_location + 1) :])
+
+    def is_generic_domain(self, domain: str) -> bool:
+        return self.emails.get(domain, False)
 
 
 # maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the
@@ -1858,6 +1874,28 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
+def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict) -> dict:
+    """A metric variable that the client sends as its name and selection gets its saved definition."""
+    requested = request_filters.get("metricVariables")
+    if not isinstance(requested, list):
+        return request_filters
+    saved = {
+        variable["name"]: variable
+        for variable in dashboard_filters.get("metricVariables") or []
+        if isinstance(variable, dict) and isinstance(variable.get("name"), str)
+    }
+    metric_variables = []
+    for variable in requested:
+        if not isinstance(variable, dict) or variable.get("source"):
+            metric_variables.append(variable)
+            continue
+        if not isinstance(variable.get("name"), str):
+            raise serializers.ValidationError({"filters_override": "A metric variable name must be a string."})
+        if variable["name"] in saved:
+            metric_variables.append({**saved[variable["name"]], "current": variable.get("current")})
+    return {**request_filters, "metricVariables": metric_variables}
+
+
 def filters_override_requested_by_client(
     request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
 ) -> dict:
@@ -1884,6 +1922,8 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
+    if isinstance(request_filters, dict):
+        request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
     return {**dashboard_filters, **request_filters}
 
 

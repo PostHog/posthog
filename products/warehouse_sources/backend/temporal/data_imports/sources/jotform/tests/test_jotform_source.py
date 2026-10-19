@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
     JotformSourceConfig,
 )
@@ -82,29 +86,26 @@ class TestJotformSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01 00:00:00"
         assert kwargs["incremental_field"] == "created_at"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source.jotform_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_jotform_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "reports"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-01-01 00:00:00"
-        inputs.incremental_field = None
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self):
+        result = SourceDriver(self.source, self.config).run(
+            "submissions",
+            [ScriptedResponse(json={"content": [], "responseCode": 200})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2024-01-01 00:00:00",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_jotform_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("filter") == [None]
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source._is_host_safe")
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source.jotform_source")
-    def test_source_for_pipeline_rejects_unsafe_enterprise_host(self, mock_jotform_source, mock_host_safe):
+    def test_source_for_pipeline_rejects_unsafe_enterprise_host(self, mock_host_safe):
         # DNS can be repointed at an internal host after setup, so the host is re-checked before each
         # sync — not just at validation.
         mock_host_safe.return_value = (False, "Hosts with internal IP addresses are not allowed")
         config = JotformSourceConfig(api_key="key", region="us", enterprise_domain="https://10.0.0.1/")
-        inputs = mock.MagicMock()
+        result = SourceDriver(self.source, config).run("submissions", [], team_id=self.team_id)
 
-        with pytest.raises(ValueError, match="Hosts with internal IP addresses are not allowed"):
-            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        mock_jotform_source.assert_not_called()
-        mock_host_safe.assert_called_once_with("10.0.0.1", inputs.team_id)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Hosts with internal IP addresses are not allowed"
+        assert result.requests == []
+        mock_host_safe.assert_called_once_with("10.0.0.1", self.team_id)

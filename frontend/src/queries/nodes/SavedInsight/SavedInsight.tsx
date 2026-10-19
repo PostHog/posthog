@@ -29,14 +29,18 @@ export function SavedInsight({
     attachTo,
     editMode,
 }: InsightProps): JSX.Element {
-    const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: propsQuery.shortId,
+        retainResponseOnUnmount: context?.insightProps?.retainResponseOnUnmount,
+    }
     const { insight, insightLoading, insightMissing } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
 
     useAttachedLogic(insightLogic(insightProps), attachTo)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
-    if (insightLoading) {
+    // A remounted notebook node starts from the retained insight, so it renders while the insight loads again.
+    if (insightLoading && !insight.query) {
         return (
             <div className="flex flex-col flex-1 justify-center items-center w-full h-full">
                 <LoadingBar />
@@ -60,8 +64,9 @@ export function SavedInsight({
 
     return (
         <Query
+            attachTo={attachTo}
             query={query}
-            cachedResults={insight}
+            cachedResults={insightProps.retainResponseOnUnmount ? undefined : insight}
             context={{ ...context, insightProps }}
             embedded={embedded}
             readOnly={readOnly}

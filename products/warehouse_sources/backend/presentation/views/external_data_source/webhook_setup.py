@@ -13,10 +13,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
-from posthog.cdp.validation import InputsSerializer
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.presentation.serializers import InputsSerializer
 from products.data_warehouse.backend.facade.api import (
     create_and_register_webhook,
     delete_webhook_and_hog_function,

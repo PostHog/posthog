@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import pytest
@@ -15,6 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
     AzureCostManagementSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
     AzureCostManagementSourceConfig,
@@ -152,20 +157,33 @@ class TestAzureCostManagementSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_withholds_the_watermark_on_a_full_refresh(self) -> None:
-        inputs = _source_inputs(should_use_incremental_field=False, db_incremental_field_last_value="2024-01-01")
+        today = datetime.now(tz=UTC).date()
+        start = (today - timedelta(days=2)).isoformat()
+        watermark = (today - timedelta(days=1)).isoformat()
+        config = AzureCostManagementSourceConfig(
+            tenant_id="tenant", client_id="client", client_secret="secret", scope="subscriptions/abc", start_date=start
+        )
+        result = SourceDriver(self.source, config).run(
+            "cost_by_service",
+            [ScriptedResponse(json={"access_token": "token"}), ScriptedResponse(json={"properties": {"rows": []}})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=watermark,
+        )
 
-        with mock.patch(f"{SOURCE_MODULE}.azure_cost_management_source") as build_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert build_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[1].json()["timePeriod"]["from"].startswith(start)
 
     def test_source_for_pipeline_forwards_the_watermark_on_an_incremental_run(self) -> None:
-        inputs = _source_inputs(should_use_incremental_field=True, db_incremental_field_last_value="2024-01-01")
+        watermark = (datetime.now(tz=UTC).date() - timedelta(days=1)).isoformat()
+        result = SourceDriver(self.source, self.config).run(
+            "cost_by_service",
+            [ScriptedResponse(json={"access_token": "token"}), ScriptedResponse(json={"properties": {"rows": []}})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
 
-        with mock.patch(f"{SOURCE_MODULE}.azure_cost_management_source") as build_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert build_source.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01"
+        assert result.raised is None
+        assert result.requests[1].json()["timePeriod"]["from"].startswith(watermark)
 
     @pytest.mark.parametrize(
         "pinned,expected",
@@ -178,12 +196,14 @@ class TestAzureCostManagementSource:
         ],
     )
     def test_source_for_pipeline_honors_a_pinned_api_version(self, pinned: Optional[str], expected: str) -> None:
-        inputs = _source_inputs(api_version=pinned)
+        result = SourceDriver(self.source, self.config).run(
+            "dimensions",
+            [ScriptedResponse(json={"access_token": "token"}), ScriptedResponse(json={"value": []})],
+            api_version=pinned,
+        )
 
-        with mock.patch(f"{SOURCE_MODULE}.azure_cost_management_source") as build_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert build_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.requests[1].param("api-version") == expected
 
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_canonical_descriptions_cover_every_endpoint(self, endpoint: str) -> None:

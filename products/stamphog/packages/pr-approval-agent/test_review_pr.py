@@ -84,6 +84,48 @@ def test_summarize_assurance_excludes_author_self_review() -> None:
     assert assurance["head_commented_users"] == ["bob"]
 
 
+_EVIDENCE = {
+    "reviewer": "PostHog Review",
+    "review_kind": "Deep",
+    "findings_count": 0,
+    "published": False,
+}
+_COMPLETED_ON_HEAD = {**_EVIDENCE, "state": "completed", "head_sha": "abc123", "base_ref": "master", "base_sha": "mb1"}
+
+
+@pytest.mark.parametrize(
+    "review_evidence, pr_merge_base, counted",
+    [
+        pytest.param([_COMPLETED_ON_HEAD], "mb1", [_COMPLETED_ON_HEAD], id="completed-on-the-head"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "head_sha": "old999"}], "mb1", [], id="completed-on-an-older-head"),
+        # A retarget or a base merge keeps the head SHA, so only the merge base shows that the reviewed diff is stale.
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_sha": "mb0"}], "mb1", [], id="completed-against-another-merge-base"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_sha": ""}], "mb1", [], id="completed-against-an-unknown-merge-base"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_sha": ""}], "", [], id="merge-base-unknown-on-both-sides"),
+        pytest.param([{**_EVIDENCE, "state": "pending", "head_sha": "abc123"}], "mb1", [], id="pending"),
+        pytest.param([{**_EVIDENCE, "state": "failed", "head_sha": "abc123"}], "mb1", [], id="failed"),
+        pytest.param(
+            [{**_EVIDENCE, "state": "pending", "head_sha": "abc123", "reviewer": "Other"}, _COMPLETED_ON_HEAD],
+            "mb1",
+            [_COMPLETED_ON_HEAD],
+            id="each-reviewer-counts-on-its-own",
+        ),
+        pytest.param([], "mb1", [], id="no-evidence"),
+    ],
+)
+def test_summarize_assurance_counts_only_completed_reviews_of_the_head(
+    review_evidence: list[dict], pr_merge_base: str, counted: list[dict]
+) -> None:
+    # A review of an older head says nothing about the commits pushed since, and a pending or
+    # failed one has not looked at the diff. Only a finished review of this head may assure it.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.merge_base_sha = pr_merge_base
+    pipeline.pr.review_evidence = review_evidence
+
+    assert pipeline._summarize_assurance()["head_review_evidence"] == counted
+
+
 def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
     # The verdict is posted against the base_sha and head_sha from the JSON output. This locks
     # the GitHub review to the diff the LLM actually saw, and skips the approval when the base
@@ -334,6 +376,35 @@ def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch
     assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
 
 
+@pytest.mark.parametrize(
+    "filename, touched_paths",
+    [
+        pytest.param(".github/workflows/ci-backend.yml", [], id="github-workflow"),
+        pytest.param(".depot/workflows/ci-backend.yml", [], id="depot-workflow"),
+        pytest.param("docs/ci-backend.yml", [".github/workflows/ci-backend.yml"], id="workflow-renamed-out"),
+        pytest.param(".github/workflows/tests/test_ci.py", [], id="test-named-file-under-workflows"),
+    ],
+)
+def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
+    monkeypatch: pytest.MonkeyPatch, filename: str, touched_paths: list[str]
+) -> None:
+    # A workflow is .yml, so once the owner-only exemption lifts the deny, the allow-list
+    # would classify it T0 and approve it with no reviewer.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.author_team_slugs = {"team-devex"}
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": filename, "additions": 2, "deletions": 1, "status": "M"}]
+    pr.touched_paths = touched_paths
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["deny_categories"] == []
+    assert pipeline.classification["tier"] == "T1-agent"
+
+
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
     # The deterministic scan is the first line against scripts/hook edits —
     # when it fires, the PR must land T2-never rather than the LLM-only path.
@@ -450,7 +521,7 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
     verdict = pipeline.run()
 
     assert verdict == "REFUSED"
-    assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+    assert pipeline.classification["deny_categories"] == ["ci_workflows"]
 
 
 class _FakeCompleted:
@@ -657,7 +728,7 @@ def test_familiarity_computed_on_every_tier_but_prompted_only_on_t1(
     ],
 )
 def test_capture_review_completed_includes_familiarity_and_provenance(
-    monkeypatch: pytest.MonkeyPatch, populated: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, populated: bool
 ) -> None:
     # Downstream HogQL queries key on these property names and null/empty
     # defaults; a rename or a crash on the early-exit paths (bot author, WAIT —
@@ -687,6 +758,8 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
             top_prior_authors=("Alice",),
         )
         pipeline.familiarity_source = "server"
+        monkeypatch.delenv("STAMPHOG_REVIEWER_ENGINE", raising=False)
+        pipeline._new_reviewer(tmp_path)
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
@@ -710,6 +783,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
         assert props["stamphog_review_trigger"] == "manual"
+        assert props["stamphog_reviewer_engine"] == "openai"
     else:
         assert props["stamphog_owner_teams"] == []
         assert props["stamphog_familiarity_band"] == ""
@@ -719,6 +793,8 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_generated_by"] == []
         assert props["stamphog_task_ids"] == []
         assert props["stamphog_review_trigger"] == ""
+        # A gate-only verdict ran no reviewer, so it must not name one.
+        assert props["stamphog_reviewer_engine"] == ""
 
 
 def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:

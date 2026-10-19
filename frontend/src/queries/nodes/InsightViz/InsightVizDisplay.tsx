@@ -64,6 +64,7 @@ import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/tren
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
+import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
@@ -218,9 +219,10 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
+        showsFlagCallsRetentionNotice,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
@@ -271,13 +273,8 @@ export function InsightVizDisplay({
                 <LemonButton
                     type="primary"
                     loading={insightDataLoading}
-                    onClick={() =>
-                        updateQuerySource({
-                            filterTestAccounts: false,
-                            properties: undefined,
-                            samplingFactor: undefined,
-                        })
-                    }
+                    // updateQuerySource also clears the filter groups and test account filtering that the series cannot take.
+                    onClick={() => updateQuerySource({ samplingFactor: undefined })}
                 >
                     Reset unsupported settings
                 </LemonButton>
@@ -325,6 +322,8 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    titleStatus={insightDataError?.status}
+                    retryAfterTimestamp={insightDataError?.retryAfterTimestamp}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
@@ -443,7 +442,13 @@ export function InsightVizDisplay({
                 return (
                     <ChunkLoadErrorBoundary>
                         {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
-                        <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                        <Suspense
+                            fallback={
+                                <div className="flex justify-center my-8">
+                                    <Spinner className="text-3xl" />
+                                </div>
+                            }
+                        >
                             <WebAnalyticsInsight context={context} editMode={editMode} />
                         </Suspense>
                     </ChunkLoadErrorBoundary>
@@ -598,6 +603,7 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
+                        {!embedded && showsFlagCallsRetentionNotice && <FlagCallsRetentionNotice />}
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',

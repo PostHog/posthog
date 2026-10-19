@@ -156,6 +156,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     GONG = "Gong", "Gong"
     CALENDLY = "Calendly", "Calendly"
     TYPEFORM = "Typeform", "Typeform"
+    UNITYADS = "UnityAds", "UnityAds"
     ITERABLE = "Iterable", "Iterable"
     ZOHOCRM = "ZohoCRM", "ZohoCRM"
     CLOSE = "Close", "Close"
@@ -269,6 +270,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
+    PLANE = "Plane", "Plane"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
@@ -567,6 +569,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARESPACE = "Squarespace", "Squarespace"
     STATSIG = "Statsig", "Statsig"
     STATUSPAGE = "Statuspage", "Statuspage"
+    STEAM = "Steam", "Steam"
     STIGG = "Stigg", "Stigg"
     STRAVA = "Strava", "Strava"
     SURVEYSPARROW = "SurveySparrow", "SurveySparrow"
@@ -1024,6 +1027,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     BLACKBOARDLEARN = "BlackboardLearn", "BlackboardLearn"
     BLING = "Bling", "Bling"
     BLOOMERANG = "Bloomerang", "Bloomerang"
+    BLUESHIFT = "Blueshift", "Blueshift"
     BLUESKY = "Bluesky", "Bluesky"
     BOLRETAILER = "BolRetailer", "BolRetailer"
     BOULEVARD = "Boulevard", "Boulevard"
@@ -1443,6 +1447,22 @@ class ExternalDataSourceType(LabeledStrEnum):
     ARCADE = "Arcade", "Arcade"
     NEO4J = "Neo4j", "Neo4j"
     TESTDINO = "TestDino", "TestDino"
+    CHESSCOM = "ChessCom", "ChessCom"
+    USERBACK = "Userback", "Userback"
+    REWARDFUL = "Rewardful", "Rewardful"
+    TRACKLUTION = "Tracklution", "Tracklution"
+    STACKADAPT = "StackAdapt", "StackAdapt"
+    CHECKHQ = "CheckHQ", "CheckHQ"
+    RAINFORESTPAY = "RainforestPay", "RainforestPay"
+    WISE = "Wise", "Wise"
+    LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
+    NORTHBEAM = "Northbeam", "Northbeam"
+    NAVERADS = "NaverAds", "NaverAds"
+    CHANNELIO = "ChannelIO", "ChannelIO"
+    AIRSHIP = "Airship", "Airship"
+    CREEM = "Creem", "Creem"
+    LEANTIME = "Leantime", "Leantime"
+    TESTOMATIO = "Testomatio", "Testomatio"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
@@ -1462,6 +1482,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
     ExternalDataSourceType.TRINO: "trino",
+    ExternalDataSourceType.BIGQUERY: "bigquery",
 }
 
 

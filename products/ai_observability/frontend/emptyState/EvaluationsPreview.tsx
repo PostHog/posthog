@@ -107,10 +107,6 @@ export function EvaluationsPreview(): JSX.Element {
                             <LemonTag size="small" type={evaluation.kind.tag}>
                                 {evaluation.kind.label}
                             </LemonTag>
-                            <span className="EvaluationsPreview__running">
-                                <span className="EvaluationsPreview__running-dot" aria-hidden="true" />
-                                Running
-                            </span>
                         </label>
                     ))}
                 </div>

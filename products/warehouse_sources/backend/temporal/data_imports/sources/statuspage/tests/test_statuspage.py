@@ -1,71 +1,37 @@
-import json
 from typing import Any, cast
 
 import pytest
 from unittest import mock
 
 import requests
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
+    StatuspageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import STATUSPAGE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.source import StatuspageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.statuspage import (
     StatuspageAuth,
     StatuspageResumeConfig,
-    statuspage_source,
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the statuspage module.
-STATUSPAGE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.statuspage.make_tracked_session"
-)
+
+def _ok(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: StatuspageResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's (url, params) AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared rather than inspecting the final state.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return statuspage_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _driver() -> SourceDriver:
+    return SourceDriver(StatuspageSource(), StatuspageSourceConfig(api_key="key"))
 
 
 class TestAuth:
@@ -82,79 +48,53 @@ class TestAuth:
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_pages_until_empty(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [_response([{"id": "p1"}, {"id": "p2"}]), _response([{"id": "p3"}]), _response([])],
-        )
-        manager = _make_manager()
+    def test_paginates_pages_until_empty(self):
+        result = _driver().run("pages", [_ok([{"id": "p1"}, {"id": "p2"}]), _ok([{"id": "p3"}]), _ok([])])
 
-        rows = _rows(_source("pages", manager))
-
-        assert [r["id"] for r in rows] == ["p1", "p2", "p3"]
-        assert snaps[0]["params"]["page"] == 1
-        assert snaps[0]["params"]["per_page"] == 100
-        assert snaps[1]["params"]["page"] == 2
-        assert snaps[2]["params"]["page"] == 3
+        assert [r["id"] for r in result.rows] == ["p1", "p2", "p3"]
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.requests[0].param("per_page") == "100"
         # Checkpoint saved once per non-empty yielded page (each points at the NEXT page); the empty
         # third page ends the walk without a checkpoint.
-        saved = [c.args[0].paginator_state for c in manager.save_state.call_args_list]
-        assert saved == [{"page": 2}, {"page": 3}]
+        assert [s.paginator_state for s in result.saved_states] == [{"page": 2}, {"page": 3}]
 
 
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_pages_and_injects_page_id(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+    def test_fans_out_over_pages_and_injects_page_id(self):
+        result = _driver().run(
+            "components",
             [
-                _response([{"id": "p1"}, {"id": "p2"}]),  # /pages page 1
-                _response([{"id": "c1"}]),  # p1 components page 1
-                _response([]),  # p1 components page 2 (empty)
-                _response([{"id": "c2"}]),  # p2 components page 1
-                _response([]),  # p2 components page 2 (empty)
-                _response([]),  # /pages page 2 (empty, ends parent walk)
+                _ok([{"id": "p1"}, {"id": "p2"}]),  # /pages page 1
+                _ok([{"id": "c1"}]),  # p1 components page 1
+                _ok([]),  # p1 components page 2 (empty)
+                _ok([{"id": "c2"}]),  # p2 components page 1
+                _ok([]),  # p2 components page 2 (empty)
+                _ok([]),  # /pages page 2 (empty, ends parent walk)
             ],
         )
-        manager = _make_manager()
-
-        rows = _rows(_source("components", manager))
 
         # Each child row carries its parent page id under page_id — unique table-wide.
-        assert rows == [{"id": "c1", "page_id": "p1"}, {"id": "c2", "page_id": "p2"}]
-        child_urls = [s["url"] for s in snaps if "/components" in s["url"]]
-        assert child_urls[0] == "https://api.statuspage.io/v1/pages/p1/components"
-        assert child_urls[2] == "https://api.statuspage.io/v1/pages/p2/components"
+        assert result.rows == [{"id": "c1", "page_id": "p1"}, {"id": "c2", "page_id": "p2"}]
+        child_paths = [path for path in result.paths if path.endswith("/components")]
+        assert child_paths[0] == "/v1/pages/p1/components"
+        assert child_paths[2] == "/v1/pages/p2/components"
 
 
 class TestRetry:
     @pytest.mark.parametrize("status_code", [420, 429, 500, 502, 503])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_exhaust_then_raise(self, MockSession, status_code, monkeypatch):
-        # Skip tenacity's real exponential-backoff sleeps while still exercising the full retry count.
-        monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
-        session = MockSession.return_value
-        _wire(session, [_response([], status_code=status_code) for _ in range(8)])
-        manager = _make_manager()
+    def test_retryable_statuses_exhaust_then_raise(self, status_code):
+        result = _driver().run("pages", always(ScriptedResponse(status=status_code, json=[])))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("pages", manager))
+        assert isinstance(result.raised, RESTClientRetryableError)
         # 8 attempts total (the configured cap) before reraise.
-        assert session.send.call_count == 8
+        assert len(result.requests) == 8
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_and_is_not_retried(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "Could not authenticate"}, status_code=401)])
-        manager = _make_manager()
+    def test_client_error_raises_and_is_not_retried(self):
+        result = _driver().run("pages", [ScriptedResponse(status=401, json={"error": "Could not authenticate"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("pages", manager))
+        assert isinstance(result.raised, requests.HTTPError)
         # A 401 is permanent — issued exactly once, no retry.
-        assert session.send.call_count == 1
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
@@ -162,19 +102,17 @@ class TestValidateCredentials:
         "status_code, expected_ok",
         [(200, True), (401, False), (403, False), (500, False)],
     )
-    @mock.patch(STATUSPAGE_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected_ok):
+    def test_status_mapping(self, status_code, expected_ok):
         body = [] if status_code == 200 else {"error": "nope"}
-        mock_session.return_value.get.return_value = _response(body, status_code=status_code)
-        ok, error = validate_credentials("key")
+        with scripted_network(always(ScriptedResponse(status=status_code, json=body))):
+            ok, error = validate_credentials("key")
         assert ok is expected_ok
         if not ok:
             assert error
 
-    @mock.patch(STATUSPAGE_SESSION_PATCH)
-    def test_request_exception_is_failure(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        ok, error = validate_credentials("key")
+    def test_request_exception_is_failure(self):
+        with scripted_network(always(ConnectionError("boom"))):
+            ok, error = validate_credentials("key")
         assert ok is False
         assert "boom" in (error or "")
 
@@ -183,7 +121,8 @@ class TestSourceResponse:
     @pytest.mark.parametrize("endpoint", list(STATUSPAGE_ENDPOINTS.keys()))
     def test_source_response_shape(self, endpoint):
         config = STATUSPAGE_ENDPOINTS[endpoint]
-        response = statuspage_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        response = _driver().run(endpoint, []).response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_key

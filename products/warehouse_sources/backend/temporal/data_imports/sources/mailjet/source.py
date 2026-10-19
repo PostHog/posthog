@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,7 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -54,6 +55,24 @@ class MailJetSource(
     ResumableSource[MailjetSourceConfig, MailjetResumeConfig],
     WebhookSource[MailjetSourceConfig],
 ):
+    # Mailjet's documented env convention is MJ_APIKEY_PUBLIC / *_PRIVATE.
+    codebase_detection = detect(
+        env=("^MAILJET_", "^MJ_APIKEY_", "^MJ_API_TOKEN$"),
+        npm=("node-mailjet",),
+        pypi=("mailjet-rest",),
+        composer=(
+            "mailjet/mailjet-apiv3-php",
+            "mailjet/laravel-mailjet",
+            "mailjet/mailjet-apiv3-php-simple",
+            "mailjet/mailjet-bundle",
+            "mailjet/mailjet-magento2",
+            "mailjet/mailjet-swiftmailer",
+        ),
+        go=("github.com/mailjet/mailjet-apiv3-go",),
+        maven=("com.mailjet:mailjet-client",),
+        rubygems=("mailjet",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v3",)

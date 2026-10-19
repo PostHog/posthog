@@ -60,8 +60,6 @@ export function ChartFilter({
         breakdowns: breakdownFilter?.breakdowns,
         boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
         hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
-        hasProportionBarChart: !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART],
-        currentDisplay: display ?? undefined,
         isComparing: !!compareFilter?.compare,
     }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
 

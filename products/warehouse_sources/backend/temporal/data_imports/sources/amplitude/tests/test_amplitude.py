@@ -16,24 +16,28 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
     _auth_headers,
-    _get_events_rows,
-    _get_fanout_rows,
-    _get_list_rows,
     _iter_export_window,
     _normalize_event,
     _parse_amplitude_ts,
-    amplitude_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import (
-    AMPLITUDE_ENDPOINTS,
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
+    EVENTS_ENDPOINT,
+    GROUP_PROPERTIES_ENDPOINT,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude"
+from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amplitude import (
+    AmplitudeSourceConfig,
+)
 
 
 def _make_export_zip(files: list[list[dict[str, Any]]]) -> bytes:
@@ -63,6 +67,10 @@ def _response(status: int = 200, content: bytes = b"", json_body: Any = None, te
     if json_body is not None:
         response.json.return_value = json_body
     return response
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(AmplitudeSource(), AmplitudeSourceConfig(api_key="key", secret_key="secret", region="us"))
 
 
 class TestParseAmplitudeTimestamp:
@@ -118,10 +126,11 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = _response(status=status)
+        # The adapter retries a 500, so every try gets the same answer.
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             is_valid, message = validate_credentials("key", "secret", "us")
 
+        assert {request.path for request in network.requests_log} == {"/api/2/annotations"}
         assert is_valid is expected_valid
         if expected_valid:
             assert message is None
@@ -129,20 +138,19 @@ class TestValidateCredentials:
             assert message is not None
 
     def test_network_error_is_not_valid(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("key", "secret", "us")
 
+        # The real stack retries a dropped connection.
+        assert {request.path for request in network.requests_log} == {"/api/2/annotations"}
         assert is_valid is False
         assert message is not None
 
     def test_uses_eu_host_when_region_is_eu(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = _response(status=200)
+        with scripted_network([ScriptedResponse()]) as network:
             validate_credentials("key", "secret", "eu")
 
-        called_url = make_session.return_value.get.call_args.args[0]
-        assert called_url.startswith("https://analytics.eu.amplitude.com")
+        assert network.requests_log[0].url.startswith("https://analytics.eu.amplitude.com")
 
 
 class TestIterExportWindow:
@@ -207,145 +215,102 @@ class TestIterExportWindow:
 class TestEventsWindowing:
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_windows_advance_and_state_is_saved_per_window(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        windows: list[tuple[str, str]] = []
-
-        def fake_iter(session, host, headers, start_param, end_param, logger):
-            windows.append((start_param, end_param))
-            yield {"uuid": f"{start_param}"}
-
-        with mock.patch(f"{MODULE}.make_tracked_session"), mock.patch(f"{MODULE}._iter_export_window", fake_iter):
-            rows = list(
-                _get_events_rows(
-                    api_key="key",
-                    secret_key="secret",
-                    region="us",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 6, 2, 9, 30, tzinfo=UTC),
-                )
-            )
+        result = _driver().run(
+            EVENTS_ENDPOINT,
+            [
+                ScriptedResponse(body=_make_export_zip([[{"uuid": "first"}]])),
+                ScriptedResponse(body=_make_export_zip([[{"uuid": "second"}]])),
+                ScriptedResponse(body=_make_export_zip([[{"uuid": "third"}]])),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 2, 9, 30, tzinfo=UTC),
+        )
 
         # now=12:00, latency 2h => end boundary floored to 10:00. Cursor floored from last value to 09:00.
-        assert windows == [
-            ("20260602T09", "20260603T08"),
-            ("20260603T09", "20260604T08"),
-            ("20260604T09", "20260604T10"),
+        assert result.params("start") == ["20260602T09", "20260603T09", "20260604T09"]
+        assert result.params("end") == ["20260603T08", "20260604T08", "20260604T10"]
+        assert [row["uuid"] for row in result.rows] == ["first", "second", "third"]
+        assert result.saved_states == [
+            AmplitudeResumeConfig(window_start=datetime(2026, 6, 3, 9, tzinfo=UTC).isoformat()),
+            AmplitudeResumeConfig(window_start=datetime(2026, 6, 4, 9, tzinfo=UTC).isoformat()),
+            AmplitudeResumeConfig(window_start=datetime(2026, 6, 4, 11, tzinfo=UTC).isoformat()),
         ]
-        assert len(rows) == 3
-
-        saved = [call.args[0].window_start for call in manager.save_state.call_args_list]
-        assert saved == [
-            datetime(2026, 6, 3, 9, tzinfo=UTC).isoformat(),
-            datetime(2026, 6, 4, 9, tzinfo=UTC).isoformat(),
-            datetime(2026, 6, 4, 11, tzinfo=UTC).isoformat(),
-        ]
+        assert result.raised is None
 
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_resume_state_takes_precedence_over_incremental_value(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = AmplitudeResumeConfig(window_start="2026-06-04T09:00:00+00:00")
+        result = _driver().run(
+            EVENTS_ENDPOINT,
+            [ScriptedResponse(status=404)],
+            resume_state=AmplitudeResumeConfig(window_start="2026-06-04T09:00:00+00:00"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
 
-        windows: list[tuple[str, str]] = []
-
-        def fake_iter(session, host, headers, start_param, end_param, logger):
-            windows.append((start_param, end_param))
-            return iter(())
-
-        with mock.patch(f"{MODULE}.make_tracked_session"), mock.patch(f"{MODULE}._iter_export_window", fake_iter):
-            list(
-                _get_events_rows(
-                    api_key="key",
-                    secret_key="secret",
-                    region="us",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                )
-            )
-
-        manager.load_state.assert_called_once()
-        assert windows == [("20260604T09", "20260604T10")]
+        assert result.params("start") == ["20260604T09"]
+        assert result.params("end") == ["20260604T10"]
+        assert result.raised is None
 
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_full_refresh_starts_from_lookback_window(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        windows: list[tuple[str, str]] = []
-
-        def fake_iter(session, host, headers, start_param, end_param, logger):
-            windows.append((start_param, end_param))
-            return iter(())
-
-        with mock.patch(f"{MODULE}.make_tracked_session"), mock.patch(f"{MODULE}._iter_export_window", fake_iter):
-            list(
-                _get_events_rows(
-                    api_key="key",
-                    secret_key="secret",
-                    region="us",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=False,
-                    db_incremental_field_last_value=None,
-                )
-            )
+        result = _driver().run(EVENTS_ENDPOINT, always(ScriptedResponse(status=404)))
 
         # 30-day lookback from the 10:00 boundary => first window starts 30 days earlier at 10:00.
-        assert windows[0][0] == "20260505T10"
+        assert result.requests[0].param("start") == "20260505T10"
+        assert result.raised is None
 
 
 class TestListRows:
     @parameterized.expand(
         [
-            (COHORTS_ENDPOINT, {"cohorts": [{"id": "c1"}, {"id": "c2"}]}, ["c1", "c2"]),
-            (ANNOTATIONS_ENDPOINT, {"data": [{"id": 1}]}, [1]),
-            (COHORTS_ENDPOINT, {"cohorts": []}, []),
-            (COHORTS_ENDPOINT, {"unexpected": []}, []),
+            (COHORTS_ENDPOINT, {"cohorts": [{"id": "c1"}, {"id": "c2"}]}, "/api/3/cohorts", "id", ["c1", "c2"]),
+            (ANNOTATIONS_ENDPOINT, {"data": [{"id": 1}]}, "/api/2/annotations", "id", [1]),
+            (COHORTS_ENDPOINT, {"cohorts": []}, "/api/3/cohorts", "id", []),
+            (COHORTS_ENDPOINT, {"unexpected": []}, "/api/3/cohorts", "id", []),
+            (
+                GROUP_PROPERTIES_ENDPOINT,
+                {
+                    "success": True,
+                    "data": [
+                        {"group_property": "grp:plan_tier", "type": "string", "is_hidden": False},
+                        {"group_property": "grp:seat_count", "type": "number", "is_array_type": False},
+                    ],
+                },
+                "/api/2/taxonomy/group-property",
+                "group_property",
+                ["grp:plan_tier", "grp:seat_count"],
+            ),
+            (
+                GROUP_PROPERTIES_ENDPOINT,
+                {"success": True, "data": []},
+                "/api/2/taxonomy/group-property",
+                "group_property",
+                [],
+            ),
         ]
     )
-    def test_data_selector_extraction(self, endpoint: str, body: Any, expected_ids: list[Any]) -> None:
-        config = AMPLITUDE_ENDPOINTS[endpoint]
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = _response(status=200, json_body=body)
-            rows = list(_get_list_rows("key", "secret", "us", config, mock.MagicMock()))
+    def test_data_selector_extraction(
+        self, endpoint: str, body: Any, expected_path: str, key_field: str, expected_keys: list[Any]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        assert [row["id"] for row in rows] == expected_ids
+        assert [row[key_field] for row in result.rows] == expected_keys
+        assert result.paths == [expected_path]
+        # A `group_type` param would narrow group properties to one group type instead of the shared set.
+        assert "?" not in result.urls[0]
+        assert result.raised is None
 
     def test_bare_list_response_is_yielded(self) -> None:
-        config = AMPLITUDE_ENDPOINTS[ANNOTATIONS_ENDPOINT]
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = _response(status=200, json_body=[{"id": 7}])
-            rows = list(_get_list_rows("key", "secret", "us", config, mock.MagicMock()))
+        result = _driver().run(ANNOTATIONS_ENDPOINT, [ScriptedResponse(json=[{"id": 7}])])
 
-        assert [row["id"] for row in rows] == [7]
+        assert [row["id"] for row in result.rows] == [7]
+        assert result.raised is None
 
 
 class TestFanoutRows:
-    config = AMPLITUDE_ENDPOINTS[EVENT_PROPERTIES_ENDPOINT]
-
-    def _run(self, responses: list[mock.MagicMock]) -> tuple[list[dict[str, Any]], list[str]]:
-        urls: list[str] = []
-
-        def get(url: str, **kwargs: Any) -> mock.MagicMock:
-            urls.append(url)
-            return responses[len(urls) - 1]
-
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.side_effect = get
-            rows = list(_get_fanout_rows("key", "secret", "us", self.config, mock.MagicMock()))
-
-        return rows, urls
-
     def test_queries_each_event_type_and_stamps_it_onto_child_rows(self) -> None:
-        parents = _response(
-            status=200,
-            json_body={
+        parents = ScriptedResponse(
+            json={
                 "success": True,
                 "data": [
                     {"event_type": "Play Song"},
@@ -356,54 +321,53 @@ class TestFanoutRows:
             },
         )
         # Amplitude omits `event_type` on shared properties, so the fan-out has to supply it.
-        song_props = _response(status=200, json_body={"success": True, "data": [{"event_property": "genre"}]})
-        onboard_props = _response(status=200, json_body={"success": True, "data": [{"event_property": "step"}]})
+        song_props = ScriptedResponse(json={"success": True, "data": [{"event_property": "genre"}]})
+        onboard_props = ScriptedResponse(json={"success": True, "data": [{"event_property": "step"}]})
 
-        rows, urls = self._run([parents, song_props, onboard_props])
+        result = _driver().run(EVENT_PROPERTIES_ENDPOINT, [parents, song_props, onboard_props])
 
-        assert [(row["event_type"], row["event_property"]) for row in rows] == [
+        assert [(row["event_type"], row["event_property"]) for row in result.rows] == [
             ("Play Song", "genre"),
             ("Onboard Start", "step"),
         ]
-        assert len(urls) == 3
-        assert urls[0].endswith("/api/2/taxonomy/event")
-        assert "/api/2/taxonomy/event-property?event_type=Play+Song" in urls[1]
-        assert "/api/2/taxonomy/event-property?event_type=Onboard+Start" in urls[2]
+        assert len(result.requests) == 3
+        assert result.paths == [
+            "/api/2/taxonomy/event",
+            "/api/2/taxonomy/event-property",
+            "/api/2/taxonomy/event-property",
+        ]
+        assert result.params("event_type") == [None, "Play Song", "Onboard Start"]
+        assert result.urls[1].endswith("/api/2/taxonomy/event-property?event_type=Play+Song")
+        assert result.urls[2].endswith("/api/2/taxonomy/event-property?event_type=Onboard+Start")
+        assert result.raised is None
 
     def test_400_on_one_event_type_skips_it_and_keeps_going(self) -> None:
-        parents = _response(
-            status=200, json_body={"data": [{"event_type": "Deleted Event"}, {"event_type": "Play Song"}]}
-        )
-        not_found = _response(status=400, text='{"success": false, "errors": [{"message": "Not found"}]}')
-        not_found.raise_for_status.side_effect = requests.HTTPError(response=not_found)
-        song_props = _response(status=200, json_body={"data": [{"event_property": "genre"}]})
+        parents = ScriptedResponse(json={"data": [{"event_type": "Deleted Event"}, {"event_type": "Play Song"}]})
+        not_found = ScriptedResponse(status=400, json={"success": False, "errors": [{"message": "Not found"}]})
+        song_props = ScriptedResponse(json={"data": [{"event_property": "genre"}]})
 
-        rows, _urls = self._run([parents, not_found, song_props])
+        result = _driver().run(EVENT_PROPERTIES_ENDPOINT, [parents, not_found, song_props])
 
-        assert [row["event_type"] for row in rows] == ["Play Song"]
+        assert [row["event_type"] for row in result.rows] == ["Play Song"]
+        assert result.params("event_type") == [None, "Deleted Event", "Play Song"]
+        assert result.raised is None
 
     def test_other_http_errors_propagate(self) -> None:
-        parents = _response(status=200, json_body={"data": [{"event_type": "Play Song"}]})
-        forbidden = _response(status=403, text="Forbidden")
-        forbidden.raise_for_status.side_effect = requests.HTTPError(response=forbidden)
+        parents = ScriptedResponse(json={"data": [{"event_type": "Play Song"}]})
+        forbidden = ScriptedResponse(status=403, body=b"Forbidden")
 
-        with pytest.raises(requests.HTTPError):
-            self._run([parents, forbidden])
+        result = _driver().run(EVENT_PROPERTIES_ENDPOINT, [parents, forbidden])
+
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestAmplitudeSourceResponse:
     @parameterized.expand([(COHORTS_ENDPOINT,), (ANNOTATIONS_ENDPOINT,)])
     def test_list_response_metadata(self, endpoint: str) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        response = amplitude_source(
-            api_key="key",
-            secret_key="secret",
-            region="us",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=manager,
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json={})])
+        response = result.response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None

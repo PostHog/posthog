@@ -57,6 +57,7 @@ const check: SignalReportCheckApi = {
     expires_at: '2026-11-13T00:00:00Z',
     last_run_at: null,
     last_outcome: null,
+    last_outcome_reason: null,
     dispatched_at: null,
     consecutive_errors: 0,
     created_at: '2026-09-29T00:00:00Z',
@@ -116,6 +117,52 @@ describe('ReportExpectedImpact', () => {
         logic.actions.loadReportChecksSuccess(checks)
         render(<ReportExpectedImpact report={report} reportUrl="https://example.com/report-1" />)
     }
+
+    it.each(['linear', 'fixed'] as const)(
+        'keeps the chart and collapses the %s Monitoring definition',
+        async (scaling) => {
+            renderMeasurements([
+                {
+                    ...check,
+                    config: {
+                        ...check.config,
+                        metric_kind: 'occurrences',
+                        value_format: 'count',
+                        unit: 'errors',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                dateRange: { date_from: '-7d', explicitDate: true },
+                                series: [{ kind: 'EventsNode', event: 'checkout_failed', math: 'total' }],
+                            },
+                        },
+                        monitoring: {
+                            reference_period_minutes: 10080,
+                            threshold_scaling: scaling,
+                            baseline_period_minutes: 20160,
+                        },
+                    },
+                },
+            ])
+            expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
+            expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
+            expect(screen.getByText('· Measured over 14 days')).toBeInTheDocument()
+            expect(
+                screen.getByText(
+                    scaling === 'linear'
+                        ? 'The target scales in proportion to elapsed time.'
+                        : 'The target stays fixed as the measurement period grows.'
+                )
+            ).toBeInTheDocument()
+            expect(screen.getByText('View measurement details').closest('details')).not.toHaveAttribute('open')
+            expect(screen.getByText('Target reference period: 7 days.')).not.toBeVisible()
+            expect(screen.getByText('Chart')).toBeInTheDocument()
+            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
+            await userEvent.setup().click(screen.getByText('View measurement details'))
+            expect(screen.getByText('Target reference period: 7 days.')).toBeVisible()
+        }
+    )
 
     it('uses check goals and excludes investigations and replaced checks', async () => {
         renderMeasurements([
