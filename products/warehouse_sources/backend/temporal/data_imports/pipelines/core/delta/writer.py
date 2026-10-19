@@ -703,7 +703,8 @@ class DeltaWriter:
         delta_table = await self._table.get_delta_table(allow_stale=True)
         assert delta_table is not None
 
-        await ensure_table_properties(delta_table, self._logger)
+        merges = write_type == "incremental" and bool(primary_keys)
+        await ensure_table_properties(delta_table, self._logger, merge_batch=data if merges else None)
 
         return delta_table
 

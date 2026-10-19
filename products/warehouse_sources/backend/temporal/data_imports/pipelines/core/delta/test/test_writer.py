@@ -1,3 +1,4 @@
+import os
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 
 _WRITER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer"
+_OPS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops"
 
 
 _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
@@ -859,6 +861,66 @@ class TestCheckpointIntervalProperty:
         result = await ensure_table_properties(table, make_logger())
 
         assert result is False
+
+
+def _rows(ids: list[int], payload_chars: int) -> pa.Table:
+    # Random hex does not compress much, so the stored bytes per row stay near the payload size.
+    return pa.table({"id": ids, "blob": [os.urandom(payload_chars).hex()[:payload_chars] for _ in ids]})
+
+
+class TestWideRowTargetFileSize:
+    @pytest.mark.parametrize(
+        "write_type,primary_keys,payload_chars,existing_target,expected_target",
+        [
+            ("incremental", ["id"], 4000, None, str(16 * 1024 * 1024)),
+            ("incremental", ["id"], 1, None, None),
+            ("append", None, 4000, None, None),
+            ("full_refresh", None, 4000, None, None),
+            ("incremental", ["id"], 4000, str(64 * 1024 * 1024), str(64 * 1024 * 1024)),
+        ],
+        ids=[
+            "wide_merge_table_gets_a_smaller_target",
+            "narrow_merge_table_keeps_the_default",
+            "wide_append_table_keeps_the_default",
+            "wide_full_refresh_table_keeps_the_default",
+            "hand_set_target_is_kept",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_target_after_writes(
+        self,
+        write_type: Literal["incremental", "append", "full_refresh"],
+        primary_keys: list[str] | None,
+        payload_chars: int,
+        existing_target: str | None,
+        expected_target: str | None,
+        tmp_path: Path,
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(
+            delta_path,
+            _rows(list(range(20)), payload_chars),
+            configuration={"delta.targetFileSize": existing_target} if existing_target else None,
+        )
+        table_ref = make_local_table_ref(delta_path)
+
+        # Local tables are far below the production size gates, so only those gates are lowered.
+        with (
+            patch(f"{_OPS_MODULE}.WIDE_ROW_MIN_TABLE_BYTES", 0),
+            patch(f"{_OPS_MODULE}.WIDE_ROW_MIN_STORED_BYTES_PER_ROW", 1024),
+        ):
+            for ids in ([1, 2], [3, 4]):
+                await DeltaWriter(table_ref).write(
+                    data=_rows(ids, payload_chars),
+                    write_type=write_type,
+                    should_overwrite_table=False,
+                    primary_keys=primary_keys,
+                )
+
+        configuration = deltalake.DeltaTable(delta_path).metadata().configuration
+        assert configuration.get("delta.targetFileSize") == expected_target
+        # The checkpoint property and the target land in one commit, and the second write adds none.
+        assert _commit_operations(delta_path).count("SET TBLPROPERTIES") == 1
 
 
 class TestCreateRaceWithExistingTable:

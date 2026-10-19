@@ -34,11 +34,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DEFAULT_TARGET_FILE_SIZE_BYTES,
     OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
     OBJECT_STORE_TRANSIENT_MESSAGE,
     ObjectStorePermissionDeniedError,
     execute_with_conflict_retry,
     is_object_store_permission_denied,
+    table_target_file_size,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import _delta_table_identity
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
@@ -85,9 +87,11 @@ DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD = 8
 DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD = 100
 
 # delta-rs's own default target size for a compaction rewrite bin when none is given (see
-# `delta.targetFileSize`, or 100MB absent that table property). Starting the retry ladder here
-# instead of passing None keeps every attempt's size explicit and halvable.
-DEFAULT_COMPACT_TARGET_SIZE_BYTES = 100 * 1024 * 1024
+# `delta.targetFileSize`, or 100MB absent that table property). A table that sets the property
+# compacts to its own value instead (see `table_target_file_size`), so that compaction keeps the
+# file size its writes use. Starting the retry ladder at an explicit size instead of passing None
+# keeps every attempt's size explicit and halvable.
+DEFAULT_COMPACT_TARGET_SIZE_BYTES = DEFAULT_TARGET_FILE_SIZE_BYTES
 # Halving the bin size on a byte-array-offset-overflow panic (see is_offset_overflow_compaction_error)
 # shrinks how many files get concatenated into one Arrow batch. Bounded so a table whose overflow
 # can't be avoided at any reasonable bin size still surfaces to error tracking instead of looping.
@@ -114,8 +118,12 @@ class CompactionPlan:
     slot_budget_mb: float | None
 
 
-def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | None) -> CompactionPlan:
-    """Bin size and parallelism that keep one compaction inside its memory slot."""
+def plan_compaction(
+    compression_ratio: float | None,
+    slot_budget_mb: float | None,
+    table_target_size: int = DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+) -> CompactionPlan:
+    """Bin size and parallelism that keep one compaction inside its memory slot, at most `table_target_size`."""
     rounded_ratio = round(compression_ratio, 2) if compression_ratio is not None else None
     rounded_slot = round(slot_budget_mb, 1) if slot_budget_mb is not None else None
     if compression_ratio is None or (slot_budget_mb is not None and slot_budget_mb <= 0):
@@ -140,7 +148,7 @@ def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | Non
             slot_budget_mb=rounded_slot,
         )
 
-    target_size = int(min(DEFAULT_COMPACT_TARGET_SIZE_BYTES, safe_target_size))
+    target_size = int(min(table_target_size, safe_target_size))
     max_concurrent_tasks = None
     if slot_budget_bytes is not None:
         per_task_bytes = target_size * ratio * _COMPACT_TASK_MEMORY_FACTOR
@@ -439,7 +447,7 @@ class DeltaMaintenance:
         except Exception as e:
             await self._logger.awarning(f"compact: could not sample the compression ratio: {e}")
             ratio = None
-        return plan_compaction(ratio, get_governor().slot_budget_mb())
+        return plan_compaction(ratio, get_governor().slot_budget_mb(), table_target_file_size(table))
 
     @recorded_phase("compact")
     async def _compact(self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None) -> bool:
@@ -527,8 +535,9 @@ class DeltaMaintenance:
         storage_options = self._table.get_storage_options()
         identity = _delta_table_identity(table, self._table)
         slot_budget_mb = get_governor().slot_budget_mb()
+        target_size = table_target_file_size(table)
         compact_kwargs: dict[str, Any] = {
-            "target_file_size": DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            "target_file_size": target_size,
             # deltalite lowers this until the bins in flight fit the slot budget.
             "max_parallel_bins": os.cpu_count() or 1,
             "slot_budget_bytes": int(slot_budget_mb * 1024 * 1024) if slot_budget_mb else None,
@@ -552,7 +561,7 @@ class DeltaMaintenance:
         await self._logger.ainfo(
             "Compacting table...",
             compact_engine="deltalite",
-            compact_target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            compact_target_size=target_size,
             compact_max_parallel_bins=compact_kwargs["max_parallel_bins"],
             compact_slot_budget_mb=round(slot_budget_mb, 1) if slot_budget_mb is not None else None,
             pod_memory_mb=pod_mb_before,
@@ -734,7 +743,8 @@ class DeltaMaintenance:
                 compact_small_files and small_file_stats.fragmented
             )
 
-        partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+        table_target_size = table_target_file_size(table)
+        partitions = await asyncio.to_thread(_partition_file_stats, table, table_target_size)
         # Repartition detection runs after this pass and compares partition bytes to its budget.
         # Small files take more bytes at rest than the same rows after compaction, so an
         # over-budget partition that compaction can shrink must be compacted before it is measured.
@@ -760,7 +770,7 @@ class DeltaMaintenance:
             await self._compact(table, plan)
             return False
 
-        if plan.target_size != DEFAULT_COMPACT_TARGET_SIZE_BYTES:
+        if plan.target_size != table_target_size:
             # A smaller bin can merge fewer of the files, so the trigger must hold at the planned size too.
             partitions = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
             if not triggered(_small_file_fragmentation(partitions, table_wide_small_files)):
