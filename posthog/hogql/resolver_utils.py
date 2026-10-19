@@ -179,10 +179,18 @@ def available_fields_suffix(
     name = str(node.chain[0])
     property_hint = (
         f" If {name} is a custom property, read it as properties.{quote_hogql_identifier(name)}."
-        if len(node.chain) == 1 and "properties" in names
+        if len(node.chain) == 1 and _has_one_json_properties_field(scope, context)
         else ""
     )
     return f". Available fields: {listed}{more}.{property_hint}"
+
+
+def _has_one_json_properties_field(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> bool:
+    try:
+        field = lookup_field_by_name(scope, "properties", context)
+        return field is not None and isinstance(field.resolve_constant_type(context), ast.StringJSONType)
+    except Exception:
+        return False
 
 
 def suggest_field_names(

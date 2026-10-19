@@ -546,6 +546,14 @@ class TestResolver(BaseTest):
                 " If checkout plan is a custom property, read it as properties.`checkout plan`.",
             ),
             ("aliased_subquery", "SELECT x FROM (SELECT 1 AS a, 2 AS b) AS t", {"a", "b"}, set(), None),
+            ("non_json_properties", "SELECT zz FROM (SELECT 1 AS properties) AS t", {"properties"}, set(), None),
+            (
+                "ambiguous_properties",
+                "SELECT zz FROM events e JOIN persons p ON e.person_id = p.id",
+                {"properties", "event"},
+                set(),
+                None,
+            ),
             (
                 "column_aliased_table",
                 "SELECT zz FROM events AS e(a, b)",
