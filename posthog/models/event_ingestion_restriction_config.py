@@ -11,6 +11,9 @@ from posthog.redis import get_client
 from posthog.settings import PLUGINS_RELOAD_REDIS_URL
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
+REBUILD_LOCK_REDIS_KEY_PREFIX = "event_ingestion_restriction_rebuild_lock"
+REBUILD_LOCK_TIMEOUT_SECONDS = 30
+REBUILD_LOCK_BLOCKING_TIMEOUT_SECONDS = 10
 
 # Pipeline configuration - first item is the default
 INGESTION_PIPELINES = [
@@ -148,34 +151,42 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
     redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
-    # Fetch all restrictions of this type, ordered by id (UUIDT, time-sortable) ascending.
-    # The index field in the output reflects this order so consumers can determine
-    # which config was created most recently (highest index wins for redirect_to_topic).
-    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
+    # Each rebuild writes a full snapshot of one restriction type. The lock covers both the read and the write.
+    # Without it, a rebuild that reads before another commit can write after that commit's rebuild,
+    # and the stale snapshot stays in Redis until the next rebuild.
+    with redis_client.lock(
+        f"{REBUILD_LOCK_REDIS_KEY_PREFIX}:{restriction_type}",
+        timeout=REBUILD_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=REBUILD_LOCK_BLOCKING_TIMEOUT_SECONDS,
+    ):
+        # Fetch all restrictions of this type, ordered by id (UUIDT, time-sortable) ascending.
+        # The index field in the output reflects this order so consumers can determine
+        # which config was created most recently (highest index wins for redirect_to_topic).
+        configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
 
-    # Build the new data array from all configs in the database (v2 format)
-    entries: list[dict[str, Any]] = [
-        {
-            "token": config.token,
-            "pipelines": config.pipelines or [],
-            "distinct_ids": config.distinct_ids or [],
-            "session_ids": config.session_ids or [],
-            "event_names": config.event_names or [],
-            "event_uuids": config.event_uuids or [],
-            "args": config.args,
-        }
-        for config in configs
-    ]
-    if restriction_type == RestrictionType.DROP_EVENT_FROM_INGESTION:
-        entries.extend(_error_tracking_ingestion_disabled_entries())
+        # Build the new data array from all configs in the database (v2 format)
+        entries: list[dict[str, Any]] = [
+            {
+                "token": config.token,
+                "pipelines": config.pipelines or [],
+                "distinct_ids": config.distinct_ids or [],
+                "session_ids": config.session_ids or [],
+                "event_names": config.event_names or [],
+                "event_uuids": config.event_uuids or [],
+                "args": config.args,
+            }
+            for config in configs
+        ]
+        if restriction_type == RestrictionType.DROP_EVENT_FROM_INGESTION:
+            entries.extend(_error_tracking_ingestion_disabled_entries())
 
-    if not entries:
-        # No configs exist, delete the Redis key
-        redis_client.delete(redis_key)
-        return
+        if not entries:
+            # No configs exist, delete the Redis key
+            redis_client.delete(redis_key)
+            return
 
-    data = [{"version": 2, "index": index, **entry} for index, entry in enumerate(entries)]
-    redis_client.set(redis_key, json.dumps(data))
+        data = [{"version": 2, "index": index, **entry} for index, entry in enumerate(entries)]
+        redis_client.set(redis_key, json.dumps(data))
 
 
 def _error_tracking_ingestion_disabled_entries() -> list[dict[str, Any]]:

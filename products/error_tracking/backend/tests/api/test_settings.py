@@ -166,6 +166,14 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
 
         self.assertEqual([entry["distinct_ids"] for entry in self._drop_event_entries()], [["blocked-user"]])
 
+    def test_repeating_an_ingestion_write_repairs_capture_drop_rules_after_a_failed_rebuild(self):
+        ErrorTrackingSettings.objects.update_or_create(team=self.team, defaults={"ingestion_enabled": False})
+        self.assertEqual(self._drop_event_entries(), [])
+
+        self._set_ingestion_enabled(False)
+
+        self.assertEqual([entry["token"] for entry in self._drop_event_entries()], [self.team.api_token])
+
     def test_capture_drop_rule_follows_api_token_rotation(self):
         self._set_ingestion_enabled(False)
         old_token = self.team.api_token
