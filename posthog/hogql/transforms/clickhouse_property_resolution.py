@@ -54,6 +54,7 @@ from posthog.hogql.type_system import (
     constant_type_from_runtime_type,
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
+    string_parses_as_number,
 )
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
@@ -1019,14 +1020,6 @@ def _coalesce_empty(expr: ast.Expr) -> ast.Call:
 
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
-
-
-def _parses_as_number(value: str) -> bool:
-    try:
-        float(value)
-    except ValueError:
-        return False
-    return True
 
 
 def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantType:
@@ -2054,7 +2047,7 @@ class ClickHousePropertyResolver(CloningVisitor):
     def _numeric_dynamic_json_property_compared_to_text(
         self, expr: ast.Expr, values: list[str]
     ) -> _OptimizableProperty | None:
-        if all(_parses_as_number(value) for value in values):
+        if all(string_parses_as_number(value) for value in values):
             return None
         single = self._single_key_property(expr)
         if single is None:

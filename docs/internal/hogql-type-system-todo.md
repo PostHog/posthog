@@ -256,6 +256,7 @@ Property handling currently spans type resolution, transform-time metadata looku
 - For JSON and array-ish properties without loaded metadata, `PropertyType` still falls back to the underlying field's constant type with `nullable=True`.
 - `build_property_swapper()` loads `PropertyDefinition` rows and materialized slot metadata.
 - `PropertySwapper` wraps typed properties with conversion calls such as `toFloat(...)`, `toDateTime(...)`, and `toBool(...)`, and generated conversion calls now carry explicit return metadata for downstream aliases and outer calls.
+- A `Numeric` property compared with `=`, `!=`, `IN`, or `NOT IN` against string literals that are not all numbers keeps no `toFloat(...)` wrapper when its source stores text, so the comparison matches as text. ClickHouse cannot convert such a literal to `Float64`. On the native events table the same rule reads the JSON subcolumn as `Nullable(String)`.
 - The printer decides between JSON extraction, materialized columns, dynamic materialized slots, and property group columns.
 - Property comparison planning now combines semantic property types, physical source types, source index metadata, and restricted-property rules before materialized comparison rewrites run.
 - Exact-type `JSONExtract(properties, 'key', 'Type')` calls can use a materialized column when the requested parsed type matches the physical materialized column type.

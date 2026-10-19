@@ -20,7 +20,7 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
+from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type, string_parses_as_number
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
@@ -157,6 +157,13 @@ class PropertySwapper(CloningVisitor):
     # ILLEGAL_TYPE_OF_ARGUMENT. We extract the array via JSONExtract(..., 'Array(String)') — the same
     # wrapping property_to_expr applies to typed exception filters.
     _ARRAY_MEMBERSHIP_FUNCTIONS: set[str] = {"has", "hasAll", "hasAny", "hasSubstr"}
+
+    _TEXT_COMPARISON_OPS: set[ast.CompareOperationOp] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.NotIn,
+    }
 
     def __init__(
         self,
@@ -528,7 +535,7 @@ class PropertySwapper(CloningVisitor):
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        result = super().visit_compare_operation(node)
+        result = self._compare_numeric_property_as_text(node, super().visit_compare_operation(node))
 
         if (
             not self.setTimeZones
@@ -539,6 +546,50 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _compare_numeric_property_as_text(
+        self, node: ast.CompareOperation, result: ast.CompareOperation
+    ) -> ast.CompareOperation:
+        if result.op not in self._TEXT_COMPARISON_OPS:
+            return result
+        if self._has_non_numeric_text(result.right) and (
+            left := self._without_numeric_property_cast(node.left, result.left)
+        ):
+            result.left = left
+        elif (
+            result.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
+            and self._has_non_numeric_text(result.left)
+            and (right := self._without_numeric_property_cast(node.right, result.right))
+        ):
+            result.right = right
+        return result
+
+    def _without_numeric_property_cast(self, original: ast.Expr, swapped: ast.Expr) -> ast.Expr | None:
+        if isinstance(original, ast.Alias) and isinstance(swapped, ast.Alias):
+            inner = self._without_numeric_property_cast(original.expr, swapped.expr)
+            if inner is None:
+                return None
+            swapped.expr = inner
+            return swapped
+        if not (
+            isinstance(original, ast.Field)
+            and isinstance(swapped, ast.Call)
+            and swapped.name == "toFloat"
+            and len(swapped.args) == 1
+            and isinstance(swapped.args[0], ast.Field)
+        ):
+            return None
+        field = swapped.args[0]
+        access_plan = plan_property_access(field, self.context)
+        if access_plan is None or not isinstance(access_plan.source.physical_type, ast.StringType):
+            return None
+        return field
+
+    @staticmethod
+    def _has_non_numeric_text(expr: ast.Expr) -> bool:
+        values = expr.exprs if isinstance(expr, ast.Tuple | ast.Array) else [expr]
+        texts = [value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)]
+        return 0 < len(texts) == len(values) and not all(string_parses_as_number(text) for text in texts)
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.

@@ -904,6 +904,14 @@ def comparison_compatibility(
     return ComparisonCompatibility.INCOMPATIBLE
 
 
+def string_parses_as_number(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class FunctionTypeInference:
     return_type: ast.ConstantType

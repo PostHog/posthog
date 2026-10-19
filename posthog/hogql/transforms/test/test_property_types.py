@@ -561,34 +561,59 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1]),
-            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None]),
-            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None]),
-            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0]),
+            (f"{storage}_{name}", storage, predicate, expected)
+            for storage in ("native", "legacy_json", "legacy_property_group", "legacy_materialized_column")
+            for name, predicate, expected in [
+                ("text_equals", "properties.step = 'template'", ["template"]),
+                ("text_not_equals", "properties.step != 'template'", ["domain", "int_5", "text_5", "missing"]),
+                ("text_in", "properties.step IN ('template', 'domain')", ["template", "domain"]),
+                ("text_and_number_in", "properties.step IN ('template', '5')", ["template", "int_5", "text_5"]),
+                ("number_equals", "properties.step = '5'", ["int_5", "text_5"]),
+            ]
         ]
     )
     def test_numeric_property_compared_to_text_matches_text(
-        self, _name: str, predicate: str, expected: list[int | None]
+        self, _name: str, storage: str, predicate: str, expected: list[str]
     ) -> None:
-        context = self._context(event_properties={"step": {"type": "Numeric"}})
-        with patch("posthog.hogql.printer.utils.build_property_swapper"):
-            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
-        rows = sync_execute(
-            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
-            + printed,
+        native = storage == "native"
+        context = self._context(use_new_events_schema=native, event_properties={"step": {"type": "Numeric"}})
+        if storage == "legacy_property_group":
+            context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+        if storage == "legacy_materialized_column":
+            mat_step = FakeMaterializedColumn(name="mat_step", is_nullable=True, type="Nullable(String)")
+            context.property_metadata = PropertyMetadata(
+                event_properties={"step": {"type": "Numeric"}},
+                materialized_columns=lambda: {"events": {("step", "properties"): mat_step}},
+            )
+        with (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native),
+            patch("posthog.hogql.printer.utils.build_property_swapper"),
+        ):
+            printed, _ = prepare_and_print_ast(
+                parse_select(f"SELECT event FROM events WHERE {predicate}"), context, "clickhouse"
+            )
+        rows = (
+            "SELECT 1 AS team_id, row.1 AS event, row.2 AS raw_properties "
+            "FROM (SELECT arrayJoin(arrayZip(%(labels)s, %(documents)s)) AS row)"
+        )
+        table = (
+            f"events_json AS (SELECT team_id, event, CAST(raw_properties, 'JSON') AS properties FROM ({rows}))"
+            if native
+            else (
+                "events AS (SELECT team_id, event, raw_properties AS properties, "
+                "CAST(JSONExtractKeysAndValues(raw_properties, 'String'), 'Map(String, String)') AS properties_group_custom, "
+                f"JSONExtract(raw_properties, 'step', 'Nullable(String)') AS mat_step FROM ({rows}))"
+            )
+        )
+        result = sync_execute(
+            f"WITH {table} {printed}",
             {
                 **context.values,
-                "documents": [
-                    '{"step":"template"}',
-                    '{"step":"domain"}',
-                    '{"step":5}',
-                    '{"step":"5"}',
-                    "{}",
-                ],
+                "labels": ["template", "domain", "int_5", "text_5", "missing"],
+                "documents": ['{"step":"template"}', '{"step":"domain"}', '{"step":5}', '{"step":"5"}', "{}"],
             },
         )
-        assert [row[0] for row in rows] == expected
+        assert [row[0] for row in result] == expected
 
     @parameterized.expand(
         [
