@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache as real_cache
@@ -724,15 +724,22 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         assert res.status_code == 429
         assert res.json()["error"]["code"] == "rate_limited"
 
+    @parameterized.expand(
+        [
+            ("hostname", "evil.example.com", "evil.example.com"),
+            ("oversized_host", ".".join(["a" * 63] * 4), None),
+        ]
+    )
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
-    def test_cimd_domain_rate_limit_blocks_excessive_registrations(self, _url_mock):
+    def test_cimd_domain_rate_limit_blocks_excessive_registrations(
+        self, _name: str, host: str, reported_domain: str | None, _url_mock: MagicMock
+    ) -> None:
         from ee.api.agentic_provisioning.constants import CIMD_DOMAIN_RATE_LIMIT_MAX
 
-        base_domain = "evil.example.com"
         _, challenge = self._pkce_pair()
 
         for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX):
-            url = f"https://{base_domain}/path-{i}/metadata.json"
+            url = f"https://{host}/path-{i}/metadata.json"
             res = self.client.post(
                 "/api/agentic/provisioning/account_requests",
                 data={
@@ -746,20 +753,30 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             )
             assert res.status_code == 401, f"Request {i} failed: {res.json()}"
 
-        url = f"https://{base_domain}/path-blocked/metadata.json"
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_domain_rl_blocked",
-                "email": "domain-rl-blocked@example.com",
-                "client_id": url,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
+        url = f"https://{host}/path-blocked/metadata.json"
+        with patch("posthoganalytics.capture") as capture:
+            res = self.client.post(
+                "/api/agentic/provisioning/account_requests",
+                data={
+                    "id": "req_domain_rl_blocked",
+                    "email": "domain-rl-blocked@example.com",
+                    "client_id": url,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                },
+                content_type="application/json",
+            )
         assert res.status_code == 429
         assert res.json()["error"]["code"] == "rate_limited"
+        capture.assert_any_call(
+            "agentic_provisioning account_request",
+            distinct_id=ANY,
+            properties={
+                "outcome": "cimd_domain_rate_limited",
+                "domain": reported_domain,
+                "count": CIMD_DOMAIN_RATE_LIMIT_MAX + 1,
+            },
+        )
 
     @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     def test_cimd_domain_rate_limit_does_not_block_different_domains(self, _url_mock):
