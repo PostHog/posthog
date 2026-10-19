@@ -154,6 +154,23 @@ class HogFlow(UUIDTModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
+    # The latest Enable a person made. Only hog_flow_writes sets these. A workflow that waits for its
+    # sender's domain goes live in a background task, which credits its events to this person and
+    # measures the wait from this moment.
+    enable_requested_at = models.DateTimeField(null=True, blank=True)
+    # posthog_user is a hot table, so no database constraint. No index either: nothing filters on
+    # this column except the SET_NULL when a user is deleted.
+    enable_requested_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    went_live_at = models.DateTimeField(null=True, blank=True)
+
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)

@@ -46,9 +46,11 @@ export const HogFlowsListQueryParams = () => zod.object({
             'Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.'
         ),
     status: zod
-        .enum(['active', 'archived', 'draft'])
+        .enum(['active', 'archived', 'draft', 'waiting_for_domain'])
         .optional()
-        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+        .describe(
+            '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+        ),
     trigger: zod
         .string()
         .optional()
@@ -98,11 +100,13 @@ export const HogFlowsCreateBody = () => zod
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         status: zod
-            .enum(['draft', 'active', 'archived'])
-            .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+            .enum(['draft', 'active', 'waiting_for_domain', 'archived'])
+            .describe(
+                '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+            )
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution), active (live), archived (disabled). Send active to enable: the response carries waiting_for_domain instead when an email sender's domain is not verified yet, and the workflow goes live once it is. waiting_for_domain is never accepted as input.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived"
             ),
         origin_product: zod
             .union([

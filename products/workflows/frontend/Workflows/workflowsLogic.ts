@@ -323,7 +323,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
                     await api.hogFlows.updateHogFlow(workflow.id, {
-                        status: workflow.status === 'active' ? 'draft' : 'active',
+                        status: workflow.status === 'draft' ? 'active' : 'draft',
                     })
                     // Reload instead of patching in place: the new status may no longer match the
                     // active status filter, so the row has to be re-fetched through the server query.

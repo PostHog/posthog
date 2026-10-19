@@ -22,7 +22,7 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     description: z.string().optional(),
-    status: z.enum(['active', 'draft', 'archived']),
+    status: z.enum(['active', 'draft', 'waiting_for_domain', 'archived']),
     trigger: HogFlowTriggerSchema.optional(),
     // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
     trigger_masking: z

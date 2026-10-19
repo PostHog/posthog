@@ -376,6 +376,8 @@ def _to_workflow(
         email_sending_paused_reason=flow.email_sending_paused_reason,
         email_sending_paused_by=flow.email_sending_paused_by,
         email_sending_resumed_at=flow.email_sending_resumed_at,
+        enable_requested_at=flow.enable_requested_at,
+        went_live_at=flow.went_live_at,
         user_access_level=access_level,
         pending_suggestions=getattr(flow, "pending_suggestions", None),
         suggestions_enabled=getattr(flow, "suggestions_enabled", None),

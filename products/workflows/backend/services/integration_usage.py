@@ -1,5 +1,7 @@
 from typing import Any
 
+from posthog.models.integration import Integration
+
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
 
@@ -70,3 +72,32 @@ def get_active_hog_flows_using_integration(team_id: int, integration_id: int) ->
             _action_references_integration(action, integration_id, template_cache) for action in (flow.actions or [])
         )
     ]
+
+
+def _email_sender_id(action: dict) -> int | None:
+    sender = ((((action.get("config") or {}).get("inputs") or {}).get("email") or {}).get("value") or {}).get("from")
+    sender_id = sender.get("integrationId") if isinstance(sender, dict) else None
+    try:
+        return int(sender_id) if sender_id is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def email_senders_of(flow: HogFlow) -> frozenset[int]:
+    """The email integrations the workflow's live email steps send from."""
+    return frozenset(
+        sender_id
+        for action in flow.actions or []
+        if isinstance(action, dict)
+        and action.get("type") == "function_email"
+        and (sender_id := _email_sender_id(action)) is not None
+    )
+
+
+def unverified_senders(*, team_id: int, sender_ids: frozenset[int]) -> frozenset[int]:
+    """The senders among ``sender_ids`` that exist and are not verified yet. A sender that no longer exists
+    can never verify, so it does not hold a workflow back."""
+    if not sender_ids:
+        return frozenset()
+    senders = Integration.objects.filter(team_id=team_id, kind="email", id__in=sender_ids).only("id", "config")
+    return frozenset(sender.id for sender in senders if not (sender.config or {}).get("verified"))

@@ -47,9 +47,10 @@ import {
 import { WorkflowStepMatches } from './WorkflowStepMatches'
 import { hasMessagingAction } from './workflowTypeFilters'
 
-const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
+const STATUS_CONFIG: Record<HogFlow['status'], { label: string; type: 'success' | 'default' | 'warning' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
     draft: { label: 'Draft', type: 'default' },
+    waiting_for_domain: { label: 'Waiting for domain', type: 'warning' },
     archived: { label: 'Archived', type: 'muted' },
 }
 

@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from typing import Any, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
@@ -47,6 +48,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
+    set_workflow_enabled,
 )
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
@@ -6032,6 +6034,161 @@ class TestHogFlowAPI(APIBaseTest):
         serializer.is_valid()
 
         assert "type" not in serializer.errors
+
+
+_DOMAIN_WIZARD_FLAG = "workflows-email-domain-wizard"
+_SEND_ONCE_VERIFIED_EVENTS = ("hog_flow_enable_requested", "hog_flow_activated", "hog_flow_waiting_cancelled")
+
+
+class TestHogFlowSendOnceVerified(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(_email_function_template())
+        report_patcher = patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+        self.mock_report = report_patcher.start()
+        self.addCleanup(report_patcher.stop)
+
+    def _sender(self, *, verified: bool) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "hello@example.com", "name": "Hello", "domain": "example.com", "verified": verified},
+        )
+
+    def _email_flow(self, sender: Integration, flow_status: str = "draft") -> dict:
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": sender.id}
+        return {
+            "name": "Welcome",
+            "status": flow_status,
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger",
+                    "type": "trigger",
+                    "config": {"type": "event", "filters": {"events": [{"id": "$pageview", "type": "events"}]}},
+                },
+                {
+                    "id": "email_node",
+                    "name": "email",
+                    "type": "function_email",
+                    "config": {"template_id": "template-email", "inputs": inputs},
+                },
+            ],
+        }
+
+    def _create(self, payload: dict) -> Any:
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json")
+
+    def _create_draft(self, sender: Integration) -> str:
+        response = self._create(self._email_flow(sender))
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def _set_status(self, flow_id: str, flow_status: str) -> Any:
+        return self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": flow_status})
+
+    def _flag(self, enabled: bool) -> Any:
+        return patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: enabled and key == _DOMAIN_WIZARD_FLAG,
+        )
+
+    def _events(self) -> dict[str, dict]:
+        return {
+            call.args[1]: call.args[2]
+            for call in self.mock_report.call_args_list
+            if call.args[1] in _SEND_ONCE_VERIFIED_EVENTS
+        }
+
+    @parameterized.expand(
+        [
+            ("unverified_sender_flag_on", False, True, "waiting_for_domain"),
+            ("verified_sender_flag_on", True, True, "active"),
+            ("unverified_sender_flag_off", False, False, "active"),
+            ("verified_sender_flag_off", True, False, "active"),
+        ]
+    )
+    def test_enable_saves_the_status_its_senders_allow(self, _name, verified, flag_on, expected_status):
+        flow_id = self._create_draft(self._sender(verified=verified))
+        self.mock_report.reset_mock()
+
+        with self._flag(flag_on):
+            response = self._set_status(flow_id, "active")
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["status"] == expected_status
+        assert body["enable_requested_at"] is not None
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.enable_requested_by_id == self.user.id
+        events = self._events()
+        assert events["hog_flow_enable_requested"]["workflow_id"] == flow_id
+        assert events["hog_flow_enable_requested"]["outcome"] == expected_status
+        if expected_status == "waiting_for_domain":
+            assert body["went_live_at"] is None
+            assert events["hog_flow_enable_requested"]["unverified_sender_count"] == 1
+            assert "hog_flow_activated" not in events
+        else:
+            assert body["went_live_at"] == body["enable_requested_at"]
+            assert events["hog_flow_enable_requested"]["unverified_sender_count"] == 0
+            assert events["hog_flow_activated"]["activated_by"] == "user"
+            assert events["hog_flow_activated"]["seconds_waiting"] == 0
+
+    def test_create_as_active_with_an_unverified_sender_waits(self):
+        with self._flag(True):
+            response = self._create(self._email_flow(self._sender(verified=False), flow_status="active"))
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["status"] == "waiting_for_domain"
+        assert response.json()["went_live_at"] is None
+        events = self._events()
+        assert events["hog_flow_enable_requested"]["outcome"] == "waiting_for_domain"
+        assert "hog_flow_activated" not in events
+
+    def test_set_workflow_enabled_returns_the_saved_status(self):
+        flow_id = self._create_draft(self._sender(verified=False))
+        self.mock_report.reset_mock()
+
+        with self._flag(True), self.captureOnCommitCallbacks(execute=True):
+            saved_status = set_workflow_enabled(
+                team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(flow_id), enabled=True
+            )
+
+        assert saved_status == "waiting_for_domain"
+        assert HogFlow.objects.get(pk=flow_id).status == "waiting_for_domain"
+        assert self._events()["hog_flow_enable_requested"]["outcome"] == "waiting_for_domain"
+
+    def test_enable_leaves_an_archived_workflow_alone(self):
+        flow_id = self._create_draft(self._sender(verified=True))
+        assert self._set_status(flow_id, "archived").status_code == 200
+        self.mock_report.reset_mock()
+
+        with self._flag(True):
+            response = self._set_status(flow_id, "active")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "archived"
+        assert response.json()["enable_requested_at"] is None
+        assert self._events() == {}
+
+    @parameterized.expand([("disable",), ("archive",), ("delete",)])
+    def test_cancelling_a_waiting_workflow_reports_how_long_it_waited(self, action):
+        flow_id = self._create_draft(self._sender(verified=False))
+        with time_machine.travel("2026-10-19T10:00:00Z", tick=False), self._flag(True):
+            assert self._set_status(flow_id, "active").json()["status"] == "waiting_for_domain"
+        self.mock_report.reset_mock()
+
+        with time_machine.travel("2026-10-19T10:01:30Z", tick=False):
+            if action == "delete":
+                response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+            else:
+                response = self._set_status(flow_id, "draft" if action == "disable" else "archived")
+
+        assert response.status_code in (200, 204), response.content
+        cancelled = self._events()["hog_flow_waiting_cancelled"]
+        assert cancelled["workflow_id"] == flow_id
+        assert cancelled["seconds_waiting"] == 90
 
 
 class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):

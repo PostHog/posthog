@@ -531,11 +531,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         status: zod
-            .enum(['draft', 'active', 'archived'])
-            .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+            .enum(['draft', 'active', 'waiting_for_domain', 'archived'])
+            .describe(
+                '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+            )
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution), active (live), archived (disabled). Send active to enable: the response carries waiting_for_domain instead when an email sender's domain is not verified yet, and the workflow goes live once it is. waiting_for_domain is never accepted as input.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived"
             ),
         origin_product: zod
             .union([
@@ -940,11 +942,13 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(hogFlowsUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsUpdateBodyDescriptionDefault).describe('Optional description.'),
         status: zod
-            .enum(['draft', 'active', 'archived'])
-            .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+            .enum(['draft', 'active', 'waiting_for_domain', 'archived'])
+            .describe(
+                '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+            )
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution), active (live), archived (disabled). Send active to enable: the response carries waiting_for_domain instead when an email sender's domain is not verified yet, and the workflow goes live once it is. waiting_for_domain is never accepted as input.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived"
             ),
         trigger_masking: zod
             .union([
@@ -1341,11 +1345,13 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .default(hogFlowsPartialUpdateBodyDescriptionDefault)
             .describe('Optional description.'),
         status: zod
-            .enum(['draft', 'active', 'archived'])
-            .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+            .enum(['draft', 'active', 'waiting_for_domain', 'archived'])
+            .describe(
+                '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+            )
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution), active (live), archived (disabled). Send active to enable: the response carries waiting_for_domain instead when an email sender's domain is not verified yet, and the workflow goes live once it is. waiting_for_domain is never accepted as input.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived"
             ),
         trigger_masking: zod
             .union([
@@ -1943,11 +1949,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Optional description.'),
             version: zod.number(),
             status: zod
-                .enum(['draft', 'active', 'archived'])
-                .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+                .enum(['draft', 'active', 'waiting_for_domain', 'archived'])
+                .describe(
+                    '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+                )
                 .optional()
                 .describe(
-                    'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                    "draft (no execution), active (live), archived (disabled). Send active to enable: the response carries waiting_for_domain instead when an email sender's domain is not verified yet, and the workflow goes live once it is. waiting_for_domain is never accepted as input.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived"
                 ),
             origin_product: zod
                 .union([
@@ -2465,6 +2473,16 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
                 ),
+            enable_requested_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe('When someone last enabled the workflow. Null if it was never enabled.'),
+            went_live_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe(
+                    "When the workflow last went live. Earlier than enable_requested_at, or null, while the workflow waits for its email sender's domain."
+                ),
             last_run: zod
                 .union([
                     zod.object({
@@ -2829,11 +2847,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .default(hogFlowsBulkDeleteCreateBodyDescriptionDefault)
             .describe('Optional description.'),
         status: zod
-            .enum(['draft', 'active', 'archived'])
-            .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+            .enum(['draft', 'active', 'waiting_for_domain', 'archived'])
+            .describe(
+                '\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived'
+            )
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution), active (live), archived (disabled). Send active to enable: the response carries waiting_for_domain instead when an email sender's domain is not verified yet, and the workflow goes live once it is. waiting_for_domain is never accepted as input.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `waiting_for_domain` - Waiting For Domain\n\* `archived` - Archived"
             ),
         origin_product: zod
             .union([

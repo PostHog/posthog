@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
@@ -7,13 +7,18 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from posthog.models import Team, User
+from posthog.ph_client import feature_enabled_or_false
+
 from products.workflows.backend.facade.contracts import (
+    StatusChange,
     WorkflowEditState,
+    WorkflowEvent,
     WorkflowHasNoDraft,
     WorkflowStale,
     WorkflowWriteResult,
 )
-from products.workflows.backend.facade.enums import HogFlowScheduleStatus
+from products.workflows.backend.facade.enums import HogFlowOriginProduct, HogFlowScheduleStatus, HogFlowState
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
@@ -24,6 +29,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     strip_content_secrets,
     strip_secrets_from_content,
 )
+from products.workflows.backend.services.integration_usage import email_senders_of, unverified_senders
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -34,9 +40,102 @@ from products.workflows.backend.services.workflow_proposals import (
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 
+EMAIL_DOMAIN_WIZARD_FLAG = "workflows-email-domain-wizard"
+
 
 def field_values(flow: HogFlow) -> dict[str, object]:
     return {field.attname: getattr(flow, field.attname) for field in flow._meta.concrete_fields}
+
+
+def _sender_check_rolled_out(team_id: int, user_id: Optional[int]) -> bool:
+    user = User.objects.filter(pk=user_id).only("distinct_id").first() if user_id else None
+    if user is None:
+        return False
+    team = Team.objects.only("uuid", "organization_id").get(pk=team_id)
+    organization_id, project_id = str(team.organization_id), str(team.uuid)
+    try:
+        return feature_enabled_or_false(
+            EMAIL_DOMAIN_WIZARD_FLAG,
+            str(user.distinct_id),
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
+
+
+def _unverified_senders_of(flow: HogFlow, user_id: Optional[int]) -> frozenset[int]:
+    senders = email_senders_of(flow)
+    if not senders or not _sender_check_rolled_out(flow.team_id, user_id):
+        return frozenset()
+    return unverified_senders(team_id=flow.team_id, sender_ids=senders)
+
+
+def _seconds_waiting(flow: HogFlow, now: datetime) -> int:
+    return int((now - flow.enable_requested_at).total_seconds()) if flow.enable_requested_at else 0
+
+
+def _request_enable(flow: HogFlow, *, user_id: Optional[int], previous: HogFlowState) -> StatusChange:
+    """Apply a person's Enable to the locked or unsaved row. The caller saves it."""
+    now = timezone.now()
+    unverified = _unverified_senders_of(flow, user_id)
+    current = HogFlowState.WAITING_FOR_DOMAIN if unverified else HogFlowState.ACTIVE
+    flow.status = current
+    flow.enable_requested_at = now
+    flow.enable_requested_by_id = user_id
+    if current == HogFlowState.ACTIVE:
+        flow.went_live_at = now
+    events = [
+        WorkflowEvent(
+            name="hog_flow_enable_requested",
+            workflow_id=flow.id,
+            user_id=user_id,
+            properties={"outcome": current.value, "unverified_sender_count": len(unverified)},
+        )
+    ]
+    if current == HogFlowState.ACTIVE:
+        events.append(
+            WorkflowEvent(
+                name="hog_flow_activated",
+                workflow_id=flow.id,
+                user_id=user_id,
+                properties={
+                    "activated_by": "user",
+                    "seconds_waiting": 0,
+                    "enable_requested_at": now.isoformat(),
+                    "edges_count": len(flow.edges or []),
+                    "actions_count": len(flow.actions or []),
+                },
+            )
+        )
+    return StatusChange(workflow_id=flow.id, previous=previous, current=current, events=tuple(events))
+
+
+def _events_on_leaving(flow: HogFlow) -> tuple[WorkflowEvent, ...]:
+    """Events for a workflow that a person turns off, archives or deletes, read before the change."""
+    if flow.status != HogFlowState.WAITING_FOR_DOMAIN:
+        return ()
+    return (
+        WorkflowEvent(
+            name="hog_flow_waiting_cancelled",
+            workflow_id=flow.id,
+            user_id=flow.enable_requested_by_id,
+            properties={"seconds_waiting": _seconds_waiting(flow, timezone.now())},
+        ),
+    )
+
+
+def _requests_enable(validated_data: dict, origin_product: Optional[str]) -> bool:
+    # Transactional email workflows refuse an unverified sender on their own, so they never wait.
+    return (
+        validated_data.get("status") == HogFlowState.ACTIVE
+        and origin_product != HogFlowOriginProduct.TRANSACTIONAL_EMAILS
+    )
+
+
+def _without_status(validated_data: dict) -> dict:
+    return {key: value for key, value in validated_data.items() if key != "status"}
 
 
 def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dict) -> WorkflowWriteResult:
@@ -44,7 +143,11 @@ def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dic
         data = dict(validated_data)
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
-        instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
+        instance = HogFlow(team_id=team_id, created_by_id=user_id, **data)
+        events: tuple[WorkflowEvent, ...] = ()
+        if _requests_enable(data, instance.origin_product):
+            events = _request_enable(instance, user_id=user_id, previous=HogFlowState.DRAFT).events
+        instance.save(force_insert=True)
         HogFlowRevision.objects.create(
             team_id=team_id,
             hog_flow=instance,
@@ -52,11 +155,43 @@ def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dic
             content=snapshot_flow_content(instance),
             created_by_id=user_id,
         )
-    return WorkflowWriteResult(previous={}, current=field_values(instance))
+    return WorkflowWriteResult(previous={}, current=field_values(instance), events=events)
 
 
-def destroy_workflow(*, team_id: int, hog_flow_id: UUID) -> None:
-    HogFlow.objects.get(team_id=team_id, pk=hog_flow_id).delete()
+def destroy_workflow(*, team_id: int, hog_flow_id: UUID) -> tuple[WorkflowEvent, ...]:
+    with transaction.atomic():
+        flow = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
+        events = _events_on_leaving(flow)
+        flow.delete()
+    return events
+
+
+def enable(*, team_id: int, hog_flow_id: UUID, user_id: int, validated_data: Mapping[str, object]) -> StatusChange:
+    """A person's Enable: save ``active`` when every email sender is verified, else ``waiting_for_domain``.
+    ``validated_data`` is the activation the serializer validated. Leaves an active or archived workflow alone."""
+    with transaction.atomic():
+        locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
+        previous = HogFlowState(locked.status)
+        if previous in (HogFlowState.ACTIVE, HogFlowState.ARCHIVED):
+            return StatusChange(workflow_id=locked.id, previous=previous, current=previous, events=())
+        data = _without_status(dict(validated_data))
+        if "actions" in data:
+            locked.actions = data["actions"]
+        change = _request_enable(locked, user_id=user_id, previous=previous)
+        _save_live(locked, data)
+    return change
+
+
+def disable(*, team_id: int, hog_flow_id: UUID) -> StatusChange:
+    """Turn an active or waiting workflow back into a draft."""
+    with transaction.atomic():
+        locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
+        previous = HogFlowState(locked.status)
+        if previous not in (HogFlowState.ACTIVE, HogFlowState.WAITING_FOR_DOMAIN):
+            return StatusChange(workflow_id=locked.id, previous=previous, current=previous, events=())
+        events = _events_on_leaving(locked)
+        _save_live(locked, {"status": HogFlowState.DRAFT})
+    return StatusChange(workflow_id=locked.id, previous=previous, current=HogFlowState.DRAFT, events=events)
 
 
 def trigger_has_audience(trigger: Optional[dict]) -> bool:
@@ -283,6 +418,28 @@ def _pause_schedules_on_audience_change(before: HogFlow, after: HogFlow) -> int:
     )
 
 
+def _apply_status_request(
+    instance: HogFlow, locked: HogFlow, validated_data: dict, user_id: Optional[int]
+) -> tuple[dict, tuple[WorkflowEvent, ...]]:
+    """Route a requested status through the enable rule. Returns the fields left to save and the events."""
+    requested = validated_data.get("status")
+    if requested is None or requested == locked.status:
+        return validated_data, ()
+    if requested == HogFlowState.WAITING_FOR_DOMAIN:
+        # Only the enable rule sets it. A client that sends it back read it before a change landed.
+        raise WorkflowStale()
+    if requested == HogFlowState.ACTIVE:
+        if locked.status == HogFlowState.ARCHIVED:
+            return _without_status(validated_data), ()
+        if not _requests_enable(validated_data, locked.origin_product):
+            return validated_data, ()
+        if "actions" in validated_data:
+            instance.actions = validated_data["actions"]
+        change = _request_enable(instance, user_id=user_id, previous=HogFlowState(locked.status))
+        return _without_status(validated_data), change.events
+    return validated_data, _events_on_leaving(locked)
+
+
 def update_workflow(
     *,
     team_id: int,
@@ -310,6 +467,7 @@ def update_workflow(
             raise WorkflowStale()
         # The write target is a second read, so `before_update` keeps the pre-write state.
         instance = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
+        events: tuple[WorkflowEvent, ...] = ()
 
         # Draft edits race against other draft edits, not against the live row (which they don't
         # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
@@ -355,6 +513,7 @@ def update_workflow(
                 _save_live(instance, remaining)
         else:
             validated_data = _derive_from_locked_graph(before_update, validated_data)
+            validated_data, events = _apply_status_request(instance, before_update, validated_data, user_id)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:
@@ -370,7 +529,10 @@ def update_workflow(
         _reschedule_timing_edits(team_id, before_update, instance)
         paused = _pause_schedules_on_audience_change(before_update, instance)
     return WorkflowWriteResult(
-        previous=field_values(before_update), current=field_values(instance), schedules_paused=paused
+        previous=field_values(before_update),
+        current=field_values(instance),
+        schedules_paused=paused,
+        events=events,
     )
 
 
