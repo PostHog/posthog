@@ -171,6 +171,22 @@ function reportFeatureFlagScheduleSuccess(): void {
     posthog.capture('feature flag scheduled')
 }
 
+// A flag opened from the list arrives through refreshFeatureFlag, not loadFeatureFlag.
+// Clicking Edit loads the flag again. The cache entry limits the event to one capture per mount.
+function reportFlagWithDeletedCohortLoaded(featureFlag: FeatureFlagType, cache: Record<string, any>): void {
+    const filters = deletedCohortFilters(featureFlag.filters)
+    if (!featureFlag.id || filters.length === 0 || cache.hasCapturedDeletedCohortLoad) {
+        return
+    }
+    cache.hasCapturedDeletedCohortLoad = true
+    posthog.capture('feature flag with deleted cohort loaded', {
+        active: featureFlag.active,
+        archived: featureFlag.archived,
+        deleted: featureFlag.deleted,
+        deleted_cohort_count: filters.length,
+    })
+}
+
 // A collapsed condition-set panel renders none of its children, so an inline release-condition
 // error has no element to render into and `scrollToFormError` has nothing to scroll to. Open every
 // set that holds a blocking error before the scroll runs.
@@ -4332,6 +4348,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!featureFlagRefresh) {
                 return
             }
+            reportFlagWithDeletedCohortLoaded(featureFlagRefresh, cache)
             const afterAgentChange = !!payload?.afterAgentChange
             if (afterAgentChange && cache.agentRefreshFailedToastId) {
                 // This response carries what the failed one missed, so its notice is now wrong.
@@ -4542,13 +4559,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
-            if (featureFlag?.id && values.deletedCohortFilters.length > 0) {
-                posthog.capture('feature flag with deleted cohort loaded', {
-                    active: featureFlag.active,
-                    archived: featureFlag.archived,
-                    deleted: featureFlag.deleted,
-                    deleted_cohort_count: values.deletedCohortFilters.length,
-                })
+            if (featureFlag) {
+                reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             }
             // Experiment is now loaded inline during loadFeatureFlag, not here
 

@@ -236,7 +236,9 @@ export function TaxonomicPropertyFilter({
                         type: filter?.type,
                         label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
-                        ...(filter.type === PropertyFilterType.Cohort ? { cohort_name: filter.cohort_name } : {}),
+                        ...(filter.type === PropertyFilterType.Cohort
+                            ? { cohort_name: filter.cohort_name, cohort_deleted: filter.cohort_deleted }
+                            : {}),
                     } as AnyPropertyFilter)
                 }
                 if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {

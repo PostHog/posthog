@@ -138,7 +138,7 @@ from products.feature_flags.backend.facade.config import (
     require_v1_config,
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
-from products.feature_flags.backend.facade.references import InvalidIds, referenced_cohort_ids, references
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -1336,26 +1336,14 @@ class _ConditionCohort:
     deleted: bool
 
 
-def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> dict[int, _ConditionCohort]:
-    """Load the cohorts that the flags' release conditions target, keyed by id.
-
-    Deleted cohorts are included so that a condition on one can show its name. An id with no
-    cohort in the project has no entry.
-    """
-    cohort_ids: set[int] = set()
-    for flag in flags:
-        filters = flag.get_filters()
-        # Only v1 groups are annotated.
-        if detect_config_format(filters).kind == "v1":
-            cohort_ids.update(referenced_cohort_ids(filters))
-    if not cohort_ids:
-        return {}
-    return {
-        cohort_id: _ConditionCohort(name=name, deleted=deleted)
-        for cohort_id, name, deleted in Cohort.objects.filter(
-            id__in=cohort_ids, team__project_id=project_id
-        ).values_list("id", "name", "deleted")
-    }
+def _condition_cohort_properties(filters: Any) -> Iterator[dict[str, Any]]:
+    """Yield the cohort properties in the release conditions of a v1 document, and none for other formats."""
+    # A document in another config version can still hold `groups`. Annotating it would mark its live cohorts as deleted.
+    if detect_config_format(filters).kind != "v1" or not isinstance(filters, Mapping):
+        return
+    for located in _iter_flag_filter_properties(filters.get("groups")):
+        if located.prop.get("type") == PropertyFilterType.COHORT:
+            yield located.prop
 
 
 def _condition_cohort_id(value: Any) -> int | None:
@@ -1367,6 +1355,28 @@ def _condition_cohort_id(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> dict[int, _ConditionCohort]:
+    """Load the cohorts that the flags' release conditions target, keyed by id.
+
+    Deleted cohorts are included so that a condition on one can show its name. An id with no
+    cohort in the project has no entry.
+    """
+    cohort_ids: set[int] = set()
+    for flag in flags:
+        for cohort_prop in _condition_cohort_properties(flag.get_filters()):
+            cohort_id = _condition_cohort_id(cohort_prop.get("value"))
+            if cohort_id is not None:
+                cohort_ids.add(cohort_id)
+    if not cohort_ids:
+        return {}
+    return {
+        cohort_id: _ConditionCohort(name=name, deleted=deleted)
+        for cohort_id, name, deleted in Cohort.objects.filter(
+            id__in=cohort_ids, team__project_id=project_id
+        ).values_list("id", "name", "deleted")
+    }
 
 
 class FeatureFlagListSerializer(serializers.ListSerializer):
@@ -2471,10 +2481,6 @@ class FeatureFlagSerializer(
                 if property_type is None or prop.get("type") == property_type:
                     yield prop
 
-    def _get_cohort_properties_from_filters(self, filters: dict):
-        """Extract cohort properties from filters."""
-        return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
-
     def _get_group_key_properties_from_filters(self, filters: dict):
         """Extract $group_key properties from group-type filters."""
         return [
@@ -3045,9 +3051,8 @@ class FeatureFlagSerializer(
         return flag_status.name
 
     def _annotate_condition_cohorts(self, instance: FeatureFlag, filters: dict[str, Any]) -> None:
-        # _load_condition_cohorts reads only v1 documents. An unsupported document can still hold
-        # `groups`. Annotating it would mark its live cohorts as deleted.
-        if detect_config_format(filters).kind != "v1":
+        cohort_props = list(_condition_cohort_properties(filters))
+        if not cohort_props:
             return
 
         # FeatureFlagListSerializer loads the cohorts of a whole page. Retrieve and writes serialize one flag.
@@ -3055,7 +3060,7 @@ class FeatureFlagSerializer(
         if cohorts is None:
             cohorts = _load_condition_cohorts([instance], self.context["project_id"])
 
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
+        for cohort_prop in cohort_props:
             cohort_id = _condition_cohort_id(cohort_prop.get("value"))
             cohort = cohorts.get(cohort_id) if cohort_id is not None else None
             cohort_prop["cohort_name"] = cohort.name if cohort else None

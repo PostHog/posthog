@@ -22,11 +22,16 @@ export function FeatureFlagDeletedCohortBanner(): JSX.Element | null {
     const them = single ? 'it' : 'them'
     const theCohorts = single ? 'the cohort' : 'the cohorts'
     const deleted = single ? `Cohort ${cohorts[0]} was deleted.` : `Cohorts ${humanList(cohorts)} were deleted.`
-    const fix = `restore ${theCohorts} or update the release conditions to remove ${them}`
+    // The flag API sends no name for a cohort that no longer exists. That cohort has nothing to restore.
+    const restorable = deletedCohortFilters.every((property) => !!property.cohort_name)
+    const removeThem = `update the release conditions to remove ${them}`
+    const fix = restorable ? `restore ${theCohorts} or ${removeThem}` : removeThem
     // The flag API refuses to restore, unarchive or enable a flag while a condition targets a deleted cohort.
     let consequence: string
     if (featureFlag.deleted) {
-        consequence = `You can't restore the flag while it targets ${them}. Restore ${theCohorts} first.`
+        consequence = `You can't restore the flag while a release condition targets ${theCohorts}.${
+            restorable ? ` Restore ${them} first.` : ''
+        }`
     } else if (featureFlag.archived) {
         consequence = `You can't unarchive the flag until you ${fix}.`
     } else if (featureFlag.active) {
