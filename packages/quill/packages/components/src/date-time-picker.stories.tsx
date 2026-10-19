@@ -15,8 +15,8 @@ import * as React from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
-import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
+import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'
 
@@ -30,30 +30,36 @@ function formatTriggerLabel(value: DateTimeValue): string {
     return `${startStr} to ${endStr}`
 }
 
+const MOCK_DATE = '2026-01-15T12:00:00Z'
+
 const meta = {
     title: 'Components/DateTimePicker',
     component: DateTimePicker,
     tags: ['autodocs'],
+    parameters: { mockDate: MOCK_DATE },
 } satisfies Meta<typeof DateTimePicker>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-const initialValue: DateTimeValue = {
-    start: subDays(new Date(), 7),
-    end: new Date(),
-    range: quickRanges.find((r) => r.name === 'Last 7 days')!,
+// Module scope runs before the mockDate decorator, so build values at render time.
+function getInitialValue(now: Date = new Date()): DateTimeValue {
+    return {
+        start: subDays(now, 7),
+        end: now,
+        range: quickRanges.find((r) => r.name === 'Last 7 days')!,
+    }
 }
 
 const baseArgs = {
-    value: initialValue,
+    value: getInitialValue(new Date(MOCK_DATE)),
     onApply: () => undefined,
 }
 
 export const Default: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return <DateTimePicker value={value} onApply={setValue} />
     },
 }
@@ -68,7 +74,7 @@ export const THIS_COMPONENT_IS_EXPERIMENTAL: Story = {
 export const InPopover: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         const [open, setOpen] = React.useState(false)
         return (
             <Popover open={open} onOpenChange={setOpen}>
@@ -110,7 +116,7 @@ export const CustomMaxDate: Story = {
 export const CustomMinDate: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return <DateTimePicker value={value} onApply={setValue} minDate={subDays(new Date(), 2)} />
     },
 }
@@ -118,7 +124,7 @@ export const CustomMinDate: Story = {
 export const MinDateAndMaxDate: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return (
             <DateTimePicker
                 value={value}
@@ -133,7 +139,7 @@ export const MinDateAndMaxDate: Story = {
 export const EuropeanDateFormat: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return <DateTimePicker value={value} onApply={setValue} dateFormat="DMY" />
     },
 }
@@ -141,7 +147,7 @@ export const EuropeanDateFormat: Story = {
 export const ISODateFormat: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return <DateTimePicker value={value} onApply={setValue} dateFormat="YMD" />
     },
 }
@@ -149,7 +155,7 @@ export const ISODateFormat: Story = {
 export const WithSettingsLink: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return (
             <DateTimePicker
                 value={value}
@@ -162,9 +168,19 @@ export const WithSettingsLink: Story = {
 
 const calendarRanges: DateTimeRange[] = [
     { id: 1, name: 'This month', rangeSetter: (d) => startOfMonth(d) },
-    { id: 2, name: 'Last month', rangeSetter: (d) => startOfMonth(subMonths(d, 1)), endSetter: (d) => endOfMonth(subMonths(d, 1)) },
+    {
+        id: 2,
+        name: 'Last month',
+        rangeSetter: (d) => startOfMonth(subMonths(d, 1)),
+        endSetter: (d) => endOfMonth(subMonths(d, 1)),
+    },
     { id: 3, name: 'This quarter', rangeSetter: (d) => startOfQuarter(d) },
-    { id: 4, name: 'Last quarter', rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)), endSetter: (d) => endOfQuarter(subQuarters(d, 1)) },
+    {
+        id: 4,
+        name: 'Last quarter',
+        rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)),
+        endSetter: (d) => endOfQuarter(subQuarters(d, 1)),
+    },
     { id: 5, name: 'Year to date', rangeSetter: (d) => startOfYear(d) },
 ]
 
@@ -204,7 +220,7 @@ export const EmbeddedDayGranular: Story = {
 export const WeekStartsThursday: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return <DateTimePicker value={value} onApply={setValue} weekStartsOn={Day.THURSDAY} />
     },
 }
@@ -212,7 +228,7 @@ export const WeekStartsThursday: Story = {
 export const NarrowContainer: Story = {
     args: baseArgs,
     render: () => {
-        const [value, setValue] = React.useState<DateTimeValue>(initialValue)
+        const [value, setValue] = React.useState<DateTimeValue>(() => getInitialValue())
         return <DateTimePicker value={value} onApply={setValue} compact />
     },
 }
