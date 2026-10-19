@@ -2033,6 +2033,22 @@ class TestProperty(BaseTest):
             ),
         )
 
+        # semver_neq with a list must drop a row that equals any listed version. An OR join keeps
+        # that row, because the row differs from the other listed versions.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_neq", "value": ["1.2.3", "2.0.0"]}
+            ),
+            ast.And(
+                exprs=[
+                    self._property_to_expr(
+                        {"type": "person", "key": "app_version", "operator": "semver_neq", "value": version}
+                    )
+                    for version in ("1.2.3", "2.0.0")
+                ]
+            ),
+        )
+
     def test_property_to_expr_semver_validation(self):
         version_gate = "match(person.properties.version, '^\\\\s*v?(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)(?:[-+][^\\\\s]*)?\\\\s*$')"
 
