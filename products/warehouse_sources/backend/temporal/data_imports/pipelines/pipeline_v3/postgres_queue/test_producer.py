@@ -11,6 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables,
+    get_test_database_url,
+    truncate_queue_tables,
+)
 
 
 def _default_kwargs(**kwargs: Any) -> dict[str, Any]:
@@ -375,3 +381,42 @@ class TestPostgresProducerHeldBatch:
             producer._conn, job_id="job-1", current_run_uuid="run-1", spare_runs_with_progress=False
         )
         assert _inserted_rows(producer) == []
+
+
+@pytest.mark.django_db
+class TestLatestUnfinishedEarlierRun:
+    @pytest.mark.parametrize(
+        "rows, expected",
+        [
+            ([("job-1", "run-a1", False, 20), ("job-1", "run-a2", False, 10)], "run-a2"),
+            ([("job-1", "run-a1", False, 20), ("job-1", "run-a2", False, 10), ("job-1", "run-a2", True, 10)], None),
+            ([("job-1", "run-a3", False, 10)], None),
+            ([("job-2", "run-x", False, 10)], None),
+        ],
+        ids=["newest_earlier_run_is_open", "newest_earlier_run_is_closed", "only_this_run", "other_job"],
+    )
+    def test_finds_the_run_that_a_zero_batch_resume_must_close(
+        self, rows: list[tuple[str, str, bool, int]], expected: str | None
+    ) -> None:
+        database_url = get_test_database_url()
+        with psycopg.Connection.connect(database_url, autocommit=True) as conn:
+            ensure_queue_tables(conn)
+            truncate_queue_tables(conn)
+            for job_id, run_uuid, is_final, minutes_ago in rows:
+                conn.execute(
+                    f"""
+                    INSERT INTO {BATCH_TABLE} (
+                        team_id, schema_id, source_id, job_id, run_uuid, batch_index, s3_path, row_count,
+                        byte_size, is_final_batch, sync_type, resource_name, created_at
+                    )
+                    VALUES (1, 'schema-1', 'source-1', %s, %s, 0, 's3://bucket/path', 1, 1, %s, 'append',
+                        'test_resource', now() - make_interval(mins => %s))
+                    """,
+                    [job_id, run_uuid, is_final, minutes_ago],
+                )
+
+        producer = PostgresProducer(**_default_kwargs(database_url=database_url, run_uuid="run-a3"))
+        try:
+            assert producer.latest_unfinished_earlier_run() == expected
+        finally:
+            producer.close()

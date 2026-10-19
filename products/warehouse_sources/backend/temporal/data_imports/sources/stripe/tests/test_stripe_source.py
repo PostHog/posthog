@@ -28,11 +28,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
@@ -300,6 +302,17 @@ class TestStripeIncrementalListingResume:
         ids = self._ids(full)
         loaded_before = ids[: ids.index(cursor.starting_after) + 1]
         assert loaded_before + self._ids(resumed) == ids
+
+    @pytest.mark.parametrize(
+        "watermarks, isolated",
+        [({"db_incremental_field_last_value": 1000}, True), ({}, False)],
+        ids=["incremental_listing", "full_listing"],
+    )
+    def test_incremental_listing_cursors_use_a_key_that_older_code_does_not_read(self, watermarks, isolated):
+        inputs = source_inputs(CHARGE_RESOURCE_NAME, incremental_field="created", **watermarks)
+        base_key = ResumableSourceManager(inputs, stripe_module.StripeResumeConfig)._key
+
+        assert (StripeSource().get_resumable_source_manager(inputs)._key != base_key) is isolated
 
     def test_a_gone_cursor_fails_the_attempt_and_drops_the_cursor(self):
         result = self._run(

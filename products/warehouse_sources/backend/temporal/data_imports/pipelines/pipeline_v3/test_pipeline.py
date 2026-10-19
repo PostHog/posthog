@@ -131,6 +131,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._continues_incremental_handoff = False
     pipeline._resumed_incremental_run_uuid = None
     pipeline._sent_resumed_run_finalization = False
+    pipeline._earliest_incremental_field_value = None
 
     return pipeline
 
@@ -1314,6 +1315,48 @@ class TestDescWatermarkAcrossResumedAttempts:
         assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
         assert schema.sync_type_config["incremental_field_earliest_value"] == oldest_row.isoformat()
 
+    @pytest.mark.asyncio
+    async def test_a_resume_that_reads_no_older_row_keeps_the_minimum_of_the_earlier_attempt(self) -> None:
+        stored_earliest = self._NEWEST - timedelta(days=20)
+        schema = self._schema()
+        schema.sync_type_config.update(
+            {
+                "incremental_field_last_value": (self._NEWEST - timedelta(days=10)).isoformat(),
+                "incremental_field_earliest_value": stored_earliest.isoformat(),
+            }
+        )
+        older_row = stored_earliest - timedelta(days=5)
+        newer_row = self._NEWEST - timedelta(days=1)
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)),
+            patch.object(ExternalDataSchema, "refresh_from_db"),
+        ):
+            # The first attempt reads rows below the stored minimum, and the resumed one only newer rows.
+            for attempt, row in ((1, older_row), (2, newer_row)):
+                pipeline = self._attempt(schema, attempt)
+                run_uuid = cast(str, pipeline._run_uuid)
+                values = await update_incremental_field_values(
+                    schema,
+                    pa.table({"created_at": pa.array([row], pa.timestamp("us", tz="UTC"))}),
+                    pipeline._resource,
+                    pipeline._last_incremental_field_value,
+                    pipeline._earliest_incremental_field_value,
+                    _make_logger(),
+                    staging_run_uuid=run_uuid,
+                )
+            await finalize_desc_sort_incremental_value(
+                pipeline._resource,
+                schema,
+                values.last_value,
+                _make_logger(),
+                staging_run_uuid=run_uuid,
+                earliest_incremental_field_value=values.earliest_value,
+            )
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        assert schema.sync_type_config["incremental_field_earliest_value"] == older_row.isoformat()
+
 
 class TestZeroBatchRunStampsTheFullRunMarker:
     @pytest.mark.asyncio
@@ -1965,6 +2008,36 @@ class TestFinalMarkerIsTheLastDataRow:
             "workflow-run-a1"
         )
         assert pipeline._consumer_finalizes_this_run() is True
+
+    @pytest.mark.parametrize(
+        "earlier_run_uuid", ["workflow-run-a2", None], ids=["earlier_run_open", "nothing_to_close"]
+    )
+    @pytest.mark.asyncio
+    async def test_a_resumed_source_that_reads_no_rows_closes_the_earlier_queue_run(
+        self, earlier_run_uuid: str | None
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._resumes_source_cursor = True
+        pipeline._last_incremental_field_value = 200
+        pipeline._earliest_incremental_field_value = 50
+        producer = cast(MagicMock, pipeline._pg_producer)
+        producer.latest_unfinished_earlier_run.return_value = earlier_run_uuid
+
+        with (
+            patch(f"{_PIPELINE}.finalize_desc_sort_incremental_value", new_callable=AsyncMock) as staged,
+            patch(f"{_PIPELINE}.commit_source_cursor", new_callable=AsyncMock),
+            patch.object(PipelineV3, "_stamp_full_run", new_callable=AsyncMock),
+        ):
+            await pipeline._finalize(row_count=0)
+
+        assert pipeline._consumer_finalizes_this_run() is (earlier_run_uuid is not None)
+        if earlier_run_uuid is None:
+            producer.send_final_batch_for_resumed_run.assert_not_called()
+        else:
+            producer.send_final_batch_for_resumed_run.assert_called_once_with(earlier_run_uuid)
+            assert staged.await_args is not None
+            assert staged.await_args.kwargs["staging_run_uuid"] == earlier_run_uuid
+            assert staged.await_args.kwargs["earliest_incremental_field_value"] == 50
 
     @pytest.mark.parametrize(
         "ids,expected_rows",

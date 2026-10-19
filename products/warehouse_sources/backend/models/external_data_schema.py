@@ -1586,30 +1586,25 @@ def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | N
     return None if point is None else point[1]
 
 
-def staged_run_last_value(config: dict[str, Any], workflow_run_id: str | None) -> ProcessedIncrementalValue | None:
-    """The newest `last_value` that any attempt of `workflow_run_id` staged, or None.
-
-    A resumed attempt of a descending source reads only rows older than the rows that the earlier
-    attempts read, so it must start from their newest value. Each attempt stages the newest value
-    of the whole run so far, so the value survives when the parked list drops the attempt that read
-    the newest row.
-    """
+def _staged_run_extreme(
+    config: dict[str, Any], workflow_run_id: str | None, key: str, *, keep_larger: bool
+) -> ProcessedIncrementalValue | None:
     if not workflow_run_id:
         return None
     field_type = config.get("incremental_field_type")
-    newest: ProcessedIncrementalValue | None = None
+    extreme: ProcessedIncrementalValue | None = None
     # Newest attempt first: for a pair the comparator cannot order, the newest attempt wins, the same
     # rule that `_advance_promoted_cursor` applies.
     for staged, attempt in sorted(_staged_attempts_of_run(config, workflow_run_id), key=lambda item: -item[1]):
-        if staged.get("last_value") is None:
+        if staged.get(key) is None:
             continue
         try:
-            candidate = process_incremental_value(staged["last_value"], field_type)
+            candidate = process_incremental_value(staged[key], field_type)
         except Exception:
             # A value that does not parse must not fail the attempt at startup. The attempt then
-            # starts from an older value, which can only make the next run read rows again.
+            # starts from a wider window, which can only make the next run read rows again.
             logger.warning(
-                "staged_run_last_value_unparseable",
+                f"staged_run_{key}_unparseable",
                 run_uuid=staged.get("run_uuid"),
                 attempt=attempt,
                 incremental_field_type=field_type,
@@ -1618,20 +1613,41 @@ def staged_run_last_value(config: dict[str, Any], workflow_run_id: str | None) -
             continue
         if candidate is None:
             continue
-        if newest is None:
-            newest = candidate
+        if extreme is None:
+            extreme = candidate
             continue
-        comparison = _compare_incremental_values(newest, candidate, field_type)
+        comparison = _compare_incremental_values(extreme, candidate, field_type)
         if comparison is None:
             logger.warning(
-                "staged_run_last_value_unordered",
+                f"staged_run_{key}_unordered",
                 run_uuid=staged.get("run_uuid"),
                 attempt=attempt,
                 incremental_field_type=field_type,
             )
-        elif comparison < 0:
-            newest = candidate
-    return newest
+        elif (comparison < 0) if keep_larger else (comparison > 0):
+            extreme = candidate
+    return extreme
+
+
+def staged_run_last_value(config: dict[str, Any], workflow_run_id: str | None) -> ProcessedIncrementalValue | None:
+    """The newest `last_value` that any attempt of `workflow_run_id` staged, or None.
+
+    A resumed attempt of a descending source reads only rows older than the rows that the earlier
+    attempts read, so it must start from their newest value. Each attempt stages the newest value
+    of the whole run so far, so the value survives when the parked list drops the attempt that read
+    the newest row.
+    """
+    return _staged_run_extreme(config, workflow_run_id, "last_value", keep_larger=True)
+
+
+def staged_run_earliest_value(config: dict[str, Any], workflow_run_id: str | None) -> ProcessedIncrementalValue | None:
+    """The oldest `earliest_value` that any attempt of `workflow_run_id` staged, or None.
+
+    The loader promotes only the slot of the attempt that completes the job. A resumed attempt that
+    reads no row older than an earlier attempt did must therefore stage that earlier minimum again,
+    or the next run reads those older rows a second time.
+    """
+    return _staged_run_extreme(config, workflow_run_id, "earliest_value", keep_larger=False)
 
 
 def _advance_promoted_cursor(

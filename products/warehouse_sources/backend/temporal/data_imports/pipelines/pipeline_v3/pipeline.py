@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     attempt_run_uuid,
     process_incremental_value,
+    staged_run_earliest_value,
     staged_run_last_value,
     update_sync_type_config_keys,
 )
@@ -178,6 +179,8 @@ class PipelineV3(Generic[ResumableData]):
     _queued_own_batch: bool = False
     # True when this attempt reads the source after a value an earlier attempt of the run recorded.
     _continues_incremental_handoff: bool = False
+    # True when the source continues from a cursor that an earlier attempt of the job committed.
+    _resumes_source_cursor: bool = False
     # The manager the source holds, also when this run cannot resume from it.
     _source_resume_manager: ResumableSourceManager[ResumableData] | None = None
     # None when the pipeline waits for the source for as long as the source takes.
@@ -382,6 +385,13 @@ class PipelineV3(Generic[ResumableData]):
         self._earliest_incremental_field_value: Any = process_incremental_value(
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
+        if is_resume and source_response.sort_mode == "desc":
+            # An earlier attempt stages its oldest value only when it moves below the stored one, and the
+            # loader promotes only the slot of the attempt that completes the job. `_finalize` stages this
+            # value again, so the older rows of the earlier attempts are not read again by the next run.
+            staged_earliest = staged_run_earliest_value(models.schema.sync_type_config or {}, self._job.workflow_run_id)
+            if staged_earliest is not None:
+                self._earliest_incremental_field_value = staged_earliest
 
     def _tracks_handoff_checkpoint(self, source_response: SourceResponse, reset_pipeline: bool) -> bool:
         """Whether a later attempt of this run can continue from the batches this attempt queues.
@@ -640,6 +650,7 @@ class PipelineV3(Generic[ResumableData]):
         resumes_source_cursor = (
             self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
         )
+        self._resumes_source_cursor = resumes_source_cursor
         should_resume = resumes_source_cursor or self._continues_incremental_handoff
         source_is_resumable = self._resumable_source_manager is not None
 
@@ -1046,6 +1057,28 @@ class PipelineV3(Generic[ResumableData]):
                 self._sent_resumed_run_finalization = True
                 return
 
+            # A laned run counts only its primary lane's batches as the loader's to finalize.
+            if self._resumes_source_cursor and not self._resource.lanes:
+                # The cursor covers rows that an earlier attempt queued, and that attempt left the
+                # worker before it queued its final batch. Without a final batch the loader never
+                # completes the job or promotes its watermark, so the next job reads those rows again.
+                earlier_run_uuid = await asyncio.to_thread(self._pg_producer.latest_unfinished_earlier_run)
+                if earlier_run_uuid is not None:
+                    # The loader promotes the slot of the run that the final batch closes. That run can be a
+                    # resumed attempt that never reached `_finalize`, so its slot can miss the run's values.
+                    await finalize_desc_sort_incremental_value(
+                        self._resource,
+                        self._schema,
+                        self._last_incremental_field_value,
+                        self._logger,
+                        log_prefix="V3 Pipeline: ",
+                        staging_run_uuid=earlier_run_uuid,
+                        earliest_incremental_field_value=self._earliest_incremental_field_value,
+                    )
+                    await asyncio.to_thread(self._pg_producer.send_final_batch_for_resumed_run, earlier_run_uuid)
+                    self._sent_resumed_run_finalization = True
+                    return
+
             # A zero-batch run still ran the full extraction, which is what the fast-return
             # valve counts. Post-load stamps this on every other path but never runs here: with
             # no batches the load consumer is never notified. Without this a v3 schema whose
@@ -1078,6 +1111,7 @@ class PipelineV3(Generic[ResumableData]):
             self._logger,
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+            earliest_incremental_field_value=self._earliest_incremental_field_value,
         )
         await commit_source_cursor(
             self._source_cursor_manager,

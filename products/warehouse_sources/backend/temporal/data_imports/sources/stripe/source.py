@@ -101,6 +101,8 @@ PERMISSIONS = [
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
+INCREMENTAL_LISTING_RESUME_NAMESPACE = "incremental_listing"
+
 
 @SourceRegistry.register
 class StripeSource(
@@ -608,7 +610,15 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             return dict.fromkeys(endpoints, e.stripe_message)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
-        return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
+        manager = ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
+        if inputs.should_use_incremental_field and (
+            inputs.db_incremental_field_last_value is not None or inputs.db_incremental_field_earliest_value is not None
+        ):
+            # Code from before the incremental listings saved a cursor would still see a cursor here and
+            # resume, but it reads the whole window again. The append rollback then keeps the rows of the
+            # earlier attempts, so they load twice. A separate key keeps that code on a fresh attempt.
+            return manager.with_namespace(INCREMENTAL_LISTING_RESUME_NAMESPACE)
+        return manager
 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)

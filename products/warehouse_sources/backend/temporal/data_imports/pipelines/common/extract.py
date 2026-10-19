@@ -919,6 +919,7 @@ async def finalize_desc_sort_incremental_value(
     logger: FilteringBoundLogger,
     log_prefix: str = "",
     staging_run_uuid: str | None = None,
+    earliest_incremental_field_value: Any = None,
 ) -> None:
     if resource.sort_mode == "desc" and last_incremental_field_value is not None:
         await logger.adebug(
@@ -928,7 +929,7 @@ async def finalize_desc_sort_incremental_value(
         await database_sync_to_async_pool(schema.refresh_from_db)()
         if staging_run_uuid is not None:
             await database_sync_to_async_pool(schema.stage_incremental_field_value)(
-                staging_run_uuid, last_incremental_field_value
+                staging_run_uuid, last_incremental_field_value, earliest_incremental_field_value
             )
         else:
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)

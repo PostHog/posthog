@@ -201,6 +201,24 @@ class PostgresProducer:
             cumulative_row_count=total_rows,
         )
 
+    def latest_unfinished_earlier_run(self) -> str | None:
+        """The newest earlier run of this job, when no final batch closes it yet."""
+        with _queue_db_errors():
+            row = self._conn.execute(
+                f"""
+        SELECT run_uuid, bool_or(is_final_batch)
+        FROM {BATCH_TABLE}
+        WHERE job_id = %(job_id)s AND run_uuid <> %(run_uuid)s
+        GROUP BY run_uuid
+        ORDER BY max(created_at) DESC
+        LIMIT 1
+                """,
+                {"job_id": self._job_id, "run_uuid": self._run_uuid},
+            ).fetchone()
+        if row is None or row[1]:
+            return None
+        return row[0]
+
     def send_final_batch_for_resumed_run(self, run_uuid: str) -> None:
         """Append a final-only copy of the last queued batch from an earlier attempt."""
         with _queue_db_errors():
