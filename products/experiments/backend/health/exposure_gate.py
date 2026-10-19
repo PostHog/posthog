@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from time import monotonic
+from typing import Any
 
 from django.core.cache import cache
 from django.db.models import F, Func, JSONField, Q, Value
@@ -60,8 +61,11 @@ from products.experiments.backend.health.condition_changes import (
     parse_release_conditions,
 )
 from products.experiments.backend.health.context import (
+    MAX_FLAG_SAVES,
+    MAX_RELEASE_CONDITIONS,
     BucketingChange,
     BucketingSetting,
+    ChangeWindow,
     ConditionsChange,
     FlagChange,
     FlagHistory,
@@ -293,7 +297,11 @@ def _load_flag_history(
             changes=(),
         )
 
-    read = _flag_changes_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
+    rows = _flag_rows_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
+    too_large = _too_large(rows)
+    if too_large is not None:
+        return FlagHistoryNotChecked(reason=too_large, launched_at=launched_at, team_timezone=team_timezone, changes=())
+    read = _flag_changes(rows, feature_flag_id=feature_flag_id)
     flag = experiment.feature_flag
     trust_flag_aggregation = conditions_follow_flag_aggregation(flag.aggregation_group_type_index, flag.conditions)
     bucketing = changes_of_kind(read, BucketingChange)
@@ -329,6 +337,7 @@ def _load_flag_history(
         release_conditions=parse_release_conditions(
             flag.conditions, flag_aggregation=flag.aggregation_group_type_index
         ),
+        exposed_during_overrides={},
     )
     times = _change_times(changes)
     if not times:
@@ -354,7 +363,11 @@ def _load_flag_history(
             break
     if history.counted_since is None:
         return history
-    return replace(history, exposed_between=_exposed_between_set_backs(gate, timeline, history))
+    return replace(
+        history,
+        exposed_between=_exposed_between_set_backs(gate, timeline, history),
+        exposed_during_overrides=_exposed_during_overrides(gate, timeline, history),
+    )
 
 
 def _not_checked_reason(
@@ -461,6 +474,20 @@ def _exposed_between_set_backs(
     return exposed_between
 
 
+def _exposed_during_overrides(
+    gate: _ExposureGate, timeline: _Timeline, history: FlagHistory
+) -> dict[ChangeWindow, bool | None]:
+    """Asks, per override that was set and removed again or removed and set back, whether anyone was exposed in
+    between. The set-back question above covers only the span of every change of a kind."""
+    effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
+    windows = [] if effect is None else [override.temporary_window for override in effect.overrides.removed]
+    return {
+        window: _exposed_between(gate, timeline, start=window.start, end=window.end)
+        for window in dict.fromkeys(windows)
+        if window is not None
+    }
+
+
 _PROJECTED = (
     "before_variants",
     "after_variants",
@@ -472,8 +499,8 @@ _PROJECTED = (
 )
 
 
-def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) -> tuple[FlagChange, ...]:
-    rows = (
+def _flag_rows_since(*, team_id: int, feature_flag_id: int, since: datetime) -> list[dict[str, Any]]:
+    return list(
         ActivityLog.objects.filter(
             _changes_any_field(_FILTERS, *_SETTING_FIELDS.values()),
             team_id=team_id,
@@ -494,8 +521,21 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
             **{f"before_{setting}": _changed(field, "before") for setting, field in _SETTING_FIELDS.items()},
             **{f"after_{setting}": _changed(field, "after") for setting, field in _SETTING_FIELDS.items()},
         )
-        .values("created_at", "job_type", *_PROJECTED)
+        .values("created_at", "job_type", *_PROJECTED)[: MAX_FLAG_SAVES + 1]
     )
+
+
+def _too_large(rows: list[dict[str, Any]]) -> FlagHistoryNotCheckedReason | None:
+    if len(rows) > MAX_FLAG_SAVES:
+        return FlagHistoryNotCheckedReason.TOO_MANY_SAVES
+    for row in rows:
+        for groups in (row["before_groups"], row["after_groups"]):
+            if isinstance(groups, list) and len(groups) > MAX_RELEASE_CONDITIONS:
+                return FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS
+    return None
+
+
+def _flag_changes(rows: list[dict[str, Any]], *, feature_flag_id: int) -> tuple[FlagChange, ...]:
     changes: list[FlagChange] = []
     for row in rows:
         changed_at = row["created_at"]

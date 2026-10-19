@@ -77,6 +77,12 @@ def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C
 
 
 @frozen
+class ChangeWindow:
+    start: datetime
+    end: datetime
+
+
+@frozen
 class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
     before them. A change before the first exposure moved nobody, so it does not count."""
@@ -96,6 +102,9 @@ class FlagHistory:
     # The flag's release conditions now. A save that no kind counts can renumber them after the last change, and
     # the findings and the traffic number the conditions as they are now.
     release_conditions: tuple[ReleaseCondition, ...]
+    # Whether anyone was exposed while an override was set and removed again, or removed and set back. A user
+    # exposed only outside that window got the same variant throughout. None when unknown.
+    exposed_during_overrides: Mapping[ChangeWindow, bool | None]
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -112,6 +121,14 @@ class FlagHistoryNotCheckedReason(StrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EXPOSURE_ACTION = "exposure_action"
     EXPOSURE_CRITERIA = "exposure_criteria"
+    # The history is not read past these bounds, because the work grows with the saves and the conditions, and the
+    # experiment page asks on every load.
+    TOO_MANY_SAVES = "too_many_saves"
+    TOO_MANY_CONDITIONS = "too_many_conditions"
+
+
+MAX_FLAG_SAVES = 100
+MAX_RELEASE_CONDITIONS = 100
 
 
 @frozen

@@ -14,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
 from products.experiments.backend.health.condition_changes import parse_release_conditions
 from products.experiments.backend.health.context import (
+    ChangeWindow,
     ConditionsChange,
     ConditionSetTraffic,
     FlagHistoryNotCheckedReason,
@@ -26,6 +27,7 @@ LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 FIRST_CHANGE = "September 12, 2026 at 3:04 PM CEST"
 SECOND_CHANGE = "September 12, 2026 at 3:21 PM CEST"
+THIRD_CHANGE = "September 12, 2026 at 3:38 PM CEST"
 EVEN = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 PRO = {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]}
 EVERYONE: dict[str, Any] = {"properties": []}
@@ -49,6 +51,7 @@ def _context(
     not_checked: FlagHistoryNotCheckedReason | None = None,
     people_by_set: dict[int, int] | None = None,
     now: list[dict[str, Any]] | None = None,
+    exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
 ) -> HealthContext:
     changes = [
         ConditionsChange(
@@ -67,6 +70,7 @@ def _context(
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now),
+            exposed_during_overrides=exposed_during_overrides,
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
@@ -241,6 +245,23 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "come in another order. Users who match more than one of them now get the variant of another "
                 "condition, so those exposed before the change may have switched variants. Their exposures stay in "
                 "the results. Review the change in the flag history.",
+            ),
+            (
+                "override_in_place_only_while_nobody_was_exposed",
+                _context(
+                    [PRO, EVERYONE],
+                    [PRO_PINNED, EVERYONE],
+                    [PRO, EVERYONE],
+                    [PRO, EVERYONE, EU],
+                    people_by_set={1: 300, 2: 2700},
+                    exposed_during_overrides={
+                        ChangeWindow(start=FIRST_CHANGE_AT, end=FIRST_CHANGE_AT + timedelta(minutes=17)): False
+                    },
+                ),
+                ("conditions_changed", INFO, CHANGED_TITLE, "A6"),
+                f"The release conditions changed 3 times between {FIRST_CHANGE} and {THIRD_CHANGE}, from 2 conditions "
+                "to 3 conditions. People who match differently now enter or leave the experiment, and people exposed "
+                "before the changes stay in the results. Review the changes in the flag history.",
             ),
             (
                 "filters_of_a_pinned_condition_edited",

@@ -20,6 +20,7 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFlagCh
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,
+    ChangeWindow,
     ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -48,6 +49,9 @@ _BY_EVENT_PROPERTY: dict[str, Any] = {
 }
 _BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
 _UNREADABLE: dict[str, Any] = {"exposure_config": {"kind": "ExperimentEventExposureConfig"}}
+
+
+_EVERYONE: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
 
 
 def _split(control: int, test: int) -> list[dict[str, Any]]:
@@ -241,6 +245,41 @@ class TestLoadFlagHistory(BaseTest):
         assert isinstance(history, FlagHistory)
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(query.call_count, 1)
+
+    @parameterized.expand([("too_many_saves", 101, 1), ("too_many_conditions", 1, 101)])
+    def test_a_history_past_the_bounds_is_not_read(self, reason: str, saves: int, conditions: int) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        filters = [
+            {**_filters(_split(60, 40) if index % 2 else _split(50, 50)), "groups": [_EVERYONE] * conditions}
+            for index in range(saves + 1)
+        ]
+        for index, (before, after) in enumerate(zip(filters, filters[1:])):
+            self._log_change(first_at + timedelta(minutes=index), filters=(before, after))
+
+        history, query = self._load([True])
+
+        assert isinstance(history, FlagHistoryNotChecked)
+        self.assertEqual((history.reason, history.changes), (FlagHistoryNotCheckedReason(reason), ()))
+        self.assertEqual(query.call_count, 0)
+
+    def test_an_override_set_and_removed_asks_whether_anyone_was_exposed_while_it_was_in_place(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1), first_at + timedelta(hours=2)]
+        pro = {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]}
+        groups = [[_EVERYONE], [{**_EVERYONE, "variant": "test"}], [_EVERYONE], [_EVERYONE, pro]]
+        for at, before, after in zip(changed_at, groups, groups[1:]):
+            self._log_change(
+                at,
+                filters=({**_filters(_split(50, 50)), "groups": before}, {**_filters(_split(50, 50)), "groups": after}),
+            )
+
+        history, query = self._load([True, False])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(
+            history.exposed_during_overrides, {ChangeWindow(start=changed_at[0], end=changed_at[1]): False}
+        )
+        self.assertEqual(query.call_count, 2)
 
     @parameterized.expand(
         [

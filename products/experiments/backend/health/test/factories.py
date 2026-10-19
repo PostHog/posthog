@@ -4,6 +4,7 @@ from typing import TypedDict
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.health.context import (
+    ChangeWindow,
     ConditionsChange,
     FlagChange,
     FlagHistory,
@@ -50,6 +51,7 @@ def flag_history(
     exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None] | None = None,
     not_checked: FlagHistoryNotCheckedReason | None = None,
     release_conditions: tuple[ReleaseCondition, ...] | None = None,
+    exposed_during_overrides: Mapping[ChangeWindow, bool | None] | None = None,
 ) -> FlagHistory | FlagHistoryNotChecked:
     # Every change counts from the first, as when someone was exposed before it.
     if not_checked is not None:
@@ -66,4 +68,5 @@ def flag_history(
         release_conditions=release_conditions
         if release_conditions is not None
         else next((change.after for change in reversed(changes) if isinstance(change, ConditionsChange)), ()),
+        exposed_during_overrides=exposed_during_overrides or {},
     )

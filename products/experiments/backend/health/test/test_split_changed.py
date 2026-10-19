@@ -311,6 +311,14 @@ class TestSplitChangedMidRun(TestCase):
                 (),
                 "The flag history was not checked",
             ),
+            (
+                "too_many_saves",
+                _context(EVEN, not_checked=FlagHistoryNotCheckedReason.TOO_MANY_SAVES),
+                "This check can't see whether the flag's variant split, key, bucketing or release conditions changed "
+                "after launch, because the flag was saved more than 100 times since launch. Review the flag history.",
+                (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
+                "The flag history was not checked",
+            ),
         ]
     )
     def test_reports_split_changes_that_were_not_checked(

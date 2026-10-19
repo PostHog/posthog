@@ -25,7 +25,7 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.health.context import ConditionsChange, ReleaseCondition
+from products.experiments.backend.health.context import ChangeWindow, ConditionsChange, ReleaseCondition
 from products.experiments.backend.health.split_changes import EXPOSURE_FREEZE_JOB_TYPES
 from products.feature_flags.backend.facade.filters import condition_aggregation
 
@@ -62,6 +62,16 @@ class RemovedOverride:
     # The first change of the override when it was set back, otherwise the change that removed it.
     removed_at: datetime
     restored_at: datetime | None
+
+    @property
+    def temporary_window(self) -> ChangeWindow | None:
+        """The window between the two changes when the override was set and removed again, or removed and set
+        back. None when it was in place before the first change and stays removed."""
+        if self.restored_at is not None:
+            return ChangeWindow(start=self.removed_at, end=self.restored_at)
+        if self.set_at is not None:
+            return ChangeWindow(start=self.set_at, end=self.removed_at)
+        return None
 
 
 @frozen
@@ -107,6 +117,8 @@ def conditions_change_from_activity(
     """The release-condition change in one activity log row of the flag, or None when the row does not change who
     the conditions match or which variant they serve. The aggregations are the flag-level ones of the row."""
     if job_type in EXPOSURE_FREEZE_JOB_TYPES:
+        return None
+    if before_groups == after_groups and before_aggregation == after_aggregation:
         return None
     before = parse_release_conditions(before_groups, flag_aggregation=before_aggregation)
     after = parse_release_conditions(after_groups, flag_aggregation=after_aggregation)
@@ -283,8 +295,9 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
 def _rejoin(followed: _Followed, start: ReleaseConditions, end: ReleaseConditions) -> _Followed:
     """A condition that one change removes and a later change adds back is two conditions to the pairing of each
     change. Pairing the conditions gone by the end with the ones new since the start joins them again."""
-    gone = [index for index, condition_id in enumerate(followed.start_ids) if condition_id not in followed.end_ids]
-    new = [index for index, condition_id in enumerate(followed.end_ids) if condition_id not in followed.start_ids]
+    start_ids, end_ids = set(followed.start_ids), set(followed.end_ids)
+    gone = [index for index, condition_id in enumerate(followed.start_ids) if condition_id not in end_ids]
+    new = [index for index, condition_id in enumerate(followed.end_ids) if condition_id not in start_ids]
     pairs = _pair_conditions(tuple(start[index] for index in gone), tuple(end[index] for index in new))
     joined = {
         followed.end_ids[new[new_index]]: followed.start_ids[gone[gone_index]]
@@ -324,8 +337,10 @@ def _override_changes(
     end_variants = {condition_id: condition.variant for condition_id, condition in zip(followed.end_ids, end)}
     added: list[AddedOverride] = []
     removed: list[RemovedOverride] = []
-    for condition_id in dict.fromkeys(change.condition_id for change in followed.variant_changes):
-        changes = [change for change in followed.variant_changes if change.condition_id == condition_id]
+    by_condition: dict[int, list[_VariantChange]] = {}
+    for change in followed.variant_changes:
+        by_condition.setdefault(change.condition_id, []).append(change)
+    for condition_id, changes in by_condition.items():
         start_variant = start_variants.get(condition_id)
         end_variant = end_variants.get(condition_id)
         number = numbers.get(condition_id)
@@ -345,20 +360,25 @@ def _override_changes(
                 )
             )
         else:
-            removal = next((change for change in reversed(changes) if change.after is None), None)
-            if removal is None or removal.before is None:
+            removal_index = next(
+                (index for index in range(len(changes) - 1, -1, -1) if changes[index].after is None), None
+            )
+            if removal_index is None:
+                continue
+            removal = changes[removal_index]
+            if removal.before is None:
                 continue
             removed.append(
                 RemovedOverride(
                     variant=removal.before,
                     condition_number=number,
                     same_audience=removal.before_criteria == criteria_now.get(condition_id),
-                    set_at=_last_set(changes[: changes.index(removal)], removal.before),
+                    set_at=_last_set(changes[:removal_index], removal.before),
                     removed_at=removal.changed_at,
                     restored_at=None,
                 )
             )
-    touched = {change.condition_id for change in followed.variant_changes}
+    touched = set(by_condition)
     return OverrideChanges(added=tuple(added), removed=tuple(removed)), touched
 
 

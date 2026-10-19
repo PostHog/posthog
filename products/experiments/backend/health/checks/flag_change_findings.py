@@ -33,6 +33,15 @@ NOT_CHECKED = "not_checked"
 
 EvidenceValue = str | int | float | bool | None
 
+# The reasons for which the flag history is not read, so no change is known.
+_HISTORY_NOT_READ = frozenset(
+    {
+        FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS,
+        FlagHistoryNotCheckedReason.TOO_MANY_SAVES,
+        FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS,
+    }
+)
+
 
 class _Change(Protocol):
     @property
@@ -65,13 +74,11 @@ def history_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
 
 
 def flag_history_not_readable(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    """One finding for every kind of change when the reader can't view the flag's history."""
+    """One finding for every kind of change when the flag's history is not read."""
     history = history_to_check(ctx)
-    if (
-        not isinstance(history, FlagHistoryNotChecked)
-        or history.reason != FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
-    ):
+    if not isinstance(history, FlagHistoryNotChecked) or history.reason not in _HISTORY_NOT_READ:
         return None
+    no_access = history.reason == FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
     return ExperimentHealthFinding(
         # pinned: insights and the page read this code and subcode for this finding.
         code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
@@ -80,20 +87,24 @@ def flag_history_not_readable(ctx: HealthContext) -> ExperimentHealthFinding | N
         title="The flag history was not checked",
         detail=(
             "This check can't see whether the flag's variant split, key, bucketing or release conditions "
-            f"changed after launch, because {not_checked_because(history.reason)}. Viewing the history needs "
-            "viewer access to the flag and, with an API key, the activity_log:read scope."
+            f"changed after launch, because {not_checked_because(history.reason)}. "
+            + (
+                "Viewing the history needs viewer access to the flag and, with an API key, the activity_log:read scope."
+                if no_access
+                else "Review the flag history."
+            )
         ),
         evidence={"reason": history.reason.value},
         # The flag history is the page this caller can't open.
-        actions=(),
+        actions=() if no_access else (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref="E3",
     )
 
 
 def changes_not_checked[C: FlagChange](history: FlagHistoryNotChecked, kind: type[C]) -> tuple[C, ...]:
-    """The changes of one kind that a check reports as not checked. Empty for a history the reader can't view, which
+    """The changes of one kind that a check reports as not checked. Empty for a history that was not read, which
     `flag_history_not_readable` reports."""
-    if history.reason == FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
+    if history.reason in _HISTORY_NOT_READ:
         return ()
     return history.of_kind(kind)
 

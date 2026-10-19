@@ -72,8 +72,9 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
         and history.exposed_between.get(ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS) is False
     ):
         return None
-    if effect.overrides.removed:
-        finding = _override_removed(ctx, history, effect)
+    removed = _reported(ctx, history, effect)
+    if removed:
+        finding = _override_removed(ctx, history, effect, removed)
         if finding is not None:
             return finding
     change = the_change(effect.change_count, "the")
@@ -108,7 +109,7 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
         )
     # Only an override changed. The forced-variant check reports one that is still in place, and the removed ones
     # were graded above.
-    if effect.shape != ConditionsChangeShape.REVERTED or effect.overrides.removed:
+    if effect.shape != ConditionsChangeShape.REVERTED or removed:
         return None
     return _finding(
         history,
@@ -150,7 +151,7 @@ def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     if effect is None:
         return None
-    removed = _analyzed(ctx, effect)
+    removed = _reported(ctx, history, effect)
     pinned = tuple(
         ReachableCondition(number=override.condition_number, pinned_variant=override.variant)
         for override in removed
@@ -161,15 +162,20 @@ def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     return pinned_conditions(pinned, flag.variants, all_counted=len(pinned) == len(removed))
 
 
-def _analyzed(ctx: HealthContext, effect: ConditionsNetEffect) -> list[RemovedOverride]:
-    # An excluded variant is not in the results, so an override to it biased nothing.
-    return [override for override in effect.overrides.removed if override.variant not in ctx.excluded_variant_keys]
+def _reported(ctx: HealthContext, history: FlagHistory, effect: ConditionsNetEffect) -> list[RemovedOverride]:
+    # An excluded variant is not in the results, so an override to it biased nothing. An override that changed and
+    # changed back while nobody was exposed moved nobody.
+    return [
+        override
+        for override in effect.overrides.removed
+        if override.variant not in ctx.excluded_variant_keys
+        and ((window := override.temporary_window) is None or history.exposed_during_overrides.get(window) is not False)
+    ]
 
 
 def _override_removed(
-    ctx: HealthContext, history: FlagHistory, effect: ConditionsNetEffect
+    ctx: HealthContext, history: FlagHistory, effect: ConditionsNetEffect, removed: list[RemovedOverride]
 ) -> ExperimentHealthFinding | None:
-    removed = _analyzed(ctx, effect)
     pins = removed_overrides_to_grade(ctx)
     grade = grade_pinned_share(pins, ctx.condition_set_traffic) if pins is not None and pins.weighted else None
     severity = pinned_share_severity(grade)
