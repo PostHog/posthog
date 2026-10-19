@@ -10,7 +10,7 @@ import psycopg
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models import ExternalDataJob
-from products.warehouse_sources.backend.scheduling.shadow import SYNC_EXTRACT_KIND
+from products.warehouse_sources.backend.queue_runs.payloads import SYNC_EXTRACT_KIND
 from products.warehouse_sources_queue.backend.sdk import SchedulerStateTable
 
 TOP_OFFENDERS = 10

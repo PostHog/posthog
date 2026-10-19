@@ -21,13 +21,13 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
+from products.warehouse_sources.backend.queue_runs.payloads import SYNC_EXTRACT_KIND
 from products.warehouse_sources.backend.scheduling.shadow import (
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_WOULD_FIRE,
     REFRESH_SLOT_KEY,
     SCHEDULER_LANE,
     SKIP_REASONS,
-    SYNC_EXTRACT_KIND,
     TICK_SLOT_KEY,
     InScopeSchema,
     SchemaCadence,

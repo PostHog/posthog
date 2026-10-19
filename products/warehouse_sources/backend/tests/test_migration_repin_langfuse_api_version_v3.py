@@ -1,9 +1,9 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class TestRepinLangfuseApiVersionV3(TestMigrations):
+class TestRepinLangfuseApiVersionV3(NonAtomicTestMigrations):
     migrate_from = "0183_repin_gusto_api_version"
     migrate_to = "0184_repin_langfuse_api_version_v3"
 

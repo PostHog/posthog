@@ -1191,6 +1191,7 @@ async def _run(
             attempt=control.attempt,
             workflow_id=control.workflow_id,
             workflow_run_id=control.workflow_run_id,
+            on_rows_extracted=control.on_rows_extracted,
         )
 
         result = await pipeline.run()
