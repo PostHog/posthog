@@ -239,8 +239,6 @@ class TestReconcileDagSchedules(BaseTest):
         self.assertNotEqual(created_ids[0], legacy_id)
 
     def test_sweeps_legacy_schedule_when_dag_has_no_schedulable_nodes(self):
-        # a DAG holding only source tables has nothing to seed, so the unseeded-conversion
-        # guard must not apply: its legacy schedule just fires no-op execute-dag runs forever
         dag = DAG.get_or_create_default(self.team)
         _table_node(self.team, dag, "events", {"origin": "posthog"})
 

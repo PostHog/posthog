@@ -59,11 +59,6 @@ async def get_v2_scheduled_dag_ids(
 ) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
 
-    `tiered_only` counts only cadence-tier schedules (`{dag_id}:{seconds}`), ignoring the bare
-    whole-DAG `{dag_id}` schedule the legacy migration left behind. A bare schedule fires the DAG
-    but honours no frequency target, so a caller about to apply one must treat such a DAG as not
-    yet on tiers and bootstrap it instead.
-
     When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
     `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
     single unscoped listing per saved-query operation is enough to exhaust the namespace rate
@@ -99,8 +94,6 @@ def get_v2_saved_query_ids(
     candidate_ids: Collection[uuid.UUID] | None = None,
 ) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
-
-    `tiered_only` narrows "on v2" to DAGs with a cadence tier, as on `get_v2_scheduled_dag_ids`.
 
     Optionally restrict the lookup to `candidate_ids` to keep the query bounded.
     """

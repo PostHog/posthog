@@ -81,13 +81,10 @@ logger = structlog.get_logger(__name__)
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
-    """Trigger hook for graph/target mutations: reconcile an already-tiered DAG, best-effort.
+    """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
-    commit — the user's write already succeeded. Only DAGs already converted to cadence
-    tiers are touched: `require_tiered` below leaves legacy single-schedule DAGs to the
-    reconcile_freshness_schedules command, so a stray mutation cannot unschedule an
-    unseeded DAG.
+    commit — the user's write already succeeded.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
@@ -109,10 +106,6 @@ def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery |
     for callers that are not inside an atomic block — so call this only once the v2 lookup has
     said the DAG has no `execute-dag` schedule, and only after whatever frequency validation the
     caller does, never before.
-
-    Reconciles without `require_tiered`, because this is the pass that creates the DAG's first
-    tier schedules: `maybe_reconcile_dag` cannot stand in for it, since it declines a DAG that
-    has no tier schedule yet.
 
     `requested_by` is the saved query whose enable triggered this, and is marked not materialized
     if the reconcile fails.
@@ -260,15 +253,8 @@ def apply_saved_query_frequency_anchor(
 def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
-    Converging a covered DAG to zero schedules is refused only while it still has just legacy
-    (non-tier) schedules AND schedulable nodes — an empty tier set there almost always means
-    unseeded targets. A DAG with no schedulable nodes has nothing to seed, so its legacy schedule
-    is swept rather than left firing no-op runs. Once tier schedules exist, an empty tier set is a
-    deliberate wind-down (last target reverted/cleared) and those tiers are torn down. With
-    `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing) is
-    left untouched.
-
-    Returns whether a reconcile was applied; False means a guard skipped it.
+    An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
+    schedules are torn down.
     """
     team = dag.team
     if graph is None:
