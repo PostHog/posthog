@@ -105,7 +105,8 @@ describe('emailDomainLogic', () => {
             expect(warning).toHaveBeenCalledWith('The recipient has no reachable mail servers.')
         } else if (!sent) {
             expect(error).toHaveBeenCalledWith(
-                'Could not confirm the test email was sent. Check the recipient and try again.'
+                emailSendResult?.reason ??
+                    'Could not confirm the test email was sent. Check the recipient and try again.'
             )
         }
         warning.mockRestore()
