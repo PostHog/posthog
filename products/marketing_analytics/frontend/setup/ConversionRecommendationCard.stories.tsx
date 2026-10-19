@@ -28,6 +28,10 @@ const meta: Meta<typeof ConversionRecommendationCard> = {
 export default meta
 type Story = StoryObj<typeof ConversionRecommendationCard>
 export const Action: Story = {}
+export const AlreadyConfigured: Story = {
+    args: { alreadyConfigured: true },
+    parameters: { narrow: true },
+}
 export const Narrow: Story = {
     parameters: { narrow: true },
     decorators: [],

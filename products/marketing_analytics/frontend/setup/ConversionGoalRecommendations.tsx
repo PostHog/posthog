@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { ConversionRecommendationApi } from '../generated/api.schemas'
+import { conversionGoalFormLogic } from './conversionGoalFormLogic'
 import { ConversionRecommendationCard } from './ConversionRecommendationCard'
 import { conversionRecommendationsLogic } from './conversionRecommendationsLogic'
 
@@ -21,6 +22,7 @@ export function ConversionGoalRecommendations({
     onUseSuggestion: (recommendation: ConversionRecommendationApi) => void
 }): JSX.Element | null {
     const { currentTeamId, currentTeamLoading } = useValues(teamLogic)
+    const { findExistingGoal, isSaving } = useValues(conversionGoalFormLogic({ projectId: currentTeamId ?? -1 }))
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -116,10 +118,11 @@ export function ConversionGoalRecommendations({
                 <ConversionRecommendationCard
                     key={recommendation.source_ref}
                     recommendation={recommendation}
+                    alreadyConfigured={!!findExistingGoal(recommendation)}
                     onUseSuggestion={() => onUseSuggestion(recommendation)}
                     disabledReason={
                         restrictedReason ||
-                        (currentTeamLoading ? 'Wait for the project settings to finish saving.' : undefined)
+                        (currentTeamLoading || isSaving ? 'Wait for the project settings to finish saving.' : undefined)
                     }
                 />
             ))}

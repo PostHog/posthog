@@ -27,6 +27,10 @@ In Setup, **Use suggestion** opens the existing goal editor with the proposed na
 Revenue suggestions select the sum of the proposed amount property; customer suggestions select the customer flag.
 Business questions remain visible for review, and nothing is saved until the user clicks **Add conversion goal**.
 The form blocks duplicate submissions and keeps the draft after a failed save so the user can retry.
+Recommendations matching a saved goal show **Already configured**, even if the saved goal has a different name.
+Matching compares the event or action, measurement, filters, revenue and customer flags, and schema mapping.
+**Review goal** opens the saved configuration; **Save changes** updates that goal without creating another.
+The form also checks for an equivalent saved goal before submitting, including when settings changed after the draft opened.
 
 ## Discovery and access
 
@@ -79,6 +83,7 @@ After changing model scope, regenerate that list with `python .github/scripts/ch
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
 Frontend tests cover the initial run, manual updates, polling, project isolation, and the setup feature flag.
 Draft tests cover event and action mapping, explicit saves, duplicate-click prevention, and retries after failed saves.
+They also cover reviewing existing goals and avoiding duplicate saves from stale drafts.
 Storybook covers analysis in progress, saved results, updates, failure, empty results, missing consent, and narrow layouts.
 
 The standalone recommendation evaluation uses eleven synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
