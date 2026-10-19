@@ -92,7 +92,7 @@ class SetupTaskId(StrEnum):
     CreateEarlyAccessFeature = "create_early_access_feature"
     UpdateFeatureStage = "update_feature_stage"
 
-    # AI (shown for every product)
+    # AI (PostHog AI and Code show for every product, MCP and Slack only for some)
     UsePostHogAi = "use_posthog_ai"
     UsePostHogCode = "use_posthog_code"
     UsePostHogMcp = "use_posthog_mcp"
