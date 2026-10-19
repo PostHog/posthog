@@ -245,9 +245,7 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        # Master restores only a cache of its own dependency set, so it runs mypy cold after
-        # each uv.lock or pyproject.toml change. A cold run needs more than the 8 GB of
-        # depot-ubuntu-24.04, and the runner is OOM-killed with no log.
+        # Master runs mypy cold after a dependency change, which needs more than 8 GB.
         runs-on: ${{ github.event_name == 'pull_request' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
