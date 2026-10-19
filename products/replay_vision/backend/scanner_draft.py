@@ -1650,8 +1650,8 @@ def _typed_config(parsed: _LlmDraft, targeting: dict[str, Any] | None) -> tuple[
     if targeting is None:
         if parsed.scanner_type == "experiment":
             parsed = parsed.model_copy(update={"scanner_type": "summarizer"})
-        return parsed.scanner_type, _normalized_config(parsed)  # type: ignore[arg-type]
-    summary = _normalized_config(parsed.model_copy(update={"scanner_type": "summarizer"}))  # type: ignore[arg-type]
+        return parsed.scanner_type, _normalized_config(parsed)
+    summary = _normalized_config(parsed.model_copy(update={"scanner_type": "summarizer"}))
     variant = targeting.get("variant")
     scanner_config = {
         **summary,

@@ -447,14 +447,15 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
     def setUp(self):
         super().setUp()
         # The drafter's ClickHouse reads are covered by TestDraftScannerFromGoal; these tests cover the endpoint.
-        for target, kwargs in [
+        targets: list[tuple[str, dict[str, Any]]] = [
             ("fetch_visited_paths", {"return_value": ()}),
             ("recent_event_sessions", {"return_value": {}}),
             (
                 "estimate_scanner_session_volume",
                 {"return_value": ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)},
             ),
-        ]:
+        ]
+        for target, kwargs in targets:
             patcher = patch(f"{_MODULE}.{target}", **kwargs)
             patcher.start()
             self.addCleanup(patcher.stop)
