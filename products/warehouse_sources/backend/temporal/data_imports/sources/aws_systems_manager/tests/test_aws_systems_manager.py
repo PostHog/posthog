@@ -171,6 +171,14 @@ def test_rejects_unsupported_model_version(config: AwsSystemsManagerSourceConfig
             "baseline_id",
             100,
         ),
+        (
+            "ops_item_events",
+            "ListOpsItemEvents",
+            "Summaries",
+            {"EventId": "event-example", "OpsItemId": "oi-example"},
+            "event_id",
+            50,
+        ),
     ],
 )
 @pytest.mark.parametrize("terminal_token", [None, ""])
@@ -440,19 +448,46 @@ def test_normalizes_nested_counts_timestamps_and_composite_keys(
     assert rows[0]["execution_summary_execution_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
 
 
-def test_preserves_inventory_content(
+@pytest.mark.parametrize(
+    "schema,result_key,item_id,key,column,data",
+    [
+        (
+            "inventory",
+            "Entities",
+            {"Id": "i-example"},
+            "Data",
+            "data",
+            {
+                "AWS:InstanceInformation": {
+                    "CaptureTime": "2025-01-01T00:00:00Z",
+                    "Content": [{"InstanceId": "i-example", "InstanceStatus": "Stopped"}],
+                }
+            },
+        ),
+        (
+            "ops_items",
+            "OpsItemSummaries",
+            {"OpsItemId": "oi-example"},
+            "OperationalData",
+            "operational_data",
+            {"/aws/resources": {"Value": '[{"arn": "arn:aws:ec2:example"}]', "Type": "SearchableString"}},
+        ),
+    ],
+)
+def test_preserves_dynamic_content_as_json(
     config: AwsSystemsManagerSourceConfig,
+    schema: str,
+    result_key: str,
+    item_id: dict[str, Any],
+    key: str,
+    column: str,
+    data: dict[str, Any],
 ) -> None:
-    data = {
-        "AWS:InstanceInformation": {
-            "CaptureTime": "2025-01-01T00:00:00Z",
-            "Content": [{"InstanceId": "i-example", "InstanceStatus": "Stopped"}],
-        }
-    }
-    result = driver(config).run("inventory", [ScriptedResponse(json={"Entities": [{"Id": "i-example", "Data": data}]})])
+    result = driver(config).run(schema, [ScriptedResponse(json={result_key: [{**item_id, key: data}]})])
     assert result.raised is None
-    row = result.rows[0]
-    assert json.loads(row["data"]) == data
+    assert len(result.rows) == 1
+    assert json.loads(result.rows[0][column]) == data
+    assert not any(name.startswith(f"{column}_") for name in result.rows[0])
 
 
 @pytest.mark.parametrize("incremental", [False, True])
@@ -634,6 +669,73 @@ def _instance(instance_id: str, status: str) -> dict[str, Any]:
                 }
             ],
         ),
+        (
+            "instance_patch_states",
+            [
+                ScriptedResponse(
+                    json={
+                        "InstanceInformationList": [{"InstanceId": "i-a"}, {"InstanceId": "mi-b"}],
+                        "NextToken": "nodes-2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "InstancePatchStates": [
+                            {"InstanceId": "i-a", "MissingCount": 3, "OperationEndTime": 1735689600},
+                            {"InstanceId": "mi-b", "MissingCount": 0, "OperationEndTime": 1735689600},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json={"InstanceInformationList": [{"InstanceId": "i-c"}]}),
+                ScriptedResponse(json={"InstancePatchStates": [{"InstanceId": "i-c", "MissingCount": 1}]}),
+            ],
+            [
+                ("DescribeInstanceInformation", {"MaxResults": 50}),
+                ("DescribeInstancePatchStates", {"MaxResults": 50, "InstanceIds": ["i-a", "mi-b"]}),
+                ("DescribeInstanceInformation", {"MaxResults": 50, "NextToken": "nodes-2"}),
+                ("DescribeInstancePatchStates", {"MaxResults": 50, "InstanceIds": ["i-c"]}),
+            ],
+            [
+                {
+                    "instance_id": "i-a",
+                    "missing_count": 3,
+                    "operation_end_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                },
+                {"instance_id": "mi-b", "missing_count": 0},
+                {"instance_id": "i-c", "missing_count": 1},
+            ],
+        ),
+        (
+            "instance_patches",
+            [
+                ScriptedResponse(json={"InstanceInformationList": [{"InstanceId": "i-a"}, {"InstanceId": "i-gone"}]}),
+                ScriptedResponse(
+                    json={
+                        "Patches": [
+                            {"Title": "KB1 update", "KBId": "KB1", "State": "Missing", "InstalledTime": 0},
+                            {"Title": "KB2 update", "KBId": "KB2", "State": "Installed", "InstalledTime": 1735689600},
+                        ]
+                    }
+                ),
+                _error("InvalidInstanceId"),
+            ],
+            [
+                ("DescribeInstanceInformation", {"MaxResults": 50}),
+                *(
+                    ("DescribeInstancePatches", {"MaxResults": 100, "InstanceId": instance_id})
+                    for instance_id in ["i-a", "i-gone"]
+                ),
+            ],
+            [
+                {"instance_id": "i-a", "kb_id": "KB1", "state": "Missing"},
+                {
+                    "instance_id": "i-a",
+                    "kb_id": "KB2",
+                    "state": "Installed",
+                    "installed_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                },
+            ],
+        ),
     ],
 )
 def test_fan_out_requests_each_parent_row_and_skips_vanished_parents(
@@ -695,6 +797,37 @@ def test_fan_out_resumes_inside_nested_parent_without_rereading_done_children(
         {"MaxResults": 50, "NextToken": "associations-2"},
     ]
     assert [row["execution_id"] for row in result.rows] == ["e-1", "e-2"]
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_sessions_read_ended_then_active_sessions(config: AwsSystemsManagerSourceConfig, resumed: bool) -> None:
+    active = _key({"MaxResults": 200, "State": "Active"})
+    history = [
+        ScriptedResponse(json={"Sessions": [{"SessionId": "s-ended", "EndDate": 1735689600}], "NextToken": "h-2"}),
+        ScriptedResponse(json={"Sessions": []}),
+    ]
+    result = driver(config).run(
+        "sessions",
+        [
+            *([] if resumed else history),
+            ScriptedResponse(json={"Sessions": [{"SessionId": "s-open", "Status": "Connected"}]}),
+        ],
+        resume_state=SystemsManagerResumeConfig(parents=((None, active),), next_token="a-2") if resumed else None,
+    )
+    assert result.raised is None
+    expected_requests = [
+        *(
+            []
+            if resumed
+            else [{"MaxResults": 200, "State": "History"}, {"MaxResults": 200, "State": "History", "NextToken": "h-2"}]
+        ),
+        {"MaxResults": 200, "State": "Active", **({"NextToken": "a-2"} if resumed else {})},
+    ]
+    assert [request.json() for request in result.requests] == expected_requests
+    assert [row["session_id"] for row in result.rows] == ([] if resumed else ["s-ended"]) + ["s-open"]
+    if not resumed:
+        assert result.rows[0]["end_date"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
     assert result.final_state == SystemsManagerResumeConfig(completed=True)
 
 

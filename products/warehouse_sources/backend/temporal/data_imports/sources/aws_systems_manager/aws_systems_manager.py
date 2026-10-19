@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_system
     ERROR_MESSAGES,
     EXCLUDED_INVENTORY_TYPES,
     MISSING_PARENT_ERRORS,
+    SESSION_STATES,
     SystemsManagerEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -40,6 +41,10 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# Inventory type names and OpsItem data keys are dynamic, so retain them in one JSON column.
+_JSON_COLUMNS = frozenset({"Data", "OperationalData"})
+# DescribeInstancePatchStates accepts at most this many nodes in one request.
+_PATCH_STATE_BATCH_SIZE = 50
 
 _PLACEHOLDER_INSTANCE_ID = "i-00000000000000000"
 _PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000"
@@ -51,6 +56,7 @@ PLACEHOLDER_PARENTS: dict[str, dict[str, Any]] = {
         "ComplianceType": "Patch",
     },
     "inventory": {"Id": _PLACEHOLDER_INSTANCE_ID},
+    "managed_instances": {"InstanceId": _PLACEHOLDER_INSTANCE_ID},
     "associations": {"AssociationId": _PLACEHOLDER_UUID},
     "association_executions": {"AssociationId": _PLACEHOLDER_UUID, "ExecutionId": _PLACEHOLDER_UUID},
 }
@@ -155,6 +161,13 @@ def request_payload(endpoint: SystemsManagerEndpoint, *, probe: bool = False) ->
     return payload
 
 
+def root_payloads(endpoint: SystemsManagerEndpoint, *, probe: bool = False) -> list[dict[str, Any]]:
+    payload = request_payload(endpoint, probe=probe)
+    if endpoint.operation == "DescribeSessions":
+        return [{**payload, "State": state} for state in SESSION_STATES]
+    return [payload]
+
+
 def endpoint_chain(endpoint: SystemsManagerEndpoint) -> list[SystemsManagerEndpoint]:
     chain = [endpoint]
     while chain[0].parent is not None:
@@ -191,15 +204,31 @@ def child_payloads(
         return [{"AssociationId": parent["AssociationId"]}]
     if endpoint.operation == "DescribeAssociationExecutionTargets":
         return [{"AssociationId": parent["AssociationId"], "ExecutionId": parent["ExecutionId"]}]
+    if endpoint.operation == "DescribeInstancePatchStates":
+        return [{"InstanceIds": [parent["InstanceId"]]}]
+    if endpoint.operation == "DescribeInstancePatches":
+        return [{"InstanceId": parent["InstanceId"]}]
     raise ValueError(f"AWS Systems Manager table has no parent mapping: {endpoint.operation}")
+
+
+def page_child_payloads(
+    endpoint: SystemsManagerEndpoint, parents: Sequence[dict[str, Any]], inventory_types: Sequence[str]
+) -> list[dict[str, Any]]:
+    payloads = [payload for parent in parents for payload in child_payloads(endpoint, parent, inventory_types)]
+    if endpoint.operation != "DescribeInstancePatchStates":
+        return payloads
+    instance_ids = [instance_id for payload in payloads for instance_id in payload["InstanceIds"]]
+    return [
+        {"InstanceIds": instance_ids[start : start + _PATCH_STATE_BATCH_SIZE]}
+        for start in range(0, len(instance_ids), _PATCH_STATE_BATCH_SIZE)
+    ]
 
 
 def _flatten(obj: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     row: dict[str, Any] = {}
     for key, value in obj.items():
         column = prefix + _CAMEL_BOUNDARY.sub("_", key).lower()
-        if key == "Data" and not prefix:
-            # Inventory type names and content keys are dynamic, so retain them in one JSON column.
+        if key in _JSON_COLUMNS and not prefix:
             row[column] = json.dumps(value)
         elif isinstance(value, dict):
             row.update(_flatten(value, column + "_"))
@@ -222,6 +251,9 @@ def page_rows(
     endpoint: SystemsManagerEndpoint, body: dict[str, Any], payload: dict[str, Any], region: str
 ) -> list[dict[str, Any]]:
     items = body.get(endpoint.result_key) or []
+    if endpoint.operation == "DescribeInstancePatches":
+        # Patches do not name the node they belong to.
+        return [{**normalize_row(item, endpoint, region), "instance_id": payload["InstanceId"]} for item in items]
     if endpoint.operation != "ListInventoryEntries":
         return [normalize_row(item, endpoint, region) for item in items]
     capture_time = body.get("CaptureTime")
@@ -269,7 +301,19 @@ class SystemsManagerWalk:
     ) -> Iterator[tuple[list[dict[str, Any]], SystemsManagerResumeConfig]]:
         if any(endpoint.operation == "ListInventoryEntries" for endpoint in self._chain):
             self._inventory_types = self._load_inventory_types()
-        yield from self._walk(0, request_payload(self._chain[0]), (), state)
+        payloads = root_payloads(self._chain[0])
+        if len(payloads) == 1:
+            yield from self._walk(0, payloads[0], (), state)
+            return
+        # Each root payload is walked like a parent row, so resume state records which one was in progress.
+        key = state.parents[0][1] if state and state.parents else ""
+        inner = dataclasses.replace(state, parents=state.parents[1:]) if state and state.parents else None
+        roots = {json.dumps(payload, sort_keys=True): payload for payload in payloads}
+        keys = list(roots)
+        start = keys.index(key) if key in roots else 0
+        for root_key in keys[start:]:
+            yield from self._walk(0, roots[root_key], ((None, root_key),), inner if root_key == key else None)
+        yield [], SystemsManagerResumeConfig(completed=True)
 
     def _load_inventory_types(self) -> tuple[str, ...]:
         names: set[str] = set()
@@ -349,8 +393,9 @@ class SystemsManagerWalk:
             next_token = _next_token(body, token)
             children = {
                 json.dumps(child, sort_keys=True): child
-                for item in body.get(endpoint.result_key) or []
-                for child in child_payloads(child_endpoint, item, self._inventory_types)
+                for child in page_child_payloads(
+                    child_endpoint, body.get(endpoint.result_key) or [], self._inventory_types
+                )
             }
             keys = list(children)
             start = keys.index(key) if key in children else 0
@@ -414,7 +459,7 @@ def validate_credentials(
     chain = endpoint_chain(endpoint)
     operation = chain[0].operation
     try:
-        body = client.request(operation, request_payload(chain[0], probe=True))
+        body = client.request(operation, root_payloads(chain[0], probe=True)[0])
         if endpoint.operation == "ListInventoryEntries":
             operation = "GetInventorySchema"
             client.request(operation, {"MaxResults": 50})
