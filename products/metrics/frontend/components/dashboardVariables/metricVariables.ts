@@ -6,8 +6,8 @@ import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from
 
 import type { _MetricVariableSelectionApi } from 'products/metrics/frontend/generated/api.schemas'
 
-/** The select value that stands for All. Grafana uses the same text. */
-export const ALL_OPTION = '$__all'
+/** The select value that stands for All. A query can return any text, so it is a character that options do not hold. */
+export const ALL_OPTION = '\u0000all'
 export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** The API accepts selected values up to this length. */
 export const MAX_VALUE_LENGTH = 1024
@@ -275,6 +275,25 @@ function regexSize(pattern: string): number {
     return groups.reduce((total, size) => total + size, 0)
 }
 
+/** RE2JS has no `\C`, which the server's RE2 reads as any byte outside a character class, so the check reads it as
+ * any character there. Inside a class both reject it. */
+function withoutAnyByteClass(pattern: string): string {
+    let result = ''
+    let inClass = false
+    for (let index = 0; index < pattern.length; index++) {
+        const char = pattern[index]
+        if (char === '\\') {
+            const next = pattern[index + 1] ?? ''
+            result += !inClass && next === 'C' ? '.' : char + next
+            index++
+        } else {
+            inClass = inClass ? char !== ']' : char === '['
+            result += char
+        }
+    }
+    return result
+}
+
 export function compileVariableRegex(regex: string | null | undefined): RE2JS | null {
     const pattern = regex?.trim()
     if (!pattern) {
@@ -287,8 +306,7 @@ export function compileVariableRegex(regex: string | null | undefined): RE2JS | 
     if (regexSize(slashed ? slashed[1] : pattern) > MAX_REGEX_SIZE) {
         throw new Error('it repeats too much. Use smaller counts in {}.')
     }
-    // RE2JS has no `\C`, which the server's RE2 reads as any byte, so the check reads it as any character.
-    const body = (slashed ? slashed[1] : pattern).replace(/((?:^|[^\\])(?:\\\\)*)\\C/g, '$1.')
+    const body = withoutAnyByteClass(slashed ? slashed[1] : pattern)
     return RE2JS.compile(
         body,
         (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |
@@ -326,7 +344,7 @@ export function selectionFromValues(
             return { values: [], all: true }
         }
     }
-    const picked = values.filter((value) => value !== ALL_OPTION)
+    const picked = variable.includeAll ? values.filter((value) => value !== ALL_OPTION) : values
     return picked.length ? { values: picked } : null
 }
 

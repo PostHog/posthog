@@ -346,8 +346,8 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             }
             return
         }
-        // Settings from outside, such as Discard, replace the selections that are not published yet.
-        cache.pending = undefined
+        // Settings from outside, such as Discard, replace the selections that are not published yet. The options that
+        // are still loading stay in `cache.pending`, so the next load takes them over.
         cache.pendingReconcile = false
         cache.reconciling = undefined
         actions.setPendingVariables(null)
