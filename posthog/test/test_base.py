@@ -1,11 +1,15 @@
 import pytest
 from posthog.test.base import (
+    QueryMatchingTest,
     run_clickhouse_statement_in_parallel,
     skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
 )
 
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.test import TestCase
 
 from clickhouse_driver.errors import ServerException
 
@@ -17,6 +21,7 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
 )
+from posthog.models.team.team import Team
 
 
 def test_snapshot_clickhouse_queries_skips_marked_methods() -> None:
@@ -58,3 +63,13 @@ def test_events_schema_setting_controls_legacy_table_availability(django_db_setu
         assert json_table_names <= actual_table_names
     else:
         assert legacy_table_names <= actual_table_names
+
+
+class TestSnapshotPostgresQueriesContext(TestCase, QueryMatchingTest):
+    def test_content_type_lookup_with_cold_cache_is_not_captured(self) -> None:
+        ContentType.objects.clear_cache()
+
+        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
+            ContentType.objects.get_for_model(Team)
+
+        assert context.captured_queries == []

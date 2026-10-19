@@ -19,12 +19,12 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
-from django.test.utils import CaptureQueriesContext
 
 import sqlparse
 from clickhouse_pool import ChPool
@@ -287,6 +287,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
         )
         query = re.sub(
             r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
+        )
+        query = re.sub(
+            r"pg_(?:try_)?advisory_\w+\((?:[^()']|'[^']*'|\([^()]*\))*\)",
+            lambda lock_call: re.sub(r"\d+", "99999", lock_call.group(0)),
+            query,
         )
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
@@ -1547,6 +1552,46 @@ class QueryMatchingTest:
                 raise AssertionError(params_error_message)
 
 
+class PostgresQueryRecorder:
+    """Records every query a connection runs while installed with `connection.execute_wrapper`.
+
+    Each entry holds the SQL text that Django's debug cursor writes to `connection.queries`.
+    """
+
+    def __init__(self) -> None:
+        self.captured_queries: list[dict[str, str]] = []
+
+    def __call__(
+        self,
+        execute: Callable[[str, Any, bool, dict[str, Any]], Any],
+        sql: str,
+        params: Any,
+        many: bool,
+        context: dict[str, Any],
+    ) -> Any:
+        try:
+            return execute(sql, params, many, context)
+        finally:
+            self.captured_queries.append({"sql": self._logged_sql(sql, params, many, context)})
+
+    @staticmethod
+    def _logged_sql(sql: str, params: Any, many: bool, context: dict[str, Any]) -> str:
+        if many:
+            try:
+                times: int | str = len(params)
+            except TypeError:
+                times = "?"
+            return f"{times} times: {sql}"
+        return context["connection"].ops.last_executed_query(context["cursor"].cursor, sql, params)
+
+
+def _fill_content_type_cache() -> None:
+    # A capture that starts with a cold cache records django_content_type queries that a warm capture does not.
+    # An enclosing assertNumQueries counts only queries that run through a debug cursor.
+    with patch.object(connections[ContentType.objects.db], "force_debug_cursor", False):
+        ContentType.objects.get_for_models(*apps.get_models())
+
+
 @contextmanager
 def snapshot_postgres_queries_context(
     testcase: QueryMatchingTest,
@@ -1566,6 +1611,9 @@ def snapshot_postgres_queries_context(
     fixed output.
 
     Returns a context manager that can be used to capture queries.
+    It records through `connection.execute_wrapper`, so a nested `assertNumQueries`
+    or a test-client request that clears `connection.queries` does not drop any
+    query from the capture.
 
     NOTE: it requires specifically that a `QueryMatchingTest` is used as the
     testcase argument.
@@ -1581,11 +1629,13 @@ def snapshot_postgres_queries_context(
                 # Run some code that generates queries
 
     """
-    with CaptureQueriesContext(connections[using]) as context:
-        yield context
+    _fill_content_type_cache()
+    recorder = PostgresQueryRecorder()
+    with connections[using].execute_wrapper(recorder):
+        yield recorder
 
-    for query_with_time in context.captured_queries:
-        query = query_with_time["sql"]
+    for captured_query in recorder.captured_queries:
+        query = captured_query["sql"]
         if custom_query_matcher:
             if query and custom_query_matcher(query):
                 testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
