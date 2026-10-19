@@ -68503,6 +68503,16 @@ export namespace Schemas {
       data: string;
     }
 
+    export interface NotebookSQLV2WarehouseTable {
+      /** Name of the data warehouse table the run saved its dataframe to. */
+      name: string;
+      /**
+         * Why the table wasn't saved. Absent or null when the save succeeded.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
     export interface NotebookSQLV2Envelope {
       /** Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop). */
       status: string;
@@ -68536,6 +68546,8 @@ export namespace Schemas {
          * @nullable
          */
       error?: string | null;
+      /** Python nodes only: the outcome of saving the result dataframe as a data warehouse table. Absent when the run didn't ask to save one. */
+      warehouse_table?: NotebookSQLV2WarehouseTable;
       /** Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics. */
       timings?: NotebookSQLV2EnvelopeTimings;
     }
@@ -68611,6 +68623,12 @@ export namespace Schemas {
       connection_id?: string | null;
       /** Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells. */
       send_raw_query?: boolean;
+      /**
+         * Python nodes only: also save the result dataframe as a data warehouse table with this name, replacing the table a previous notebook run saved. Omit or leave empty to save no table.
+         * @maxLength 128
+         * @nullable
+         */
+      warehouse_table_name?: string | null;
     }
 
     export interface NotebookSQLV2RunResponse {

@@ -731,6 +731,7 @@ export const notebooksSqlV2RunCreateBodyRefsKindDefault = `hogql`
 export const notebooksSqlV2RunCreateBodyVariablesItemNameMax = 200
 
 export const notebooksSqlV2RunCreateBodySendRawQueryDefault = false
+export const notebooksSqlV2RunCreateBodyWarehouseTableNameMax = 128
 
 export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
     reuse_results: zod
@@ -813,6 +814,13 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         .default(notebooksSqlV2RunCreateBodySendRawQueryDefault)
         .describe(
             'Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells.'
+        ),
+    warehouse_table_name: zod
+        .string()
+        .max(notebooksSqlV2RunCreateBodyWarehouseTableNameMax)
+        .nullish()
+        .describe(
+            'Python nodes only: also save the result dataframe as a data warehouse table with this name, replacing the table a previous notebook run saved. Omit or leave empty to save no table.'
         ),
 })
 
