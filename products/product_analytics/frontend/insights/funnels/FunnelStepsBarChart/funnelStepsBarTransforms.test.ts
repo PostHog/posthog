@@ -283,7 +283,12 @@ describe('formatFunnelStepRates', () => {
             rates: [0.454, 0.451, 0.2],
             expected: ['45.4%', '45.1%', '20%'],
         },
-        { name: 'keeps equal neighbors whole', rates: [2071 / 24873, 2071 / 24873], expected: ['8%', '8%'] },
+        {
+            name: 'adds a decimal to small rates that round to a different whole',
+            rates: [1, 0.015, 0.006],
+            expected: ['100%', '1.5%', '0.6%'],
+        },
+        { name: 'keeps equal neighbors whole', rates: [5071 / 24873, 5071 / 24873], expected: ['20%', '20%'] },
     ])('$name', ({ rates, expected }) => {
         expect(formatFunnelStepRates(rates)).toEqual(expected)
     })

@@ -151,6 +151,7 @@ export function resolveFunnelStepClick(
 }
 
 const SMALLEST_SHOWN_RATE = 0.001
+const LARGEST_ROUNDED_RATE = 0.1
 const LARGEST_SHOWN_RATE = 0.999
 
 function formatPreciseRate(rate: number): string {
@@ -163,13 +164,14 @@ function formatPreciseRate(rate: number): string {
     return percentage(rate, 1)
 }
 
-// Adds a decimal only where a whole percentage would hide a difference, from 0%, 100% or a neighboring step.
+// Adds a decimal where a whole percentage would hide a difference: below 10%, where 1.5% would read 2%,
+// and next to 100% or a neighboring step that rounds the same.
 export function formatFunnelStepRates(rates: number[]): string[] {
     const wholes = rates.map((rate) => percentage(rate, 0))
     return rates.map((rate, index) => {
         const whole = wholes[index]
         const hidesDifference =
-            (whole === '0%' && rate > 0) ||
+            (rate > 0 && rate < LARGEST_ROUNDED_RATE) ||
             (whole === '100%' && rate < 1) ||
             [index - 1, index + 1].some(
                 (neighbor) => neighbor in rates && rates[neighbor] !== rate && wholes[neighbor] === whole
