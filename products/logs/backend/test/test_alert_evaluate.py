@@ -56,6 +56,7 @@ from products.logs.backend.alert_source_cycle import (
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
+from products.logs.backend.platform_source_config import filters_of
 from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
@@ -84,9 +85,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         redis.get_client().delete(INFLIGHT_KEY)
 
     def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
-        filters = {key: value for key, value in source_config.items() if key != "condition"}
         return LogsAlertConfiguration.objects.create(
-            team=self.team, name="API errors", filters=filters, **source_config["condition"], **fields
+            team=self.team, name="API errors", filters=filters_of(source_config), **source_config["condition"], **fields
         )
 
     def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
@@ -233,9 +233,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
             (check,) = due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff)
             copied = platform_testing.configuration(check.id)
 
-        evaluation, _ = self._run(copied)
+        evaluation, query = self._run(copied)
 
         assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
+        assert [alert.filters for alert in query.call_args.kwargs["alerts"]] == [{"serviceNames": ["api"]}]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
@@ -615,6 +616,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert copy.enabled is still_runs
         # History and messages read the stored copy, so it has to state what the check evaluated.
         assert copy.source_config["condition"]["threshold_count"] == stored_threshold
+
+    def test_a_copy_the_platform_owns_runs_as_stored_whatever_its_logs_row_says(self) -> None:
+        configuration = self._configuration(owner="platform")
+        # Stored as "above 10", which 500 logs breach. The logs row now says otherwise, and is off.
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(
+            threshold_count=1000, enabled=False
+        )
+
+        evaluation, query = self._run(configuration)
+
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.FIRING]
+        assert query.called
 
     def test_a_redispatched_batch_does_not_share_the_slot_its_earlier_run_still_holds(self) -> None:
         configuration = self._configuration()

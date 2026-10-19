@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedPlatformAlertConfigurationListApi,
+    PatchedPlatformAlertConfigurationEditApi,
     PlatformAlertConfigurationApi,
+    PlatformAlertConfigurationEditApi,
     PlatformAlertsListParams,
 } from './api.schemas'
 
@@ -53,5 +55,41 @@ export const platformAlertsRetrieve = async (
     return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPlatformAlertsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/`
+}
+
+export const platformAlertsUpdate = async (
+    projectId: string,
+    id: string,
+    platformAlertConfigurationEditApi?: PlatformAlertConfigurationEditApi,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(platformAlertConfigurationEditApi),
+    })
+}
+
+export const getPlatformAlertsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/`
+}
+
+export const platformAlertsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedPlatformAlertConfigurationEditApi?: PatchedPlatformAlertConfigurationEditApi,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedPlatformAlertConfigurationEditApi),
     })
 }
