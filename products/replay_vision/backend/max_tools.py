@@ -986,12 +986,16 @@ def _scanner_config_for(
     return config
 
 
+def _estimate_is_fresh(scanner: ReplayScanner) -> bool:
+    return scanner.estimated_at is not None and timezone.now() - scanner.estimated_at < ESTIMATE_STALE_AFTER
+
+
 def _scanner_facts(scanner: ReplayScanner) -> str:
     """The scanner fields the model needs to act on a scanner, without the user-editable name or prompt."""
     observations = scanner.estimated_monthly_observations
     if observations is None:
         estimate = "unknown (not estimated yet, call estimate_replay_vision_scanner)"
-    elif scanner.estimated_at is None or timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER:
+    elif not _estimate_is_fresh(scanner):
         estimate = f"{observations} (stale, call estimate_replay_vision_scanner)"
     else:
         estimate = str(observations)
@@ -1231,8 +1235,7 @@ def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: f
     saving; when it hasn't been computed yet, say so rather than imply a small one-off charge.
     """
     observations = scanner.estimated_monthly_observations
-    stale = scanner.estimated_at is None or timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER
-    if observations is None or stale:
+    if observations is None or not _estimate_is_fresh(scanner):
         return "Its monthly volume hasn't been estimated recently, so the cost isn't known up front."
     # The stored estimate is for the scanner's saved rate; rescale when the rate is changing.
     if scanner.sampling_rate:
@@ -1559,9 +1562,7 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         means the number still matches the config. Rescaling by rate keeps a model iterating on sampling
         off ClickHouse entirely, which is the common case for this tool.
         """
-        if scanner.estimated_at is None or scanner.estimated_monthly_observations is None:
-            return None
-        if timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER:
+        if scanner.estimated_monthly_observations is None or not _estimate_is_fresh(scanner):
             return None
         if not scanner.sampling_rate:
             return None
