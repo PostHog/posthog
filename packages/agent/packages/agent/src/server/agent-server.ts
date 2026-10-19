@@ -46,7 +46,6 @@ import {
 } from "@posthog/harness/extensions/agent-instructions";
 import {
   appendBenjaminGuidance,
-  appendSte100Guidance,
   BENJAMIN_UPSTREAM_COMMIT,
   isBenjaminEnabled,
 } from "@posthog/harness/extensions/benjamin";
@@ -119,6 +118,10 @@ import {
   type ResumeState,
   resumeFromLog,
 } from "../resume";
+import type {
+  ProductLaunchConfiguration,
+  SessionBehavior,
+} from "../sdk/product";
 import { SessionLogWriter } from "../session-log-writer";
 import type {
   AgentMode,
@@ -166,6 +169,13 @@ import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
+import {
+  appendClosingInstructions,
+  openProductSession,
+  readOriginProduct,
+  readQuestionRequest,
+  resolvePullRequestFooter,
+} from "./product/session";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import {
@@ -436,37 +446,6 @@ type SteerDeclineReason =
   | "adapter_rejected"
   | `adapter_${SteerDeclineCause}`;
 
-/** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
-type SlackArtifactDelivery = "none" | "message" | "canvas_file";
-
-const SLACK_ARTIFACT_DELIVERY_MODES: SlackArtifactDelivery[] = [
-  "none",
-  "message",
-  "canvas_file",
-];
-
-/**
- * An unset key means the backend told us nothing — any non-Slack run, or a Slack run that
- * predates this. Emit no constraints rather than guessing: the agent must never be offered a
- * route delivery would reject, nor told it has none while it actually does.
- */
-function readSlackArtifactDelivery(
-  taskRun: TaskRun | null,
-): SlackArtifactDelivery | null {
-  const mode = getTaskRunStateString(taskRun, "slack_artifact_delivery");
-  return SLACK_ARTIFACT_DELIVERY_MODES.find((known) => known === mode) ?? null;
-}
-
-/**
- * Charts ride on their own key rather than a delivery mode: they need only the rollout
- * flag, while canvas and file delivery also needs Slack scopes that are still in review,
- * so a workspace can have charts and nothing else. Absent or non-boolean means a backend
- * that predates charts, which is the same as off.
- */
-function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
-  return taskRun?.state.slack_chart_delivery === true;
-}
-
 // Prompt block we hand the agent when the user attached files but we could not
 // load any of them into the session (missing from the run manifest, no storage
 // path, etc.). Without this the caller falls back to the bare task description —
@@ -551,7 +530,7 @@ export class AgentServer {
   private eventStreamSender: TaskRunEventStreamSender | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
-  private questionRelayedToSlack = false;
+  private questionAwaitingReply = false;
   private adapterEmittedTurnComplete = false;
   private suppressAdapterTurnComplete = false;
   private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
@@ -559,11 +538,8 @@ export class AgentServer {
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
   private stampedRunTraceId: string | null = null;
-  private slackArtifactDelivery: SlackArtifactDelivery | null = null;
-  private slackChartDelivery = false;
-  private slackProgressChecklist = false;
-  private slackReplyContext = false;
-  private mobileClient = false;
+  private productSession: SessionBehavior = {};
+  private productLaunch: ProductLaunchConfiguration;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -694,6 +670,11 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
+    this.productLaunch = {
+      taskId: config.taskId,
+      runId: config.runId,
+      launchOptions: {},
+    };
     this.bootTracker = new AgentBootTracker(
       config.runId,
       undefined,
@@ -1729,12 +1710,10 @@ export class AgentServer {
             // delivery path — the HTTP caller only handles reactions. Echo the
             // initiating message's id so the backend can attribute the answer,
             // and the turn's trace id so a rating on the reply names the turn.
-            this.relayAgentResponse(
+            void this.relayAgentResponse(
               commandSession.payload,
               messageId,
               turnTraceId,
-            ).catch((err) =>
-              this.logger.debug("Failed to relay follow-up response", err),
             );
           }
 
@@ -2231,26 +2210,7 @@ export class AgentServer {
       }).catch(() => {});
     }
 
-    const prUrl = getTaskRunStateString(preTaskRun, "slack_notified_pr_url");
-
-    // Unconditional so a re-init on the same instance drops a stale PR URL.
-    this.detectedPrUrl = prUrl;
-
-    const slackThreadUrl = getTaskRunStateString(
-      preTaskRun,
-      "slack_thread_url",
-    );
     const runState = preTaskRun?.state;
-
-    // Unconditional for the same reason as detectedPrUrl: a re-init on this
-    // instance must not keep the previous run's delivery capability.
-    this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
-    this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
-    this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
-    this.mobileClient = preTaskRun?.state.client_platform === "mobile";
-    // Set by the backend on runs whose Slack reply streams the agent's task list.
-    this.slackProgressChecklist =
-      preTaskRun?.state.slack_app_agent_design_enabled === true;
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -2259,6 +2219,19 @@ export class AgentServer {
     const inboxReportUrl = signalReportId
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
+
+    // Unconditional so a re-init on the same instance drops the previous run's product
+    // behavior and PR URL.
+    await this.openProductSession({
+      taskId: payload.task_id,
+      runId: payload.run_id,
+      originProduct: readOriginProduct(),
+      launchOptions: structuredClone(runState ?? {}),
+      source: inboxReportUrl
+        ? { label: "inbox report", url: inboxReportUrl }
+        : undefined,
+    });
+    const prUrl = this.detectedPrUrl;
 
     // Before the prompt: its skills-store section counts the stubs on disk.
     await this.installStoreSkills(
@@ -2292,8 +2265,6 @@ export class AgentServer {
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
-      slackThreadUrl,
-      inboxReportUrl,
       runStateSystemPromptData,
     );
     const codexInstructions =
@@ -4538,27 +4509,21 @@ export class AgentServer {
 
   private buildSessionSystemPrompt(
     prUrl?: string | null,
-    slackThreadUrl?: string | null,
-    inboxReportUrl?: string | null,
     runStateSystemPrompt?: ClaudeCodeConfig["systemPrompt"],
   ): string | { append: string } {
-    const cloudAppend = this.buildCloudSystemPrompt(
-      prUrl,
-      slackThreadUrl,
-      inboxReportUrl,
-    );
+    const cloudAppend = this.buildCloudSystemPrompt(prUrl);
     const userPrompt =
       this.config.claudeCode?.systemPrompt ?? runStateSystemPrompt;
+    const replySurface =
+      this.productSession.replySurface ?? this.productLaunch.originProduct;
 
     const sessionPrompt = buildCloudSessionSystemPrompt(
       cloudAppend,
       userPrompt,
-      this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
+      replySurface,
       getProjectWebUrl(this.config.apiUrl, this.config.projectId),
     );
-    return this.isSlackReplyContext()
-      ? appendSte100Guidance(sessionPrompt)
-      : sessionPrompt;
+    return appendClosingInstructions(sessionPrompt, this.productSession);
   }
 
   private buildCodexInstructions(
@@ -4601,39 +4566,33 @@ export class AgentServer {
     return { claudeCode: { options } };
   }
 
-  private getCloudInteractionOrigin(): string | undefined {
-    return (
-      process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
-      process.env.CODE_INTERACTION_ORIGIN ??
-      process.env.TWIG_INTERACTION_ORIGIN
+  private async openProductSession(
+    launch: ProductLaunchConfiguration,
+  ): Promise<void> {
+    this.productLaunch = launch;
+    this.productSession = {};
+    this.productSession = await openProductSession(
+      this.config.selectProduct,
+      launch,
+      this.posthogAPI,
+      (message, error) => this.reportProductFailure(message, error),
     );
+    this.detectedPrUrl = this.productSession.pullRequests?.existingUrl ?? null;
   }
 
-  private isSlackReplyContext(): boolean {
-    return (
-      this.slackReplyContext || this.getCloudInteractionOrigin() === "slack"
-    );
+  private productAutoPublishes(): boolean {
+    return this.productSession.pullRequests?.autoPublish === true;
   }
 
   /**
-   * Automated, PostHog-branded origins: the Slack app and the Self-driving
-   * inbox. These both auto-publish by default and attribute their PRs to
-   * "PostHog" rather than the PostHog Desktop app.
-   */
-  private isAutomatedOrigin(): boolean {
-    const origin = this.getCloudInteractionOrigin();
-    return origin === "slack" || origin === "signal_report";
-  }
-
-  /**
-   * Automated-origin cloud runs auto-publish by default, and manual runs
-   * auto-publish when the user opted in (Settings → Advanced, sent as
+   * Products such as the Slack app and the Self-driving inbox auto-publish by
+   * default, and manual runs auto-publish when the user opted in (Settings → Advanced, sent as
    * autoPublish). Every other run is review-first unless the user explicitly
    * asks, and createPr=false always disables publishing.
    */
   private shouldAutoPublishCloudChanges(): boolean {
     return (
-      (this.isAutomatedOrigin() || this.config.autoPublish === true) &&
+      (this.productAutoPublishes() || this.config.autoPublish === true) &&
       this.config.createPr !== false
     );
   }
@@ -4661,7 +4620,7 @@ export class AgentServer {
       !this.autoPublishStateResolved &&
       this.config.autoPublish !== true &&
       this.config.createPr !== false &&
-      !this.isAutomatedOrigin();
+      !this.productAutoPublishes();
     if (
       !shouldResolveReasoning &&
       !shouldResolveStoreSkills &&
@@ -4763,7 +4722,7 @@ export class AgentServer {
     if (
       this.config.autoPublish === true ||
       this.config.createPr === false ||
-      this.isAutomatedOrigin()
+      this.productAutoPublishes()
     ) {
       // The boot decision already publishes (or never may) — nothing to upgrade.
       this.autoPublishStateResolved = true;
@@ -4825,15 +4784,11 @@ export class AgentServer {
       baseBranch: this.config.baseBranch,
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
-      isAutomatedOrigin: this.isAutomatedOrigin(),
-      mobileClient: this.mobileClient,
-      isSlack: this.isSlackReplyContext(),
+      identityInstructions: this.productSession.identityInstructions,
+      deliveryInstructions: this.productSession.deliveryInstructions,
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
       shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
-      slackArtifactDelivery: this.slackArtifactDelivery,
-      slackChartDelivery: this.slackChartDelivery,
-      slackProgressChecklist: this.slackProgressChecklist,
       storeSkillsInstalledCount: this.storeSkillsInstalledCount,
       taskId: this.config.taskId,
       taskRepositories: this.taskRepositories,
@@ -4844,15 +4799,10 @@ export class AgentServer {
     return this.getCloudTaskPrompt().buildDetectedPrContext(prUrl);
   }
 
-  private buildCloudSystemPrompt(
-    prUrl?: string | null,
-    slackThreadUrl?: string | null,
-    inboxReportUrl?: string | null,
-  ): string {
+  private buildCloudSystemPrompt(prUrl?: string | null): string {
     return this.getCloudTaskPrompt().buildCloudSystemPrompt(
       prUrl,
-      slackThreadUrl,
-      inboxReportUrl,
+      resolvePullRequestFooter(this.productSession, this.productLaunch),
     );
   }
 
@@ -5062,19 +5012,19 @@ export class AgentServer {
     return gatewayEnv;
   }
 
-  private buildSlackQuestionRelayResponse(
-    payload: JwtPayload,
-    toolMeta: Record<string, unknown> | null | undefined,
+  private handleProductQuestion(
+    params: RequestPermissionRequest,
+    handleQuestions: NonNullable<SessionBehavior["handleQuestions"]>,
   ): RequestPermissionResponse {
-    this.relaySlackQuestion(payload, toolMeta);
+    const response = handleQuestions(
+      readQuestionRequest(params.toolCall._meta?.questions),
+    );
+    if (response.awaitingReply) {
+      this.questionAwaitingReply = true;
+    }
     return {
-      outcome: { outcome: "cancelled" as const },
-      _meta: {
-        message:
-          "This question has been relayed to the Slack thread where this task originated. " +
-          "The user will reply there. Do NOT re-ask the question or pick an answer yourself. " +
-          "Simply let the user know you are waiting for their reply.",
-      },
+      outcome: { outcome: "cancelled" },
+      _meta: { message: response.message },
     };
   }
 
@@ -5138,10 +5088,7 @@ export class AgentServer {
 
   private createCloudClient(payload: JwtPayload) {
     const mode = this.getEffectiveMode(payload);
-    const interactionOrigin =
-      process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
-      process.env.CODE_INTERACTION_ORIGIN ??
-      process.env.TWIG_INTERACTION_ORIGIN;
+    const originProduct = this.productLaunch.originProduct;
 
     return {
       requestPermission: async (
@@ -5149,7 +5096,7 @@ export class AgentServer {
       ): Promise<RequestPermissionResponse> => {
         this.logger.debug("Permission request", {
           mode,
-          interactionOrigin,
+          originProduct,
           kind: params.toolCall?.kind,
           options: params.options,
         });
@@ -5163,14 +5110,14 @@ export class AgentServer {
         const codeToolKind = params.toolCall?._meta?.codeToolKind;
         const isPlanApproval = params.toolCall?.kind === "switch_mode";
 
-        // Relay questions to Slack when interaction originated there
-        if (interactionOrigin === "slack") {
-          if (codeToolKind === "question") {
-            return this.buildSlackQuestionRelayResponse(
-              payload,
-              params.toolCall?._meta,
-            );
-          }
+        if (
+          codeToolKind === "question" &&
+          this.productSession.handleQuestions
+        ) {
+          return this.handleProductQuestion(
+            params,
+            this.productSession.handleQuestions,
+          );
         }
 
         // Tools on relayed MCP servers execute on the user's machine with
@@ -5350,15 +5297,15 @@ export class AgentServer {
       return;
     }
 
-    if (this.questionRelayedToSlack) {
-      this.questionRelayedToSlack = false;
+    if (this.questionAwaitingReply) {
+      this.questionAwaitingReply = false;
       return;
     }
 
     try {
       await this.session.logWriter.flush(payload.run_id, { coalesce: true });
     } catch (error) {
-      this.logger.debug("Failed to flush logs before Slack relay", {
+      this.logger.debug("Failed to flush logs before relaying the reply", {
         taskId: payload.task_id,
         runId: payload.run_id,
         error,
@@ -5367,7 +5314,7 @@ export class AgentServer {
 
     const message = this.session.logWriter.getFullAgentResponse(payload.run_id);
     if (!message) {
-      this.logger.debug("No agent message found for Slack relay", {
+      this.logger.debug("No agent message found to relay", {
         taskId: payload.task_id,
         runId: payload.run_id,
         sessionRegistered: this.session.logWriter.isRegistered(payload.run_id),
@@ -5393,89 +5340,25 @@ export class AgentServer {
         traceId,
       );
     } catch (error) {
-      this.logger.debug("Failed to relay initial agent response to Slack", {
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        error,
+      this.reportProductFailure("Failed to relay the agent reply", error, {
+        messageId,
       });
     }
   }
 
-  private relaySlackQuestion(
-    payload: JwtPayload,
-    toolMeta: Record<string, unknown> | null | undefined,
+  private reportProductFailure(
+    message: string,
+    error: unknown,
+    details: Record<string, unknown> = {},
   ): void {
-    const firstQuestion = this.getFirstQuestionMeta(toolMeta);
-    if (!this.isQuestionMeta(firstQuestion)) {
-      return;
-    }
-
-    let message = `*${firstQuestion.question}*\n\n`;
-    if (firstQuestion.options?.length) {
-      firstQuestion.options.forEach(
-        (opt: { label: string; description?: string }, i: number) => {
-          message += `${i + 1}. *${opt.label}*`;
-          if (opt.description) message += ` — ${opt.description}`;
-          message += "\n";
-        },
-      );
-    }
-    message += "\nReply in this thread with your choice.";
-
-    this.questionRelayedToSlack = true;
-    this.posthogAPI
-      .relayMessage(payload.task_id, payload.run_id, message)
-      .catch((err) =>
-        this.logger.debug("Failed to relay question to Slack", { err }),
-      );
-  }
-
-  private getFirstQuestionMeta(
-    toolMeta: Record<string, unknown> | null | undefined,
-  ): unknown {
-    if (!toolMeta) {
-      return null;
-    }
-
-    const questionsValue = toolMeta.questions;
-    if (!Array.isArray(questionsValue) || questionsValue.length === 0) {
-      return null;
-    }
-
-    return questionsValue[0];
-  }
-
-  private isQuestionMeta(value: unknown): value is {
-    question: string;
-    options?: Array<{ label: string; description?: string }>;
-  } {
-    if (!value || typeof value !== "object") {
-      return false;
-    }
-
-    const candidate = value as {
-      question?: unknown;
-      options?: unknown;
+    const data = {
+      taskId: this.config.taskId,
+      runId: this.config.runId,
+      error: getErrorMessage(error),
+      ...details,
     };
-
-    if (typeof candidate.question !== "string") {
-      return false;
-    }
-
-    if (candidate.options === undefined) {
-      return true;
-    }
-
-    if (!Array.isArray(candidate.options)) {
-      return false;
-    }
-
-    return candidate.options.every(
-      (option) =>
-        !!option &&
-        typeof option === "object" &&
-        typeof (option as { label?: unknown }).label === "string",
-    );
+    this.logger.error(message, data);
+    this.emitConsoleLog("error", "product", message, data);
   }
 
   private maybeAttachCreatedPr(

@@ -9,6 +9,7 @@ import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "@posthog/harness/e
 import { Command } from "commander";
 import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
+import { selectProduct } from "../boot/select-product";
 import { AgentServer } from "./agent-server";
 import { launcherToProcessMs } from "./boot-phases";
 import { CredentialRelayError } from "./credential-relay";
@@ -304,6 +305,7 @@ program
 
     const serverConfig: AgentServerConfig = {
       port: parseInt(options.port, 10),
+      selectProduct,
       agentStateDir: env.POSTHOG_AGENT_STATE_DIR,
       jwtPublicKey: env.JWT_PUBLIC_KEY,
       eventIngestToken: env.POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN,
