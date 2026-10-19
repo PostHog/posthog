@@ -298,7 +298,10 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
 
 
 class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
-    def test_summarizes_live_sources_of_the_report_earliest_first(self) -> None:
+    @parameterized.expand([("default", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_summarizes_live_sources_of_the_report_earliest_first(
+        self, _name: str, ch_user: ClickHouseUser | None
+    ) -> None:
         self._emit_version(document_id="later", report_id="r1", source_product="error_tracking", inserted_at=self.base)
         self._emit_version(
             document_id="scout",
@@ -320,7 +323,10 @@ class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
             document_id="moved", report_id="r2", source_product="logs", inserted_at=self.base + timedelta(minutes=1)
         )
 
-        sources = fetch_origin_sources_for_report(self.team, "r1")
+        with patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query:
+            sources = fetch_origin_sources_for_report(self.team, "r1", **({"ch_user": ch_user} if ch_user else {}))
+
+        assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
 
         assert [(s.source_product, s.scout_name, s.entity_ids) for s in sources] == [
             ("error_tracking", "signals-scout-error-tracking", ("src-scout",)),

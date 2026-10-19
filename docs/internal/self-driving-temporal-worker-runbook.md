@@ -34,7 +34,7 @@ All other Signals workflows (ingestion, grouping, summaries, scouts) stay on the
 
 ## ClickHouse identity
 
-Signals pipeline and Dagster ranking reads use the `signals` user. Web/API reads, diagnostic commands, and Scout/MCP query execution keep their existing credentials.
+Signals pipeline, PR-origin metadata, and Dagster ranking reads use the `signals` user. Web/API reads, diagnostic commands, and Scout/MCP query execution keep their existing credentials.
 Existing workload routing and query limits stay unchanged.
 The video-export, self-driving, Django/Celery, and Dagster workloads need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`.
 

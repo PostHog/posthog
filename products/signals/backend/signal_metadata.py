@@ -406,7 +406,9 @@ class OriginSource:
     entity_ids: tuple[str, ...]
 
 
-def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSource]:
+def fetch_origin_sources_for_report(
+    team: Team, report_id: str, *, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
+) -> list[OriginSource]:
     """Summarize where a report's non-deleted signals came from, earliest source first.
 
     Aggregates in ClickHouse, so the result stays small however many signals the report holds.
@@ -436,6 +438,7 @@ def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSo
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchOriginSourcesForReport",
         query=ch_query,
         team=team,
