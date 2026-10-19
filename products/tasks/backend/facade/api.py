@@ -2847,6 +2847,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "include_live_context",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
+        # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
+        # would count as a root run and start more generations, and a parent that reset its count
+        # would lift its fan-out cap.
+        "agent_parent_task_id",
+        "agent_parent_run_id",
+        "agent_started_run_count",
         "resume_from_run_id",
         "run_source",
         "pr_base_branch",
@@ -9600,6 +9606,8 @@ def run_task(
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
         ("claude_model_access", claude_model_access),
         ("codex_model_access", codex_model_access),
+        ("agent_parent_task_id", validated_data.get("agent_parent_task_id")),
+        ("agent_parent_run_id", validated_data.get("agent_parent_run_id")),
     ):
         if value is not None:
             extra_state = extra_state or {}
@@ -9650,6 +9658,12 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
+
+        # A resumed child run stays a child, so its sandbox still cannot start more runs. The keys
+        # are PATCH-protected, so this server-side copy is the only way they reach a successor run.
+        for lineage_key in ("agent_parent_task_id", "agent_parent_run_id"):
+            if lineage_key not in extra_state and (lineage_value := (previous_run.state or {}).get(lineage_key)):
+                extra_state[lineage_key] = lineage_value
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
