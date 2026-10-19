@@ -1,14 +1,16 @@
 import { useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { retryImport } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
-import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -52,6 +54,15 @@ import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilter
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
 
+// Only web analytics insights use these filters, and they pull in the web analytics logic and its schema validators.
+const WebAnalyticsEditorFilters = lazy(() =>
+    retryImport(() =>
+        import('scenes/insights/EditorFilters/WebAnalyticsEditorFilters').then((m) => ({
+            default: m.WebAnalyticsEditorFilters,
+        }))
+    )
+)
+
 export interface EditorFiltersProps {
     query: InsightQueryNode
     showing: boolean
@@ -89,11 +100,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     // Web Analytics insights use their custom filter UI
     if (isWebAnalyticsInsightQuery(query)) {
         return (
-            <WebAnalyticsEditorFilters
-                query={query as WebOverviewQuery | WebStatsTableQuery}
-                showing={showing}
-                embedded={embedded}
-            />
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={null}>
+                    <WebAnalyticsEditorFilters
+                        query={query as WebOverviewQuery | WebStatsTableQuery}
+                        showing={showing}
+                        embedded={embedded}
+                    />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
         )
     }
 

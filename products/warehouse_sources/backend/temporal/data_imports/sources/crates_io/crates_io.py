@@ -39,10 +39,13 @@ VERSIONS_PER_PAGE = 100
 LIST_PER_PAGE = 100
 
 # Dependencies are only exposed per version, so a crate with a long release history would cost one
-# request per version on every sync. Only the most recently published versions are walked. The walk
-# sorts by publish date rather than semver, so a backport released onto an older line is included
-# and a stale high version number does not hold a slot.
+# request per version on every sync. Only the most recently published versions are walked.
 MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES = 25
+
+# The per-version download series costs one request per version too. The crate-level downloads
+# table already breaks down the latest 5 versions, and an old version with no downloads in the
+# trailing window returns an empty series, so only the most recently published versions are walked.
+MAX_VERSIONS_PER_CRATE_FOR_VERSION_DOWNLOADS = 25
 
 # A widely used crate has tens of thousands of reverse dependencies, which at the crawler-policy
 # request rate would let one crate consume the whole sync. Cap the walk instead.
@@ -311,6 +314,36 @@ def _iter_list_pages(
     logger.warning(f"crates.io: page cap reached, results may be truncated: url={url}, max_pages={max_pages}")
 
 
+def _recent_versions(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    crate: str,
+    logger: FilteringBoundLogger,
+    limit: int,
+    stream: str,
+) -> list[dict[str, Any]]:
+    """The crate's most recently published versions, newest first, for streams that fan out per version.
+
+    The walk sorts by publish date rather than semver, so a backport released onto an older line is
+    included and a stale high version number does not hold a slot.
+    """
+    query = urlencode({"per_page": limit, "sort": "date"})
+    document = _fetch_json(session, throttle, f"{_crate_url(crate)}/versions?{query}", logger)
+    if document is None:
+        return []
+
+    versions = [
+        version for version in (document.get("versions") or []) if isinstance(version, dict) and version.get("num")
+    ]
+    total = (document.get("meta") or {}).get("total")
+    if isinstance(total, int) and total > len(versions):
+        logger.warning(
+            f"crates.io: version cap reached for {stream}, older versions skipped: "
+            f"crate={crate}, synced={len(versions)}, total={total}"
+        )
+    return versions
+
+
 def _dependency_rows(
     session: requests.Session,
     throttle: _RequestThrottle,
@@ -322,21 +355,9 @@ def _dependency_rows(
     Rows are stamped with the parent crate and version number: the endpoint's own `crate_id` names
     the crate being depended on, not the crate that declares the dependency.
     """
-    query = urlencode({"per_page": MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES, "sort": "date"})
-    document = _fetch_json(session, throttle, f"{_crate_url(crate)}/versions?{query}", logger)
-    if document is None:
-        return
-
-    versions = [
-        version for version in (document.get("versions") or []) if isinstance(version, dict) and version.get("num")
-    ]
-    total = (document.get("meta") or {}).get("total")
-    if isinstance(total, int) and total > len(versions):
-        logger.warning(
-            f"crates.io: version cap reached for dependencies, older versions skipped: "
-            f"crate={crate}, synced={len(versions)}, total={total}"
-        )
-
+    versions = _recent_versions(
+        session, throttle, crate, logger, limit=MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES, stream="dependencies"
+    )
     for version in versions:
         num = str(version["num"])
         dependencies = _fetch_json(session, throttle, f"{_crate_url(crate)}/{quote(num, safe='')}/dependencies", logger)
@@ -346,6 +367,36 @@ def _dependency_rows(
             if not isinstance(dependency, dict):
                 continue
             row = dict(dependency)
+            # The version record carries the canonical crate name, so no extra lookup is needed.
+            row["crate"] = version.get("crate") or crate
+            row["version_num"] = num
+            yield row
+
+
+def _version_download_rows(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    crate: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """One row per (version id, date) from the ~90-day daily download series of each recent version.
+
+    Rows are stamped with the crate and version number, because the endpoint only returns the numeric
+    version id.
+    """
+    versions = _recent_versions(
+        session, throttle, crate, logger, limit=MAX_VERSIONS_PER_CRATE_FOR_VERSION_DOWNLOADS, stream="version_downloads"
+    )
+    for version in versions:
+        num = str(version["num"])
+        document = _fetch_json(session, throttle, f"{_crate_url(crate)}/{quote(num, safe='')}/downloads", logger)
+        if document is None:
+            continue
+        for entry in document.get("version_downloads") or []:
+            # `version` and `date` form the primary key; a row missing either can't upsert cleanly.
+            if not isinstance(entry, dict) or not entry.get("date") or entry.get("version") is None:
+                continue
+            row = dict(entry)
             # The version record carries the canonical crate name, so no extra lookup is needed.
             row["crate"] = version.get("crate") or crate
             row["version_num"] = num
@@ -436,6 +487,7 @@ _ROW_BUILDERS: dict[
     "owners": _owner_rows,
     "dependencies": _dependency_rows,
     "reverse_dependencies": _reverse_dependency_rows,
+    "version_downloads": _version_download_rows,
 }
 
 # Registry-wide lookup tables: one pass per sync rather than one pass per configured crate.

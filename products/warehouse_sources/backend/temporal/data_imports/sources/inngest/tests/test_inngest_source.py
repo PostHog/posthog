@@ -44,10 +44,6 @@ class TestInngestSource:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["environments"])
-        assert [s.name for s in schemas] == ["environments"]
-
     @parameterized.expand(
         [
             # Events are immutable, so append is the only incremental-style mode; run rows mutate

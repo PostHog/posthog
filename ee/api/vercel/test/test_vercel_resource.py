@@ -318,3 +318,23 @@ class TestVercelResourceAPI(VercelTestBase):
 
         response = self.client.post(url, **headers)
         self.assert_not_found(response)
+
+    @parameterized.expand([("a_resource_posthog_holds", None), ("a_resource_whose_project_was_deleted", "99999")])
+    def test_resource_plans_list_the_billing_plans(self, _name, resource_id):
+        resource_id = resource_id or self.primary_resource["resource_id"]
+        url = f"{self.primary_resource['base_url']}/{resource_id}/plans/"
+        headers = self.auth_headers(self.installation_id, "system")
+
+        response = self.client.get(url, **headers)
+
+        self.assert_success(response)
+        self.assertEqual([plan["id"] for plan in response.json()["plans"]], ["posthog-usage-based"])
+
+    def test_resource_plans_reject_a_token_for_another_installation(self):
+        other_installation = self.create_installation()
+        url = f"{self.primary_resource['resource_url']}plans/"
+        headers = self.auth_headers(other_installation["id"], "system")
+
+        response = self.client.get(url, **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -71,6 +71,7 @@ from products.autoresearch.backend.dataset.labeling import (
     MATERIALIZE_ROW_LIMIT,
     TrainingSample,
     TrainingSampleTooLarge,
+    build_fixed_anchors_sql,
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_prediction_coverage_sql,
@@ -149,6 +150,7 @@ _FILE_END = "<<<AUTORESEARCH_FILE_END>>>"
 # store accepts, so a model that passes readback also passes persistence.
 _MAX_READBACK_BYTES = MAX_ARTIFACT_BYTES
 _MAX_SCRIPT_LOG_BYTES = 4000
+_READBACK_EXCERPT_CHARS = 80
 # Keys train.py must write into output.json.
 _REQUIRED_METRIC_KEYS = ("holdout_auc", "n_train", "n_features")
 # The worker expands every feature column across every row before the matrix reaches the
@@ -540,6 +542,7 @@ def _materialize_score_data(
     cutoff_ts: int | None = None,
     user: User | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
+    anchor_person_ids: list[str] | None = None,
 ) -> InferenceRows:
     """
     Predict run materialization: the bundle's feature SQL against the inference anchors
@@ -549,11 +552,29 @@ def _materialize_score_data(
 
     A population at or above the cap scores a rolling subset: the ``ROLLING_SCORE_LIMIT``
     persons whose last score by this pipeline is oldest.
+
+    ``anchor_person_ids`` scores those of these persons who are still live instead of the population,
+    with no rolling selection. Deferred shadow scoring passes the people the champion scored.
     """
-    eligible = count_inference_anchors(
-        team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
-    )
-    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
+    if anchor_person_ids is not None:
+        anchors_sql, anchors_values = build_fixed_anchors_sql(anchor_person_ids=anchor_person_ids, cutoff_ts=cutoff_ts)
+        eligible = int(
+            _count_rows(
+                team=team,
+                sql=f"SELECT count() FROM ({anchors_sql})",
+                values=anchors_values,
+                user=user,
+                what="Fixed anchor count",
+                query_context=query_context,
+            )[0]
+            or 0
+        )
+        rolling = None
+    else:
+        eligible = count_inference_anchors(
+            team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+        )
+        rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     score_sql, score_values = build_inference_features_sql(
         feature_sql=feature_sql_resolved,
@@ -564,6 +585,7 @@ def _materialize_score_data(
         target_definition=pipeline.target_definition,
         team=team,
         rolling=rolling,
+        anchor_person_ids=anchor_person_ids,
     )
     score_rows = _materialize_rows(
         team=team, sql=score_sql, values=score_values, user=user, query_context=query_context
@@ -1144,10 +1166,7 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
     write_file is the only input channel and execute→stdout the only output channel,
     so we cat the file and slice between sentinels to survive any stray shell output.
     """
-    result = sandbox.execute(_readback_command(rel_path, encode=False), timeout_seconds=60)
-    if result.exit_code != 0:
-        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    body = _between_sentinels(result.stdout)
+    body = _readback(sandbox, rel_path, encode=False, timeout_seconds=60)
     if len(body.encode("utf-8")) > _MAX_READBACK_BYTES:
         raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return body
@@ -1155,10 +1174,7 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
 
 def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
     """Read a binary file (e.g. model.pkl) the bundle wrote, base64-encoded over the sentinel-bracketed cat."""
-    result = sandbox.execute(_readback_command(rel_path, encode=True), timeout_seconds=120)
-    if result.exit_code != 0:
-        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    encoded = "".join(_between_sentinels(result.stdout).split())
+    encoded = "".join(_readback(sandbox, rel_path, encode=True, timeout_seconds=120).split())
     try:
         content = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -1168,6 +1184,41 @@ def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
     if len(content) > _MAX_READBACK_BYTES:
         raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return content
+
+
+def _readback(sandbox: SandboxExecutor, rel_path: str, *, encode: bool, timeout_seconds: int) -> str:
+    # An exit 0 without both sentinels means the provider dropped or cut off stdout. The
+    # command only reads a finished file, so one retry is safe.
+    command = _readback_command(rel_path, encode=encode)
+    result = _execute_readback(sandbox, command, rel_path=rel_path, timeout_seconds=timeout_seconds)
+    try:
+        return _between_sentinels(result.stdout)
+    except SandboxInferenceError:
+        logger.warning("autoresearch_readback_retry", rel_path=rel_path, output=_describe_output(result))
+    result = _execute_readback(sandbox, command, rel_path=rel_path, timeout_seconds=timeout_seconds)
+    try:
+        return _between_sentinels(result.stdout)
+    except SandboxInferenceError as exc:
+        raise SandboxInferenceError(f"{exc} reading {rel_path} after a retry: {_describe_output(result)}") from exc
+
+
+def _execute_readback(
+    sandbox: SandboxExecutor, command: str, *, rel_path: str, timeout_seconds: int
+) -> ExecutionResult:
+    result = sandbox.execute(command, timeout_seconds=timeout_seconds)
+    if result.exit_code != 0:
+        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
+    return result
+
+
+def _describe_output(result: ExecutionResult) -> str:
+    # The excerpts are short and show the sentinel ends, enough to tell an empty stdout
+    # from one cut off mid-file without copying the file body into the error.
+    stdout, n = result.stdout, _READBACK_EXCERPT_CHARS
+    return (
+        f"stdout_chars={len(stdout)} begin={_FILE_BEGIN in stdout} end={_FILE_END in stdout} "
+        f"head={stdout[:n]!r} tail={stdout[-n:]!r} stderr={result.stderr[:500]!r}"
+    )
 
 
 def _read_log_tail(sandbox: SandboxExecutor) -> str:

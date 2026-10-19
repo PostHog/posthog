@@ -162,7 +162,7 @@ class NewRelicSource(ResumableSource[NewRelicSourceConfig, NewRelicResumeConfig]
             "github.com/newrelic/newrelic-ios-agent",
             "github.com/newrelic/video-agent-ios",
         ),
-        competes_with=(ProductKey.LOGS, ProductKey.TRACING),
+        alternative_to=(ProductKey.LOGS, ProductKey.TRACING),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -246,6 +246,9 @@ If your account is hosted in New Relic's EU data center, select the EU region.
             "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com": invalid_key,
             "403 Client Error: Forbidden for url: https://api.newrelic.com": missing_permissions,
             "403 Client Error: Forbidden for url: https://api.eu.newrelic.com": missing_permissions,
+            # NerdGraph reports an authorization failure inside its `errors` array on an HTTP 200
+            # rather than a 401/403, so it never matches the status-based keys above.
+            "New Relic GraphQL error: Access denied": missing_permissions,
         }
 
     def get_schemas(

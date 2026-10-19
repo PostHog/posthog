@@ -27,6 +27,9 @@ class TestElevenLabsSchemas:
             ("tools", False, False),
             # Executions take a server-side `start_time` filter, so they merge incrementally.
             ("tool_executions", True, False),
+            ("phone_numbers", False, False),
+            ("batch_calls", False, False),
+            ("subscription", False, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:
@@ -35,10 +38,6 @@ class TestElevenLabsSchemas:
         schemas = {s.name: s for s in ElevenLabsSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
-
-    def test_names_filter_limits_returned_schemas(self) -> None:
-        schemas = ElevenLabsSource().get_schemas(MagicMock(), team_id=1, names=["voices"])
-        assert [s.name for s in schemas] == ["voices"]
 
 
 class TestElevenLabsNonRetryableErrors:

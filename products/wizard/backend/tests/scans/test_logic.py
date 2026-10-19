@@ -61,9 +61,9 @@ def test_tracks_tools_across_scans(team: Team) -> None:
     assert tools["Amplitude"].removed_in_scan_id == second.id
     assert tools["Stripe"].removed_at is None
     assert tools["Stripe"].last_seen_scan_id == second.id
-    assert tools["Amplitude"].competes_with == ["product_analytics"]
+    assert tools["Amplitude"].alternative_to == ["product_analytics"]
     assert tools["Stripe"].warehouse_source_type == "Stripe"
-    assert (tools["NotInTheCatalog"].warehouse_source_type, tools["NotInTheCatalog"].competes_with) == (None, [])
+    assert (tools["NotInTheCatalog"].warehouse_source_type, tools["NotInTheCatalog"].alternative_to) == (None, [])
 
     third = _scan(team, "s3", 2, ["Stripe", "Amplitude"])
 
@@ -135,7 +135,7 @@ def test_partial_scan_adds_what_it_saw_and_removes_nothing(team: Team) -> None:
 
 
 @pytest.mark.django_db
-def test_reports_competitor_changes_once_per_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+def test_reports_posthog_alternative_changes_once_per_scan(team: Team, django_capture_on_commit_callbacks) -> None:
     scans = [
         ("s1", 0, ["Amplitude", "Stripe"]),
         ("s2", 1, []),
@@ -158,17 +158,17 @@ def test_reports_competitor_changes_once_per_scan(team: Team, django_capture_on_
         for call in capture.call_args_list
     ]
     assert events == [
-        ("wizard competitor detected", "Amplitude", True, False),
-        ("wizard competitor removed", "Amplitude", None, None),
-        ("wizard competitor detected", "Amplitude", False, True),
-        ("wizard competitor removed", "Amplitude", None, None),
+        ("wizard posthog alternative detected", "Amplitude", True, False),
+        ("wizard posthog alternative removed", "Amplitude", None, None),
+        ("wizard posthog alternative detected", "Amplitude", False, True),
+        ("wizard posthog alternative removed", "Amplitude", None, None),
     ]
     first_properties = capture.call_args_list[0].kwargs["properties"]
-    assert (first_properties["competes_with"], first_properties["wizard_version"]) == (["product_analytics"], "2.0.0")
+    assert (first_properties["alternative_to"], first_properties["wizard_version"]) == (["product_analytics"], "2.0.0")
 
 
 @pytest.mark.django_db
-def test_failing_competitor_report_keeps_the_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+def test_failing_posthog_alternative_report_keeps_the_scan(team: Team, django_capture_on_commit_callbacks) -> None:
     with (
         patch("products.wizard.backend.logic.scans.report_user_or_team_action", side_effect=RuntimeError),
         django_capture_on_commit_callbacks(execute=True),
@@ -180,7 +180,7 @@ def test_failing_competitor_report_keeps_the_scan(team: Team, django_capture_on_
 
 
 @pytest.mark.django_db
-def test_competitor_events_belong_to_the_scanned_projects_organization(
+def test_posthog_alternative_events_belong_to_the_scanned_projects_organization(
     team: Team, django_capture_on_commit_callbacks
 ) -> None:
     other_organization = Organization.objects.create(name="Other organization")

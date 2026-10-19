@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -13,11 +13,12 @@ use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
 use crate::pool::TargetPool;
-use crate::report::print_report;
+use crate::publish;
+use crate::report::{print_report, ConsistencyViolation};
 use crate::scenarios::merge::{self, MergeLane, WideRole};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
-use crate::stack::{Stack, StackConfig};
+use crate::stack::{PublishConfig, Stack, StackConfig};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
 use crate::verify::verify_postgres;
@@ -41,6 +42,8 @@ enum ChaosEvent {
     RouterShutdown,
     FencePersons,
     ReleaseFences,
+    PublisherCrash,
+    IdentityCrash,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -63,6 +66,8 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::FencePersons => write!(f, "fence persons (lifecycle delete op)"),
             ChaosEvent::ReleaseFences => write!(f, "release fences (aborted)"),
             ChaosEvent::RouterShutdown => write!(f, "coordinator router graceful shutdown"),
+            ChaosEvent::PublisherCrash => write!(f, "publisher crash-restart"),
+            ChaosEvent::IdentityCrash => write!(f, "identity crash-restart"),
         }
     }
 }
@@ -116,6 +121,12 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
             ChaosEvent::ReleaseFences,
         ));
     }
+    if let Some(after) = args.publisher_crash_after {
+        events.push((after, ChaosEvent::PublisherCrash));
+    }
+    if let Some(after) = args.identity_crash_after {
+        events.push((after, ChaosEvent::IdentityCrash));
+    }
     events.sort_by_key(|(after, _)| *after);
     events
 }
@@ -126,7 +137,7 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
 /// attacker-influenceable — and the harness only ever runs sibling
 /// binaries produced by the same cargo build; `--bin-dir` overrides for
 /// anything else.
-fn default_bin_dir() -> PathBuf {
+pub(crate) fn default_bin_dir() -> PathBuf {
     let profile = if cfg!(debug_assertions) {
         "debug"
     } else {
@@ -158,7 +169,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
     // Merges need distinct ids. Only the identity create path provides
     // them.
-    let create_via_identity = args.create_via_identity || args.merge_concurrency > 0;
+    let create_via_identity =
+        args.create_via_identity || args.merge_concurrency > 0 || args.publish;
     if create_via_identity
         && args.external_router_url.is_some()
         && args.external_identity_url.is_none()
@@ -206,6 +218,61 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.fence_after.is_some() && args.fence_count == 0 {
         bail!("--fence-count must be at least 1 with --fence-after");
     }
+    if args.publish && args.external_router_url.is_some() {
+        bail!("--publish requires a spawned stack; it cannot target --external-router-url");
+    }
+    if args.publish && args.publishers == 0 {
+        bail!("--publishers must be at least 1 with --publish");
+    }
+    if args.publish && args.publish_rows_per_pass <= 0 {
+        bail!("--publish-rows-per-pass must be positive");
+    }
+    if args.publisher_crash_after.is_some() && !args.publish {
+        bail!("--publisher-crash-after needs --publish");
+    }
+    if args.identity_crash_after.is_some() && !create_via_identity {
+        bail!(
+            "--identity-crash-after needs the identity path (--create-via-identity, \
+             --merge-concurrency or --publish)"
+        );
+    }
+
+    let pool = PgPool::connect(&args.persons_db_url)
+        .await
+        .context("connecting to persons DB")?;
+    let outbox_table = seed::publish_outbox_table_for(&args.pg_target_table);
+    let (lifecycle_op, lifecycle_op_person) = seed::lifecycle_tables_for(&args.pg_target_table);
+
+    // A crashed prior run may have left rows behind; the team id belongs to
+    // the harness, so start from a clean slate before anything spawns.
+    // Lifecycle ops included: a leftover mark would make this run's
+    // takeover scan install a stale fence for this team. Outbox rows too:
+    // the publishers would drain a previous run's rows onto this run's
+    // topics.
+    seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
+    sqlx::query(&format!("DELETE FROM {lifecycle_op} WHERE team_id = $1"))
+        .bind(args.team_id as i32)
+        .execute(&pool)
+        .await
+        .context("cleaning lifecycle ops")?;
+    if args.publish {
+        sqlx::query(&format!("DELETE FROM {outbox_table} WHERE team_id = $1"))
+            .bind(args.team_id as i32)
+            .execute(&pool)
+            .await
+            .context("cleaning the publish outbox")?;
+        // The publishers claim every team's rows, so another team's pending
+        // rows would drain onto this run's topics and vanish with them.
+        let foreign_pending =
+            publish::pending_outbox_rows(&pool, outbox_table, Some(args.team_id as i32)).await?;
+        if foreign_pending > 0 {
+            bail!(
+                "{foreign_pending} pending outbox rows belong to other teams and the harness \
+                 publishers would drain them onto this run's topics; clear {outbox_table} or \
+                 use a dedicated persons database for --publish"
+            );
+        }
+    }
 
     let mut stack = match &args.external_router_url {
         Some(_) => None,
@@ -227,39 +294,114 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
                     spawn_identity: create_via_identity,
+                    publish: args.publish.then_some(PublishConfig {
+                        publishers: args.publishers,
+                        rows_per_pass: args.publish_rows_per_pass,
+                    }),
                 })
                 .await?,
             )
         }
     };
 
-    let router_url = match (&args.external_router_url, &stack) {
+    let outcome = run_gate(
+        GateContext {
+            args: &args,
+            pool: &pool,
+            outbox_table,
+            lifecycle_op,
+            lifecycle_op_person,
+            create_via_identity,
+        },
+        &mut stack,
+        wide_role,
+        chaos,
+    )
+    .await;
+
+    // Teardown runs whatever the gate found, so a failed verification does
+    // not leave the per-run topics behind. Only a passing run honors
+    // --keep-stack.
+    if let Some(stack) = stack {
+        match &outcome {
+            Ok(_) if args.keep_stack => {
+                println!(
+                    "Stack left running (logs at {}); services die with this process",
+                    stack.log_dir.display()
+                );
+                // Hold the stack (and its kill-on-drop children) until the user
+                // interrupts, since child processes die with the harness.
+                tokio::signal::ctrl_c().await?;
+                stack.down().await?;
+            }
+            Ok(_) => stack.down().await?,
+            Err(_) => {
+                if let Err(e) = stack.down().await {
+                    tracing::warn!(error = %e, "stack teardown failed after the gate failed");
+                }
+            }
+        }
+    }
+
+    let run = outcome?;
+    if !run.violations.is_empty() {
+        bail!("{} consistency violations detected", run.violations.len());
+    }
+    // The invariant is "acked implies visible", which zero acks satisfy
+    // vacuously — a stack that failed every write must not pass the gate.
+    if run.acked_writes == 0 {
+        bail!("no writes were acked; the gate asserted nothing");
+    }
+    println!("Gate passed: every acked write visible in strong reads and Postgres");
+    Ok(())
+}
+
+struct GateContext<'a> {
+    args: &'a GateArgs,
+    pool: &'a PgPool,
+    outbox_table: &'static str,
+    lifecycle_op: &'static str,
+    lifecycle_op_person: &'static str,
+    create_via_identity: bool,
+}
+
+struct GateRun {
+    violations: Vec<ConsistencyViolation>,
+    acked_writes: u64,
+}
+
+/// Everything between stack bring-up and teardown: seed, traffic, chaos,
+/// verification, the delete leg and the data cleanup. Apart from `run` so
+/// the stack comes down whatever this returns.
+async fn run_gate(
+    ctx: GateContext<'_>,
+    stack: &mut Option<Stack>,
+    wide_role: WideRole,
+    chaos: Vec<(Duration, ChaosEvent)>,
+) -> Result<GateRun> {
+    let GateContext {
+        args,
+        pool,
+        outbox_table,
+        lifecycle_op,
+        lifecycle_op_person,
+        create_via_identity,
+    } = ctx;
+    let router_url = match (&args.external_router_url, &*stack) {
         (Some(url), _) => url.clone(),
         (None, Some(stack)) => stack.router_url.clone(),
         (None, None) => unreachable!(),
     };
     let client = HarnessClient::connect(&router_url).await?;
+    let publish_topics = stack
+        .as_ref()
+        .and_then(|stack| stack.publish_topics().cloned());
 
-    let pool = PgPool::connect(&args.persons_db_url)
-        .await
-        .context("connecting to persons DB")?;
-
-    // A crashed prior run may have left rows behind; the team id belongs to
-    // the harness, so start from a clean slate. Lifecycle ops included: a
-    // leftover mark would make a later run's takeover scan install a stale
-    // fence for this team.
-    seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
-    let (lifecycle_op, lifecycle_op_person) = seed::lifecycle_tables_for(&args.pg_target_table);
-    sqlx::query(&format!("DELETE FROM {lifecycle_op} WHERE team_id = $1"))
-        .bind(args.team_id as i32)
-        .execute(&pool)
-        .await
-        .context("cleaning lifecycle ops")?;
     let state = PersonState::new();
     // A spawned stack always uses its own identity service — the gate's
     // assertions target that stack, so an external identity service pointed
     // elsewhere would only produce confusing failures.
-    let identity_url = match (&args.external_identity_url, &stack) {
+    let identity_url = match (&args.external_identity_url, &*stack) {
         _ if !create_via_identity => None,
         (_, Some(stack)) => stack.identity_url.clone(),
         (Some(url), None) => Some(url.clone()),
@@ -280,8 +422,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
             ids
         }
         None => {
-            let ids = seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons)
-                .await?;
+            let ids =
+                seed::seed_persons(pool, &args.pg_target_table, args.team_id, args.persons).await?;
             println!("Seeded {} persons for team {}", ids.len(), args.team_id);
             ids
         }
@@ -444,7 +586,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 ))
                 .bind(fence_op)
                 .bind(args.team_id as i32)
-                .execute(&pool)
+                .execute(pool)
                 .await
                 .context("inserting fence op row")?;
                 for &person_id in person_ids.snapshot().iter().take(args.fence_count) {
@@ -456,7 +598,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     .bind(fence_op)
                     .bind(args.team_id as i32)
                     .bind(person_id)
-                    .execute(&pool)
+                    .execute(pool)
                     .await
                     .context("inserting fence mark")?;
                 }
@@ -511,14 +653,14 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     "UPDATE {lifecycle_op_person} SET status = 'skipped_conflict' WHERE op_id = $1"
                 ))
                 .bind(fence_op)
-                .execute(&pool)
+                .execute(pool)
                 .await
                 .context("settling fence marks")?;
                 sqlx::query(&format!(
                     "UPDATE {lifecycle_op} SET step = 'aborted', completed_at = now() WHERE op_id = $1"
                 ))
                 .bind(fence_op)
-                .execute(&pool)
+                .execute(pool)
                 .await
                 .context("completing fence op")?;
                 println!(
@@ -552,6 +694,14 @@ pub async fn run(args: GateArgs) -> Result<()> {
             }
             ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
             ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
+            ChaosEvent::PublisherCrash => {
+                stack.crash_restart_publisher().await?;
+                None
+            }
+            ChaosEvent::IdentityCrash => {
+                stack.crash_restart_identity().await?;
+                None
+            }
             ChaosEvent::FencePersons | ChaosEvent::ReleaseFences => {
                 unreachable!("fence events are dispatched before the stack match")
             }
@@ -618,7 +768,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     let mut violations = prober_violations;
     violations.extend(
         merge::settle_unresolved(
-            &pool,
+            pool,
             &args.pg_target_table,
             &state,
             unresolved_merges,
@@ -636,15 +786,60 @@ pub async fn run(args: GateArgs) -> Result<()> {
     let journal = state.snapshot().await;
     let merged = state.snapshot_merged().await;
     violations.extend(
-        verify_postgres(
-            &pool,
+        verify_postgres(pool, &args.pg_target_table, args.team_id, &journal, &merged).await?,
+    );
+
+    // The publish plane: once the outbox has drained, the topics must hold
+    // the Postgres mappings and the journaled merges. This pass compares
+    // the live mappings; the delete leg below turns them into tombstones,
+    // which the second pass compares.
+    let mut publish_expected = None;
+    if let Some(topics) = &publish_topics {
+        println!("Waiting for the publish outbox to drain, then verifying Kafka...");
+        let (drained_in, outbox_violations) =
+            publish::wait_outbox_drained(pool, outbox_table, args.team_id, publish::DRAIN_DEADLINE)
+                .await?;
+        println!("  Outbox drained in {:.1}s", drained_in.as_secs_f64());
+        // A publisher that died mid-drain is hidden by its replica.
+        if let Some(stack) = stack.as_mut() {
+            stack.check_alive()?;
+        }
+        violations.extend(outbox_violations);
+        let expected =
+            publish::expected_mappings(pool, &args.pg_target_table, args.team_id).await?;
+        let publish::PublishedMappings {
+            rows,
+            conflicts,
+            foreign_rows,
+        } = publish::read_published_mappings(&args.kafka_hosts, &topics.distinct_ids, args.team_id)
+            .await?;
+        violations.extend(conflicts);
+        violations.extend(publish::verify_published_mappings(&expected, &rows));
+        let uncertain = state.merge_uncertain_ids().await;
+        let expected_merges = publish::expected_merges(
+            pool,
             &args.pg_target_table,
             args.team_id,
-            &journal,
             &merged,
+            &uncertain,
         )
-        .await?,
-    );
+        .await?;
+        let published_merges =
+            publish::read_published_merges(&args.kafka_hosts, &topics.merge_events, args.team_id)
+                .await?;
+        violations.extend(publish::verify_published_merges(
+            &expected_merges,
+            &published_merges.pairs,
+        ));
+        println!(
+            "  {} mappings and {} merge events for {} pairs read back from Kafka ({foreign_rows} rows and {} events of other teams skipped)",
+            rows.len(),
+            published_merges.events,
+            published_merges.pairs.len(),
+            published_merges.foreign_events
+        );
+        publish_expected = Some(expected);
+    }
 
     print_report("gate", &collector, args.team_id, created_count, &violations);
     let mut disputed: HashMap<i64, Vec<String>> = HashMap::new();
@@ -687,36 +882,65 @@ pub async fn run(args: GateArgs) -> Result<()> {
         }
     }
 
-    if !args.keep_data {
-        let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
-        println!("Cleaned up {persons} persons");
+    if let (Some(before), Some(topics), false) =
+        (&publish_expected, &publish_topics, args.keep_data)
+    {
+        println!(
+            "Waiting for the publish outbox to drain, then verifying the tombstones on Kafka..."
+        );
+        let (drained_in, outbox_violations) =
+            publish::wait_outbox_drained(pool, outbox_table, args.team_id, publish::DRAIN_DEADLINE)
+                .await?;
+        println!("  Outbox drained in {:.1}s", drained_in.as_secs_f64());
+        if let Some(stack) = stack.as_mut() {
+            stack.check_alive()?;
+        }
+        // Rows parked before the first pass were reported there.
+        let reported: HashSet<String> = violations.iter().map(|v| v.key.clone()).collect();
+        let mut late: Vec<_> = outbox_violations
+            .into_iter()
+            .filter(|v| !reported.contains(&v.key))
+            .collect();
+        let after = publish::expected_mappings(pool, &args.pg_target_table, args.team_id).await?;
+        late.extend(publish::verify_tombstoned_in_postgres(before, &after));
+        let published =
+            publish::read_published_mappings(&args.kafka_hosts, &topics.distinct_ids, args.team_id)
+                .await?;
+        late.extend(published.conflicts);
+        late.extend(publish::verify_published_mappings(&after, &published.rows));
+        if late.is_empty() {
+            println!(
+                "  Every one of {} mappings tombstoned on Kafka at the version Postgres holds",
+                before.len()
+            );
+        } else {
+            println!("  {} publish violations after the delete leg:", late.len());
+            for violation in late.iter().take(20) {
+                println!(
+                    "    person {} {}: expected {} actual {}",
+                    violation.person_id, violation.key, violation.expected, violation.actual
+                );
+            }
+        }
+        violations.extend(late);
     }
 
-    if let Some(stack) = stack {
-        if args.keep_stack {
-            println!(
-                "Stack left running (logs at {}); services die with this process",
-                stack.log_dir.display()
-            );
-            // Hold the stack (and its kill-on-drop children) until the user
-            // interrupts, since child processes die with the harness.
-            tokio::signal::ctrl_c().await?;
-            stack.down().await?;
-        } else {
-            stack.down().await?;
+    if !args.keep_data {
+        let persons = seed::cleanup_team(pool, &args.pg_target_table, args.team_id).await?;
+        println!("Cleaned up {persons} persons");
+        if args.publish {
+            sqlx::query(&format!("DELETE FROM {outbox_table} WHERE team_id = $1"))
+                .bind(args.team_id as i32)
+                .execute(pool)
+                .await
+                .context("cleaning the publish outbox")?;
         }
     }
 
-    if !violations.is_empty() {
-        bail!("{} consistency violations detected", violations.len());
-    }
-    // The invariant is "acked implies visible", which zero acks satisfy
-    // vacuously — a stack that failed every write must not pass the gate.
-    if collector.writes.snapshot().successes == 0 {
-        bail!("no writes were acked; the gate asserted nothing");
-    }
-    println!("Gate passed: every acked write visible in strong reads and Postgres");
-    Ok(())
+    Ok(GateRun {
+        violations,
+        acked_writes: collector.writes.snapshot().successes,
+    })
 }
 
 /// Delete `person_ids` through the lifecycle saga and hold the answers
@@ -982,6 +1206,8 @@ mod tests {
             "2s",
             "--writer-pause-duration",
             "1s",
+            "--publisher-crash-after",
+            "4s",
         ]);
         let rendered: Vec<(u64, String)> = chaos_timeline(&args)
             .iter()
@@ -990,6 +1216,7 @@ mod tests {
         let expected: Vec<(u64, String)> = [
             (2, "writer pause (lag injection)"),
             (3, "writer resume"),
+            (4, "publisher crash-restart"),
             (5, "graceful shutdown"),
             (7, "zombie stop (SIGSTOP + lease revoke)"),
             (10, "kill (fast lease revoke)"),

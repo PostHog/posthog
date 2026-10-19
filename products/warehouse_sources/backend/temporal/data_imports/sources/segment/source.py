@@ -241,7 +241,7 @@ class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
             "github.com/segment-integrations/analytics-swift-quantcast",
             "github.com/segmentio/public-api-sdk-swift",
         ),
-        competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
+        alternative_to=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 
     api_docs_url = "https://docs.segmentapis.com/"
