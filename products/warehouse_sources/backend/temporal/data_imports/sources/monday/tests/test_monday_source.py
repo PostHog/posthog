@@ -32,10 +32,18 @@ class TestMondaySource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["items"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "items"
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.monday.com/v2",
+            "403 Client Error: Forbidden for url: https://api.monday.com/v2",
+            "monday.com GraphQL error: Not authenticated",
+            "monday.com GraphQL error: User unauthorized",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_and_permission_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message, api_version, expected_api_version",

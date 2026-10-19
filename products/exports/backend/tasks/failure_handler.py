@@ -185,7 +185,11 @@ class ExcelColumnLimitExceeded(Exception):
 class InvalidExportContext(Exception):
     """Raised when an export's export_context lacks a renderable target."""
 
-    pass
+    def __init__(self, message: str, *, reportable: bool = False):
+        super().__init__(message)
+        # Set when PostHog built the context wrong (no target, no handler), not the customer. The SLO
+        # still counts it as a user failure, but error tracking must see it.
+        self.reportable = reportable
 
 
 class RetryableExportError(Exception):
@@ -295,6 +299,12 @@ def classify_failure_type(exception: Exception | str) -> str:
         if exception_type in SYSTEM_ERROR_NAMES:
             return FAILURE_TYPE_SYSTEM
     return FAILURE_TYPE_UNKNOWN
+
+
+def is_reportable_export_failure(exception: Exception) -> bool:
+    if isinstance(exception, InvalidExportContext) and exception.reportable:
+        return True
+    return classify_failure_type(exception) != FAILURE_TYPE_USER
 
 
 def is_user_query_error_type(exception_type: str | None) -> bool:

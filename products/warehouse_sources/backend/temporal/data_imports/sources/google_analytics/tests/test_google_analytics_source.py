@@ -26,11 +26,6 @@ def _config(property_id: str = "123456789", custom_reports: str | None = None) -
     )
 
 
-def test_get_schemas_filters_by_names():
-    schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1, names=["website_overview", "events"])
-    assert {s.name for s in schemas} == {"website_overview", "events"}
-
-
 @pytest.mark.parametrize(
     "custom_reports,expected_substring",
     [

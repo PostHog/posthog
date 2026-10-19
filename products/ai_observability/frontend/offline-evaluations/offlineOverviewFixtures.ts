@@ -2,6 +2,7 @@ import type { OfflineExperimentReadApi, OfflineHistoryPointApi, ScoreDefinitionA
 
 export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Groundedness', 'Response time'].map(
     (name, index) => ({
+        tags: ['regression', 'production', 'quality'],
         id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, '0')}`,
         name,
         description: '',
@@ -25,6 +26,7 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
 )
 
 export const overviewExperiments: OfflineExperimentReadApi[] = Array.from({ length: 8 }, (_, index) => ({
+    tags: ['regression', 'production', 'quality'],
     id: `33333333-3333-4333-8333-${String(index + 1).padStart(12, '0')}`,
     name: ['Support assistant prompt update', 'Tool selection regression', 'Response quality baseline'][index % 3],
     run_source: index % 3 === 0 ? 'ci' : index % 3 === 1 ? 'local' : null,
