@@ -1006,6 +1006,7 @@ class Resolver(CloningVisitor):
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
         array_join_aliases = []
+        array_join_placeholders: dict[str, ast.FieldAliasType] = {}
         if node.array_join_list:
             for expr in node.array_join_list:
                 ac.visit(expr)
@@ -1013,7 +1014,8 @@ class Resolver(CloningVisitor):
             for key in array_join_aliases:
                 if key in node_type.aliases:
                     raise QueryError(f"Cannot redefine an alias with the name: {key}")
-                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                array_join_placeholders[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                node_type.aliases[key] = array_join_placeholders[key]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -1111,6 +1113,17 @@ class Resolver(CloningVisitor):
                     # delete the keys we added in the first pass to avoid "can't redefine" errors
                     del node_type.aliases[key]
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
+            for array_join_expr in new_node.array_join_list:
+                if isinstance(array_join_expr, ast.Alias) and isinstance(array_join_expr.type, ast.FieldAliasType):
+                    array_join_expr.type = ast.ArrayJoinAliasType(
+                        alias=array_join_expr.alias, type=array_join_expr.type.type
+                    )
+                    if not array_join_expr.hidden:
+                        node_type.aliases[array_join_expr.alias] = array_join_expr.type
+                    # SELECT columns resolved against the pass 1 placeholder, so give it the item type.
+                    placeholder = array_join_placeholders.get(array_join_expr.alias)
+                    if placeholder is not None:
+                        placeholder.type = array_join_expr.type.resolve_constant_type(self.context)
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)

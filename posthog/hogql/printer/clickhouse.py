@@ -44,7 +44,7 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
-from posthog.hogql.type_system import parse_sql_runtime_type
+from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
@@ -250,10 +250,20 @@ class ClickHousePrinter(BasePrinter):
                 first_arg is not None
                 and first_arg.type is not None
                 and (
-                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                    first_arg_was_alias
+                    or isinstance(first_arg, ast.Call)
+                    or isinstance(first_arg.type, (ast.FieldType, ast.FieldAliasType))
                 )
             ):
                 first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif (
+                isinstance(first_arg, ast.TupleAccess)
+                and isinstance(first_arg.tuple, ast.Field)
+                and isinstance(first_arg.tuple.type, ast.FieldAliasType)
+            ):
+                first_arg_constant_type = infer_tuple_access_constant_type(
+                    first_arg.tuple.type.resolve_constant_type(self.context), first_arg.index
+                )
             elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
                 first_arg_constant_type = node.type.arg_types[0]
 

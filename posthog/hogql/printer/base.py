@@ -1386,6 +1386,9 @@ class BasePrinter(Visitor[str]):
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
 
+    def visit_array_join_alias_type(self, type: ast.ArrayJoinAliasType):
+        return self.visit_field_alias_type(type)
+
     def visit_expression_field_type(self, type: ast.ExpressionFieldType):
         return self.visit(type.expr)
 
