@@ -192,6 +192,33 @@ const idleWord = (now: number): string =>
     (Math.floor(now / IDLE_WORD_MS) * 7919) % THINKING_ACTIVITIES.length
   ];
 
+// What the hedgehog did, once its turn is over; the turn's end picks one, so a redraw keeps it.
+const DONE_WORDS = [
+  "Foraged",
+  "Snuffled",
+  "Rooted around",
+  "Burrowed",
+  "Trundled",
+  "Rummaged",
+  "Snouted about",
+  "Bristled",
+  "Quilled",
+  "Nosed around",
+  "Grubbed",
+  "Prowled",
+  "Scurried",
+  "Snaffled",
+  "Pottered",
+  "Beetled",
+];
+const doneWord = (endedAt: number): string => {
+  // A small hash, so turns a millisecond apart get different words.
+  let hash = Math.floor(endedAt) >>> 0;
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b) >>> 0;
+  hash = (hash ^ (hash >>> 16)) >>> 0;
+  return DONE_WORDS[hash % DONE_WORDS.length];
+};
+
 export interface SetupStep {
   step: string;
   label: string;
@@ -327,6 +354,16 @@ export function deliveryFailure(
   return null;
 }
 
+// "2 shells · 1 monitor" from the harness, or a count, as "2 shells still running".
+function shellsRunning(shells: string | number | undefined): string | null {
+  const count =
+    typeof shells === "number"
+      ? shells
+      : Number(/^(\d+) shell/.exec(shells ?? "")?.[1] ?? 0);
+  if (count <= 0) return null;
+  return `${count} shell${count === 1 ? "" : "s"} still running`;
+}
+
 export function runNotice(
   view: RunView,
   allLines: TranscriptLine[],
@@ -339,11 +376,14 @@ export function runNotice(
     delivery = null,
     compacting = false,
     wake = null,
+    shells,
   }: {
     setup?: SetupProgress | null;
     compacting?: boolean;
     // The wake-up the agent scheduled at the end of its last turn.
     wake?: Transcript["wake"];
+    // Background shells still running after the turn: the harness's status line, or a count.
+    shells?: string | number;
     // The backend could not hand the last message to the agent.
     delivery?: DeliveryFailure | null;
     // A reply is bringing the chat's stopped run back, until its agent takes the message.
@@ -426,7 +466,7 @@ export function runNotice(
     };
   }
   if (lastTurn && !waiting) {
-    const worked = `Worked for ${formatDuration(lastTurn.durationMs)}`;
+    const worked = `${doneWord(lastTurn.endedAt)} for ${formatDuration(lastTurn.durationMs)}`;
     // The agent sleeps until its wake-up, so the chat says what it waits on instead of calling the turn done.
     if (wake && running) {
       return {
@@ -439,8 +479,9 @@ export function runNotice(
       hour: "numeric",
       minute: "2-digit",
     });
+    const stillRunning = running ? shellsRunning(shells) : null;
     return {
-      text: `${worked} · done ${done}`,
+      text: `${worked} · done ${done}${stillRunning ? ` · ${stillRunning}` : ""}`,
       tone: "done",
     };
   }
