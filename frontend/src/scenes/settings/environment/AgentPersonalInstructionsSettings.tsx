@@ -18,6 +18,7 @@ export function AgentPersonalInstructionsSettings(): JSX.Element {
             onChange={setPersonalDraft}
             onSave={submitPersonalDraft}
             dataAttr="agent-personal-instructions"
+            ariaLabel="My instructions"
         />
     )
 }

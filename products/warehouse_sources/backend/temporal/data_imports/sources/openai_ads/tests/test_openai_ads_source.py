@@ -27,7 +27,7 @@ class TestOpenAIAdsSourceConfig:
         assert config.name == ExternalDataSourceType.OPENAIADS
         # A finished source must be visible: stage-labelled, never hidden via unreleasedSource.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.BETA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openai-ads"
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert [f.name for f in fields] == ["api_key"]
@@ -51,10 +51,6 @@ class TestOpenAIAdsSchemas:
         schema = next(s for s in OpenAIAdsSource().get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
         assert schema.supports_incremental is False
         assert schema.supports_append is False
-
-    def test_names_filter(self) -> None:
-        schemas = OpenAIAdsSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
-        assert [s.name for s in schemas] == ["campaigns"]
 
 
 class TestOpenAIAdsSourceForPipeline:

@@ -14,6 +14,9 @@ from posthog.models.scoping import team_scope
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    CheckFailure,
+    GroupOutcome,
+    PlatformAlertOutcome,
     PlatformAlertUpsert,
     SourceBatchEvaluation,
     SourceKind,
@@ -34,6 +37,11 @@ def _billing_response(current: int | None) -> dict[str, Any]:
     if current is not None:
         customer["current_total_amount_usd_after_discount"] = str(current)
     return {"customer": customer}
+
+
+def _decided(outcome: PlatformAlertOutcome) -> GroupOutcome | CheckFailure:
+    """The one verdict an ungrouped billing check reports, or its failure."""
+    return outcome.failure or outcome.groups[0]
 
 
 @time_machine.travel(CUTOFF, tick=False)
@@ -77,7 +85,12 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(_billing_response(150))
 
         (outcome,) = evaluation.outcomes
-        assert (outcome.kind, outcome.new_state, outcome.value, outcome.evaluation_key) == (
+        assert (
+            _decided(outcome).kind,
+            _decided(outcome).new_state,
+            outcome.groups[0].value,
+            outcome.evaluation_key,
+        ) == (
             AlertEventKind.FIRING,
             "firing",
             150.0,
@@ -110,7 +123,7 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(response)
 
         (outcome,) = evaluation.outcomes
-        assert (outcome.kind, outcome.new_state, outcome.consecutive_failures, outcome.disable) == (
+        assert (_decided(outcome).kind, _decided(outcome).new_state, outcome.consecutive_failures, outcome.disable) == (
             AlertEventKind.CHECK,
             "firing",
             0,
@@ -141,7 +154,7 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(_billing_response(150))
 
         (outcome,) = evaluation.outcomes
-        assert (outcome.kind, outcome.muted_notification) == (AlertEventKind.FIRING, "")
+        assert (_decided(outcome).kind, _decided(outcome).muted_notification) == (AlertEventKind.FIRING, "")
 
     def test_a_snooze_set_on_the_billing_alert_holds_the_fire(self) -> None:
         self._copy(self._alert(snoozed_until=CUTOFF + timedelta(hours=2)))
@@ -149,7 +162,7 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(_billing_response(150))
 
         (outcome,) = evaluation.outcomes
-        assert (outcome.kind, outcome.muted_notification) == (AlertEventKind.CHECK, "fire")
+        assert (_decided(outcome).kind, _decided(outcome).muted_notification) == (AlertEventKind.CHECK, "fire")
 
     def test_one_billing_call_serves_every_alert_of_an_organization_in_a_batch(self) -> None:
         self._copy(self._alert(name="First"))
@@ -158,7 +171,7 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, fetch = self._evaluate(_billing_response(150))
 
         assert fetch.call_count == 1
-        assert [o.kind for o in evaluation.outcomes] == [AlertEventKind.FIRING, AlertEventKind.FIRING]
+        assert [_decided(o).kind for o in evaluation.outcomes] == [AlertEventKind.FIRING, AlertEventKind.FIRING]
 
     @parameterized.expand([("gone", None, True), ("disabled", {"enabled": False}, False)])
     def test_a_copy_of_an_alert_that_cannot_run_skips_without_a_billing_call(
@@ -170,7 +183,7 @@ class TestPlatformBillingEvaluation(BaseTest):
 
         fetch.assert_not_called()
         (outcome,) = evaluation.outcomes
-        assert (outcome.kind, outcome.disable) == (AlertEventKind.CHECK, disables_the_copy)
+        assert (_decided(outcome).kind, outcome.disable) == (AlertEventKind.CHECK, disables_the_copy)
 
     def test_a_batch_past_the_cap_evaluates_the_cap_and_leaves_the_rest_due(self) -> None:
         configuration_ids = [self._copy(self._alert(name=f"Cap {n}")) for n in range(3)]

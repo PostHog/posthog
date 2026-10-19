@@ -69,12 +69,13 @@ COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=["ValueError", "TypeError"],
 )
 
-# When ClickHouse reports it is at capacity (too many simultaneous queries), an immediate retry
-# just piles more load onto a pool that is already starved. Back off with jitter instead, so the
-# retry lands after the contention has had a chance to clear. Jitter spreads retries from the
-# concurrent per-team activities so they don't all re-fire at the same instant.
-CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN = timedelta(seconds=20)
-CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX = timedelta(seconds=60)
+# When ClickHouse reports it is at capacity (too many simultaneous queries), or our own query
+# limiter has no free slot, an immediate retry just piles more load onto a pool that is already
+# starved. Back off with jitter instead, so the retry lands after the contention has had a chance
+# to clear. Jitter spreads retries from the concurrent per-team activities so they don't all
+# re-fire at the same instant.
+QUERY_CAPACITY_BACKOFF_MIN = timedelta(seconds=20)
+QUERY_CAPACITY_BACKOFF_MAX = timedelta(seconds=60)
 
 # LLM activity - external dependency, longer intervals between retries
 LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(

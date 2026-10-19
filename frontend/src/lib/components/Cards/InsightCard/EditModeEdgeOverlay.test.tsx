@@ -113,14 +113,14 @@ describe('EditModeEdgeOverlay', () => {
         expect(onEnterEditMode).toHaveBeenCalledWith(expect.anything(), expectedEdge)
     })
 
-    it('reveals all resize handles while any zone is hovered', () => {
+    it('reveals the bottom-right resize handle while any zone is hovered', () => {
         const { container, getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={() => {}} />)
         const zones = getAllByTitle('Drag to resize')
 
         expect(container.querySelectorAll('.handle')).toHaveLength(0)
 
         fireEvent.mouseEnter(zones[0])
-        expect(container.querySelectorAll('.handle')).toHaveLength(8)
+        expect(container.querySelectorAll('.handle')).toHaveLength(1)
 
         fireEvent.mouseLeave(zones[0])
         expect(container.querySelectorAll('.handle')).toHaveLength(0)
@@ -134,7 +134,7 @@ describe('EditModeEdgeOverlay', () => {
         fireEvent.mouseEnter(zones[0])
         fireEvent.mouseEnter(zones[4])
         fireEvent.mouseLeave(zones[0])
-        expect(container.querySelectorAll('.handle')).toHaveLength(8)
+        expect(container.querySelectorAll('.handle')).toHaveLength(1)
     })
 
     describe('scrollbar pass-through', () => {

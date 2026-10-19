@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import (
     GOCARDLESS_ENDPOINTS,
+    GOCARDLESS_FANOUT_PARENTS,
     PAGE_SIZE,
+    VALUE_DATE_RANGE_START,
 )
 
 GOCARDLESS_HOSTS = {
@@ -108,7 +110,8 @@ def _fanout_source(base_url: str, access_token: str, endpoint: str, team_id: int
     config = GOCARDLESS_ENDPOINTS[endpoint]
     assert config.fanout is not None
     fanout = config.fanout
-    parent_config = GOCARDLESS_ENDPOINTS[fanout.parent_name]
+    endpoint_configs = {**GOCARDLESS_ENDPOINTS, **GOCARDLESS_FANOUT_PARENTS}
+    parent_config = endpoint_configs[fanout.parent_name]
 
     if config.parent_created_within_days is not None:
         cutoff = datetime.now(UTC) - timedelta(days=config.parent_created_within_days)
@@ -116,10 +119,19 @@ def _fanout_source(base_url: str, access_token: str, endpoint: str, team_id: int
             fanout, parent_params={**fanout.parent_params, "created_at[gte]": _format_created_at(cutoff)}
         )
 
+    child_params_extra: Optional[dict[str, Any]] = None
+    if config.requires_value_date_range:
+        # A day past today in UTC still covers a transaction that is already dated tomorrow in UK time.
+        range_end = datetime.now(UTC).date() + timedelta(days=1)
+        child_params_extra = {
+            "value_date_from": VALUE_DATE_RANGE_START.isoformat(),
+            "value_date_to": range_end.isoformat(),
+        }
+
     dependent_resource = cast(
         Iterable[Any],
         build_dependent_resource(
-            endpoint_configs=GOCARDLESS_ENDPOINTS,
+            endpoint_configs=endpoint_configs,
             child_endpoint=endpoint,
             fanout=fanout,
             client_config=_client_config(base_url, access_token),
@@ -130,6 +142,7 @@ def _fanout_source(base_url: str, access_token: str, endpoint: str, team_id: int
             should_use_incremental_field=False,
             parent_endpoint_extra={"paginator": GoCardlessCursorPaginator(), "data_selector": parent_config.data_key},
             child_endpoint_extra={"paginator": GoCardlessCursorPaginator(), "data_selector": config.data_key},
+            child_params_extra=child_params_extra,
         ),
     )
 

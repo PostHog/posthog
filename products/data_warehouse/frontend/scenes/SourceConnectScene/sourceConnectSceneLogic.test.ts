@@ -1,4 +1,7 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -82,6 +85,12 @@ describe('sourceConnectSceneLogic', () => {
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
             },
+            post: {
+                '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
+                    400,
+                    { message: 'Could not connect to the database. Check the host, then try again.' },
+                ],
+            },
         })
         initKeaTests()
         unmountAvailableSources = availableSourcesLogic.mount()
@@ -124,5 +133,19 @@ describe('sourceConnectSceneLogic', () => {
         expect(sourceConnectSceneLogic.values.storedCredential?.credential_id).toEqual(
             'ba07775f-8eaf-4d09-aa6f-50e37f17f243'
         )
+    })
+
+    it('shows the rejection message when the credentials fail validation', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        router.actions.push('/data-warehouse/connect?kind=Postgres')
+        sourceConnectSceneLogic.actions.setCredentialsFormValue('payload', { host: 'db.example.com' })
+
+        await expectLogic(sourceConnectSceneLogic, () => {
+            sourceConnectSceneLogic.actions.submitCredentialsForm()
+        }).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith('Could not connect to the database. Check the host, then try again.')
+        expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
+        errorToast.mockRestore()
     })
 })

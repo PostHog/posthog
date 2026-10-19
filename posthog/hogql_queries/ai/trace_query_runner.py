@@ -89,12 +89,17 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
-    def __init__(self, *args: Any, bound_events_to_date_range: bool = False, **kwargs: Any):
+    def __init__(
+        self, *args: Any, bound_events_to_date_range: bool = False, posthog_tables_only: bool = False, **kwargs: Any
+    ):
         super().__init__(*args, **kwargs)
         # The trace view wants the whole trace whatever the date picker says, so the default reads
         # `ai_events` unbounded. A caller that grades a trace "as of" an instant opts in here, which
         # holds the event rows to `dateRange.date_to` before the SQL aggregates the totals.
         self._bound_events_to_date_range = bound_events_to_date_range
+        # See query_ai_events. The trace view keeps the full catalog because its property filters
+        # and modifiers can reference warehouse tables and group types.
+        self._posthog_tables_only = posthog_tables_only
 
     def _calculate(self):
         query_result = query_ai_events(
@@ -108,6 +113,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            posthog_tables_only=self._posthog_tables_only,
         )
 
         columns: list[str] = query_result.columns or []

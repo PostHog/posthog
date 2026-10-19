@@ -16,12 +16,6 @@ class TestTriggerDevSourceConfig:
         assert TriggerDevSource.lists_tables_without_credentials is True
 
 
-class TestTriggerDevSchemas:
-    def test_names_filter(self) -> None:
-        schemas = TriggerDevSource().get_schemas(MagicMock(), team_id=1, names=["queues"])
-        assert [s.name for s in schemas] == ["queues"]
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [

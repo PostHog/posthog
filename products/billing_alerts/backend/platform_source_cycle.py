@@ -81,7 +81,8 @@ def evaluate_billing_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
     checks = due_checks(team_id, SOURCE, slot, cutoff)
     if not checks:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
-    if len(checks) > MAX_CHECKS_PER_BATCH:
+    omitted = max(0, len(checks) - MAX_CHECKS_PER_BATCH)
+    if omitted:
         logger.warning(
             "Platform billing batch holds more checks than one evaluation returns; the rest stay due",
             team_id=team_id,
@@ -116,7 +117,7 @@ def evaluate_billing_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
         )
         for check in checks
     )
-    return SourceBatchEvaluation(outcomes=outcomes, deliveries=())
+    return SourceBatchEvaluation(outcomes=outcomes, deliveries=(), omitted=omitted)
 
 
 def _decide(
@@ -163,14 +164,16 @@ def _decide(
 
 
 def _snapshot(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration | None) -> AlertSnapshot:
+    # A billing alert does not group, so its state is the one instance on the empty key.
+    instance = check.instance()
     return AlertSnapshot(
-        state=AlertState(check.state),
+        state=AlertState(instance.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
-        last_notified_at=check.last_notified_at,
+        last_notified_at=instance.last_notified_at,
         # The billing row's snooze, because the copy keeps the one the backfill saw after a user clears it.
-        snooze_until=alert.snoozed_until if alert is not None else check.snooze_until,
+        snooze_until=alert.snoozed_until if alert is not None else instance.snooze_until,
         consecutive_failures=check.consecutive_failures,
-        firing_started_at=check.firing_started_at,
+        firing_started_at=instance.firing_started_at,
     )
 
 
@@ -242,19 +245,23 @@ def _recorded(
     safe_record(increment_checks, SOURCE, notification.value)
     if skip is not None:
         safe_record(increment_checks_skipped, SOURCE, skip.value)
-    if check.state != outcome.new_state.value:
-        safe_record(increment_state_transition, SOURCE, check.state, outcome.new_state.value)
-    return PlatformAlertOutcome(
+    previous_state = check.instance().state
+    if previous_state != outcome.new_state.value:
+        safe_record(increment_state_transition, SOURCE, previous_state, outcome.new_state.value)
+    failed = skip == SkipReason.QUERY_FAILED
+    return PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,
         evaluation_key=f"slot:{slot_of(check.next_check_at, now)}",
+        consecutive_failures=outcome.consecutive_failures,
         kind=NOTIFICATION_EVENT_KINDS[notification],
         new_state=outcome.new_state.value,
         notified=notified,
-        consecutive_failures=outcome.consecutive_failures,
+        failed=failed,
         firing_episode=decide_firing_episode(snapshot, outcome, now, policy=PLATFORM_DEFAULT_ALERT_POLICY),
         value=value,
+        muted_notification="" if muted_notification == NotificationAction.NONE else muted_notification.value,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification="" if muted_notification == NotificationAction.NONE else muted_notification.value,
         disable=disable,
+        skipped=skip is not None and not failed,
     )

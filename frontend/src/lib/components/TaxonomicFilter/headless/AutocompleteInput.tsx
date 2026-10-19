@@ -79,10 +79,12 @@ import { PropertyDefinitionType } from '~/types'
 import { useGroupList } from '../hooks/useGroupList'
 import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import {
+    META_GROUP_TYPES,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
+    withoutSearchOnlyGroups,
 } from '../types'
 import { useTaxonomicFilterContext } from './context'
 
@@ -184,7 +186,7 @@ interface AutocompleteCtx {
     /** Currently controlled value from the orchestrator (raw, no item context). */
     value: TaxonomicFilterValue | undefined
     /** Ref to the search input — Input attaches it on mount. */
-    inputRef: RefObject<HTMLInputElement | null>
+    inputRef: RefObject<HTMLInputElement>
     /** Move focus to the search input. */
     focusInput: () => void
     /** Label for the default Trigger button when no entry is selected. */
@@ -346,7 +348,7 @@ export function Root({
     const [hasMenuTrigger, setHasMenuTrigger] = useState(false)
     const triggerRef = useRef<HTMLElement | null>(null)
     const seededRef = useRef(false)
-    const inputRef = useRef<HTMLInputElement | null>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
     const focusInput = useCallback((): void => {
         inputRef.current?.focus()
     }, [])
@@ -1260,7 +1262,13 @@ export function useTaxonomicAutocompleteCategories(): TaxonomicAutocompleteCateg
             isActive: ctx.category === 'all',
             onSelect: () => ctx.setCategory('all'),
         }
-        const groupCats = ctx.visibleGroups.map<TaxonomicAutocompleteCategory>((group) => ({
+        // Search-only groups still feed "all", but are not offered as categories.
+        const categoryGroups = withoutSearchOnlyGroups(
+            ctx.visibleGroups,
+            (group) => group.type,
+            (type) => META_GROUP_TYPES.has(type)
+        )
+        const groupCats = categoryGroups.map<TaxonomicAutocompleteCategory>((group) => ({
             id: group.type,
             name: group.name,
             group,
@@ -1388,7 +1396,7 @@ function Header({ rootTitle, subTitle, className }: TaxonomicAutocompleteHeaderP
             {isSub && (
                 <Button
                     type="button"
-                    variant="ghost"
+                    variant="default"
                     size="icon-sm"
                     aria-label="Back"
                     onClick={() => ctx.cancelPending()}

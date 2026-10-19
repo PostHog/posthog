@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("connect.withmono.com",),
+        npm=("@mono.co/connect.js", "@mono.co/connect-react-native", "mono-node"),
+        pub=("mono_connect", "mono_prove"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -67,7 +74,9 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"transactions"})
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"transactions", "payments", "mandate_debits"}
+        )
 
     def validate_credentials(
         self,

@@ -346,6 +346,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                     "best_holdout_score": 0.72,
                     "latest_agent_description": "try fewer features",
                     "latest_summary": "Plain try fewer features",
+                    "trend": [
+                        {"iteration_number": 0, "best_holdout_score": 0.72},
+                        {"iteration_number": 1, "best_holdout_score": 0.72},
+                    ],
                 },
             ),
             "No positives": (None, 0, 0, [], None),
@@ -905,15 +909,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
     def test_start_training(self):
-        pipeline = self._make_pipeline()
+        pipeline = self._make_pipeline(iterations_per_run=8)
 
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
-        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any):
+        def _fake_run_training(
+            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str
+        ):
             return AutoresearchTrainingRun.objects.create(
                 pipeline=pipeline,
                 status=AutoresearchTrainingRun.Status.RUNNING,
                 iteration_budget=iteration_budget,
+                kickoff_reason=kickoff_reason,
             )
 
         with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
@@ -922,6 +929,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data["status"] == "running"
+        assert data["iteration_budget"] == 8
+        assert data["kickoff_reason"] == "manual"
 
     @parameterized.expand(
         [
@@ -1102,13 +1111,16 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_trained_pipeline()
         resp = self.client.patch(
             f"{self.base_url}/{pipeline.id}/",
-            {"name": "Renamed", "cadence_days": 3, "iteration_budget": 20},
+            {"name": "Renamed", "cadence_days": 3, "iterations_per_run": 8, "research_interval_days": None},
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["next_research_at"] is None
         pipeline.refresh_from_db()
         assert pipeline.name == "Renamed"
         assert pipeline.cadence_days == 3
+        assert pipeline.iterations_per_run == 8
+        assert pipeline.research_interval_days is None
 
     def test_resubmitting_unchanged_target_after_training_is_allowed(self):
         pipeline = self._make_trained_pipeline()
@@ -1984,6 +1996,9 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("cadence_above_max", "cadence_days", 366),
             ("iteration_budget_below_min", "iteration_budget", 0),
             ("iteration_budget_above_max", "iteration_budget", 501),
+            ("iterations_per_run_below_min", "iterations_per_run", 0),
+            ("iterations_per_run_above_max", "iterations_per_run", 51),
+            ("research_interval_days_not_a_choice", "research_interval_days", 10),
             ("plateau_iterations_below_min", "plateau_iterations", 0),
             ("success_auc_below_min", "success_auc", -0.1),
             ("success_auc_above_max", "success_auc", 1.5),

@@ -22,6 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -494,6 +495,10 @@ class FakePersonHogClient:
 
     def create_group(self, request: group_pb2.CreateGroupRequest) -> group_pb2.CreateGroupResponse:
         self.calls.append(_Call("create_group", request))
+        key = (request.team_id, request.group_type_index, request.group_key)
+        existing = self._groups.get(key)
+        if existing is not None:
+            return group_pb2.CreateGroupResponse(group=existing)
         next_id = max((g.id for g in self._groups.values()), default=0) + 1
         group = group_pb2.Group(
             id=next_id,
@@ -504,7 +509,7 @@ class FakePersonHogClient:
             created_at=request.created_at,
             version=0,
         )
-        self._groups[(request.team_id, request.group_type_index, request.group_key)] = group
+        self._groups[key] = group
         response = group_pb2.CreateGroupResponse(group=group)
         return response
 
@@ -822,9 +827,10 @@ class FakePersonHogClient:
         self, request: person_pb2.SplitPersonRequest, timeout: float | None = None
     ) -> person_pb2.SplitPersonResponse:
         """Stateful mirror of the real RPC: validates ownership, creates new
-        persons with deterministic UUIDv5s (preserving created_at for
-        pre-existing ones), moves the distinct_ids, and bumps versions by 101.
-        Results are returned in request order, like the real service.
+        persons with deterministic UUIDv5s (a random UUID when a live person
+        holds it; a tombstone there is revived with its created_at), moves the
+        distinct_ids, and bumps versions by 101. Results are returned in
+        request order, like the real service.
         """
         self.calls.append(_Call("split_person", request))
 
@@ -847,8 +853,12 @@ class FakePersonHogClient:
             new_uuid = str(uuidFromDistinctId(request.team_id, did))
 
             existing = self._persons_by_uuid.get((request.team_id, new_uuid))
+            if existing is not None and not existing.is_deleted:
+                new_uuid = str(uuid4())
+                existing = None
             if existing is not None:
-                existing.version = new_person_version
+                existing.is_deleted = False
+                existing.version = max(existing.version + 1, new_person_version)
                 new_person = existing
             else:
                 self._next_split_person_id += 1
@@ -871,7 +881,7 @@ class FakePersonHogClient:
                 person_pb2.SplitResult(
                     distinct_id=did,
                     new_person_uuid=new_uuid,
-                    new_person_version=new_person_version,
+                    new_person_version=new_person.version,
                     pdi_version=pdi_version,
                     new_person_created_at_ms=new_person.created_at,
                 )
