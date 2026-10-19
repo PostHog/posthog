@@ -237,15 +237,6 @@ export function ClusterCard({
                         loading={loadingTraces}
                         clusteringLevel={clusteringLevel}
                     />
-                    <div className="p-3 border-t bg-surface-secondary">
-                        <Link
-                            to={urls.aiObservabilityCluster(runId, cluster.cluster_id)}
-                            className="text-link hover:underline text-sm font-medium"
-                            data-attr="clusters-view-all-link"
-                        >
-                            View all {Object.keys(cluster.traces).length} {itemLabel} →
-                        </Link>
-                    </div>
                 </div>
             )}
         </div>
