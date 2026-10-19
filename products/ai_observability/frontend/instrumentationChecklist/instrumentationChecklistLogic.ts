@@ -76,12 +76,12 @@ export interface instrumentationChecklistLogicActions {
         errorObject?: any
     }
     loadInstrumentationChecklistSuccess: (
-        checklist: InstrumentationChecklistApi | null,
+        checklist: InstrumentationChecklistApi,
         payload?: {
             refresh?: boolean
         }
     ) => {
-        checklist: InstrumentationChecklistApi | null
+        checklist: InstrumentationChecklistApi
         payload?: {
             refresh?: boolean
         }
@@ -150,7 +150,7 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
                 loadInstrumentationChecklist: async (
                     { refresh }: { refresh?: boolean } = {},
                     breakpoint
-                ): Promise<InstrumentationChecklistApi | null> => {
+                ): Promise<InstrumentationChecklistApi> => {
                     const response = await aiObservabilityInstrumentationChecklistRetrieve(
                         String(values.currentTeamId),
                         { refresh }
