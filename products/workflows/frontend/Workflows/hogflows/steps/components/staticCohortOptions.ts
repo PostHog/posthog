@@ -1,10 +1,10 @@
-import { LemonInputSelectOption } from '@posthog/lemon-ui'
+import { LemonSelectOption } from '@posthog/lemon-ui'
 
-import { CohortType } from '~/types'
+import { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 
-type CohortOptionSource = Pick<CohortType, 'deleted' | 'id' | 'is_static' | 'name'>
+type CohortOptionSource = Pick<CohortApi, 'deleted' | 'id' | 'is_static' | 'name'>
 
-export function staticCohortOptions(cohorts: CohortOptionSource[]): LemonInputSelectOption<number>[] {
+export function staticCohortOptions(cohorts: CohortOptionSource[]): LemonSelectOption<number | null>[] {
     return cohorts
         .filter(
             (cohort): cohort is CohortOptionSource & { id: number } =>

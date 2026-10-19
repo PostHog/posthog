@@ -44,6 +44,8 @@ registerAsyncFunction('postHogAddPersonToStaticCohort', {
             method: 'POST',
             entityClaims: { hog_flow_id: hogFlow.id },
             body: JSON.stringify(payload),
+            timeoutMs: 30_000,
+            retryOnTimeout: false,
         })
     },
     mock: (args, logs) => {

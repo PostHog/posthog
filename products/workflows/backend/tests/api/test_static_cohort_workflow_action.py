@@ -1,15 +1,23 @@
 from copy import deepcopy
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort
+from products.workflows.backend.models import HogFlow
 
 TEMPLATE_ID = "template-posthog-add-person-to-static-cohort"
 
@@ -47,6 +55,8 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
         trigger_config: dict = {"type": trigger_type}
         if trigger_type == "event":
             trigger_config["filters"] = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]}
+        elif trigger_type == "batch":
+            trigger_config["filters"] = {"audience_type": "persons", "properties": []}
         elif trigger_type in {"data-warehouse-table", "data-warehouse-view"}:
             trigger_config.update({"table_name": "source.rows", "filters": {"properties": []}})
         return {
@@ -183,3 +193,68 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
 
         assert response.status_code == 403, response.json()
         assert "cohort:write" in response.json()["detail"]
+
+    def test_personal_api_key_requires_cohort_write_for_schedule_updates(self) -> None:
+        create = self.client.post(self.url, self._flow(trigger_type="batch"), format="json")
+        assert create.status_code == 201, create.json()
+        scheduled = self.client.post(
+            f"{self.url}/{create.json()['id']}/schedules",
+            {
+                "rrule": "FREQ=DAILY;INTERVAL=1",
+                "starts_at": (timezone.now() + timedelta(days=1)).isoformat(),
+            },
+            format="json",
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="workflow scheduler",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["hog_flow:write"],
+        )
+
+        response = self.client.patch(
+            f"{self.url}/{create.json()['id']}/schedules/{scheduled.json()['id']}",
+            {"variables": {"source": "review"}},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == 403, response.json()
+        assert "cohort:write" in response.json()["detail"]
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
+    def test_live_draft_invocation_requires_cohort_edit_access(self, invoke: MagicMock) -> None:
+        trigger = self._flow()["actions"][0]
+        exit_action = self._flow()["actions"][2]
+        workflow = HogFlow.objects.create(
+            team=self.team,
+            name="Existing workflow",
+            status=HogFlow.State.ACTIVE,
+            actions=[trigger, exit_action],
+            edges=[{"from": "trigger", "to": "exit", "type": "continue"}],
+            trigger=trigger["config"],
+            draft={"actions": self._flow()["actions"], "edges": self._flow()["edges"], "trigger": trigger["config"]},
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        AccessControl.objects.create(team=self.team, resource="cohort", access_level="none")
+
+        response = self.client.post(
+            f"{self.url}/{workflow.id}/invocations",
+            {
+                "use_draft": True,
+                "mock_async_functions": False,
+                "globals": {"event": {"event": "$pageview", "properties": {}}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 403, response.json()
+        invoke.assert_not_called()

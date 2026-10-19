@@ -22,6 +22,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
             {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
             {templateId === 'template-posthog-add-person-to-static-cohort' ? (
                 <AddPersonToStaticCohortConfiguration
+                    actionId={node.id}
                     inputs={inputs}
                     setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
                     error={validationResult?.errors?.cohort_id}

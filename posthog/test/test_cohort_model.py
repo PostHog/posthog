@@ -526,6 +526,20 @@ class TestCohort(BaseTest):
         assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
         assert cohort.is_calculating is False
 
+    def test_insert_users_list_by_id_uuid_pairs_can_skip_count_refresh(self):
+        person = create_person(team=self.team)
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, count=10)
+
+        with patch.object(cohort, "_refresh_count") as refresh_count:
+            cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+                [(person.id, str(person.uuid))], team_id=self.team.id, save_state=False
+            )
+
+        refresh_count.assert_not_called()
+        cohort.refresh_from_db()
+        assert cohort.count == 10
+        assert list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk) == [person.id]
+
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""
         # Create people with distinct IDs

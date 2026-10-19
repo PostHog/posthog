@@ -110,6 +110,7 @@ const cohortsList = (): ToolBase<ReturnType<typeof CohortsListSchema>, WithPostH
                     limit: params.limit,
                     offset: params.offset,
                     search: params.search,
+                    type: params.type,
                 },
             })
             const filtered = {

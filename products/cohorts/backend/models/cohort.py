@@ -941,6 +941,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        save_state: bool = True,
     ) -> int:
         """
         Insert already-resolved (person_id, person_uuid) members into the cohort, for the given team.
@@ -948,7 +949,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Skips the per-batch UUID → person id resolution that ``insert_users_list_by_uuid``
         performs — for callers that resolved the persons themselves (e.g. a validation pass over
         the same set) and must not pay for a second personhog lookup. Semantics otherwise match
-        ``insert_users_list_by_uuid``, including ``raise_on_error``.
+        ``insert_users_list_by_uuid``, including ``raise_on_error`` and ``save_state``.
 
         The ``_skip_validation`` suffix is the tenant-isolation contract: pairs MUST come from a
         team-scoped personhog read for this same ``team_id`` (e.g.
@@ -968,6 +969,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             insert_in_clickhouse=True,
             team_id=team_id,
             raise_on_error=raise_on_error,
+            save_state=save_state,
             insert_batch=lambda batch: self._insert_resolved_batch(batch, insert_in_clickhouse=True, team_id=team_id),
         )
 

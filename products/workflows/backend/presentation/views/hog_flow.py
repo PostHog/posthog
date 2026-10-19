@@ -4723,16 +4723,21 @@ class HogFlowViewSet(
         return Response(AppMetricResponseSerializer(instance=data).data)
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
-        needs_cohort_write = self.action in {
-            "create",
-            "update",
-            "partial_update",
-            "graph",
-            "publish",
-            "invocations",
-            "rerun",
-            "run",
-        } or (self.action in {"batch_jobs", "schedules"} and request.method == "POST")
+        needs_cohort_write = (
+            self.action
+            in {
+                "create",
+                "update",
+                "partial_update",
+                "graph",
+                "publish",
+                "invocations",
+                "rerun",
+                "run",
+            }
+            or (self.action in {"batch_jobs", "schedules"} and request.method == "POST")
+            or (self.action == "schedule_detail" and request.method == "PATCH")
+        )
         needs_cohort_write = needs_cohort_write and self._request_or_stored_actions_add_to_static_cohort(request)
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
@@ -6184,6 +6189,12 @@ class HogFlowViewSet(
             if error is not None:
                 raise exceptions.PermissionDenied(error)
 
+    def _require_static_cohort_caller_access(self, actions: Any) -> None:
+        if _contains_static_cohort_action(actions) and not self.user_access_control.check_access_level_for_resource(
+            "cohort", "editor"
+        ):
+            raise exceptions.PermissionDenied("You do not have access to edit cohorts.")
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -6229,9 +6240,9 @@ class HogFlowViewSet(
 
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
-            self._require_replay_vision_caller_access(
-                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
-            )
+            actions = configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            self._require_replay_vision_caller_access(request, actions)
+            self._require_static_cohort_caller_access(actions)
 
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,

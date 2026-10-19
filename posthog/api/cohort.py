@@ -2142,6 +2142,13 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 ),
             ),
             OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["static", "dynamic"],
+                description="Filter cohorts by whether their membership is static or dynamic.",
+            ),
+            OpenApiParameter(
                 name="hide_behavioral_cohorts",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
