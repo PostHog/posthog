@@ -108,7 +108,7 @@ export function QuillSQLEditorSceneActions({
     const continueInNotebookMenuItem = (
         <DropdownMenuItem
             onClick={() => convertToNotebook()}
-            disabled={notebooksLoading || !!continueInNotebookDisabledReason}
+            disabledReason={notebooksLoading ? 'Creating notebook...' : continueInNotebookDisabledReason}
             data-attr="sql-editor-continue-in-notebook-button"
         >
             <IconNotebook />
@@ -119,17 +119,17 @@ export function QuillSQLEditorSceneActions({
     const saveAsMenuItemsGroup = (
         <DropdownMenuGroup>
             {continueInNotebookMenuItem}
-            <DropdownMenuItem disabled={!!saveAsInsightDisabledReason} onClick={() => saveAsInsight()}>
+            <DropdownMenuItem disabledReason={saveAsInsightDisabledReason} onClick={() => saveAsInsight()}>
                 Save as new insight...
             </DropdownMenuItem>
             <DropdownMenuItem
-                disabled={!!(saveAsDisabledReason ?? saveAsViewAccessDisabledReason)}
+                disabledReason={saveAsDisabledReason ?? saveAsViewAccessDisabledReason}
                 onClick={() => saveAsView()}
             >
                 Save as new view...
             </DropdownMenuItem>
             <DropdownMenuItem
-                disabled={!!(saveAsDisabledReason ?? saveAsEndpointDisabledReason)}
+                disabledReason={saveAsDisabledReason ?? saveAsEndpointDisabledReason}
                 onClick={() => saveAsEndpoint()}
             >
                 Save as endpoint...
@@ -142,11 +142,9 @@ export function QuillSQLEditorSceneActions({
             {secondarySaveMenuItems.map((item) => (
                 <DropdownMenuItem
                     key={item.action}
-                    disabled={
-                        !!(
-                            (item.action === 'insight' ? saveAsInsightDisabledReason : saveAsDisabledReason) ??
-                            item.accessDisabledReason
-                        )
+                    disabledReason={
+                        (item.action === 'insight' ? saveAsInsightDisabledReason : saveAsDisabledReason) ??
+                        item.accessDisabledReason
                     }
                     onClick={item.onClick}
                 >
