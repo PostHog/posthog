@@ -751,9 +751,13 @@ class InsightShape(Scorer):
     - ``breakdown``: the breakdown property name, or ``None`` to require no breakdown.
     - ``events``: the multiset of series events, in any order.
     - ``event_sequence``: the series events in order (funnel steps).
+    - ``math``: math types that must each appear on at least one series; an omitted
+      math counts as ``total``.
+    - ``formula``: whether a trends query combines its series with a formula.
+    - ``filter_test_accounts``: whether the query excludes internal and test accounts.
 
     The keys after ``tool`` describe a series query, so they are checked only when
-    the chosen tool is ``query-trends`` or ``query-funnel``. Filters, math, and date
+    the chosen tool is ``query-trends`` or ``query-funnel``. Property filters and date
     ranges are left to the schema-alignment judges.
     """
 
@@ -793,6 +797,9 @@ class InsightShape(Scorer):
             "funnel_viz": _actual_funnel_viz(query, tool_name),
             "breakdown": _actual_breakdown(query),
             "event_sequence": _actual_events(query),
+            "math": _actual_math(query),
+            "formula": _actual_formula(query, tool_name),
+            "filter_test_accounts": query.get("filterTestAccounts") is True,
         }
         actual["events"] = sorted(actual["event_sequence"], key=str)
         checked = shape if tool_name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
@@ -835,8 +842,10 @@ def _shape_field_matches(key: str, expected_value: Any, actual: dict[str, Any]) 
     if key in ("tool", "display", "funnel_viz"):
         accepted = expected_value if isinstance(expected_value, list | tuple | set) else [expected_value]
         return actual[key] in {str(item) for item in accepted}
-    if key in ("compare", "breakdown"):
+    if key in ("compare", "breakdown", "formula", "filter_test_accounts"):
         return actual[key] == expected_value
+    if key == "math":
+        return isinstance(expected_value, list) and set(expected_value) <= set(actual["math"])
     if key == "events":
         return isinstance(expected_value, list) and sorted(expected_value, key=str) == actual["events"]
     if key == "event_sequence":
@@ -882,17 +891,35 @@ def _actual_breakdown(query: dict[str, Any]) -> str | None:
     return str(breakdown) if breakdown else None
 
 
-def _actual_events(query: dict[str, Any]) -> list[str | float | None]:
-    events: list[str | float | None] = []
+def _series_nodes(query: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
     for node in query.get("series") or []:
         if not isinstance(node, dict):
             continue
         inner = node.get("nodes") if node.get("kind") == "GroupNode" else [node]
-        for entry in inner or []:
-            if not isinstance(entry, dict):
-                continue
-            if "event" in entry:
-                events.append(entry.get("event"))
-            elif entry.get("kind") == "ActionsNode":
-                events.append(entry.get("id"))
+        nodes.extend(entry for entry in inner or [] if isinstance(entry, dict))
+    return nodes
+
+
+def _actual_math(query: dict[str, Any]) -> list[str]:
+    return sorted({str(node.get("math") or "total") for node in _series_nodes(query)})
+
+
+def _actual_formula(query: dict[str, Any], tool_name: str) -> bool | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
+        return None
+    trends_filter = query.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return False
+    # The assistant schema uses ``formulaNodes``; saved TrendsFilter queries can carry the older keys.
+    return any(trends_filter.get(key) for key in ("formulaNodes", "formulas", "formula"))
+
+
+def _actual_events(query: dict[str, Any]) -> list[str | float | None]:
+    events: list[str | float | None] = []
+    for entry in _series_nodes(query):
+        if "event" in entry:
+            events.append(entry.get("event"))
+        elif entry.get("kind") == "ActionsNode":
+            events.append(entry.get("id"))
     return events

@@ -31,6 +31,10 @@ unrelated cases don't drag the rollup down.
   before any successful ``query-*`` call?
 * ``DidNotCiteRawSqlAfterTypedQuery`` — after a typed query tool succeeded,
   did the final answer avoid hand-writing the equivalent raw SQL?
+* ``ChartShown`` — did the user see the query result as a chart, through
+  ``render-ui`` or the client's inline view?
+* ``NoMarkdownDataTable`` — did the final answer avoid retyping the result as
+  a long Markdown table?
 """
 
 from __future__ import annotations
@@ -43,12 +47,14 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "CalledTargetTool",
+    "ChartShown",
     "DidNotCiteRawSqlAfterTypedQuery",
     "DidNotRenderUi",
     "DrilledIntoSchema",
     "ExecBeforeRender",
     "InfoBeforeCall",
     "FirstRelevantTool",
+    "NoMarkdownDataTable",
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
@@ -1087,4 +1093,112 @@ class DidNotRenderUi(Scorer):
             name=self._name(),
             score=1.0,
             metadata={"scope": "any render-ui" if target_set is None else sorted(target_set)},
+        )
+
+
+# Mirrors ``UI_APP_RENDER_NOTE`` in ``services/mcp/src/lib/build-tool-result.ts``: the MCP server appends it to a
+# query result when the client already displays that result's UI app inline.
+INLINE_VIEW_NOTE = "already sees this result as an interactive view"
+
+
+class ChartShown(Scorer):
+    """Binary: did the user get the analytics result as a chart?
+
+    ``expected = {"chart_shown": {"tool_name_any_of": ["query-trends"]}}``
+
+    Two paths show a chart. The agent calls ``render-ui`` with one of the listed query
+    tools, or a listed query tool result says the client already displays it inline
+    (``INLINE_VIEW_NOTE``). Score 1.0 for either path, 0.0 for neither — including an
+    answer built only from ``execute-sql``, which has no chart. ``None`` if the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "chart_shown"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _read_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        allowed = spec.get("tool_name_any_of")
+        allowed_set = {t for t in allowed if isinstance(t, str) and t} if isinstance(allowed, list) else set()
+
+        rendered: list[str | None] = []
+        for call in _render_ui_calls(parser):
+            tool_name = _rendered_tool_name(call)
+            rendered.append(tool_name)
+            if not call.is_error and tool_name in allowed_set:
+                return Score(name=self._name(), score=1.0, metadata={"path": "render-ui", "tool_name": tool_name})
+
+        for call in parser.get_tool_calls():
+            if not call.is_error and call.name in allowed_set and INLINE_VIEW_NOTE in call.output:
+                return Score(name=self._name(), score=1.0, metadata={"path": "inline", "tool_name": call.name})
+
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "No chart was shown for the expected query tools",
+                "expected_any_of": sorted(allowed_set),
+                "rendered_tool_names": rendered,
+            },
+        )
+
+
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
+
+
+def markdown_table_row_counts(text: str) -> list[int]:
+    """Count the data rows of each Markdown table in ``text``, in order."""
+    lines = text.splitlines()
+    counts: list[int] = []
+    index = 1
+    while index < len(lines):
+        if "|" in lines[index - 1] and _TABLE_SEPARATOR_RE.match(lines[index]):
+            rows = 0
+            index += 1
+            while index < len(lines) and "|" in lines[index] and lines[index].strip():
+                rows += 1
+                index += 1
+            counts.append(rows)
+        index += 1
+    return counts
+
+
+class NoMarkdownDataTable(Scorer):
+    """Binary: did the final answer avoid restating the query result as a Markdown table?
+
+    ``expected = {"no_markdown_data_table": {}}`` or ``{"no_markdown_data_table": {"max_rows": 3}}``
+
+    A chart already shows the series, so a table that retypes it adds length and hides
+    the conclusion. Small summary tables (at most ``max_rows`` data rows, default 3, such as
+    this period against the previous one) still pass. Score 0.0 when any table in the final
+    message is longer. ``None`` if the spec is absent or the agent wrote no final message.
+    """
+
+    DEFAULT_MAX_ROWS = 3
+
+    def _name(self) -> str:
+        return "no_markdown_data_table"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _read_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+
+        last_message = (output or {}).get("last_message")
+        if not isinstance(last_message, str) or not last_message.strip():
+            return Score(name=self._name(), score=None, metadata={"reason": "No final message"})
+
+        max_rows = spec.get("max_rows", self.DEFAULT_MAX_ROWS)
+        row_counts = markdown_table_row_counts(last_message)
+        too_long = [rows for rows in row_counts if rows > max_rows]
+        return Score(
+            name=self._name(),
+            score=0.0 if too_long else 1.0,
+            metadata={"table_row_counts": row_counts, "max_rows": max_rows},
         )

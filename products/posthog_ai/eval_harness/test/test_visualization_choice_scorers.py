@@ -54,6 +54,16 @@ UPLOADS_BY_FILE_TYPE = {
 }
 
 
+def _scorecard_call(maths: list[str | None], formula: bool = False, test_accounts: bool | None = None) -> tuple:
+    series = [{"kind": "EventsNode", "event": "uploaded_file", **({"math": m} if m else {})} for m in maths]
+    query: dict = {"series": series}
+    if formula:
+        query["trendsFilter"] = {"formulaNodes": [{"formula": "A-B"}]}
+    if test_accounts is not None:
+        query["filterTestAccounts"] = test_accounts
+    return ("mcp__posthog__query-trends", query, "ok")
+
+
 def _sql_call(status: str = "completed") -> tuple:
     return ("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1", status)
 
@@ -209,6 +219,13 @@ PAGEVIEWS_BY_BROWSER = {
             0.0,
             None,
         ),
+        ([_scorecard_call(["dau", None])], {"math": ["total", "dau"]}, 1.0, []),
+        ([_scorecard_call([None, None])], {"math": ["total", "dau"]}, 0.0, ["math"]),
+        ([_scorecard_call(["median", "p95"])], {"math": ["p95"]}, 1.0, []),
+        ([_scorecard_call(["dau", None], formula=True)], {"formula": True}, 1.0, []),
+        ([_scorecard_call(["dau", None])], {"formula": True}, 0.0, ["formula"]),
+        ([_scorecard_call(["dau"], test_accounts=True)], {"filter_test_accounts": True}, 1.0, []),
+        ([_scorecard_call(["dau"])], {"filter_test_accounts": True}, 0.0, ["filter_test_accounts"]),
     ],
 )
 def test_insight_shape_checks_only_the_expected_keys(calls, shape, score, mismatched) -> None:

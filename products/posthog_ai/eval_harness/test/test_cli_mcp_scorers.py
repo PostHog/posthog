@@ -4,7 +4,14 @@ import json
 
 from parameterized import parameterized
 
-from products.posthog_ai.evals.cli_mcp.scorers import DidNotCiteRawSqlAfterTypedQuery, FirstRelevantTool
+from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
+from products.posthog_ai.evals.cli_mcp.scorers import (
+    INLINE_VIEW_NOTE,
+    ChartShown,
+    DidNotCiteRawSqlAfterTypedQuery,
+    FirstRelevantTool,
+    NoMarkdownDataTable,
+)
 
 
 def _tool_call_start(call_id: str, command: str) -> str:
@@ -241,3 +248,50 @@ def test_first_relevant_tool_turn_skips_a_missing_slice() -> None:
 
     assert result.score is None
     assert "No turn 9 log slice" in result.metadata["reason"]
+
+
+_TRENDS_RESULT = ("mcp__posthog__query-trends", {"series": []}, "rows")
+_TRENDS_INLINE_RESULT = ("mcp__posthog__query-trends", {"series": []}, f"rows\n\nThe user {INLINE_VIEW_NOTE}.")
+_SQL_RESULT = ("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1")
+
+
+def _render(tool_name: str, status: str = "completed") -> tuple:
+    return ("mcp__posthog__render-ui", {"tool_name": tool_name, "tool_input": {}}, "Rendering", status)
+
+
+@parameterized.expand(
+    [
+        ("rendered_query_tool", [_TRENDS_RESULT, _render("query-trends")], 1.0),
+        ("inline_view_note", [_TRENDS_INLINE_RESULT], 1.0),
+        ("query_without_chart", [_TRENDS_RESULT], 0.0),
+        ("sql_only", [_SQL_RESULT], 0.0),
+        ("failed_render", [_TRENDS_RESULT, _render("query-trends", status="failed")], 0.0),
+        ("rendered_other_tool", [_TRENDS_RESULT, _render("experiment-list")], 0.0),
+    ]
+)
+def test_chart_shown_accepts_render_or_inline_view(_name: str, calls: list[tuple], score: float) -> None:
+    result = ChartShown()._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls), "prompt": "Weekly signups"},
+        expected={"chart_shown": {"tool_name_any_of": ["query-trends"]}},
+    )
+
+    assert result.score == score
+
+
+_LONG_TABLE = "| Week | Signups |\n|---|---|\n| W1 | 10 |\n| W2 | 12 |\n| W3 | 9 |\n| W4 | 14 |"
+_SUMMARY_TABLE = "| Period | Signups |\n| :--- | ---: |\n| Last 7 days | 45 |\n| Previous 7 days | 38 |"
+
+
+@parameterized.expand(
+    [
+        ("long_table", f"Signups rose.\n\n{_LONG_TABLE}\n\nThey peaked in W4.", 0.0),
+        ("summary_table", f"Signups rose 18%.\n\n{_SUMMARY_TABLE}", 1.0),
+        ("prose_with_pipes", "Signups rose 18% | weekly peak in W4 | no drop.", 1.0),
+    ]
+)
+def test_no_markdown_data_table_flags_long_tables(_name: str, last_message: str, score: float) -> None:
+    result = NoMarkdownDataTable()._run_eval_sync(
+        {"last_message": last_message}, expected={"no_markdown_data_table": {}}
+    )
+
+    assert result.score == score
