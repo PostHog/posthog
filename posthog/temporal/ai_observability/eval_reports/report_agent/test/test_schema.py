@@ -4,7 +4,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.temporal.ai_observability.eval_reports.output_types import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     MIN_REPORT_SECTIONS,
@@ -15,6 +14,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     ReportSection,
 )
 
+from products.ai_observability.backend.logic.evaluations.outcomes import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 from products.ai_observability.backend.models.evaluation_configs import REPORTABLE_OUTPUT_TYPES
 
 

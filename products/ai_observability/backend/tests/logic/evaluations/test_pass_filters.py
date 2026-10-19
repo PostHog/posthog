@@ -50,10 +50,26 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
             "numeric at threshold": (numeric, {"$ai_evaluation_numeric_result": 4}, (True, True)),
             "numeric below threshold": (numeric, {"$ai_evaluation_numeric_result": 3.5}, (True, False)),
             "numeric without rule": (numeric_without_rule, {"$ai_evaluation_numeric_result": 5}, (False, False)),
-            "categorical passing key": (categorical, {"$ai_evaluation_categorical_result": ["ok"]}, (True, True)),
-            "categorical failing key": (categorical, {"$ai_evaluation_categorical_result": ["bad"]}, (True, False)),
-            "empty passes, empty": (empty_passes, {"$ai_evaluation_categorical_result": []}, (True, True)),
-            "empty passes, key": (empty_passes, {"$ai_evaluation_categorical_result": ["bad"]}, (True, False)),
+            "categorical passing key": (
+                categorical,
+                {"$ai_evaluation_categorical_result": ["ok"], "$ai_evaluation_applicable": True},
+                (True, True),
+            ),
+            "categorical failing key": (
+                categorical,
+                {"$ai_evaluation_categorical_result": ["bad"], "$ai_evaluation_applicable": True},
+                (True, False),
+            ),
+            "empty passes, empty": (
+                empty_passes,
+                {"$ai_evaluation_categorical_result": [], "$ai_evaluation_applicable": True},
+                (True, True),
+            ),
+            "empty passes, key": (
+                empty_passes,
+                {"$ai_evaluation_categorical_result": ["bad"], "$ai_evaluation_applicable": True},
+                (True, False),
+            ),
             "sentiment": (sentiment, {"$ai_sentiment_label": "positive"}, (False, False)),
         }
         for case, (evaluation, properties, _) in cases.items():

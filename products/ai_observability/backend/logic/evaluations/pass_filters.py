@@ -4,49 +4,35 @@ from django.db.models import Q
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
-from products.ai_observability.backend.models.evaluation_configs import (
-    CategoricalOutputConfig,
-    NumericOutputConfig,
-    OutputType,
-)
+from products.ai_observability.backend.models.evaluation_configs import OutputType
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from ...facade import contracts
+from .outcomes import EvaluationReportOutcomeDefinition, get_outcome_definition
 
-# JSONExtract* reads the stored JSON value. `properties.$ai_evaluation_*` would go through HogQL property type
-# inference, which can cast these keys to another type and silently drop events from the count.
-_EVALUATION_ID = "JSONExtractString(properties, '$ai_evaluation_id')"
-_RESULT = "JSONExtractRaw(properties, '$ai_evaluation_result')"
-_SCORE = "JSONExtract(properties, '$ai_evaluation_numeric_result', 'Nullable(Float64)')"
-_CATEGORIES = "JSONExtract(properties, '$ai_evaluation_categorical_result', 'Array(String)')"
-
-# A skipped run can still store result=false, so it must leave the pass rate like an N/A run does.
-_COUNTED = (
-    "JSONExtractRaw(properties, '$ai_evaluation_skipped') != 'true' "
-    "AND JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'"
-)
-_BOOLEAN_GRADED = (
-    f"JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean') AND {_RESULT} IN ('true', 'false')"
-)
-_BOOLEAN_PASSED = f"{_RESULT} = 'true'"
+_DEFAULT_DEFINITION = get_outcome_definition(OutputType.BOOLEAN)
 
 
 def build_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters:
     graded_branches: list[str] = []
     passed_branches: list[str] = []
     for evaluation_id, output_type, output_config in _evaluations_with_own_rule(team_id):
-        rule = _own_rule(output_type, output_config)
-        if rule is None:
+        try:
+            definition = get_outcome_definition(
+                output_type, true_is_failure=output_config.get("true_is_failure") is True, output_config=output_config
+            )
+        except ValueError:
             continue
-        graded, passed = rule
-        matches_evaluation = f"{_EVALUATION_ID} = {escape_hogql_string(str(evaluation_id))}"
-        graded_branches += [matches_evaluation, graded]
-        passed_branches += [matches_evaluation, passed]
+        if not definition.has_pass_rule:
+            continue
+        matches_evaluation = f"properties.$ai_evaluation_id = {escape_hogql_string(str(evaluation_id))}"
+        graded_branches += [matches_evaluation, _graded(definition)]
+        passed_branches += [matches_evaluation, definition.outcome_predicates["pass"]]
 
-    graded = f"{_COUNTED} AND {_multi_if(graded_branches, _BOOLEAN_GRADED)}"
+    graded = _multi_if(graded_branches, _graded(_DEFAULT_DEFINITION))
     return contracts.EvaluationPassFilters(
         graded=graded,
-        passed=f"{graded} AND {_multi_if(passed_branches, _BOOLEAN_PASSED)}",
+        passed=f"{graded} AND {_multi_if(passed_branches, _DEFAULT_DEFINITION.outcome_predicates['pass'])}",
     )
 
 
@@ -61,29 +47,9 @@ def _evaluations_with_own_rule(team_id: int) -> list[tuple[UUID, str, dict]]:
     )
 
 
-def _own_rule(output_type: str, output_config: dict) -> tuple[str, str] | None:
-    """Return the (graded, passed) HogQL conditions for one evaluation, or None when the default rule applies
-    or the evaluation has no pass rule at all."""
-    try:
-        if output_type == OutputType.NUMERIC:
-            numeric_rule = NumericOutputConfig.model_validate(output_config).passing_rule
-            if numeric_rule is None:
-                return None
-            operator = ">=" if numeric_rule.operator == "gte" else "<="
-            return f"{_SCORE} IS NOT NULL", f"{_SCORE} {operator} {numeric_rule.threshold!r}"
-        if output_type == OutputType.CATEGORICAL:
-            categorical_rule = CategoricalOutputConfig.model_validate(output_config).passing_rule
-            if categorical_rule is None:
-                return None
-            if not categorical_rule.categories:
-                return "true", f"empty({_CATEGORIES})"
-            passing = ", ".join(escape_hogql_string(category) for category in categorical_rule.categories)
-            return "true", f"notEmpty({_CATEGORIES}) AND hasAll([{passing}], {_CATEGORIES})"
-    except ValueError:
-        return None
-    if output_type == OutputType.BOOLEAN:
-        return _BOOLEAN_GRADED, f"{_RESULT} = 'false'"
-    return None
+def _graded(definition: EvaluationReportOutcomeDefinition) -> str:
+    predicates = definition.outcome_predicates
+    return f"{definition.event_predicate} AND (({predicates['pass']}) OR ({predicates['fail']}))"
 
 
 def _multi_if(branches: list[str], default: str) -> str:
