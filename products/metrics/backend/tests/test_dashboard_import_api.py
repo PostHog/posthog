@@ -150,6 +150,18 @@ class TestDashboardImportAPI(APIBaseTest):
         assert tiles[1].layouts == {"sm": {"x": 0, "y": 1, "w": 6, "h": 3}}
         self.workflow.assert_not_called()
 
+    def test_hides_the_description_of_imported_panels_that_have_one(self) -> None:
+        grafana = json.loads(_grafana("sum(rate(orders_total[5m]))", "sum(orders_total)"))
+        grafana["panels"][1]["description"] = "Orders per second."
+
+        body = self._start(source="grafana", grafana_json=json.dumps(grafana))
+
+        tiles = DashboardTile.objects.filter(dashboard_id=body["dashboard_id"], insight__isnull=False)
+        assert {(tile.insight.name, tile.show_description) for tile in tiles} == {
+            ("Panel 2", False),
+            ("Panel 3", None),
+        }
+
     def test_starts_a_read_only_agent_for_panels_it_cannot_match(self) -> None:
         body = self._start(
             source="grafana",
