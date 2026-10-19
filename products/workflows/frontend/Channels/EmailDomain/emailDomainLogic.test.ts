@@ -8,7 +8,7 @@ import type { EmailDomainSetupRecordKindEnumApi } from 'products/integrations/fr
 
 import type { HogflowTestResult } from '../../Workflows/hogflows/steps/types'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
-import { emailDomainLogic } from './emailDomainLogic'
+import { VerificationStep, emailDomainLogic } from './emailDomainLogic'
 import { emailDomainSenderLogic } from './emailDomainSenderLogic'
 
 const DOMAIN = 'mail.acme.com'
@@ -60,6 +60,18 @@ describe('emailDomainLogic', () => {
         await mountAndLoad()
         expect(logic.values.phase).toBe('ready')
         expect(logic.values.verificationSteps.map((step) => step.state)).toEqual(['done', 'done', 'done'])
+    })
+
+    it.each<[string, boolean, VerificationStep['state'][]]>([
+        ['every record is published', true, ['done', 'done', 'active']],
+        ['records are missing', false, ['done', 'stuck', 'todo']],
+    ])('marks the records step after automatic checks stop when %s', async (_, publishAll, states) => {
+        if (publishAll) {
+            backend.publishRecords(DOMAIN)
+        }
+        await mountAndLoad()
+        await jest.advanceTimersByTimeAsync(31 * 60_000)
+        expect(logic.values.verificationSteps.map((step) => step.state)).toEqual(states)
     })
 
     it('reloads only what failed when the person tries again', async () => {
