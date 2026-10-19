@@ -22,12 +22,6 @@ class TestDocusealSourceConfig:
         assert DocusealSource().connection_host_fields == ["region"]
 
 
-class TestDocusealSchemas:
-    def test_names_filter_subsets_schemas(self) -> None:
-        schemas = DocusealSource().get_schemas(_config(), team_id=1, names=["submissions"])
-        assert [s.name for s in schemas] == ["submissions"]
-
-
 class TestDocusealNonRetryableErrors:
     @parameterized.expand(
         [

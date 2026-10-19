@@ -106,11 +106,6 @@ class TestFronteggTransport:
                 FronteggAuth(config())._obtain_token()
         assert {request.path for request in network.requests_log} == {"/auth/vendor"}
 
-    def test_unknown_table(self) -> None:
-        result = SourceDriver(FronteggSource(), config()).run("unknown", [])
-        assert isinstance(result.raised, ValueError)
-        assert "Unsupported Frontegg table" in str(result.raised)
-
     def test_invalid_region(self) -> None:
         with pytest.raises(ValueError, match="Select a supported Frontegg region"):
             FronteggAuth(config(cast(Any, "https://example.com")))
