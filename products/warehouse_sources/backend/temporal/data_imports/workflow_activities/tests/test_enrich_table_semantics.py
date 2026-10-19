@@ -491,20 +491,19 @@ class TestEnrichTableSemanticsSync:
         )
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
 
-        attempts = 0
+        failures = 0
         original_get = QuerySet.get
 
         def flaky_team_get(self, *args, **kwargs):
-            nonlocal attempts
-            if self.model is Team:
-                attempts += 1
-                if attempts == 1:
-                    raise DjangoOperationalError("[Errno -2] Name or service not known")
+            nonlocal failures
+            if self.model is Team and failures == 0:
+                failures += 1
+                raise DjangoOperationalError("[Errno -2] Name or service not known")
             return original_get(self, *args, **kwargs)
 
         with (
             patch.object(QuerySet, "get", flaky_team_get),
-            patch(f"{_UTIL_MODULE}.close_stale_db_connections"),
+            patch(f"{_UTIL_MODULE}.close_stale_db_connections") as mock_close,
             patch("time.sleep"),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
@@ -512,7 +511,9 @@ class TestEnrichTableSemanticsSync:
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
         mock_llm.assert_not_called()
-        assert attempts == 2
+        # The helper evicts the connection once per retry, so exactly one retry happened.
+        assert failures == 1
+        mock_close.assert_called_once()
         assert result == {"status": "done", "canonical_annotations": 1, "ai_annotations": 0}
 
     def test_skipped_when_ai_data_processing_not_approved(self):
