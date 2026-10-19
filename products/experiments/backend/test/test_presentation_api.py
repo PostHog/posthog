@@ -89,6 +89,17 @@ _REBALANCED = {
         },
     }
 }
+_WITH_A_SECOND_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]},
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     team_timezone="UTC",
@@ -760,6 +771,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED, ("bucketing_changed_mid_run", "key_changed")],
                 (timedelta(days=1), {"key": "health-findings-renamed"}),
             ),
+            (
+                "condition_added_after_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
+                (timedelta(days=1), _WITH_A_SECOND_CONDITION),
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -1089,9 +1107,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 history["checked"],
                 history["not_checked_reason"],
-                [change["counted"] for change in history["split_changes"]],
+                [change["counted"] for change in history["changes"]],
             ),
             expected,
+        )
+        self.assertEqual(
+            [(change["kind"], change["changed"], change["before"], change["after"]) for change in history["changes"]],
+            [("split", "Split", "control 50%, test 50%", "control 80%, test 20%")] if rebalance else [],
         )
 
     def _deny_event_property(self, name: str) -> None:

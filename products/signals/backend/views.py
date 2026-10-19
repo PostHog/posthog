@@ -151,6 +151,7 @@ from products.signals.backend.models import (
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.ranking.access import can_view_inbox_ranking
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
@@ -2021,9 +2022,13 @@ class SignalReportViewSet(
             ),
         )
 
+    @cached_property
+    def _can_view_inbox_ranking(self) -> bool:
+        return can_view_inbox_ranking(cast(User, self.request.user), self.team)
+
     def _prefetch_signal_report_ranking_score(self, queryset):
-        # Scores are internal model output, so only staff requests pay for the lookup.
-        if not self.request.user.is_staff:
+        # Only requests that may see the score pay for the lookup.
+        if not self._can_view_inbox_ranking:
             return queryset
         return queryset.prefetch_related(
             Prefetch(
@@ -2091,9 +2096,9 @@ class SignalReportViewSet(
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
                 continue
-            if name in self._RANKING_ORDERING_HEADS and not allow_ranking and not self.request.user.is_staff:
-                # The serializer hides ranking scores from non-staff users, and the order would leak them.
-                raise serializers.ValidationError({"ordering": f"Ordering by {name} is only available to staff."})
+            if name in self._RANKING_ORDERING_HEADS and not allow_ranking and not self._can_view_inbox_ranking:
+                # The serializer hides ranking scores from these users, and the order would leak them.
+                raise serializers.ValidationError({"ordering": f"Ordering by {name} is not available to you."})
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses
@@ -2161,6 +2166,8 @@ class SignalReportViewSet(
         return {
             **super().get_serializer_context(),
             "team": self.team,
+            # Called only when a report renders its `ranking` field, so other requests skip the flag check.
+            "can_view_inbox_ranking": lambda: self._can_view_inbox_ranking,
             "report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled},
             # For the serializer's refund_ineligibility_reason field — computed once per request,
             # not per report (the bounds are org-level).
@@ -2540,7 +2547,7 @@ class SignalReportViewSet(
                     "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
                     "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
-                    "last in either direction. They are staff only: other users get a 400."
+                    "last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),
             OpenApiParameter(

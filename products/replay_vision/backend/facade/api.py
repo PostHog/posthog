@@ -139,7 +139,15 @@ def fetch_page_session_observations(
             ),
         )
         .select_related("scanner")
-        .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
+        .only(
+            "id",
+            "session_id",
+            "scanner_result",
+            "created_at",
+            "session_started_at",
+            "scanner__name",
+            "scanner__scanner_type",
+        )
     )
     if prefer_summarizer:
         queryset = queryset.order_by(

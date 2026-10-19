@@ -12,6 +12,7 @@ from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -682,7 +683,7 @@ def send_reviewer_added_slack_notifications(
     # them must not suppress the ping itself.
     source_products: list[str] | None = None
     try:
-        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ClickHouseUser.SIGNALS).get(report_id)
         source_products = meta.source_products if meta else None
     except Exception:
         logger.exception(
