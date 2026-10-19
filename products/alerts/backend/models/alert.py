@@ -18,6 +18,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
     (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
@@ -198,6 +200,17 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         choices=INVESTIGATION_INCONCLUSIVE_ACTION_CHOICES,
         default="notify",
     )
+
+    # Which stack evaluates and delivers this alert. The platform's copy records the same owner,
+    # and only the cutover and rollback commands write the two. After a cutover the insight stack
+    # keeps evaluating the alert for a shadow window from `owner_changed_at`, and sends nothing.
+    owner = models.CharField(
+        max_length=16,
+        choices=PlatformAlertOwner.choices,
+        default=PlatformAlertOwner.SOURCE.value,
+        db_default=PlatformAlertOwner.SOURCE.value,
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_alertconfiguration"
