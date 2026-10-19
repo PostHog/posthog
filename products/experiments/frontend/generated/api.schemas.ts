@@ -3059,36 +3059,53 @@ export interface ExperimentHealthInputsFlagApi {
     release_conditions: ExperimentHealthInputsReleaseConditionApi[]
     /** The flag's variants and their split. */
     variants: ExperimentHealthInputsVariantApi[]
+    /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
+    split_text: string
 }
 
-export interface ExperimentHealthInputsSplitChangeApi {
-    /** When the flag's split changed. */
+/**
+ * * `split` - Split
+ * * `bucketing` - Bucketing
+ */
+export type ExperimentHealthFlagChangeKindEnumApi =
+    (typeof ExperimentHealthFlagChangeKindEnumApi)[keyof typeof ExperimentHealthFlagChangeKindEnumApi]
+
+export const ExperimentHealthFlagChangeKindEnumApi = {
+    Split: 'split',
+    Bucketing: 'bucketing',
+} as const
+
+export interface ExperimentHealthInputsFlagChangeApi {
+    /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
+     *
+     * * `split` - Split
+     * * `bucketing` - Bucketing */
+    kind: ExperimentHealthFlagChangeKindEnumApi
+    /** When the flag changed. */
     changed_at: string
-    /** The split before the change. */
-    before: ExperimentHealthInputsVariantApi[]
-    /** The split after the change. */
-    after: ExperimentHealthInputsVariantApi[]
+    /** What changed: 'Split', or the name of the setting, such as 'Key'. */
+    changed: string
+    /** The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset. */
+    before: string
+    /** The value after the change, in the same form. */
+    after: string
     /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
     counted: boolean
 }
 
-export interface ExperimentHealthInputsBucketingChangeApi {
-    /** When the setting changed. */
-    changed_at: string
-    /** The flag setting that decides the variant draw: 'key', 'aggregation' (the group type the flag matches by), 'bucketing_identifier' or 'experience_continuity' (persist the flag across authentication steps). */
-    setting: string
+export interface ExperimentHealthInputsExposedBetweenApi {
+    /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
+     *
+     * * `split` - Split
+     * * `bucketing` - Bucketing */
+    kind: ExperimentHealthFlagChangeKindEnumApi
+    /** What was asked, as the staff view names it. */
+    question: string
     /**
-     * The value before the change: the key, the group type index, 'distinct_id' or 'device_id', or 'true' or 'false'. Null for an aggregation by persons, or an unreadable key.
+     * Whether anyone was exposed between the first and the last counted change of this kind. Asked only when the last sets back what the first changed. Null when not asked or unknown.
      * @nullable
      */
-    before: string | null
-    /**
-     * The value after the change, in the same form.
-     * @nullable
-     */
-    after: string | null
-    /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
-    counted: boolean
+    exposed: boolean | null
 }
 
 export interface ExperimentHealthInputsFlagHistoryApi {
@@ -3103,25 +3120,15 @@ export interface ExperimentHealthInputsFlagHistoryApi {
     launched_at: string
     /** The project's time zone, which the findings use for times. */
     team_timezone: string
-    /** Every split change since launch. Empty for 'no_history_access', which does not read them. */
-    split_changes: ExperimentHealthInputsSplitChangeApi[]
-    /** Every change since launch of a setting that decides the variant draw, one per setting and save. Empty for 'no_history_access'. */
-    bucketing_changes: ExperimentHealthInputsBucketingChangeApi[]
+    /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. Empty for 'no_history_access', which does not read them. */
+    changes: ExperimentHealthInputsFlagChangeApi[]
     /**
      * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
      * @nullable
      */
     exposed_before_first: boolean | null
-    /**
-     * Whether anyone was exposed between the first and the last counted split change. Asked only when the last restores the split from before the first. Null when not asked or unknown.
-     * @nullable
-     */
-    split_exposed_between: boolean | null
-    /**
-     * Whether anyone was exposed between the first and the last counted bucketing change. Asked only when every setting was set back. Null when not asked or unknown.
-     * @nullable
-     */
-    bucketing_exposed_between: boolean | null
+    /** One entry for each kind of change with a counted change, in the order of the kinds. */
+    exposed_between: ExperimentHealthInputsExposedBetweenApi[]
 }
 
 /**
