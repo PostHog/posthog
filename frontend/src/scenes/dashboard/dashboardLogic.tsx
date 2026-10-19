@@ -176,6 +176,12 @@ function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSetti
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
 }
 
+// Metric variable definitions hold queries and option lists, which do not belong in analytics.
+function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
+    const { metricVariables, ...rest } = filters
+    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
+}
+
 function reportDashboardTileRefreshed(
     dashboardId: number,
     tile: DashboardTile,
@@ -195,7 +201,7 @@ function reportDashboardTileRefreshed(
         was_cached: tile.is_cached,
         last_refreshed: insight?.last_refresh?.toString(),
         refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
-        filters,
+        filters: filtersForAnalytics(filters),
         variables,
         refresh_duration_ms: refreshDurationMs,
         individual_refresh: individualRefresh,
@@ -4666,7 +4672,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : tilesRefreshedCount === totalTileCount && tilesErroredCount === 0 && tilesAbortedCount === 0
                 posthog.capture(`dashboard refreshed`, {
                     dashboard_id: dashboardId,
-                    filters: urlFilters,
+                    filters: filtersForAnalytics(urlFilters),
                     variables: urlVariables,
                     last_refreshed: lastDashboardRefresh?.toString(),
                     refreshAge: lastDashboardRefresh ? now().diff(lastDashboardRefresh, 'seconds') : undefined,
