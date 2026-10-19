@@ -17,6 +17,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
+from products.notebooks.backend.models import Notebook
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tool_policy import SANDBOX_HARNESS_OPERATIONS
 from products.tasks.backend.models import Task
@@ -58,6 +59,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             distinct_id="synthetic-user",
             status=Status.NEW,
         )
+        self.notebook = Notebook.objects.create(team=self.team, created_by=self.user)
 
     def _scout_client(self, *, allowlist: Any, bound: bool = True) -> Task:
         with patch(DISPATCH):
@@ -106,6 +108,8 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ("read_scoped_mutation", NOTES_ONLY, True, "patch", "complete_onboarding", status.HTTP_403_FORBIDDEN),
             ("unpicked_post_read", NOTES_ONLY, True, "post", "query", status.HTTP_403_FORBIDDEN),
             ("picked_post_read", ["insight-query"], True, "post", "query", status.HTTP_200_OK),
+            # The handler soft-deletes with PATCH, so the definition must name PATCH rather than DELETE.
+            ("picked_soft_delete", ["notebooks-destroy"], True, "patch", "notebook", status.HTTP_200_OK),
             ("mcp_store_tool_call", NOTES_ONLY, True, "post", "mcp_call_tool", status.HTTP_403_FORBIDDEN),
             ("mcp_store_tool_approval", NOTES_ONLY, True, "patch", "mcp_tool_approval", status.HTTP_403_FORBIDDEN),
             ("harness_write", [], True, "patch", "run_summary", status.HTTP_200_OK),
@@ -126,6 +130,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             "ticket_notes": (f"{base}/conversations/tickets/{self.ticket.id}/notes/", {"message": "Synthetic note"}),
             "ticket_reply": (f"{base}/conversations/tickets/{self.ticket.id}/reply/", {"message": "Synthetic reply"}),
             "notebooks": (f"{base}/notebooks/", {"title": "Synthetic notebook"}),
+            "notebook": (f"{base}/notebooks/{self.notebook.short_id}/", {"deleted": True}),
             "run_summary": (f"{base}/tasks/{task.id}/runs/{run.id}/set_summary/", {"summary": "Synthetic summary"}),
             "complete_onboarding": (f"{base}/complete_product_onboarding/", {"type": "product_analytics"}),
             "query": (f"{base}/query/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),

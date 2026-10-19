@@ -1087,6 +1087,15 @@ function renderHandler(config: ToolConfig, toolName: string, handlerFn: string):
     return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
 }
 
+function isSoftDeleteTool(config: ToolConfig): boolean {
+    return config.soft_delete !== undefined && config.soft_delete !== false
+}
+
+/** The HTTP method the handler sends. Soft-delete tools send PATCH to the DELETE operation's path. */
+function handlerHttpMethod(config: ToolConfig, resolved: ResolvedOperation): string {
+    return isSoftDeleteTool(config) ? 'PATCH' : resolved.method
+}
+
 // ------------------------------------------------------------------
 
 function generateToolCode(
@@ -1124,7 +1133,7 @@ function generateToolCode(
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
-    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const isSoftDelete = isSoftDeleteTool(config)
 
     // For soft-delete tools the original operation is DELETE (typically 204 no-content),
     // but the actual request is a PATCH to the same URL. Resolve the response type from
@@ -1230,7 +1239,7 @@ function generateToolCode(
         }
     }
 
-    const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
+    const httpMethod = handlerHttpMethod(config, resolved)
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
@@ -2179,7 +2188,7 @@ function generateDefinitionsJson(
             const redirectHint = toolConfig.redirect_hint
             // The endpoint the handler calls. The Django API reads it to refuse a write that a
             // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
-            const apiOperations = [`${resolved.method.toUpperCase()} ${resolved.path}`]
+            const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
