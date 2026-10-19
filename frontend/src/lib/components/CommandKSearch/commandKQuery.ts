@@ -331,9 +331,14 @@ export interface ResolvedQuery {
     filters: QueryChip[]
     /** The text that is not a filter token. */
     freeText: string
+    /** The words of `freeText` without their quotes, less the words the search excludes. */
+    includedWords: string[]
     /** The `search` string for the file system endpoint. */
     backendSearch: string
 }
+
+// The file system search removes the quotes first, and then excludes a word that starts with `-` or `!`.
+const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.startsWith('!')
 
 /**
  * Resolves the input once per change, so every consumer agrees on what applies. A typed value
@@ -344,10 +349,15 @@ export interface ResolvedQuery {
 export function resolveQuery(text: string, chips: QueryChip[], options: FilterOptions): ResolvedQuery {
     const filters = new Map<FilterKey, QueryChip>(chips.map((chip) => [chip.key, chip]))
     const freeTokens: string[] = []
+    const includedWords: string[] = []
     for (const token of tokenize(text)) {
         const parsed = parseToken(token.raw)
         if (!parsed.filter) {
             freeTokens.push(token.raw)
+            const word = unquote(token.raw)
+            if (word && !isExcludedWord(word)) {
+                includedWords.push(word)
+            }
             continue
         }
         const chip = resolveChip(parsed.filter, parsed.value, parsed.negated, options[parsed.filter.key])
@@ -359,19 +369,15 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
     return {
         filters: [...filters.values()],
         freeText: freeTokens.join(' '),
+        includedWords,
         backendSearch: [...filterTokens, ...freeTokens].join(' '),
     }
 }
 
-const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.startsWith('!')
-
 // List pages match one phrase, which cannot exclude, so excluded words and names stay out.
-export function listSearchText({ filters, freeText }: ResolvedQuery): string {
+export function listSearchText({ filters, includedWords }: ResolvedQuery): string {
     const names = filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
-    const words = tokenize(freeText)
-        .map((token) => unquote(token.raw))
-        .filter((word) => word && !isExcludedWord(word))
-    return [...names, ...words].join(' ')
+    return [...names, ...includedWords].join(' ')
 }
 
 /** The raw query as a person would type it, chips included. Used when copying the input. */

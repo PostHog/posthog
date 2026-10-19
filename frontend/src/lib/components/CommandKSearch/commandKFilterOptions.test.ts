@@ -1,5 +1,5 @@
 import { viewAllFor } from './commandKFilterOptions'
-import { QueryChip, ResolvedQuery } from './commandKQuery'
+import { FilterOptions, QueryChip, ResolvedQuery, resolveQuery } from './commandKQuery'
 
 const chip = (value: string, label: string, overrides: Partial<QueryChip> = {}): QueryChip => ({
     key: 'is',
@@ -9,7 +9,9 @@ const chip = (value: string, label: string, overrides: Partial<QueryChip> = {}):
     ...overrides,
 })
 
-const resolved = (filters: QueryChip[], freeText = ''): ResolvedQuery => ({ filters, freeText, backendSearch: '' })
+const NO_OPTIONS: FilterOptions = { is: [], createdBy: [], in: [], name: [] }
+
+const resolved = (filters: QueryChip[], freeText = ''): ResolvedQuery => resolveQuery(freeText, filters, NO_OPTIONS)
 
 const createdByMe = chip('me', 'Me', { key: 'createdBy' })
 
