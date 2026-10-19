@@ -7,9 +7,12 @@ from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
+import structlog
 from pydantic import ValidationError
 
-from posthog.schema import MetricsHistogramQuery, MetricsOtelType, MetricsQuery
+from posthog.schema import DateRange, MetricsHistogramQuery, MetricsOtelType, MetricsQuery
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
@@ -27,11 +30,18 @@ from products.dashboards.backend.facade.dashboard_creation import (
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.layout import MIN_INSIGHT_HEIGHT, MIN_INSIGHT_WIDTH
 from products.metrics.backend.dashboard_import.spec import GRID_COLUMNS, GridLayout
+from products.metrics.backend.hogql_queries.metrics_histogram_query_runner import MetricsHistogramQueryRunner
+from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.models import MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards.matching import query_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel
 
+logger = structlog.get_logger(__name__)
+
 MAX_TEXT_LENGTH = 4000
+MAX_PROBLEM_LENGTH = 200
+CHECK_DATE_FROM = "-24h"
+NO_DATA_PROBLEM = "The query returned no data in the last 24 hours."
 _OTEL_TYPES = frozenset(member.value for member in MetricsOtelType)
 
 
@@ -130,6 +140,52 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
     )
 
 
+def _run_problem(team: Team, query: dict[str, Any], *, need_data: bool) -> str | None:
+    """Run the query as its insight runs, over the last day. Returns what is wrong with it, or None."""
+    date_range = DateRange(date_from=CHECK_DATE_FROM)
+    try:
+        if query.get("kind") == "MetricsHistogramQuery":
+            histogram = MetricsHistogramQuery.model_validate({**query, "dateRange": date_range})
+            counts = MetricsHistogramQueryRunner(query=histogram, team=team).calculate().counts
+            has_data = any(count for row in counts for count in row)
+        else:
+            metrics = MetricsQuery.model_validate({**query, "dateRange": date_range})
+            series = MetricsQueryRunner(query=metrics, team=team).calculate().results
+            has_data = any(point.value is not None for item in series for point in item.points)
+    except (ExposedHogQLError, ValidationError) as error:
+        return str(error)[:MAX_PROBLEM_LENGTH]
+    except Exception as error:
+        # A dashboard shows this failure on the tile too, so the panel is broken for the team either way.
+        logger.warning("metrics_suggested_dashboards_panel_query_failed", team_id=team.id, error=str(error)[:500])
+        return "The query failed to run."
+    return None if has_data or not need_data else NO_DATA_PROBLEM
+
+
+def query_problems(
+    team: Team, panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, need_data: bool
+) -> dict[str, str]:
+    """Run the query of each panel that the team can fill. Returns the problem of each panel that fails, by key.
+
+    With `need_data`, a query that returns no data fails too.
+    """
+    problems: dict[str, str] = {}
+    for panel in panels:
+        if panel.query is None:
+            continue
+        try:
+            query = _with_team_metric_types(panel.query, catalog)
+        except ValidationError as error:
+            problems[panel.key] = str(error)[:MAX_PROBLEM_LENGTH]
+            continue
+        # The team does not send a metric of the panel, so its dashboard leaves the panel out.
+        if query is None:
+            continue
+        problem = _run_problem(team, query, need_data=need_data)
+        if problem is not None:
+            problems[panel.key] = problem
+    return problems
+
+
 def create_dashboard(
     *,
     team: Team,
@@ -160,6 +216,16 @@ def create_dashboard(
     return created, built
 
 
+def template_query(query: dict[str, Any]) -> dict[str, Any]:
+    """The query as a template keeps it: the team's own metric types fill in again when a team applies the template."""
+    kept = copy.deepcopy(query)
+    for clause in kept.get("clauses") or []:
+        clause.pop("metricType", None)
+    kept.pop("metricType", None)
+    kept.pop("dateRange", None)
+    return kept
+
+
 def panels_from_tiles(snapshots: Sequence[DashboardTileSnapshot]) -> list[TemplatePanel]:
     """Template panels from the tiles of a dashboard that a person or PostHog AI changed. Unknown tiles are left out."""
     panels: list[TemplatePanel] = []
@@ -175,18 +241,12 @@ def panels_from_tiles(snapshots: Sequence[DashboardTileSnapshot]) -> list[Templa
         if snapshot.query is not None:
             if snapshot.query.get("kind") not in ("MetricsQuery", "MetricsHistogramQuery"):
                 continue
-            query = copy.deepcopy(snapshot.query)
-            # The team's own metric types fill in again when a team applies the template.
-            for clause in query.get("clauses") or []:
-                clause.pop("metricType", None)
-            query.pop("metricType", None)
-            query.pop("dateRange", None)
             panels.append(
                 TemplatePanel(
                     key=f"p{index + 1}",
                     title=snapshot.name or "Untitled panel",
                     description=snapshot.description,
-                    query=query,
+                    query=template_query(snapshot.query),
                     layout=box,
                 )
             )

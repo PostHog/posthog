@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from django.db import transaction
@@ -15,8 +16,14 @@ from products.dashboards.backend.facade.dashboard_creation import delete_unliste
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.spec import GridLayout
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
-from products.metrics.backend.suggested_dashboards.dashboards import create_dashboard, drop_preview, panels_from_tiles
-from products.metrics.backend.suggested_dashboards.matching import template_metric_names
+from products.metrics.backend.suggested_dashboards.dashboards import (
+    create_dashboard,
+    drop_preview,
+    panels_from_tiles,
+    query_problems,
+    template_query,
+)
+from products.metrics.backend.suggested_dashboards.matching import query_metric_names, template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel, template_panels
 
 
@@ -114,8 +121,41 @@ def _restore_unbuilt(
     return [panel.model_copy(update={"key": f"p{index + 1}"}) for index, panel in enumerate([*edited, *missing])]
 
 
+def _query_key(panel: TemplatePanel) -> str:
+    return json.dumps(template_query(panel.query or {}), sort_keys=True)
+
+
+def _check_preview_changes(template: MetricsDashboardTemplate) -> None:
+    """Run the panels that the review changed or added on the preview. Raises when one of them fails.
+
+    The generation ran the other panels already. A panel without data in the reviewer's project is not a failure,
+    because the template is for the projects that send its metrics.
+    """
+    if not template.preview_team_id or not template.preview_dashboard_id:
+        return
+    original = {_query_key(panel) for panel in template_panels(template.panels) if panel.query}
+    changed = [
+        panel
+        for panel in panels_from_tiles(
+            read_dashboard_tiles(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
+        )
+        if panel.query and _query_key(panel) not in original
+    ]
+    if not changed:
+        return
+    team = Team.objects.get(id=template.preview_team_id)
+    catalog = MetricCatalog.load(team)
+    catalog.look_up(team, {name for panel in changed for name in query_metric_names(panel.query or {})})
+    problems = query_problems(team, changed, catalog, need_data=False)
+    if problems:
+        failed = "; ".join(f"{panel.title}: {problems[panel.key]}" for panel in changed if panel.key in problems)
+        raise TemplateNotReviewable(f"Fix or remove these panels on the preview, then approve again. {failed}")
+
+
 def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
     """Approve the template. Changes made on its preview dashboard, by hand or with PostHog AI, become the template."""
+    # Outside the lock: the queries can take a while.
+    _check_preview_changes(template)
     with transaction.atomic():
         locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
         if locked.source == MetricsDashboardTemplate.Source.CURATED:
