@@ -169,4 +169,41 @@ describe('batchTriggerLogic', () => {
             logic.unmount()
         })
     })
+
+    describe('blastRadius', () => {
+        it('drops a realtime cohort result when the next size check fails', async () => {
+            let fail = false
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': () =>
+                        fail
+                            ? [500, { detail: 'boom' }]
+                            : [
+                                  200,
+                                  {
+                                      affected: 3,
+                                      total: 5,
+                                      limit: 1000,
+                                      dedupe_key: null,
+                                      confirm_token: 'token',
+                                      realtime_cohort: { id: 2, name: 'c', state: 'ready', percent_complete: null },
+                                  },
+                              ],
+                },
+            })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'test-stale',
+                filters: { properties: [{ key: 'id', type: 'cohort', value: 2, operator: 'in' }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess'])
+            expect(logic.values.blastRadius?.realtime_cohort?.id).toBe(2)
+
+            fail = true
+            logic.actions.loadBlastRadius()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusFailure']).toMatchValues({ blastRadius: null })
+            logic.unmount()
+        })
+    })
 })

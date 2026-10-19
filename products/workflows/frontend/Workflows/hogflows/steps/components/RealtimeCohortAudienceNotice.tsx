@@ -14,7 +14,12 @@ export function RealtimeCohortAudienceNotice({ blastRadius }: RealtimeCohortAudi
         return (
             <LemonBanner type="info">
                 Realtime cohorts can't be combined with other conditions. To narrow this audience,{' '}
-                <Link to={urls.cohort('new')} data-attr="workflows-realtime-cohort-create-cohort">
+                <Link
+                    to={urls.cohort('new')}
+                    // A new tab keeps an unsaved broadcast or workflow open.
+                    target="_blank"
+                    data-attr="workflows-realtime-cohort-create-cohort"
+                >
                     create a cohort
                 </Link>{' '}
                 with the extra conditions.
