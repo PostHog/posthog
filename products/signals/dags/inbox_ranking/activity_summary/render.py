@@ -29,6 +29,8 @@ RECENCY_HALF_LIFE_DAYS = 7
 REPEATED_INTENT_DAILY_LIMIT = 5
 # p90 of a first prompt is far below this, so the cap only trims pasted logs and documents.
 MAX_PROMPT_CHARS = 500
+# Generated intents are a sentence or two. The cap bounds the regex work on a client-supplied value.
+MAX_INTENT_CHARS = 1000
 CHARS_PER_TOKEN = 4
 
 CHAIN_SEPARATOR = " --> "
@@ -59,8 +61,12 @@ PLUMBING_TOOL_NAMES: frozenset[str] = frozenset(
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL_QUERY = re.compile(r"(https?://[^\s?#]+)[?#]\S*")
-# Long runs of letters and digits mixed together: API keys, session tokens, hashes, UUIDs.
-_TOKEN = re.compile(r"\b(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{24,}\b")
+# Long runs of word characters: a run that mixes letters and digits is an API key, session token,
+# hash or UUID. The digit and letter checks run in `_mask_token`, because lookaheads in the pattern
+# rescan the run at every word boundary inside it and take quadratic time on a long input.
+_WORD_RUN = re.compile(r"[\w-]{24,}")
+_DIGIT = re.compile(r"\d")
+_LETTER = re.compile(r"[A-Za-z]")
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -99,11 +105,20 @@ class RenderedInput:
     input_tokens_estimate: int
 
 
-def clean_text(text: str) -> str:
-    """Strip emails, URL query strings and token-like strings, and fold the text onto one line."""
+def _mask_token(match: re.Match[str]) -> str:
+    run = match.group()
+    return "<token>" if _DIGIT.search(run) and _LETTER.search(run) else run
+
+
+def clean_text(text: str, max_chars: int) -> str:
+    """Strip emails, URL query strings and token-like strings, and fold the text onto one line.
+
+    The text is cut to `max_chars` before any pattern runs, because event properties are
+    client-supplied and have no length limit."""
+    text = text[:max_chars]
     text = _EMAIL.sub("<email>", text)
     text = _URL_QUERY.sub(r"\1", text)
-    text = _TOKEN.sub("<token>", text)
+    text = _WORD_RUN.sub(_mask_token, text)
     return _WHITESPACE.sub(" ", text).strip()
 
 
@@ -133,7 +148,7 @@ def mcp_chain(session: McpSession, jobs: frozenset[tuple[datetime.date, str]]) -
     """The session as one filtered intent chain, or None when too little of it is left."""
     calls = sorted(session.calls, key=lambda call: call.at)
     intents = [
-        clean_text(call.intent)
+        clean_text(call.intent, MAX_INTENT_CHARS)
         for call in calls
         if call.tool not in PLUMBING_TOOL_NAMES
         and (call.at.astimezone(datetime.UTC).date(), call.intent.strip()) not in jobs
@@ -145,7 +160,7 @@ def mcp_chain(session: McpSession, jobs: frozenset[tuple[datetime.date, str]]) -
 
 
 def prompt_unit(prompt: AiPrompt) -> Unit | None:
-    text = clean_text(prompt.prompt)[:MAX_PROMPT_CHARS].strip()
+    text = clean_text(prompt.prompt, MAX_PROMPT_CHARS)
     return Unit(at=prompt.at, text=text) if text else None
 
 
@@ -250,9 +265,7 @@ def estimated_input_chars(activity: PairActivity) -> int:
     return round(chars)
 
 
-def calibration_ratio(
-    actual_chars: Mapping[tuple[int, str], int], estimated_chars: Mapping[tuple[int, str], int]
-) -> float:
+def calibration_ratio[K](actual_chars: Mapping[K, int], estimated_chars: Mapping[K, int]) -> float:
     """How far the SQL estimate is from the real rendered length, over the pairs both sides have.
 
     1.0 when no pair matches, so a missing inputs partition leaves the estimate as it is."""

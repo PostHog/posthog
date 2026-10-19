@@ -109,10 +109,12 @@ def test_repeated_intent_on_one_day_is_treated_as_a_job() -> None:
             "Why did weekly signups drop in October?",
             "Why did weekly signups drop in October?",
         ),
+        ("long run without a digit is kept", "a-" * 20, ("a-" * 20).strip()),
+        ("text is cut to the cap", "x" * 100, "x" * 60),
     ]
 )
 def test_clean_text(_name: str, text: str, expected: str) -> None:
-    assert clean_text(text) == expected
+    assert clean_text(text, 60) == expected
 
 
 def test_sampling_is_deterministic_and_favors_recent_units() -> None:
@@ -190,8 +192,12 @@ def test_calibration_ratio_ignores_unmatched_pairs() -> None:
 def test_asset_rows_match_their_schemas_and_skip_projects_outside_the_organization() -> None:
     window = dag.activity_window("2026-10-18")
     sessions = {
-        ("member", "own-project"): [_session("Build a signup funnel", "Add it to a dashboard")],
-        ("member", "customer-project"): [_session("Debug a customer's flag", "Read its rollout")],
+        dag.PairKey(project="own-project", distinct_id="member"): [
+            _session("Build a signup funnel", "Add it to a dashboard")
+        ],
+        dag.PairKey(project="customer-project", distinct_id="member"): [
+            _session("Debug a customer's flag", "Read its rollout")
+        ],
     }
 
     rows = dag.input_rows(

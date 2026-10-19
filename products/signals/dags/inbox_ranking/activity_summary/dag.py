@@ -155,28 +155,37 @@ def organization_projects(organization_id: Any) -> dict[str, int]:
     }
 
 
-def mcp_sessions_by_pair(rows: list[tuple[Any, ...]]) -> dict[tuple[str, str], list[McpSession]]:
-    sessions: dict[tuple[str, str], list[McpSession]] = defaultdict(list)
+@frozen(order=True)
+class PairKey:
+    """A (project, person) pair as the events name it: the team uuid and the distinct id."""
+
+    project: str
+    distinct_id: str
+
+
+def mcp_sessions_by_pair(rows: list[tuple[Any, ...]]) -> dict[PairKey, list[McpSession]]:
+    sessions: dict[PairKey, list[McpSession]] = defaultdict(list)
     for distinct_id, project, _session_key, timestamps, tools, intents in rows:
         calls = tuple(
             McpCall(at=ensure_utc(at) or at, tool=str(tool), intent=str(intent))
             for at, tool, intent in zip(timestamps, tools, intents, strict=True)
         )
-        sessions[(str(distinct_id), str(project))].append(McpSession(calls=calls))
+        sessions[PairKey(project=str(project), distinct_id=str(distinct_id))].append(McpSession(calls=calls))
     return sessions
 
 
-def ai_prompts_by_pair(rows: list[tuple[Any, ...]]) -> dict[tuple[str, str], list[AiPrompt]]:
-    prompts: dict[tuple[str, str], list[AiPrompt]] = defaultdict(list)
+def ai_prompts_by_pair(rows: list[tuple[Any, ...]]) -> dict[PairKey, list[AiPrompt]]:
+    prompts: dict[PairKey, list[AiPrompt]] = defaultdict(list)
     for distinct_id, project, at, prompt in rows:
-        prompts[(str(distinct_id), str(project))].append(AiPrompt(at=ensure_utc(at) or at, prompt=str(prompt)))
+        key = PairKey(project=str(project), distinct_id=str(distinct_id))
+        prompts[key].append(AiPrompt(at=ensure_utc(at) or at, prompt=str(prompt)))
     return prompts
 
 
 def input_rows(
     *,
-    sessions: dict[tuple[str, str], list[McpSession]],
-    prompts: dict[tuple[str, str], list[AiPrompt]],
+    sessions: dict[PairKey, list[McpSession]],
+    prompts: dict[PairKey, list[AiPrompt]],
     users: dict[str, int],
     projects: dict[str, int],
     window: Window,
@@ -184,20 +193,20 @@ def input_rows(
 ) -> list[dict[str, Any]]:
     """One row per (project, member) with anything left after the filters."""
     sessions_by_person: dict[str, list[McpSession]] = defaultdict(list)
-    for (distinct_id, _), person_sessions in sessions.items():
-        sessions_by_person[distinct_id].extend(person_sessions)
+    for pair, person_sessions in sessions.items():
+        sessions_by_person[pair.distinct_id].extend(person_sessions)
     jobs = {distinct_id: job_intents(person_sessions) for distinct_id, person_sessions in sessions_by_person.items()}
 
     rows: list[dict[str, Any]] = []
-    for distinct_id, project in sorted(set(sessions) | set(prompts)):
-        user_id = users.get(distinct_id)
-        team_id = projects.get(project)
+    for pair in sorted(sessions.keys() | prompts.keys()):
+        user_id = users.get(pair.distinct_id)
+        team_id = projects.get(pair.project)
         if user_id is None or team_id is None:
             continue
         rendered = build_input(
-            sessions.get((distinct_id, project), []),
-            prompts.get((distinct_id, project), []),
-            jobs=jobs.get(distinct_id, frozenset()),
+            sessions.get(pair, []),
+            prompts.get(pair, []),
+            jobs=jobs.get(pair.distinct_id, frozenset()),
             as_of=window.end,
             seed=sampling_seed(partition_key, team_id, user_id),
         )
@@ -267,12 +276,16 @@ def activity_summary_inputs(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-def pair_activities(
-    mcp_rows: list[tuple[Any, ...]], ai_rows: list[tuple[Any, ...]]
-) -> dict[tuple[str, str], PairActivity]:
-    """Join the two projection queries on (project, distinct_id). The key never leaves the run."""
-    mcp = {(str(project), str(distinct_id)): (int(n), float(chars or 0)) for distinct_id, project, n, chars in mcp_rows}
-    ai = {(str(project), str(distinct_id)): (int(n), float(chars or 0)) for distinct_id, project, n, chars in ai_rows}
+def pair_activities(mcp_rows: list[tuple[Any, ...]], ai_rows: list[tuple[Any, ...]]) -> dict[PairKey, PairActivity]:
+    """Join the two projection queries on the pair. The key never leaves the run."""
+    mcp = {
+        PairKey(project=str(project), distinct_id=str(distinct_id)): (int(n), float(chars or 0))
+        for distinct_id, project, n, chars in mcp_rows
+    }
+    ai = {
+        PairKey(project=str(project), distinct_id=str(distinct_id)): (int(n), float(chars or 0))
+        for distinct_id, project, n, chars in ai_rows
+    }
     return {
         key: PairActivity(
             mcp_sessions=mcp.get(key, (0, 0.0))[0],
@@ -285,7 +298,7 @@ def pair_activities(
 
 
 def cohort_calibration(
-    activities: dict[tuple[str, str], PairActivity], inputs: pa.Table | None, projects: dict[str, int]
+    activities: dict[PairKey, PairActivity], inputs: pa.Table | None, projects: dict[str, int]
 ) -> float:
     """The rendered-to-estimated length ratio over the cohort pairs both assets cover."""
     if inputs is None or inputs.num_rows == 0:
@@ -297,15 +310,18 @@ def cohort_calibration(
         .values_list("id", "distinct_id")
     }
     team_uuids = {team_id: team_uuid for team_uuid, team_id in projects.items()}
-    actual: dict[tuple[int, str], int] = {}
-    estimated: dict[tuple[int, str], int] = {}
+    actual: dict[PairKey, int] = {}
+    estimated: dict[PairKey, int] = {}
     for row in inputs.select(["team_id", "user_id", "input_chars"]).to_pylist():
         distinct_id = distinct_ids.get(row["user_id"])
         team_uuid = team_uuids.get(row["team_id"])
-        if distinct_id is None or team_uuid is None or (team_uuid, distinct_id) not in activities:
+        if distinct_id is None or team_uuid is None:
             continue
-        actual[(row["team_id"], distinct_id)] = row["input_chars"]
-        estimated[(row["team_id"], distinct_id)] = estimated_input_chars(activities[(team_uuid, distinct_id)])
+        pair = PairKey(project=team_uuid, distinct_id=distinct_id)
+        if pair not in activities:
+            continue
+        actual[pair] = row["input_chars"]
+        estimated[pair] = estimated_input_chars(activities[pair])
     return calibration_ratio(actual, estimated)
 
 
