@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 import { Button, PopoverTrigger, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
@@ -41,6 +41,10 @@ export function TodayContextPanelLauncher(): JSX.Element {
     // Set when a press turned into a drag, so the click that ends it doesn't also open the panel.
     const draggedRef = useRef(false)
     const [drag, setDrag] = useState<LauncherDrag | null>(null)
+    // Ends an active drag. A release outside the window never reaches the listeners, so blur and unmount call this.
+    const stopDragRef = useRef<(() => void) | null>(null)
+
+    useEffect(() => () => stopDragRef.current?.(), [])
 
     const startDrag = (event: React.PointerEvent<HTMLSpanElement>): void => {
         draggedRef.current = false
@@ -62,21 +66,33 @@ export function TodayContextPanelLauncher(): JSX.Element {
             draggedRef.current = true
             setDrag({ dx, dy, nearest: nearest(moveEvent.clientX) })
         }
-        const end = (endEvent: PointerEvent): void => {
+        const stop = (): void => {
             window.removeEventListener('pointermove', move)
             window.removeEventListener('pointerup', end)
             window.removeEventListener('pointercancel', end)
+            window.removeEventListener('blur', cancel)
+            stopDragRef.current = null
+            setDrag(null)
+        }
+        const end = (endEvent: PointerEvent): void => {
             const align = nearest(endEvent.clientX)
             if (draggedRef.current && endEvent.type === 'pointerup' && align !== launcherAlign) {
                 setLauncherAlign(align)
             }
-            setDrag(null)
+            stop()
+        }
+        // A cancelled drag leaves the button where it was, and no click follows to swallow.
+        const cancel = (): void => {
+            draggedRef.current = false
+            stop()
         }
 
         // Window listeners, not pointer capture: capture would retarget the closing click away from the button.
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', end)
         window.addEventListener('pointercancel', end)
+        window.addEventListener('blur', cancel)
+        stopDragRef.current = cancel
     }
 
     return (

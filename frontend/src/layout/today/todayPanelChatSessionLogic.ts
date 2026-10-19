@@ -5,7 +5,7 @@ import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { TodayPanelChatTask, runnerCreationFor } from './todayPanelChat'
-import { readSessionValue, writeSessionValue } from './todaySessionStorage'
+import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 
 const CHAT_SESSION_KEY = 'today-context-panel-chat'
 
@@ -44,11 +44,11 @@ export const todayPanelChatSessionLogic = kea<todayPanelChatSessionLogicType>([
         actions: [runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }), ['setActiveCreation', 'clearActiveCreation']],
     })),
     listeners(({ values }) => ({
-        setActiveCreation: () => writeSessionValue(CHAT_SESSION_KEY, chatOf(values.activeCreation)),
-        clearActiveCreation: () => writeSessionValue(CHAT_SESSION_KEY, null),
+        setActiveCreation: () => writeSessionValue(projectSessionKey(CHAT_SESSION_KEY), chatOf(values.activeCreation)),
+        clearActiveCreation: () => writeSessionValue(projectSessionKey(CHAT_SESSION_KEY), null),
     })),
     afterMount(({ actions }) => {
-        const saved = readSessionValue<TodayPanelChatTask>(CHAT_SESSION_KEY)
+        const saved = readSessionValue<TodayPanelChatTask>(projectSessionKey(CHAT_SESSION_KEY))
         if (saved) {
             actions.setActiveCreation(runnerCreationFor(saved))
         }

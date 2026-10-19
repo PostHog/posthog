@@ -31,7 +31,7 @@ export function TodayContextPanelMenu({ docked }: { docked: boolean }): JSX.Elem
     const { carryContextToFullScreen } = useActions(todayAiChatLogic)
     const onAi = activeTab === SidePanelTab.Max
     const fullScreenUrl = onAi ? aiFullScreenUrl : tabFullScreenUrl
-    const chatTaskId = onAi && onTaskRunner ? activeCreation?.taskId : undefined
+    const chatTask = onAi && onTaskRunner ? activeCreation : null
     const canMove = !!fullScreenUrl || !docked || canUndock
 
     // A docked canvas tab has nowhere to go and no settings, so it gets no menu.
@@ -95,8 +95,8 @@ export function TodayContextPanelMenu({ docked }: { docked: boolean }): JSX.Elem
                 <TooltipContent side="bottom">More options</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="min-w-56 max-w-80">
-                {chatTaskId ? (
-                    <TodayPanelTaskMenuItems taskId={chatTaskId} placement={placement} />
+                {chatTask?.taskId && chatTask.runId ? (
+                    <TodayPanelTaskMenuItems taskId={chatTask.taskId} runId={chatTask.runId} placement={placement} />
                 ) : (
                     <>
                         {placement}

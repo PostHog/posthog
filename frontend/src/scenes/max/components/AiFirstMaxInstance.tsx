@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
 import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
 import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
@@ -142,6 +143,7 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
     const skin = useThreadSkin()
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
 
     if (aiSceneView({ taskId, chatId, effectivePhaiView }) === 'runner') {
         return (
@@ -150,8 +152,17 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
                     <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
                         {skin === 'quill' ? (
                             <PhaiQuillOverflowMenu>
-                                <TodayPanelMoveMenuItems parts={DROPDOWN_PARTS} chat={null} dataAttrPrefix="ai" />
-                                <DropdownMenuSeparator />
+                                {/* Only desktop Today has the floating and docked panel to move the chat into. */}
+                                {todayRailEnabled && !phoneLayout && (
+                                    <>
+                                        <TodayPanelMoveMenuItems
+                                            parts={DROPDOWN_PARTS}
+                                            chat={null}
+                                            dataAttrPrefix="ai"
+                                        />
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
                                 <DebugLogsMenuItem parts={DROPDOWN_PARTS} />
                                 <PhaiViewSwitchMenuItem />
                             </PhaiQuillOverflowMenu>

@@ -65,6 +65,9 @@ export interface todayAiChatLogicActions {
         items: AttachedContextItem[]
         providerId: string
     } // attachedContextLogic
+    setPhaiViewMode: (mode: PhaiViewMode) => {
+        mode: PhaiViewMode
+    } // maxGlobalLogic
     openConversation: (conversationId: string) => {
         conversationId: string
     } // maxLogic
@@ -200,6 +203,8 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             ['selectedTabOptions'],
         ],
         actions: [
+            maxGlobalLogic,
+            ['setPhaiViewMode'],
             sidePanelStateLogic,
             ['setSidePanelOptions', 'openSidePanel'],
             todayContextPanelLogic,
@@ -313,6 +318,10 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             // A report or scout panel attaches its own entity's context, so it must not stay on another chat.
             actions.setSidePanelOptions(null)
             if (chat) {
+                // A task only renders in the new view's runner, so a saved legacy view would show another chat.
+                if (values.effectivePhaiView !== 'new') {
+                    actions.setPhaiViewMode('new')
+                }
                 actions.setActiveCreation(runnerCreationFor(chat))
             } else {
                 actions.clearActiveCreation()

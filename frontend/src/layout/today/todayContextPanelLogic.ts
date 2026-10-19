@@ -12,7 +12,7 @@ import { SidePanelTab } from '~/types'
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 import { ConversationTicket, SidePanelViewState } from 'products/conversations/frontend/types'
 
-import { readSessionValue, writeSessionValue } from './todaySessionStorage'
+import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
 
 export interface TodayContextPanelOffset {
@@ -207,7 +207,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
     }),
     // A reload opens the card where it was, as state rather than an action, so it doesn't count as the user opening it.
     defaults(() => {
-        const saved = readSessionValue<TodayFloatingSession>(FLOATING_SESSION_KEY)
+        const saved = readSessionValue<TodayFloatingSession>(projectSessionKey(FLOATING_SESSION_KEY))
         return saved ? { floatingOpen: true, floatingTab: saved.tab, floatingOffset: saved.offset } : {}
     }),
     reducers({
@@ -350,7 +350,8 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
     }),
     subscriptions({
-        floatingSession: (session: TodayFloatingSession | null) => writeSessionValue(FLOATING_SESSION_KEY, session),
+        floatingSession: (session: TodayFloatingSession | null) =>
+            writeSessionValue(projectSessionKey(FLOATING_SESSION_KEY), session),
     }),
     listeners(({ actions, values }) => ({
         setLauncherAlign: ({ align }) => {
