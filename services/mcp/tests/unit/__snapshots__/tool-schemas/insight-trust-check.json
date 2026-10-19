@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "string"
+                }
+            ],
+            "description": "Numeric id or 8-character `short_id` of a saved insight. Pass this or `query`, not both."
+        },
+        "query": {
+            "additionalProperties": {},
+            "description": "An insight query that is not saved yet, in the shape `insight-create` takes, for example `{ \"kind\": \"InsightVizNode\", \"source\": { \"kind\": \"TrendsQuery\", \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }], \"dateRange\": { \"date_from\": \"-30d\" } } }`. Pass this or `id`, not both.",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        }
+    },
+    "type": "object"
+}
