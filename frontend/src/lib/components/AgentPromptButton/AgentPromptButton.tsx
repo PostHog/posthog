@@ -86,6 +86,8 @@ export interface AgentPromptButtonProps {
     variant?: NonNullable<QuillButtonProps['variant']>
     /** `lemon` renders a LemonButton with a side menu, to sit beside other Lemon buttons. `size` and `variant` apply to `quill` only. */
     appearance?: 'quill' | 'lemon'
+    /** LemonButton type for the `lemon` appearance. */
+    lemonType?: 'primary' | 'secondary'
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
     defaultOpen?: boolean
     /** Fired whenever a combo runs (agent deeplink opened or clipboard copied). Useful for analytics. */
@@ -298,6 +300,7 @@ export function AgentPromptButton({
     size = 'default',
     variant = 'default',
     appearance = 'quill',
+    lemonType = 'secondary',
     defaultOpen = false,
     onRun,
     repository,
@@ -369,7 +372,7 @@ export function AgentPromptButton({
                 onKeyDown={(e) => e.currentTarget.contains(e.target as Node) && lemonKeyboard.onTriggerKeyDown(e)}
             >
                 <LemonButton
-                    type="secondary"
+                    type={lemonType}
                     size="small"
                     icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
                     onClick={handleMainClick}

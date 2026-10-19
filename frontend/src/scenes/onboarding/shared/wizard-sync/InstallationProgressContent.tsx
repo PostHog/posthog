@@ -214,7 +214,8 @@ export function InstallationProgressContent({
                             pinnedAgentKey="clipboard"
                             // PostHog AI cannot edit the user's codebase, so it cannot finish an SDK install.
                             excludeAgentKeys={['posthog-ai']}
-                            variant="primary"
+                            appearance="lemon"
+                            lemonType="primary"
                             onRun={({ agentKey }) => onAgentPromptRun?.(agentKey)}
                             data-attr="wizard-usage-limit-agent-prompt"
                         />
@@ -227,6 +228,8 @@ export function InstallationProgressContent({
                     )}
                     <LemonButton
                         type={usageLimited || onRetryLocally ? 'secondary' : 'primary'}
+                        // The Lemon agent button only comes in small.
+                        size={usageLimited ? 'small' : undefined}
                         to={docsUrl}
                         targetBlank
                     >
