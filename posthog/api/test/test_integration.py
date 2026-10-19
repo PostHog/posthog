@@ -7141,8 +7141,9 @@ class TestIntegrationDeletionWorkflowGuard:
         client.force_login(self.user)
         return client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
 
-    def test_destroy_blocked_when_active_workflow_references_integration(self, client: HttpClient):
-        self._create_flow()
+    @pytest.mark.parametrize("flow_status", ["active", "waiting_for_domain"])
+    def test_destroy_blocked_when_enabled_workflow_references_integration(self, flow_status: str, client: HttpClient):
+        self._create_flow(status=flow_status)
 
         response = self._delete(client)
 

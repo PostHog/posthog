@@ -3084,7 +3084,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status")
         if status is None and instance:
             status = instance.status
-        if status != "active":
+        # A waiting workflow goes live without another validation, so each edit to it validates like an activation.
+        if status not in (HogFlowState.ACTIVE, HogFlowState.WAITING_FOR_DOMAIN):
             self.context["is_draft"] = True
         elif (
             instance is not None

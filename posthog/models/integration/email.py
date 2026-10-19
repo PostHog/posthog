@@ -156,12 +156,14 @@ class EmailIntegration:
         with transaction.atomic():
             verified_ids = list(self._matching_senders().select_for_update().values_list("id", flat=True))
             model.Integration.objects.filter(id__in=verified_ids).update(config=_with_config_key("verified", True))
-            if self.integration.id in verified_ids:
-                from products.workflows.backend.facade.api import (
-                    set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-                )
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                enable_waiting_workflows,
+                set_default_email_sender_if_unset,
+            )
 
+            if self.integration.id in verified_ids:
                 set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
+            enable_waiting_workflows(team_id=self.integration.team_id, sender_ids=verified_ids)
         return verified_ids
 
     def _matching_senders(self) -> "models.QuerySet[model.Integration]":

@@ -6190,6 +6190,56 @@ class TestHogFlowSendOnceVerified(APIBaseTest):
         assert cancelled["workflow_id"] == flow_id
         assert cancelled["seconds_waiting"] == 90
 
+    def _waiting_flow(self) -> str:
+        flow_id = self._create_draft(self._sender(verified=False))
+        with self._flag(True):
+            assert self._set_status(flow_id, "active").json()["status"] == "waiting_for_domain"
+        self.mock_report.reset_mock()
+        return flow_id
+
+    @parameterized.expand([("switched_to_a_verified_sender", True), ("kept_an_unverified_sender", False)])
+    def test_editing_a_waiting_workflow_saves_in_place_and_goes_live_once_its_senders_are_verified(
+        self, _name, verified
+    ):
+        flow_id = self._waiting_flow()
+        edited = self._email_flow(self._sender(verified=verified))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": edited["actions"], "stage_draft": True},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["draft"] is None
+        assert (
+            body["actions"][1]["config"]["inputs"]["email"]["value"]["from"]
+            == edited["actions"][1]["config"]["inputs"]["email"]["value"]["from"]
+        )
+        events = self._events()
+        if verified:
+            assert body["status"] == "active"
+            assert body["went_live_at"] is not None
+            assert list(events) == ["hog_flow_activated"]
+            assert events["hog_flow_activated"]["activated_by"] == "user"
+        else:
+            assert body["status"] == "waiting_for_domain"
+            assert body["went_live_at"] is None
+            assert events == {}
+
+    def test_an_edit_that_would_fail_activation_is_refused_on_a_waiting_workflow(self):
+        flow_id = self._waiting_flow()
+        edited = self._email_flow(self._sender(verified=True))
+        edited["actions"][1]["config"]["inputs"] = {}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": edited["actions"]}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert HogFlow.objects.get(pk=flow_id).status == "waiting_for_domain"
+
 
 class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):

@@ -1,22 +1,30 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
 import dns.resolver
 from botocore.exceptions import ClientError, EndpointConnectionError
 from parameterized import param, parameterized
+from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
-from posthog.models.integration import Integration
+from posthog.models.integration import EmailIntegration, Integration
 from posthog.redis import get_client
 
 from products.workflows.backend.facade.tasks import refresh_new_email_senders, refresh_settled_email_senders
+from products.workflows.backend.facade.writes import disable
+from products.workflows.backend.models import HogFlow
 from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
+from products.workflows.backend.tasks.waiting_workflows import enable_waiting_workflows_task
 
 
 class TestEmailSenderVerification(APIBaseTest):
@@ -344,3 +352,129 @@ class TestEmailSenderVerification(APIBaseTest):
 
             refresh_new_email_senders()
             assert self._verified(*senders, arrival) == [True, True, True]
+
+
+class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        capture_patcher = patch("products.workflows.backend.tasks.waiting_workflows.ph_scoped_capture")
+        self.mock_scoped_capture = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
+        self.captured = self.mock_scoped_capture.return_value.__enter__.return_value
+
+    def _sender(self, domain: str, *, verified: bool = False) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=f"hello@{domain}",
+            config={"email": f"hello@{domain}", "domain": domain, "provider": "maildev", "verified": verified},
+        )
+
+    def _waiting_flow(self, *senders: Integration) -> str:
+        email_steps = [
+            {
+                "id": f"email_{sender.id}",
+                "name": "Email",
+                "type": "function_email",
+                "config": {"inputs": {"email": {"value": {"from": {"integrationId": sender.id}}}}},
+            }
+            for sender in senders
+        ]
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Welcome",
+            status="waiting_for_domain",
+            actions=[
+                {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "event"}},
+                *email_steps,
+            ],
+            enable_requested_at=timezone.now(),
+            enable_requested_by=self.user,
+        )
+        return str(flow.id)
+
+    def _workflow(self, flow_id: str) -> dict:
+        return self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+
+    def _verify(self, sender: Integration) -> list[Callable[[], None]]:
+        with self.captureOnCommitCallbacks() as callbacks:
+            EmailIntegration(sender).apply_verification({"status": "success", "dnsRecords": []})
+        return callbacks
+
+    def _captured_events(self) -> list[tuple[str, str, dict]]:
+        return [
+            (call.kwargs["event"], call.kwargs["distinct_id"], call.kwargs["properties"])
+            for call in self.captured.call_args_list
+        ]
+
+    @parameterized.expand(
+        [
+            param("only_sender_flag_on", flag_on=True, expected_status="active"),
+            param("only_sender_flag_off", flag_on=False, expected_status="active"),
+            param("second_sender_unverified", second_sender=True, expected_status="waiting_for_domain"),
+            param("turned_off_before_the_task", turned_off=True, expected_status="draft"),
+        ]
+    )
+    def test_verifying_a_sender_takes_its_waiting_workflows_live(
+        self,
+        _name: str,
+        expected_status: str,
+        flag_on: bool = True,
+        second_sender: bool = False,
+        turned_off: bool = False,
+    ) -> None:
+        sender = self._sender("example.com")
+        other_senders = [self._sender("other.example.com")] if second_sender else []
+        enabled_at = timezone.now()
+        with time_machine.travel(enabled_at, tick=False):
+            flow_id = self._waiting_flow(sender, *other_senders)
+        if turned_off:
+            disable(team_id=self.team.id, hog_flow_id=UUID(flow_id))
+
+        with (
+            time_machine.travel(enabled_at + timedelta(minutes=10), tick=False),
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: flag_on and key == "workflows-email-domain-wizard",
+            ),
+        ):
+            callbacks = self._verify(sender)
+            for _ in range(2):
+                for callback in callbacks:
+                    callback()
+
+        workflow = self._workflow(flow_id)
+        assert workflow["status"] == expected_status
+        events = self._captured_events()
+        if expected_status != "active":
+            assert workflow["went_live_at"] is None
+            assert events == []
+            return
+        assert datetime.fromisoformat(workflow["went_live_at"]) == enabled_at + timedelta(minutes=10)
+        assert len(events) == 1
+        name, distinct_id, properties = events[0]
+        assert name == "hog_flow_activated"
+        assert distinct_id == self.user.distinct_id
+        assert properties["workflow_id"] == flow_id
+        assert properties["activated_by"] == "domain_verified"
+        assert properties["seconds_waiting"] == 600
+        assert datetime.fromisoformat(properties["enable_requested_at"]) == enabled_at
+        assert "source" not in properties
+
+    def test_task_logs_and_counts_a_go_live_that_fails_after_its_last_retry(self) -> None:
+        sender = self._sender("example.com", verified=True)
+        flow_id = self._waiting_flow(sender)
+        failures_before = REGISTRY.get_sample_value("workflows_enable_waiting_failed_total") or 0
+
+        with (
+            patch(
+                "products.workflows.backend.services.hog_flow_writes.enable_waiting",
+                side_effect=OperationalError("connection lost"),
+            ),
+            capture_logs() as logs,
+        ):
+            enable_waiting_workflows_task.apply(kwargs={"team_id": self.team.id, "sender_ids": [sender.id]}, retries=5)
+
+        assert [log["event"] for log in logs if log["log_level"] == "error"] == ["workflows.enable_waiting.failed"]
+        assert REGISTRY.get_sample_value("workflows_enable_waiting_failed_total") == failures_before + 1
+        assert self._workflow(flow_id)["status"] == "waiting_for_domain"
