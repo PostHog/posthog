@@ -278,8 +278,6 @@ This changes setup recommendations and diagnostic actions, not report attributio
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
 See [hourly restrictions](https://fivetran.com/docs/connectors/applications/facebook-ads/custom-reports#breakdowns) and [creative-asset metric restrictions](https://docs.streamkap.com/facebook-ads-source#custom-insights).
-Region statistics still request both fields, but their availability remains unverified: direct API checks omitted them even when the same ad and day returned video metrics without the region breakdown.
-Confirm the supported metric combinations for `region` before promising video values in those tables; an omitted field is not a reported zero.
 Custom conversion counts and values remain in the `actions` and `action_values` arrays returned by Meta.
 
 Google Ads exposes daily Search and Display impression share through the optional `campaign_impression_share_stats` table.
