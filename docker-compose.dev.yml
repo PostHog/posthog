@@ -761,7 +761,14 @@ services:
     personhog-etcd-init:
         image: quay.io/coreos/etcd:v3.6.8
         restart: 'no'
-        entrypoint: ['etcdctl', '--endpoints=http://etcd:2379', 'put', '/personhog/config/changelog', '{"topic":"personhog_updates","partitions":4,"epoch":1,"writer_group":"personhog-writer","draining":[]}']
+        entrypoint:
+            [
+                'etcdctl',
+                '--endpoints=http://etcd:2379',
+                'put',
+                '/personhog/config/changelog',
+                '{"topic":"personhog_updates","partitions":4,"epoch":1,"writer_group":"personhog-writer","draining":[]}',
+            ]
         depends_on:
             etcd:
                 condition: service_healthy
