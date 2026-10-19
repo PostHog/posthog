@@ -401,8 +401,6 @@ def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) ->
         return FloatDatabaseField(name=name, nullable=nullable)
     elif isinstance(const_type, ast.DecimalType):
         return DecimalDatabaseField(name=name, nullable=nullable)
-    elif isinstance(const_type, ast.StringJSONType):
-        return StringJSONDatabaseField(name=name, nullable=nullable)
     elif isinstance(const_type, ast.StringType):
         return StringDatabaseField(name=name, nullable=nullable)
     elif isinstance(const_type, ast.BooleanType):
@@ -413,14 +411,12 @@ def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) ->
         return DateTimeDatabaseField(name=name, nullable=nullable)
     elif isinstance(const_type, ast.UUIDType):
         return UUIDDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringJSONType):
+        return StringJSONDatabaseField(name=name, nullable=nullable)
     elif isinstance(const_type, ast.StringArrayType):
         return StringArrayDatabaseField(name=name, nullable=nullable)
     else:
-        return UnknownDatabaseField(
-            name=name,
-            nullable=nullable,
-            unanalyzable=const_type.unanalyzable if isinstance(const_type, ast.UnknownType) else True,
-        )
+        return UnknownDatabaseField(name=name, nullable=nullable)
 
 
 def _recursively_resolve_column(
@@ -456,7 +452,7 @@ def _recursively_resolve_column(
                 if subquery_column:
                     return _recursively_resolve_column(name, subquery_column, fields, context)
 
-        fields[name] = _constant_type_to_database_field(name, column.resolve_constant_type(context))
+        return _recursively_resolve_column(name, column.field_type, fields, context)
     elif isinstance(column, ast.CallType):
         fields[name] = _constant_type_to_database_field(name, column.return_type)
     elif isinstance(column, ast.ConstantType):

@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 from datetime import date, datetime
 from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
@@ -34,6 +35,7 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
@@ -45,7 +47,7 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
-from posthog.hogql.type_system import parse_sql_runtime_type
+from posthog.hogql.type_system import infer_function_return_type, parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
@@ -347,11 +349,71 @@ class ClickHousePrinter(BasePrinter):
         )
 
     def _json_input_needs_null_guard(self, node: ast.Expr) -> bool:
-        input_type = node.type.resolve_constant_type(self.context) if node.type is not None else None
-        # A vacuous unknown represents NULL, which ClickHouse accepts as Nullable(Nothing) and propagates unchanged.
-        if isinstance(input_type, ast.UnknownType) and not input_type.unanalyzable:
-            return False
-        return self._is_nullable(node)
+        return self._json_input_nullability(node, set()) is True
+
+    def _json_input_nullability(self, node: ast.Expr | ast.Type, seen: set[int]) -> bool | None:
+        # None means a NULL-only input is possible. Leave those expressions untouched rather than changing
+        # ClickHouse's Nullable(Nothing) propagation; this deliberately leaves uncertain shapes unsupported.
+        if id(node) in seen:
+            return None
+        seen = {*seen, id(node)}
+        if isinstance(node, ast.Constant):
+            return None if node.value is None else False
+        if isinstance(node, (ast.PropertyAccess, ast.JsonSubcolumnAccess)):
+            return self._is_nullable(node)
+        if isinstance(node, ast.Alias):
+            return self._json_input_nullability(node.expr, seen)
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldAliasType) and len(node.chain) == 1:
+            name = str(node.chain[0])
+            for parent in reversed(self.stack):
+                if isinstance(parent, ast.SelectQuery):
+                    if isinstance(parent.type, ast.SelectQueryType) and name in parent.type.aliases:
+                        break
+                    cte = (parent.ctes or {}).get(name)
+                    if cte is not None and cte.cte_type == "column":
+                        return self._json_input_nullability(cte.expr, seen)
+        if isinstance(node, ast.FieldAliasType):
+            return self._json_input_nullability(node.type, seen)
+        if isinstance(node, ast.FieldType):
+            table_type = node.table_type
+            if isinstance(table_type, ast.CTETableAliasType):
+                table_type = table_type.cte_table_type
+            if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
+                table_type = table_type.select_query_type
+            if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+                projected_type = table_type.columns.get(node.name)
+                if projected_type is not None:
+                    return self._json_input_nullability(projected_type, seen)
+            elif isinstance(table_type, ast.BaseTableType):
+                field_type = node.resolve_constant_type(self.context)
+                return None if isinstance(field_type, ast.UnknownType) else field_type.nullable
+        if isinstance(node, (ast.Call, ast.CallType)):
+            arguments = node.args if isinstance(node, ast.Call) else node.arg_types
+            nullable_arguments = [self._json_input_nullability(arg, seen) for arg in arguments]
+            if None in nullable_arguments:
+                return None
+            nullable_result = self._is_nullable(node) if isinstance(node, ast.Call) else node.return_type.nullable
+            if isinstance(node, ast.Call) and not nullable_result and any(nullable_arguments):
+                arg_types = [
+                    replace(
+                        (arg.type or ast.UnknownType()).resolve_constant_type(self.context), nullable=bool(nullable)
+                    )
+                    for arg, nullable in zip(node.args, nullable_arguments)
+                ]
+                return infer_function_return_type(
+                    node.name, arg_types, args=node.args, meta=HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name)
+                ).return_type.nullable
+            return nullable_result
+        if isinstance(node, ast.Field):
+            return self._json_input_nullability(node.type, seen) if node.type is not None else None
+        if isinstance(node, ast.Expr):
+            return None
+        constant_type = node.resolve_constant_type(self.context)
+        if isinstance(constant_type, ast.UnknownType):
+            return None
+        if constant_type.nullable and not isinstance(node, (ast.PropertyType, ast.StringJSONType)):
+            return None
+        return constant_type.nullable
 
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]
