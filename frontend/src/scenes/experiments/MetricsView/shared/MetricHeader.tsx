@@ -96,7 +96,6 @@ export const MetricHeader = ({
     dragHandle,
     displayOrder,
     metric,
-    metricType,
     isPrimaryMetric,
     experiment,
     onDuplicateMetricClick,
@@ -108,7 +107,6 @@ export const MetricHeader = ({
     dragHandle?: JSX.Element | null
     displayOrder?: number
     metric: ExperimentMetric
-    metricType: any
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
@@ -239,7 +237,7 @@ export const MetricHeader = ({
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
                         <div className="min-w-0 flex-1">
-                            <MetricTitle metric={metric} metricType={metricType} />
+                            <MetricTitle metric={metric} />
                         </div>
                     </div>
                     {!readOnly && (

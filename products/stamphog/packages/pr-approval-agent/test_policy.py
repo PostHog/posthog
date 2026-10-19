@@ -148,6 +148,17 @@ OLD_DENY_PATTERN_DEFS = {
             "^tools/hogli-commands/hogli_commands/product/",
         ]
     },
+    "agent_steering": {
+        "paths": [
+            "^agents\\.md$",
+            "^claude\\.md$",
+            "^\\.github/pull_request_template\\.md$",
+            "^\\.agents/skills/writing-pr-descriptions/",
+            "^\\.claude/settings\\.json$",
+            "^\\.claude/hooks/",
+            "^\\.mcp\\.json$",
+        ]
+    },
     "workflows_delivery": {
         "paths": [
             "^products/cdp/backend/(api|models)/",
@@ -185,11 +196,11 @@ OLD_ALLOW_PATH_PATTERNS = [
     "CHANGELOG",
     "LICENSE",
     "CONTRIBUTING",
-    ".github/CODEOWNERS",
     ".gitignore",
     ".editorconfig",
     "generated/",
     "__snapshots__/",
+    ".github/CODEOWNERS",
 ]
 OLD_MAX_LINES = 800
 OLD_MAX_FILES = 30

@@ -2379,6 +2379,10 @@ class SurveyFilterSet(FilterSet):
         field_name="created_by_id",
         label="Filter surveys by the ID of the user who created them.",
     )
+    linked_flag_id = django_filters.NumberFilter(
+        field_name="linked_flag_id",
+        label="Filter surveys by the ID of the feature flag they are linked to.",
+    )
     status = django_filters.ChoiceFilter(
         choices=[("draft", "Draft"), ("running", "Running"), ("complete", "Complete")],
         method="filter_status",

@@ -822,6 +822,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -885,18 +886,15 @@ export interface ActivityEventsListWidgetConfigApi {
     properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
-/**
- * Issue ranking column.
- */
-export type ErrorTrackingListWidgetConfigApiOrderBy =
-    (typeof ErrorTrackingListWidgetConfigApiOrderBy)[keyof typeof ErrorTrackingListWidgetConfigApiOrderBy]
+export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
-export const ErrorTrackingListWidgetConfigApiOrderBy = {
+export const ErrorTrackingOrderByApi = {
     LastSeen: 'last_seen',
     FirstSeen: 'first_seen',
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 /**
@@ -950,7 +948,7 @@ export interface ErrorTrackingListWidgetConfigApi {
      */
     limit?: number
     /** Issue ranking column. */
-    orderBy?: ErrorTrackingListWidgetConfigApiOrderBy
+    orderBy?: ErrorTrackingOrderByApi
     /** Sort direction for orderBy. */
     orderDirection?: ErrorTrackingListWidgetConfigApiOrderDirection
     /** Issue status filter. */
@@ -3084,6 +3082,7 @@ export const DataColorTokenApi = {
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
+    customColor?: string | null
     hidden?: boolean | null
 }
 
@@ -8188,17 +8187,6 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     version?: number | null
 }
 
-export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
-
-export const ErrorTrackingOrderByApi = {
-    LastSeen: 'last_seen',
-    FirstSeen: 'first_seen',
-    Occurrences: 'occurrences',
-    Users: 'users',
-    Sessions: 'sessions',
-    Severity: 'severity',
-} as const
-
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -9209,6 +9197,13 @@ export interface ScatterChartSettingsApi {
     xStartAtZero?: boolean | null
 }
 
+export type ValueLabelPositionApi = (typeof ValueLabelPositionApi)[keyof typeof ValueLabelPositionApi]
+
+export const ValueLabelPositionApi = {
+    End: 'end',
+    Center: 'center',
+} as const
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -9265,6 +9260,7 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
@@ -9291,8 +9287,14 @@ export interface ChartSettingsApi {
     showYAxisBorder?: boolean | null
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
+    valueLabelBackground?: boolean | null
+    valueLabelFontSize?: number | null
+    valueLabelPosition?: ValueLabelPositionApi | null
+    valueLabelRotation?: number | null
     xAxis?: ChartAxisApi | null
+    xAxisDateFormat?: string | null
     xAxisLabel?: string | null
+    xAxisTickRotation?: number | null
     yAxis?: ChartAxisApi[] | null
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean | null
@@ -9633,6 +9635,8 @@ export interface BIValueApi {
 }
 
 export interface BIConfigApi {
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]
@@ -9654,6 +9658,8 @@ export interface BIConfigApi {
     missingDates?: MissingDatesApi | null
     /** Split the returned groups into charts using these ordered dimension IDs. */
     panes?: BIPaneSettingsApi | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQueryApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null

@@ -640,6 +640,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -723,6 +724,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                                 'in',
                                                                 'not_in',
                                                                 'is_cleaned_path_exact',
+                                                                'is_cleaned_path_not_exact',
                                                                 'flag_evaluates_to',
                                                                 'semver_eq',
                                                                 'semver_neq',
@@ -836,6 +838,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -866,7 +869,14 @@ export const DashboardsPartialUpdateBody = () => zod
                                             )
                                             .describe('Maximum number of issues to return.'),
                                         orderBy: zod
-                                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                            .enum([
+                                                'last_seen',
+                                                'first_seen',
+                                                'occurrences',
+                                                'users',
+                                                'sessions',
+                                                'severity',
+                                            ])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault
                                             )
@@ -963,6 +973,7 @@ export const DashboardsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1913,6 +1924,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1992,6 +2004,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -2166,6 +2179,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2194,7 +2208,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitDefault)
                                     .describe('Maximum number of issues to return.'),
                                 orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault)
                                     .describe('Issue ranking column.'),
                                 orderDirection: zod
@@ -2341,6 +2355,7 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3201,6 +3216,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3280,6 +3296,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -3411,6 +3428,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3439,7 +3457,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault)
                                     .describe('Maximum number of issues to return.'),
                                 orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault)
                                     .describe('Issue ranking column.'),
                                 orderDirection: zod
@@ -3543,6 +3561,7 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
