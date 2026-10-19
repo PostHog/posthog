@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
         ("bills", "/v1/bills"),
         ("lease_transactions", "/v1/leases"),
         ("general_ledger_transactions", "/v1/glaccounts"),
+        ("custom_field_definitions", "/v1/customfields/entityType/Rentals/definitions"),
     ],
 )
 @pytest.mark.parametrize(

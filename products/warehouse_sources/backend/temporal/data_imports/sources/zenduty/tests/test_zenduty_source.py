@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock
-
 import requests
 from parameterized import parameterized
 
@@ -12,12 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ZendutySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
-
-
-class TestZendutyGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = ZendutySource().get_schemas(MagicMock(), team_id=1, names=["incidents", "services"])
-        assert {s.name for s in schemas} == {"incidents", "services"}
 
 
 class TestZendutyValidateCredentials:

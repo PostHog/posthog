@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 
 import {
@@ -197,7 +195,6 @@ const meta: Meta<typeof InstrumentationChecklistCard> = {
     title: 'Scenes-App/AI observability/Instrumentation checklist card',
     parameters: {
         layout: 'padded',
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
     },
 }
 export default meta
@@ -259,7 +256,6 @@ export const Collecting: Story = {
 export const FirstLoad: Story = {
     parameters: {
         layout: 'padded',
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
         // The card holds its header until the read answers, so this story never settles.
         testOptions: { waitForLoadersToDisappear: false },
     },

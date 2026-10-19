@@ -2,7 +2,7 @@ from django.http import HttpRequest, JsonResponse
 
 import jwt
 
-from products.exports.backend.models.subscription import unsubscribe_using_token
+from products.subscriptions.backend.facade import api as subscriptions_api
 
 
 def unsubscribe(request: HttpRequest):
@@ -11,7 +11,7 @@ def unsubscribe(request: HttpRequest):
         return JsonResponse({"success": False})
 
     try:
-        unsubscribe_using_token(token)
+        subscriptions_api.unsubscribe(token)
     except jwt.DecodeError:
         return JsonResponse({"success": False})
 
