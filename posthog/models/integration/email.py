@@ -170,12 +170,6 @@ class EmailIntegration:
         if verification_result.get("status") == "success":
             self._mark_domain_verified(on_domain_verified)
 
-            from products.workflows.backend.facade.api import (
-                set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-            )
-
-            set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
-
         return verification_result
 
     def status(self, *, refresh: bool, on_domain_verified: Callable[[], None] | None = None) -> EmailDomainStatusReport:
@@ -233,6 +227,13 @@ class EmailIntegration:
                 sender.save()
 
         self.integration.config["verified"] = True
+
+        from products.workflows.backend.facade.api import (
+            set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        )
+
+        set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
+
         # A sender added to a domain that is already verified joins it, so only the first verification counts.
         if on_domain_verified and len(unverified_senders) == len(senders):
             on_domain_verified()

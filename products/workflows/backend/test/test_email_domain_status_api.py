@@ -14,6 +14,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
 
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.test.email_domain_api_test_case import (
     ALL_KINDS,
     DOMAIN,
@@ -73,6 +74,7 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
             "dmarc": ["verified"],
         }
         assert self.is_verified(sender) and self.is_verified(sibling)
+        assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
             ((ANY, "email domain verified", {"method": "manual", "seconds_since_created": ANY}), {"team": ANY})
         ]
