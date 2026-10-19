@@ -265,15 +265,24 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
     })
 
-    it('says the records are in place when automatic checks stop while the provider is still confirming', async () => {
-        seedSender()
-        backend.publishRecords(DOMAIN)
-        await open(urls.workflowsEmailDomain(SENDER_ID))
+    it.each([
+        ['still confirming', false, 'Your records are in place'],
+        ['reporting a temporary failure', true, "The email provider can't confirm your records yet"],
+    ])(
+        'describes found records when automatic checks stop while the provider is %s',
+        async (_, temporaryFailure, heading) => {
+            seedSender()
+            backend.publishRecords(DOMAIN)
+            if (temporaryFailure) {
+                backend.sesReports(DOMAIN, 'temporary_failure')
+            }
+            await open(urls.workflowsEmailDomain(SENDER_ID))
 
-        await flush(31 * 60_000)
-        expectStep('Your records are in place')
-        expect(screen.queryByText(/still missing/)).not.toBeInTheDocument()
-    })
+            await flush(31 * 60_000)
+            expectStep(heading)
+            expect(screen.queryByText(/still missing/)).not.toBeInTheDocument()
+        }
+    )
 
     it('falls back to the generic manual setup when host detection fails', async () => {
         seedSender()

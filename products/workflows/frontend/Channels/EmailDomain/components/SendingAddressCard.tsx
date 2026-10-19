@@ -66,7 +66,8 @@ function SendPrefixPicker(props: EmailDomainWizardLogicProps): JSX.Element {
 
 function BouncePrefixField(props: EmailDomainWizardLogicProps): JSX.Element {
     const logic = emailDomainWizardLogic(props)
-    const { bouncePrefix, advancedOpen, sendingDomain } = useValues(logic)
+    const { bouncePrefix, advancedOpen, sendingDomain, domainSender } = useValues(logic)
+    const sharedBouncePrefix = domainSender ? (domainSender.config?.mail_from_subdomain ?? 'feedback') : null
     const { setBouncePrefix, setAdvancedOpen } = useActions(logic)
     if (!advancedOpen) {
         return (
@@ -88,9 +89,14 @@ function BouncePrefixField(props: EmailDomainWizardLogicProps): JSX.Element {
                 <LemonInput
                     id="email-domain-bounce-prefix"
                     className="w-40 font-mono"
-                    value={bouncePrefix}
+                    value={sharedBouncePrefix ?? bouncePrefix}
                     onChange={setBouncePrefix}
                     placeholder="feedback"
+                    disabledReason={
+                        sharedBouncePrefix !== null
+                            ? 'This domain already sends email, so a new address uses its bounce subdomain.'
+                            : undefined
+                    }
                 />
                 <span className="font-mono text-secondary break-all">.{sendingDomain}</span>
             </div>
