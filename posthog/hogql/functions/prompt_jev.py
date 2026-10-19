@@ -1,5 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.forecast import ForecastCall, is_forecast_call
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -15,6 +16,15 @@ def is_decision_call(name: str) -> bool:
     return name.lower() in DECISION_FUNCTIONS
 
 
+def is_enrichment_call(name: str) -> bool:
+    # Enrichment calls run in Python on the rows of their SELECT, and the executor reads the results from an external table.
+    return is_decision_call(name) or is_forecast_call(name)
+
+
+def parse_enrichment_call(node: ast.Call) -> "PromptJevCall | ForecastCall":
+    return ForecastCall.parse(node) if is_forecast_call(node.name) else PromptJevCall.parse(node)
+
+
 CHOICE_TYPE = "Tuple(choice Nullable(String), probabilities Array(Tuple(value String, probability Float64)), confidence Nullable(Float64))"
 
 
@@ -23,7 +33,7 @@ class PromptJevFinder(TraversingVisitor):
         self.calls: list[ast.Call] = []
 
     def visit_call(self, node: ast.Call) -> None:
-        if is_decision_call(node.name):
+        if is_enrichment_call(node.name):
             self.calls.append(node)
         super().visit_call(node)
 

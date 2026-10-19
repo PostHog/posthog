@@ -18,7 +18,9 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
-from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_decision_call
+from posthog.hogql.functions.forecast import ForecastCall
+from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_enrichment_call, parse_enrichment_call
+from posthog.hogql.transforms.forecast import evaluate_forecast
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -205,9 +207,13 @@ class PromptJevRunner:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def check_budget(self, columns: list[tuple[PromptJevCall, list[object]]]) -> dict[_DecisionKey, None]:
+    def check_budget(
+        self, columns: list[tuple[PromptJevCall | ForecastCall, list[object]]]
+    ) -> dict[_DecisionKey, None]:
         missing: dict[_DecisionKey, None] = {}
         for spec, values in columns:
+            if isinstance(spec, ForecastCall):
+                continue
             question_key = json.dumps(spec.question.to_json(), sort_keys=True)
             for value in values:
                 if value is None:
@@ -224,7 +230,9 @@ class PromptJevRunner:
             raise QueryError("jev exceeds the query budget. Select fewer or shorter inputs.")
         return missing
 
-    def evaluate(self, spec: PromptJevCall, values: list[object]) -> list[object]:
+    def evaluate(self, spec: PromptJevCall | ForecastCall, values: list[object]) -> list[object]:
+        if isinstance(spec, ForecastCall):
+            return evaluate_forecast(spec, values)
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
         missing = [key.text for key in self.check_budget([(spec, values)])]
         self.input_bytes += sum(len(text.encode()) for text in missing)
@@ -414,15 +422,15 @@ class PromptJevPlanner(CloningVisitor):
                 or query.limit_with_ties
             ):
                 raise QueryError("Apply grouping, sorting, and DISTINCT in a query outside the jev SELECT.")
-            specs: dict[int, PromptJevCall] = {}
+            specs: dict[int, PromptJevCall | ForecastCall] = {}
             aliases: set[str] = set()
             for i, column in enumerate(query.select):
                 if (
                     isinstance(column, ast.Alias)
                     and isinstance(column.expr, ast.Call)
-                    and is_decision_call(column.expr.name)
+                    and is_enrichment_call(column.expr.name)
                 ):
-                    specs[i] = PromptJevCall.parse(column.expr)
+                    specs[i] = parse_enrichment_call(column.expr)
                     aliases.add(column.alias)
                 elif isinstance(column, ast.Field) and "*" in column.chain:
                     raise QueryError("List columns explicitly in a jev SELECT instead of using '*'.")
@@ -483,8 +491,8 @@ class PromptJevPlanner(CloningVisitor):
 
     def visit_call(self, node: ast.Call) -> ast.Call:
         # Binding validates every call, including ones whose SELECT has no rows.
-        if is_decision_call(node.name):
-            PromptJevCall.parse(node)
+        if is_enrichment_call(node.name):
+            parse_enrichment_call(node)
         return cast(ast.Call, super().visit_call(node))
 
 
