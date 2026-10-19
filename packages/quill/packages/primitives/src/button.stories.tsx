@@ -257,6 +257,27 @@ export const Disabled = {
     ),
 } satisfies Story
 
+export const Tooltips = {
+    render: () => (
+        <div className="flex flex-wrap items-center gap-2">
+            <Button size="icon" aria-label="Delete" tooltip="Delete">
+                <TrashIcon />
+            </Button>
+            <Button variant="outline" tooltip="Saves a copy you can come back to">
+                Save draft
+            </Button>
+            <Button variant="primary" disabledReason="Add a name before you publish">
+                Publish
+            </Button>
+            {/* A story has no router; a plain anchor shows the non-button render. */}
+            {/* eslint-disable-next-line react/forbid-elements */}
+            <Button variant="outline" render={<a href="#docs" />} disabledReason="Docs are not available offline">
+                Read the docs
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
 export const Loading = {
     render: () => {
         const [saving, setSaving] = useState(false)
