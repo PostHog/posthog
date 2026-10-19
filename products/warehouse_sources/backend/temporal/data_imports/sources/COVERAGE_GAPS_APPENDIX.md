@@ -8837,6 +8837,8 @@ Diffed against: <https://openrouter.ai/docs/llms.txt>
 - [ ] `app rankings (top apps by token usage)` — token usage leaderboard by app (medium)
 - [ ] `daily rankings (daily token totals for top 50 models)` — daily model-level token time series (medium)
 - [ ] `workspace budgets` — per-workspace spend limits, needed to compare spend against budget (low)
+- [x] `/end-users` — registered end-user tracking IDs, the lookup for the `user` field on inference requests and API keys (medium)
+- [x] `/batches` — asynchronous batch inference jobs with status, request counts, usage and cost (medium)
 
 Note: No public OpenAPI JSON is reachable (openrouter.ai/docs/openapi.json 404s); the operation inventory was read from the official Go SDK reference pages linked from llms.txt. Generations endpoints were excluded because they require a known generation ID and cannot be bulk-listed. Guardrails, presets, BYOK, files and observability destinations excluded as config.
 
