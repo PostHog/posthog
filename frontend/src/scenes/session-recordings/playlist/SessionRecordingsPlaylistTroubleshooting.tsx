@@ -24,7 +24,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
         posthog.capture('recording list empty state shown', {
             hidden_recordings_count: hiddenRecordingsCount,
             total_filters_count: totalFiltersCount,
-            has_duration_filter: !!durationFilter,
+            has_duration_filter: !!filters.duration?.length,
         })
     }, [])
     // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
