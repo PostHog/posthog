@@ -9,8 +9,13 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { urls } from 'scenes/urls'
 
+import { runHeadline } from '../agentSearch'
 import { autoresearchPipelineLogic, trainingRunProgress } from '../autoresearchPipelineLogic'
-import { type AutoresearchRunApi, AutoresearchTrainingRunApi } from '../generated/api.schemas'
+import {
+    type AutoresearchRunApi,
+    AutoresearchTrainingRunApi,
+    type AutoresearchTrainingRunKickoffReasonEnumApi,
+} from '../generated/api.schemas'
 import { RunFeatureComparison } from './RunFeatureComparison'
 
 // Derived from the field rather than the standalone enum: this pending/running/completed/failed
@@ -25,6 +30,13 @@ const RUN_STATUS: Record<
     running: { type: 'highlight', label: 'Running' },
     completed: { type: 'success', label: 'Completed' },
     failed: { type: 'danger', label: 'Failed' },
+}
+
+const KICKOFF_REASON: Record<AutoresearchTrainingRunKickoffReasonEnumApi, { label: string; tooltip: string }> = {
+    explore: { label: 'Exploring', tooltip: 'One of the first daily runs that look for a better model' },
+    scheduled: { label: 'Scheduled', tooltip: 'Started on the research schedule set on the Setup tab' },
+    rescue: { label: 'Rescue', tooltip: 'A short run to replace a model that stopped scoring' },
+    manual: { label: 'Manual', tooltip: 'Started by a person or an agent' },
 }
 
 /** The agent-authored report.md for a run, rendered as markdown (with mermaid charts). */
@@ -52,7 +64,12 @@ function RunReport({ runId }: { runId: string }): JSX.Element | null {
     )
 }
 
-/** One training run in the experiment log: its header, the experiments passed as children, and its report and bundle on expand. */
+const RUN_ROLE = {
+    live: { type: 'completion', label: 'Live model' },
+    scored_alongside: { type: 'highlight', label: 'Scored alongside' },
+} as const
+
+/** One training run in the log: its headline, the experiments passed as children, and its report and bundle on expand. */
 export function TrainingRunRow({
     run,
     runNumber,
@@ -62,7 +79,8 @@ export function TrainingRunRow({
     runNumber: number
     children?: ReactNode
 }): JSX.Element {
-    const { expandedRunId, artifactsByRun, artifactsByRunLoading, featureFlags } = useValues(autoresearchPipelineLogic)
+    const { expandedRunId, artifactsByRun, artifactsByRunLoading, featureFlags, runRoles } =
+        useValues(autoresearchPipelineLogic)
     const { toggleRunArtifacts, viewArtifact, reportNotebookOpened } = useActions(autoresearchPipelineLogic)
     const reportNotebookShortId = featureFlags[FEATURE_FLAGS.AUTORESEARCH_REPORT_NOTEBOOK]
         ? run.summary?.report_notebook_short_id
@@ -74,51 +92,71 @@ export function TrainingRunRow({
     const duration =
         run.started_at && run.completed_at ? dayjs(run.completed_at).from(dayjs(run.started_at), true) : null
     const runStatus = RUN_STATUS[run.status]
+    const role = runRoles[run.id] ? RUN_ROLE[runRoles[run.id]] : null
+    const { headline, detail } = runHeadline(run, runNumber)
+    const improved = run.iterations.filter((it) => it.status === 'kept').length
     const progressSummary =
         run.status === 'failed' && progress.iterationCount === 0
-            ? 'Failed before any iterations'
-            : `${progress.iterationCount} ${progress.iterationCount === 1 ? 'experiment' : 'experiments'} · ${
-                  progress.bestHoldoutScore != null
-                      ? `best AUC ${progress.bestHoldoutScore.toFixed(3)}`
-                      : 'no score yet'
-              }`
+            ? 'Failed before any experiments'
+            : `${progress.iterationCount} ${progress.iterationCount === 1 ? 'experiment' : 'experiments'}, ${improved} improved`
 
     return (
         <div className="border rounded">
-            <div className="p-3 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronRight className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />}
-                        onClick={() => toggleRunArtifacts(run.id)}
-                        tooltip={isExpanded ? 'Hide report and bundle' : 'Show report and bundle'}
-                    />
-                    <div className="space-y-0.5">
-                        <div className="text-sm font-semibold flex items-center gap-1">
-                            <Tooltip title={dayjs(startedAt).format('MMM D, YYYY HH:mm')}>
-                                <span>
-                                    Run {runNumber} · <span translate="no">{dayjs(startedAt).fromNow()}</span>
-                                </span>
-                            </Tooltip>
-                            {run.task_url && (
-                                <Link
-                                    to={run.task_url}
-                                    target="_blank"
-                                    className="text-muted hover:text-primary"
-                                    title="Open sandbox task"
-                                >
-                                    <IconExternal className="text-sm" />
-                                </Link>
-                            )}
-                            {run.status === 'running' && <Spinner className="ml-2 inline" />}
-                        </div>
-                        <div className="text-xs text-muted">
-                            <span className="font-mono">{run.id.slice(0, 8)}</span> · {progressSummary}
-                            {duration ? ` · took ${duration}` : ''}
-                        </div>
+            <div className="p-3 flex items-start gap-2">
+                <LemonButton
+                    size="small"
+                    icon={<IconChevronRight className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />}
+                    onClick={() => toggleRunArtifacts(run.id)}
+                    tooltip={isExpanded ? 'Hide report and bundle' : 'Show report and bundle'}
+                />
+                <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-semibold truncate flex-1 min-w-0" title={headline}>
+                            {headline}
+                        </span>
+                        {progress.bestHoldoutScore != null && (
+                            <span className="text-sm font-semibold tabular-nums shrink-0">
+                                {progress.bestHoldoutScore.toFixed(3)}
+                            </span>
+                        )}
                     </div>
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted">
+                        <Tooltip title={dayjs(startedAt).format('MMM D, YYYY HH:mm')}>
+                            <span>
+                                {run.reader_summary?.trim() ? `Run ${runNumber} · ` : ''}
+                                {dayjs(startedAt).format('MMM D')} · {progressSummary}
+                                {duration ? ` · ${duration}` : ''}
+                            </span>
+                        </Tooltip>
+                        {run.kickoff_reason && (
+                            <Tooltip title={KICKOFF_REASON[run.kickoff_reason].tooltip}>
+                                <span>· {KICKOFF_REASON[run.kickoff_reason].label}</span>
+                            </Tooltip>
+                        )}
+                        {run.task_url && (
+                            <Link
+                                to={run.task_url}
+                                target="_blank"
+                                className="text-muted hover:text-primary"
+                                title="Open sandbox task"
+                            >
+                                <IconExternal className="text-sm" />
+                            </Link>
+                        )}
+                        {run.status === 'running' && <Spinner className="inline" />}
+                        {role && (
+                            <LemonTag type={role.type} size="small">
+                                {role.label}
+                            </LemonTag>
+                        )}
+                        {run.status !== 'completed' && (
+                            <LemonTag type={runStatus.type} size="small">
+                                {runStatus.label}
+                            </LemonTag>
+                        )}
+                    </div>
+                    {detail && <div className="text-xs text-secondary">{detail}</div>}
                 </div>
-                <LemonTag type={runStatus.type}>{runStatus.label}</LemonTag>
             </div>
             {isExpanded && (
                 <div className="border-t p-3 space-y-3">

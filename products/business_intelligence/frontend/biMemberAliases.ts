@@ -41,7 +41,7 @@ function defaultMemberLabel(field: BIField, value: unknown): string {
     return value == null ? '(no value)' : value === '' ? '(empty string)' : String(value)
 }
 
-export function createBIMemberLabelLookup(config: BIConfig): (field: BIField, value: unknown) => string {
+export function createBIMemberDisplayLookup(config: BIConfig): (field: BIField, value: unknown) => string | undefined {
     const aliases = new Map<string, Map<string | null, string>>()
     for (const entry of config.memberAliases ?? []) {
         const key = biMemberFieldKey(entry.field)
@@ -54,8 +54,29 @@ export function createBIMemberLabelLookup(config: BIConfig): (field: BIField, va
         if (!fieldAliases.has(field)) {
             fieldAliases.set(field, aliases.get(biMemberFieldKey(field)))
         }
-        return fieldAliases.get(field)?.get(value == null ? null : String(value)) ?? defaultMemberLabel(field, value)
+        return (
+            fieldAliases.get(field)?.get(value == null ? null : String(value)) ??
+            (field.localDefinition?.kind === 'groups' && field.localDefinition.preserveUngrouped
+                ? defaultMemberLabel(field, value)
+                : undefined)
+        )
     }
+}
+
+export function createBIMemberLabelLookup(config: BIConfig): (field: BIField, value: unknown) => string {
+    const display = createBIMemberDisplayLookup(config)
+    return (field, value) => display(field, value) ?? defaultMemberLabel(field, value)
+}
+
+export function createBIMemberFormatter(config: BIConfig, field: BIField): ((value: unknown) => string) | undefined {
+    if (
+        !(field.localDefinition?.kind === 'groups' && field.localDefinition.preserveUngrouped) &&
+        !config.memberAliases?.some((entry) => biMemberFieldKey(entry.field) === biMemberFieldKey(field))
+    ) {
+        return undefined
+    }
+    const label = createBIMemberLabelLookup(config)
+    return (value) => label(field, value)
 }
 
 export function getBIMemberLabel(config: BIConfig, field: BIField, value: unknown): string {

@@ -36,17 +36,48 @@ export function getBIScatterRowKey(config: BIConfig, columns: string[], row: unk
     return createBIScatterRowKey(config, columns)(row)
 }
 
+function scatterCoordinate(value: unknown, logarithmic: boolean): number | null {
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    const coordinate = Number(value)
+    return Number.isFinite(coordinate) && (!logarithmic || coordinate > 0) ? coordinate : null
+}
+
 export function buildBIScatterSeries(
     query: BIVisualizationNode,
     columns: string[],
     rows: unknown[][],
     xData: AxisSeries<string> | null,
     yData: AxisSeries<number | null>[]
-): SqlScatterSeries[] {
+): SqlScatterSeries[] | null {
     if (!xData) {
         return []
     }
     const dimensions = getBIResultDimensions(query.config)
+    const colorDimension = dimensions.find(({ field }) => field.id === query.config.colorBy)
+    const colorColumn = colorDimension?.column
+    const colorIndex = colorColumn ? columns.indexOf(colorColumn) : -1
+    const xCoordinates = rows.map((_, index) =>
+        scatterCoordinate(xData.data[index], query.chartSettings?.scatter?.xScale === 'logarithmic')
+    )
+    const logarithmicY = query.chartSettings?.leftYAxisSettings?.scale === 'logarithmic'
+    const seriesKey = (measure: AxisSeries<number | null>, row: unknown[]): string =>
+        JSON.stringify([measure.column.name, colorIndex < 0 ? null : JSON.stringify(row[colorIndex] ?? null)])
+    const seriesKeys = new Set<string>()
+    let pointCount = 0
+    for (const measure of yData) {
+        for (const [index, row] of rows.entries()) {
+            if (xCoordinates[index] === null || scatterCoordinate(measure.data[index], logarithmicY) === null) {
+                continue
+            }
+            seriesKeys.add(seriesKey(measure, row))
+            pointCount++
+            if (seriesKeys.size > 100 || seriesKeys.size * pointCount > 1_000_000) {
+                return null
+            }
+        }
+    }
     const memberLabel = createBIMemberLabelLookup(query.config)
     const indexedDimensions = dimensions.map(({ field, column }) => ({ field, index: columns.indexOf(column) }))
     const rowKeys = rows.map((row) => JSON.stringify(indexedDimensions.map(({ index }) => row[index])))
@@ -56,30 +87,17 @@ export function buildBIScatterSeries(
                 .map(({ field, index }) => `${getBIFieldPillLabel(field)}: ${memberLabel(field, row[index])}`)
                 .join(' · ') || 'All matching rows'
     )
-    const colorDimension = dimensions.find(({ field }) => field.id === query.config.colorBy)
-    const colorColumn = colorDimension?.column
-    const colorIndex = colorColumn ? columns.indexOf(colorColumn) : -1
     const output = new Map<string, SqlScatterSeries>()
     for (const [measureIndex, measure] of yData.entries()) {
         rows.forEach((row, rowIndex) => {
-            const rawX = xData.data[rowIndex]
-            const rawY = measure.data[rowIndex]
-            if (rawX === null || rawX === undefined || rawX === '' || rawY === null || rawY === undefined) {
-                return
-            }
-            const x = Number(rawX)
-            const y = Number(rawY)
-            if (
-                !Number.isFinite(x) ||
-                !Number.isFinite(y) ||
-                (query.chartSettings?.scatter?.xScale === 'logarithmic' && x <= 0) ||
-                (query.chartSettings?.leftYAxisSettings?.scale === 'logarithmic' && y <= 0)
-            ) {
+            const x = xCoordinates[rowIndex]
+            const y = scatterCoordinate(measure.data[rowIndex], logarithmicY)
+            if (x === null || y === null) {
                 return
             }
             const category = colorIndex < 0 ? undefined : row[colorIndex]
             const categoryKey = JSON.stringify(category ?? null)
-            const key = JSON.stringify([measure.column.name, colorIndex < 0 ? null : categoryKey])
+            const key = seriesKey(measure, row)
             if (!output.has(key)) {
                 const hash = [...categoryKey].reduce(
                     (hash, character) => (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0,

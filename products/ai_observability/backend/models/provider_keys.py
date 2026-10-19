@@ -21,7 +21,6 @@ class LLMProvider(models.TextChoices):
     AZURE_OPENAI = "azure_openai", "Azure OpenAI"
     TOGETHER_AI = "together_ai", "Together AI"
     MINIMAX = "minimax", "MiniMax"
-    ZEABUR = "zeabur", "Zeabur AI Hub"
     SYSTEM_ONE = "system_one", "System One"
     OPENAI_COMPATIBLE = "openai_compatible", "OpenAI-compatible"
 

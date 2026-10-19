@@ -21,6 +21,7 @@ export interface ModelOption {
     providerKeyId?: string
     isRecommended?: boolean
     supportsDecisions?: boolean
+    supportsChat?: boolean
 }
 
 export interface ProviderModelGroup {
@@ -287,6 +288,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                             )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
                                 is_recommended?: boolean
                                 supports_decisions?: boolean
+                                supports_chat?: boolean
                             })[]
                             return rawModels.map((m) => ({
                                 id: m.id,
@@ -295,6 +297,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 description: m.description,
                                 isRecommended: m.is_recommended ?? false,
                                 supportsDecisions: m.supports_decisions ?? false,
+                                supportsChat: m.supports_chat ?? !m.supports_decisions,
                                 providerKeyId: key.id,
                             }))
                         } catch {
@@ -377,7 +380,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             (models: ModelOption[], keys: LLMProviderKey[]): ModelOption[] =>
                 models.filter(
                     (model) =>
-                        !model.supportsDecisions &&
+                        (model.supportsChat ?? !model.supportsDecisions) &&
                         !keys.some((key) => key.id === model.providerKeyId && key.provider === 'system_one')
                 ),
         ],
@@ -450,7 +453,10 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
                 groups
                     .filter((group) => group.provider !== 'system_one')
-                    .map((group) => ({ ...group, models: group.models.filter((model) => !model.supportsDecisions) }))
+                    .map((group) => ({
+                        ...group,
+                        models: group.models.filter((model) => model.supportsChat ?? !model.supportsDecisions),
+                    }))
                     .filter((group) => group.models.length > 0 || group.disabledReason || group.allowsCustomModel),
         ],
         // The playground runs only listed models, so it does not offer typed deployment names.

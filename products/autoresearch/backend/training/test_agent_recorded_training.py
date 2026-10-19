@@ -104,6 +104,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         data = resp.json()
         assert data["status"] == "running"
         assert data["iteration_budget"] == 7
+        assert data["kickoff_reason"] == "manual"
         run = AutoresearchTrainingRun.objects.get(pk=data["id"], team_id=self.team.pk)
         assert run.pipeline.pk == self.pipeline.pk
         assert run.started_at is not None

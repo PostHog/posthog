@@ -105,8 +105,6 @@ function getKeyPlaceholder(provider: LLMProvider, usesFoundry = false): string {
             return 'Enter your Azure OpenAI API key'
         case 'minimax':
             return 'Enter your MiniMax API key'
-        case 'zeabur':
-            return 'sk-...'
         case 'system_one':
             return "Enter your endpoint's bearer token"
         case 'openai_compatible':

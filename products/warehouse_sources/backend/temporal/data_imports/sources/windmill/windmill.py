@@ -13,15 +13,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import WINDMILL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import (
+    WINDMILL_ENDPOINTS,
+    WindmillEndpointConfig,
+)
 
 MAX_RETRY_ATTEMPTS = 5
 PER_PAGE = 100
@@ -79,6 +88,10 @@ def _workspace_base_url(base_url: str, workspace: str) -> str:
     return f"{normalize_base_url(base_url)}/w/{quote(workspace, safe='')}"
 
 
+def _endpoint_base_url(base_url: str, workspace: str, config: WindmillEndpointConfig) -> str:
+    return _workspace_base_url(base_url, workspace) if config.workspace_scoped else normalize_base_url(base_url)
+
+
 def _get_headers(api_token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_token}",
@@ -101,16 +114,18 @@ class WindmillPageNumberPaginator(PageNumberPaginator):
 
     Windmill list endpoints return bare JSON arrays with no total, so a page shorter than
     ``per_page`` is the last one — stop there instead of paying an extra empty-page request the
-    built-in (empty-page-only) stop check would incur.
+    built-in (empty-page-only) stop check would incur. ``stop_on_short_page=False`` keeps only the
+    empty-page check, for endpoints that can return a short page before the end.
     """
 
-    def __init__(self, per_page: int) -> None:
+    def __init__(self, per_page: int, stop_on_short_page: bool = True) -> None:
         super().__init__(base_page=1, page_param="page")
         self._per_page = per_page
+        self._stop_on_short_page = stop_on_short_page
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
-        if self._has_next_page and data is not None and len(data) < self._per_page:
+        if self._stop_on_short_page and self._has_next_page and data is not None and len(data) < self._per_page:
             self._has_next_page = False
 
 
@@ -181,31 +196,30 @@ def windmill_source(
 
     # listUsers ignores pagination params and returns every row at once, so a single request avoids
     # re-fetching the same full list forever.
-    paginator: BasePaginator = WindmillPageNumberPaginator(PER_PAGE) if config.paginated else SinglePagePaginator()
+    paginator: BasePaginator = (
+        WindmillPageNumberPaginator(PER_PAGE, stop_on_short_page=config.stop_on_short_page)
+        if config.paginated
+        else SinglePagePaginator()
+    )
+
+    list_endpoint: Endpoint = {"path": config.path, "params": params}
+    client_config: ClientConfig = {
+        "base_url": _endpoint_base_url(base_url, workspace, config),
+        # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+        # logs and error messages; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_token},
+        "paginator": paginator,
+        "max_retries": MAX_RETRY_ATTEMPTS,
+        # The instance host is customer-controlled, so never follow a redirect that could carry
+        # the bearer token to another origin.
+        "allow_redirects": False,
+    }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _workspace_base_url(base_url, workspace),
-            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
-            # logs and error messages; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_token},
-            "paginator": paginator,
-            "max_retries": MAX_RETRY_ATTEMPTS,
-            # The instance host is customer-controlled, so never follow a redirect that could carry
-            # the bearer token to another origin.
-            "allow_redirects": False,
-        },
+        "client": client_config,
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                },
-            }
-        ],
+        "resources": [{"name": endpoint, "endpoint": list_endpoint}],
     }
 
     # A saved page only indexes into a fixed result set. When an incremental watermark is active it
@@ -224,14 +238,22 @@ def windmill_source(
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(WindmillResumeConfig(page=int(state["page"])))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    if config.detail_path is not None:
+        # The framework can't resume a parent/child walk, so these endpoints restart from page 1.
+        # They are small lookups (groups), so a restart costs little.
+        resources = rest_api_resources(
+            _detail_rest_config(endpoint, config.detail_path, client_config, list_endpoint), team_id, job_id, None
+        )
+        resource = next(r for r in resources if r.name == endpoint)
+    else:
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     def items() -> Iterator[list[dict[str, Any]]]:
         # Re-check at run time (not just at source-create) in case the URL was edited or now
@@ -255,3 +277,36 @@ def windmill_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
     )
+
+
+_PATH_SEGMENT_FIELD = "_path_segment"
+
+
+def _add_path_segment(row: dict[str, Any]) -> dict[str, Any]:
+    return {**row, _PATH_SEGMENT_FIELD: quote(str(row["name"]), safe="")}
+
+
+def _detail_rest_config(
+    endpoint: str, detail_path: str, client_config: ClientConfig, list_endpoint: Endpoint
+) -> RESTAPIConfig:
+    """Walk the list endpoint, then fetch each row's detail, which carries fields the list omits."""
+    parent_name = f"{endpoint}_list"
+    detail_resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": detail_path,
+            "params": {"name": {"type": "resolve", "resource": parent_name, "field": _PATH_SEGMENT_FIELD}},
+            "paginator": SinglePagePaginator(),
+            # A row deleted between the list call and its detail call is gone, not an error.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+    }
+    return {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            # The path is bound with `str.format`, so percent-encode the name here (`#`, `/`, `?` in a name).
+            {"name": parent_name, "endpoint": list_endpoint, "data_map": _add_path_segment},
+            detail_resource,
+        ],
+    }

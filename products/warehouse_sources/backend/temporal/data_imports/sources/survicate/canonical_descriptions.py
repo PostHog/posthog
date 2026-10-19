@@ -45,4 +45,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "language": "The language of the survey translation shown to the respondent.",
         },
     },
+    "respondent_attributes": {
+        "description": "All custom attributes of each respondent who submitted a survey response.",
+        "docs_url": "https://developers.survicate.com/data-export/respondent/",
+        "columns": {
+            "respondent_uuid": "The identifier of the respondent the attribute belongs to.",
+            "id": "The attribute identifier.",
+            "name": "The attribute name, exactly as it was passed to Survicate.",
+            "value": "The attribute value, as a string.",
+        },
+    },
 }

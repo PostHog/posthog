@@ -68,13 +68,15 @@ Rows with no deadline are never queued.
 
 The queue lives only in memory.
 With durable restore enabled, a worker rebuilds it from its slice of behavioral state when it spawns, before it handles its first message.
-A worker spawns only when its partition's first message arrives, so after a restart that partition's overdue evictions wait for that message.
+Without durable restore, a worker spawns only when its partition's first message arrives, and there is nothing to evict after a restart because the store starts empty.
+With durable restore, the end of boot recovery spawns a worker for every owned partition, so overdue evictions run from boot.
 [Processor runtime](processor-runtime.md) explains worker lifecycle and durable restore.
 
 ## The sweep
 
 A timer fires every 30 seconds, after an initial delay at boot.
 Each tick sends a sweep request to every running worker with a **cutoff** of `now - safety margin`.
+Ticks send nothing before the first catalog load, because a sweep against the empty catalog would drop every due key (see below).
 The margin, 5 minutes by default, absorbs up to that much consumer lag.
 A person whose events are still sitting in the input topic should not be evicted just because the processor is behind.
 With more lag than the margin, a person can leave and then re-enter when the delayed event arrives.
@@ -111,7 +113,7 @@ Keys that share a deadline sit in the order they were scheduled, so in a midnigh
 Between the two passes, Stage 2 composes against half of the person's evictions.
 Take `AND[A, NOT B]` with A and B due at the same midnight: if the first pass evicts only B, the cohort emits `entered`, and the second pass then emits `left`.
 
-A batch drops its keys without rescheduling them when their team is missing from the catalog, including before the first catalog load, and when a key's leaf, row or encoding is gone or bad.
+A batch drops its keys without rescheduling them when their team is missing from the catalog, and when a key's leaf, row or encoding is gone or bad.
 Those rows are not scheduled again until the person's next matching event, or a durable-restore rebuild.
 
 ### Delivery on the sweep

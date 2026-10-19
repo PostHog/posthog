@@ -251,6 +251,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("schedule", {"type": "schedule"}, 201),
+            ("cohort", {"type": "cohort", "cohort_id": 1, "transition": "entered"}, 201),
             (
                 "slack_message",
                 {

@@ -24,7 +24,7 @@ import {
     HEALTH_ALERT_TRIGGERS,
 } from './healthAlertsWizardConfig'
 
-const HOG_FUNCTION_FILTER_LIST = HEALTH_ALERT_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+const HOG_FUNCTION_FILTER_LIST = HEALTH_ALERT_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
     (f) => !!f
 ) as CyclotronJobFiltersType[]
 

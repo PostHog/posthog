@@ -14,7 +14,10 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
 )
-from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_complete
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_INITIAL_GENERATION,
+    publish_task_run_stream_complete,
+)
 from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -22,23 +25,30 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class CleanupSandboxInput:
     sandbox_id: str
     run_id: str | None = None
     complete_stream_on_cleanup: bool = False
     stop_agent_server_on_cleanup: bool = False
     raise_on_error: bool = False
+    stream_generation: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompleteRunStreamInput:
     run_id: str
+    stream_generation: str | None = None
 
 
-def publish_run_stream_completion(run_id: str) -> None:
+def publish_run_stream_completion(run_id: str, *, stream_generation: str | None = None) -> None:
     state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first()
-    if not publish_task_run_stream_complete(run_id, run_uses_dedicated_stream(state)):
+    published = publish_task_run_stream_complete(
+        run_id,
+        run_uses_dedicated_stream(state),
+        expected_generation=stream_generation or TASK_RUN_STREAM_INITIAL_GENERATION,
+    )
+    if not published:
         raise RuntimeError(f"Failed to complete task run stream {run_id}")
 
 
@@ -134,7 +144,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
 
     if input.complete_stream_on_cleanup and input.run_id and stream_completion_safe:
         try:
-            publish_run_stream_completion(input.run_id)
+            publish_run_stream_completion(input.run_id, stream_generation=input.stream_generation)
         except Exception:
             logger.warning("cleanup_sandbox_stream_completion_failed", extra={"run_id": input.run_id}, exc_info=True)
             raise
@@ -163,4 +173,4 @@ def cleanup_sandbox(input: CleanupSandboxInput) -> None:
 @asyncify
 def complete_run_stream(input: CompleteRunStreamInput) -> None:
     with log_activity_execution("complete_run_stream", run_id=input.run_id):
-        publish_run_stream_completion(input.run_id)
+        publish_run_stream_completion(input.run_id, stream_generation=input.stream_generation)
