@@ -3187,8 +3187,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     )
 
     def _stages_draft(self) -> bool:
-        # stage_draft rides the raw request body rather than being a serializer field, mirroring
-        # base_updated_at (see perform_update, which does the actual draft routing off it).
+        # Only regular updates route from this flag. Custom actions share the raw request in serializer
+        # context, so accepting it there could incorrectly make their validation lenient.
+        view = self.context.get("view")
+        if getattr(view, "action", None) not in {"update", "partial_update"}:
+            return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
@@ -5087,7 +5090,9 @@ class HogFlowViewSet(
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._require_replay_vision_caller_access(request, self._edit_state().actions)
+        actions = self._edit_state().actions
+        self._require_replay_vision_caller_access(request, actions)
+        self._require_static_cohort_caller_access(actions)
 
         # `serializer.data` runs `to_representation`, which converts the
         # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
@@ -6889,7 +6894,9 @@ class HogFlowViewSet(
             audience_cohort = realtime_audience_cohort(self.team.project_id, hog_flow.trigger_filters)
             if audience_cohort is not None and not audience_cohort.can_finish:
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            actions = self._edit_state().actions
+            self._require_replay_vision_caller_access(request, actions)
+            self._require_static_cohort_caller_access(actions)
 
             batch_job = create_batch_job(
                 team_id=self.team_id,
@@ -7014,7 +7021,9 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            actions = self._edit_state().actions
+            self._require_replay_vision_caller_access(request, actions)
+            self._require_static_cohort_caller_access(actions)
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._log_schedule_activity(hog_flow, before=None, after=schedule)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})

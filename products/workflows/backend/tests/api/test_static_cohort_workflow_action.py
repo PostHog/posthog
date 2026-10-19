@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -80,6 +81,30 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
                 {"from": "cohort", "to": "exit", "type": "continue"},
             ],
         }
+
+    def _deny_cohort_edit_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        AccessControl.objects.create(team=self.team, resource="cohort", access_level="none")
+
+    def _active_workflow_with_static_cohort_draft(self) -> HogFlow:
+        flow = self._flow()
+        trigger = flow["actions"][0]
+        exit_action = flow["actions"][2]
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Existing workflow",
+            status=HogFlow.State.ACTIVE,
+            actions=[trigger, exit_action],
+            edges=[{"from": "trigger", "to": "exit", "type": "continue"}],
+            trigger=trigger["config"],
+            draft={"actions": flow["actions"], "edges": flow["edges"], "trigger": trigger["config"]},
+        )
 
     def test_static_cohort_action_round_trips(self) -> None:
         response = self.client.post(self.url, self._flow(), format="json")
@@ -194,6 +219,7 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert "cohort:write" in response.json()["detail"]
 
+    @time_machine.travel("2026-10-19T00:00:00Z", tick=False)
     def test_personal_api_key_requires_cohort_write_for_schedule_updates(self) -> None:
         create = self.client.post(self.url, self._flow(trigger_type="batch"), format="json")
         assert create.status_code == 201, create.json()
@@ -224,27 +250,65 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert "cohort:write" in response.json()["detail"]
 
+    def test_publish_requires_cohort_edit_access(self) -> None:
+        workflow = self._active_workflow_with_static_cohort_draft()
+        self._deny_cohort_edit_access()
+        preview = self.client.post(f"{self.url}/{workflow.id}/publish", {}, format="json")
+        assert preview.status_code == 200, preview.json()
+
+        response = self.client.post(
+            f"{self.url}/{workflow.id}/publish",
+            {
+                "confirm": True,
+                "confirm_token": preview.json()["confirm_token"],
+                "stage_draft": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "access to edit cohorts" in str(response.json())
+        workflow.refresh_from_db()
+        assert workflow.draft is not None
+
+    @parameterized.expand(
+        [
+            (
+                "rerun",
+                "rerun",
+                {"filter": {"window_start": "2026-10-13T00:00:00Z", "window_end": "2026-10-14T00:00:00Z"}},
+                "rerun_hog_invocations",
+            ),
+            ("batch", "batch_jobs", {}, "create_batch_job"),
+            (
+                "schedule",
+                "schedules",
+                {"rrule": "FREQ=DAILY;INTERVAL=1"},
+                "create_schedule",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-10-19T00:00:00Z", tick=False)
+    def test_live_execution_requires_cohort_edit_access(
+        self, _name: str, path: str, payload: dict, enqueue_function: str
+    ) -> None:
+        create = self.client.post(self.url, self._flow(trigger_type="batch"), format="json")
+        assert create.status_code == 201, create.json()
+        self._deny_cohort_edit_access()
+        if path == "schedules":
+            payload = {**payload, "starts_at": (timezone.now() + timedelta(days=1)).isoformat()}
+
+        with patch(f"products.workflows.backend.presentation.views.hog_flow.{enqueue_function}") as enqueue:
+            response = self.client.post(f"{self.url}/{create.json()['id']}/{path}", payload, format="json")
+
+        assert response.status_code == 403, response.json()
+        assert "access to edit cohorts" in response.json()["detail"]
+        enqueue.assert_not_called()
+
     @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
     def test_live_draft_invocation_requires_cohort_edit_access(self, invoke: MagicMock) -> None:
-        trigger = self._flow()["actions"][0]
-        exit_action = self._flow()["actions"][2]
-        workflow = HogFlow.objects.create(
-            team=self.team,
-            name="Existing workflow",
-            status=HogFlow.State.ACTIVE,
-            actions=[trigger, exit_action],
-            edges=[{"from": "trigger", "to": "exit", "type": "continue"}],
-            trigger=trigger["config"],
-            draft={"actions": self._flow()["actions"], "edges": self._flow()["edges"], "trigger": trigger["config"]},
-        )
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save(update_fields=["level"])
-        AccessControl.objects.create(team=self.team, resource="cohort", access_level="none")
+        workflow = self._active_workflow_with_static_cohort_draft()
+        self._deny_cohort_edit_access()
 
         response = self.client.post(
             f"{self.url}/{workflow.id}/invocations",
