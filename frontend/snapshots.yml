@@ -15686,6 +15686,10 @@ snapshots:
         hash: v1.k794b7964.7fcafd04ed6c719a8ad01cebc7abcc7265a3f677a2398e6ee19004eac26d1eff.kASMuoxhwilbDbtUhEblU0HnMTCXcWhk0aGBx34zYYk
     scenes-other-onboarding-shared-installation-progress--failed-provisioning--light:
         hash: v1.k794b7964.ae9111e8e758485d7791e5d85cd44d5cd5ffb2d5ec8948b1a9bb360455bc6674.O0Mx_17KqsoiMCWOgBgvn9w30i-uCzJpz05Jk9K3Isc
+    scenes-other-onboarding-shared-installation-progress--failed-usage-limit--dark:
+        hash: v1.k794b7964.60aae9b667df8cbdb74bf7419d201ece1ecede99bfb47de5ab86ca92cf29a3ca.vJvgDkUSC7s5hJ5wiiC1F7WgLlRUqmshkqDn5bOB0e8
+    scenes-other-onboarding-shared-installation-progress--failed-usage-limit--light:
+        hash: v1.k794b7964.50c4be57a0b7f54e4f9576afc3c8640b7fe50d81fb5ac53491a7627514c98759.2_g9z9UW7cdf77LuleEVHVIKOKW9qDlojT8K9IRbrLk
     scenes-other-onboarding-shared-installation-progress--failed-wizard--dark:
         hash: v1.k794b7964.3a1cef199fe6ff0b83ed59eb7c203067ceb40d28992890194f4b65eb54037063.G8lqwGkC_dmlyq1MoxtZlaWREPKsfAmXjlt1i3opb-w
     scenes-other-onboarding-shared-installation-progress--failed-wizard--light:
