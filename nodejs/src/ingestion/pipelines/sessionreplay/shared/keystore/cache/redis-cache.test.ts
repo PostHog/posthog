@@ -1,3 +1,4 @@
+import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { RedisCachedKeyStore } from './redis-cache'
@@ -5,6 +6,7 @@ import { RedisCachedKeyStore } from './redis-cache'
 jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
     SessionBatchMetrics: {
         observeKeystoreRedisLatency: jest.fn(),
+        incrementKeystoreRedisWriteErrors: jest.fn(),
     },
 }))
 
@@ -90,6 +92,7 @@ describe('RedisCachedKeyStore', () => {
 
             expect(result).toEqual(mockSessionKey)
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
+            expect(SessionBatchMetrics.incrementKeystoreRedisWriteErrors).toHaveBeenCalled()
         })
     })
 

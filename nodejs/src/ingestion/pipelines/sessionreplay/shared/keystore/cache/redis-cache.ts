@@ -1,4 +1,4 @@
-import { logger } from '~/common/utils/logger'
+import { logger, serializeError } from '~/common/utils/logger'
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     deserializeSessionKey,
@@ -48,7 +48,8 @@ export class RedisCachedKeyStore implements KeyStore {
                 await this.redisPool.release(client)
             }
         } catch (error) {
-            logger.warn('🔑', 'keystore_redis_cache_write_failed', { sessionId, teamId, error })
+            SessionBatchMetrics.incrementKeystoreRedisWriteErrors()
+            logger.warn('🔑', 'keystore_redis_cache_write_failed', { sessionId, teamId, error: serializeError(error) })
         } finally {
             SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
