@@ -40,7 +40,7 @@ impl Settlement for GroupSettlement {
     ) -> anyhow::Result<()> {
         if let Err(rejection) =
             self.uncommitted
-                .complete(topic_partition, generation, offsets.iter().copied())
+                .settled(topic_partition, generation, offsets.iter().copied())
         {
             report_rejection(
                 "settle",

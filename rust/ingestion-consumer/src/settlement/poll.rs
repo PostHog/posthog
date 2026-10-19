@@ -93,7 +93,7 @@ fn settle_slices(
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let frontier = match uncommitted.complete(
+        let frontier = match uncommitted.settled(
             slice.topic_partition,
             slice.generation,
             slice.charges.iter().map(|(offset, _)| *offset),

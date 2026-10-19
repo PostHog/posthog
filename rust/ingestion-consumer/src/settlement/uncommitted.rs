@@ -40,10 +40,11 @@ impl Uncommitted {
         Ok(uncommitted)
     }
 
-    /// Mark offsets complete and move the frontier that results, with its
-    /// charge, to the pacer. Returns that frontier, `None` while the front
-    /// of the window is still incomplete.
-    pub(super) fn complete(
+    /// Called after a group run or a poll settles: mark its offsets complete
+    /// and move the frontier that results, with its charge, to the pacer.
+    /// Returns that frontier, `None` while the front of the window is still
+    /// incomplete.
+    pub(super) fn settled(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
@@ -61,12 +62,15 @@ impl Uncommitted {
         Ok(frontier)
     }
 
+    /// Refunds the charge of every frontier handed out; the consumer submits
+    /// their commit right after.
     pub(super) fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let due = self.pacer.lock().unwrap().take_due(now)?;
         self.publish_window(&due);
         Some(due)
     }
 
+    /// Like `take_due`, without waiting for the interval.
     pub(super) fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
         let due = self.pacer.lock().unwrap().take_all()?;
         self.publish_window(&due);
@@ -156,9 +160,9 @@ mod tests {
             .expect("the ledger accepts the charge")
     }
 
-    fn complete(uncommitted: &Uncommitted, offsets: &[i64]) {
+    fn settled(uncommitted: &Uncommitted, offsets: &[i64]) {
         let frontier = uncommitted
-            .complete(&p0(), 0, offsets.iter().map(|&o| Offset(o)))
+            .settled(&p0(), 0, offsets.iter().map(|&o| Offset(o)))
             .expect("the ledger settles");
         assert!(frontier.is_some());
     }
@@ -167,7 +171,7 @@ mod tests {
     fn a_take_stays_uncommitted_until_the_pacer_hands_it_out() {
         let uncommitted = uncommitted_every_hour();
         charge(&uncommitted, 0, 10);
-        complete(&uncommitted, &[10]);
+        settled(&uncommitted, &[10]);
 
         assert_eq!(charge(&uncommitted, 0, 11), held(2));
 
@@ -180,8 +184,8 @@ mod tests {
         let uncommitted = uncommitted_every_hour();
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
-        complete(&uncommitted, &[10]);
-        complete(&uncommitted, &[11]);
+        settled(&uncommitted, &[10]);
+        settled(&uncommitted, &[11]);
 
         assert_eq!(charge(&uncommitted, 0, 12), held(3));
     }
@@ -191,7 +195,7 @@ mod tests {
         let uncommitted = uncommitted_every_hour();
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
-        complete(&uncommitted, &[10]);
+        settled(&uncommitted, &[10]);
 
         uncommitted.forget_partitions(&[p0()]);
 
