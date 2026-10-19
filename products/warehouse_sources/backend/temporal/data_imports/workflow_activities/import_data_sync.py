@@ -26,9 +26,8 @@ from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.errors import NonReportableError
-from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -81,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.run_control import RunControl, temporal_run_control
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -377,6 +377,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    control = temporal_run_control()
+
     # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
     # this activity's event loop (or its heartbeats).
     async with aworkload_reporting(
@@ -386,10 +388,10 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         host=socket.gethostname(),
         # Retries share the run_id; the attempt lets the newest reporter own the run key while a
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
-        attempt=current_import_attempt(),
+        attempt=control.attempt,
     ):
         try:
-            return await _import_data_with_reporting(inputs, logger)
+            return await run_extraction(inputs, logger, control)
         except WorkerShuttingDownError:
             if not inputs.handoffs_are_free:
                 raise
@@ -400,29 +402,39 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 handed_off=True,
                 handoff_attempts_used=current_activity_attempt(),
             )
-        except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
-            # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
-            # own app DB through the Django ORM before the source's error handling takes over. A
-            # transient blip there — a PgBouncer server_login_retry cooldown, or a pooled connection
-            # left on a demoted standby by a failover, which rejects our writes as InternalError —
-            # raises these exception types, which can only mean our own infra, never the customer's
-            # source (every source talks to a customer database over a raw driver connection, not
-            # the ORM). Re-raise as NonReportableError so Temporal retries the whole activity and it
-            # self-heals. The raw driver string stays in the log but must not become the message
-            # that escapes: see POSTHOG_DATABASE_UNAVAILABLE_MESSAGE. _handle_import_error already
-            # classifies these types this way once the run is under way; this covers the setup calls
-            # that run before it.
-            if isinstance(e, InternalError) and not is_stale_connection_read_only_error(e):
-                # InternalError also covers corrupted data/indexes and failed-transaction states.
-                # Those are deterministic defects, so retrying burns the budget, and NonReportableError
-                # would keep them out of error tracking behind a message saying nothing is wrong.
-                raise
-            await logger.awarning(str(e))
-            raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
-async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
-    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+async def run_extraction(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, control: RunControl
+) -> PipelineResult:
+    """Extract one run of a schema. Anything that depends on the runtime comes from `control`."""
+    try:
+        return await _extract(inputs, logger, control)
+    except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
+        # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
+        # own app DB through the Django ORM before the source's error handling takes over. A
+        # transient blip there — a PgBouncer server_login_retry cooldown, or a pooled connection
+        # left on a demoted standby by a failover, which rejects our writes as InternalError —
+        # raises these exception types, which can only mean our own infra, never the customer's
+        # source (every source talks to a customer database over a raw driver connection, not
+        # the ORM). Re-raise as NonReportableError so Temporal retries the whole activity and it
+        # self-heals. The raw driver string stays in the log but must not become the message
+        # that escapes: see POSTHOG_DATABASE_UNAVAILABLE_MESSAGE. _handle_import_error already
+        # classifies these types this way once the run is under way; this covers the setup calls
+        # that run before it.
+        if isinstance(e, InternalError) and not is_stale_connection_read_only_error(e):
+            # InternalError also covers corrupted data/indexes and failed-transaction states.
+            # Those are deterministic defects, so retrying burns the budget, and NonReportableError
+            # would keep them out of error tracking behind a message saying nothing is wrong.
+            raise
+        await logger.awarning(str(e))
+        raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
+
+
+async def _extract(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, control: RunControl
+) -> PipelineResult:
+    async with control.heartbeat(), control.shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         try:
@@ -445,7 +457,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 f"Job {inputs.run_id} uses pipeline version {model.pipeline_version}. Only V3 jobs can run."
             )
 
-        attempt = current_import_attempt()
+        attempt = control.attempt
         if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
             await logger.ainfo(
                 "Skipping retry - job already terminal",
@@ -483,7 +495,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             sync_type=model.schema.sync_type if model.schema is not None else None,
             pipeline_version=model.pipeline_version,
         )
-        shutdown_monitor.run_on_shutdown(functools.partial(_log_worker_shutdown_during_import, logger))
+        control.shutdown_monitor.run_on_shutdown(functools.partial(_log_worker_shutdown_during_import, logger))
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
@@ -669,9 +681,10 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
-                activity_attempt=current_import_attempt(),
+                activity_attempt=control.attempt,
                 worker_deaths=await asyncio.to_thread(count_worker_deaths, inputs, logger),
                 source_cursor=source_cursor_manager,
+                shutdown_wait=control.shutdown_wait or control.shutdown_monitor.wait_for_worker_shutdown_sync,
             )
 
             try:
@@ -758,6 +771,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     e,
                     resumable_source_manager=resumable_source_manager,
                     on_resumable_retry_budget=inputs.on_resumable_retry_budget,
+                    attempt=control.attempt,
                 )
 
             return await _run(
@@ -765,7 +779,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 source_response=source_response,
                 logger=logger,
                 reset_pipeline=reset_pipeline,
-                shutdown_monitor=shutdown_monitor,
+                control=control,
                 resumable_source_manager=resumable_source_manager,
                 source_cursor_manager=source_cursor_manager,
                 incremental_checkpoints_allowed=incremental_checkpoints_allowed,
@@ -850,17 +864,19 @@ def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
     # One line per import still running when the worker got SIGTERM. A matching hand-off line from
     # _handle_import_error means the import moved to another pod; without one, the import held
     # this pod until it finished or the graceful shutdown timeout ran out.
-    info = activity.info()
-    logger.info(
-        "Worker shutdown detected while import is running",
-        attempt=current_import_attempt(),
-        attempt_elapsed_seconds=round((dt.datetime.now(dt.UTC) - info.started_time).total_seconds()),
-    )
+    fields: dict[str, Any] = {}
+    # A run outside Temporal has no activity start time to measure from.
+    if activity.in_activity():
+        fields["attempt_elapsed_seconds"] = round(
+            (dt.datetime.now(dt.UTC) - activity.info().started_time).total_seconds()
+        )
+    logger.info("Worker shutdown detected while import is running", attempt=current_import_attempt(), **fields)
 
 
 def _spent_resumable_cap_without_resuming(
     resumable_source_manager: ResumableSourceManager | None,
     on_resumable_retry_budget: bool,
+    attempt: int,
 ) -> bool:
     """Whether this run has used its progressless share of the resumable cap.
 
@@ -872,7 +888,7 @@ def _spent_resumable_cap_without_resuming(
     """
     if not on_resumable_retry_budget or resumable_source_manager is None:
         return False
-    if current_import_attempt() <= PROGRESSLESS_RESUMABLE_ATTEMPTS:
+    if attempt <= PROGRESSLESS_RESUMABLE_ATTEMPTS:
         return False
     try:
         return not resumable_source_manager.can_resume()
@@ -886,6 +902,7 @@ async def _handle_import_error(
     error: Exception,
     resumable_source_manager: ResumableSourceManager | None = None,
     on_resumable_retry_budget: bool = False,
+    attempt: int | None = None,
 ) -> NoReturn:
     """Route an import error through the source's non-retryable error policy.
 
@@ -1115,11 +1132,13 @@ async def _handle_import_error(
     # Below the classified branches, which are PostHog-side or vendor-side blips that another
     # attempt does clear. Raised `from error` so the finalizer still classifies the real failure
     # and the customer still reads its message rather than this decision.
-    if _spent_resumable_cap_without_resuming(resumable_source_manager, on_resumable_retry_budget):
+    if attempt is None:
+        attempt = current_import_attempt()
+    if _spent_resumable_cap_without_resuming(resumable_source_manager, on_resumable_retry_budget, attempt):
         await logger.awarning(error_msg)
         await logger.ainfo(
             "No attempt of this run has anything to resume from, so it stops retrying",
-            attempt=current_import_attempt(),
+            attempt=attempt,
         )
         if activity.in_activity():
             get_progressless_stand_down_metric(str(job_inputs.job_type)).add(1)
@@ -1141,7 +1160,7 @@ async def _run(
     source_response: SourceResponse,
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
-    shutdown_monitor: ShutdownMonitor,
+    control: RunControl,
     resumable_source_manager: ResumableSourceManager | None,
     source_cursor_manager: SourceCursorManager[Any] | None = None,
     incremental_checkpoints_allowed: bool = False,
@@ -1161,7 +1180,7 @@ async def _run(
             logger,
             job_inputs.run_id,
             reset_pipeline,
-            shutdown_monitor,
+            control.shutdown_monitor,
             resumable_source_manager,
             models=models,
             source_cursor_manager=source_cursor_manager,
@@ -1169,6 +1188,9 @@ async def _run(
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            attempt=control.attempt,
+            workflow_id=control.workflow_id,
+            workflow_run_id=control.workflow_run_id,
         )
 
         result = await pipeline.run()
@@ -1182,4 +1204,5 @@ async def _run(
             e,
             resumable_source_manager=resumable_source_manager,
             on_resumable_retry_budget=on_resumable_retry_budget,
+            attempt=control.attempt,
         )

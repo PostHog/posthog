@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -25,6 +26,7 @@ def source_inputs(
     api_version: str | None = None,
     logger: FilteringBoundLogger | None = None,
     source_cursor: SourceCursorManager[Any] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -50,4 +52,5 @@ def source_inputs(
         reset_pipeline=reset_pipeline,
         api_version=api_version,
         source_cursor=source_cursor,
+        shutdown_wait=shutdown_wait,
     )
