@@ -74,17 +74,35 @@ describe('emailDomainWizardLogic', () => {
         expect(logic.values.sendingDomain).toBe(`${expected}.acme.com`)
     })
 
-    it.each([
-        ['billing@acme.com', false],
-        ['hello@acme.com', true],
-    ])('lets %s join a domain that already has hello@ (blocked: %s)', async (input, blocked) => {
-        backend.addSender({ email: 'hello@mail.acme.com' })
+    const mountWithExistingSender = async (): Promise<ReturnType<typeof emailDomainWizardLogic.build>> => {
+        backend.addSender({ email: 'hello@mail.acme.com', mail_from_subdomain: 'bounce' })
         const logic = mountWizard()
         await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        return logic
+    }
+
+    it.each([
+        ['billing@acme.com', 'billing@mail.acme.com'],
+        ['billing@mail.acme.com', 'billing@mail.acme.com'],
+    ])('adds %s to a domain that already sends as %s, keeping its bounce subdomain', async (input, address) => {
+        const logic = await mountWithExistingSender()
 
         logic.actions.setCustomDomainInput(input)
         logic.actions.useCustomDomain()
+        expect(logic.values.existingSender).toBeNull()
+        await expectLogic(logic, () => logic.actions.createSender()).toFinishAllListeners()
 
-        expect(logic.values.existingSender?.config.email ?? null).toBe(blocked ? 'hello@mail.acme.com' : null)
+        expect(backend.requestsTo('integration_create').at(-1)?.body).toMatchObject({
+            config: { email: address, mail_from_subdomain: 'bounce' },
+        })
+    })
+
+    it('refuses an address that already has a sender', async () => {
+        const logic = await mountWithExistingSender()
+
+        logic.actions.setCustomDomainInput('hello@acme.com')
+        logic.actions.useCustomDomain()
+
+        expect(logic.values.existingSender?.config.email).toBe('hello@mail.acme.com')
     })
 })
