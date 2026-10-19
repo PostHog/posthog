@@ -18848,6 +18848,48 @@ export namespace Schemas {
       Email: 'email',
     } as const;
 
+    /**
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `needs_attention` - Needs attention
+     */
+    export type RealtimeAudienceCohortStateEnum = typeof RealtimeAudienceCohortStateEnum[keyof typeof RealtimeAudienceCohortStateEnum];
+
+
+    export const RealtimeAudienceCohortStateEnum = {
+      Ready: 'ready',
+      Building: 'building',
+      Rebuilding: 'rebuilding',
+      NeedsAttention: 'needs_attention',
+    } as const;
+
+    export interface RealtimeCohortStatus {
+      /** The realtime cohort the audience sends to. */
+      id: number;
+      /** The cohort's name. */
+      name: string;
+      /** 'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck.
+       *
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `rebuilding` - Rebuilding
+       * * `needs_attention` - Needs attention */
+      state: RealtimeAudienceCohortStateEnum;
+      /**
+         * How far the calculation has come, while the cohort is not ready.
+         * @nullable
+         */
+      percent_complete: number | null;
+    }
+
+    export interface RealtimeCohortRef {
+      /** ID of the realtime cohort. */
+      id: number;
+      /** Name of the realtime cohort. */
+      name: string;
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -18861,6 +18903,10 @@ export namespace Schemas {
       dedupe_key: DedupeKeyEnum | null;
       /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
       confirm_token: string;
+      /** Set when the audience is one realtime cohort. 'affected' is then the cohort's last calculated size, and a batch run waits until the cohort is ready. */
+      realtime_cohort?: RealtimeCohortStatus | null;
+      /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
+      realtime_cohort_with_other_conditions?: RealtimeCohortRef | null;
     }
 
     /**
