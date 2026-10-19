@@ -230,6 +230,44 @@ struct RevokedPartition {
     generation: u64,
 }
 
+#[derive(Default)]
+struct FetchingPartitions {
+    fetching: HashSet<TopicPartition>,
+    paused: HashSet<TopicPartition>,
+}
+
+impl FetchingPartitions {
+    fn assigned(&mut self, topic_partitions: &[TopicPartition]) {
+        for topic_partition in topic_partitions {
+            self.paused.remove(topic_partition);
+            self.fetching.insert(topic_partition.clone());
+        }
+    }
+
+    fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
+        for topic_partition in topic_partitions {
+            self.paused.remove(topic_partition);
+            self.fetching.remove(topic_partition);
+        }
+    }
+
+    fn paused(&mut self, topic_partition: &TopicPartition) {
+        if self.fetching.remove(topic_partition) {
+            self.paused.insert(topic_partition.clone());
+        }
+    }
+
+    fn resumed(&mut self, topic_partition: &TopicPartition) {
+        if self.paused.remove(topic_partition) {
+            self.fetching.insert(topic_partition.clone());
+        }
+    }
+
+    fn all_paused(&self) -> bool {
+        !self.paused.is_empty() && self.fetching.is_empty()
+    }
+}
+
 /// The consumer's revocation hook: purge the batcher, and record the revoked
 /// partitions, because the purge means their polls never complete.
 fn revoke_hook(
@@ -237,9 +275,11 @@ fn revoke_hook(
     ledger: Arc<TopicOffsetLedger>,
     settlement: Arc<dyn Settlement>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+    fetching: Arc<Mutex<FetchingPartitions>>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         settlement.forget_partitions(partitions);
+        fetching.lock().unwrap().revoked(partitions);
         let pairs: Vec<(String, i32)> = partitions
             .iter()
             .map(|tp| (tp.topic.clone(), tp.partition))
@@ -257,11 +297,13 @@ fn revoke_hook(
 
 fn assign_hook(
     settlement: Arc<dyn Settlement>,
+    fetching: Arc<Mutex<FetchingPartitions>>,
     assignment_epoch: AssignmentEpoch,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
         settlement.forget_partitions(partitions);
+        fetching.lock().unwrap().assigned(partitions);
         assignment_epoch.bump();
     })
 }
@@ -272,16 +314,25 @@ fn wire_rebalance_hooks(
     ledger: &Arc<TopicOffsetLedger>,
     settlement: &Arc<dyn Settlement>,
     assignment_epoch: AssignmentEpoch,
-) -> Arc<Mutex<Vec<RevokedPartition>>> {
+) -> (
+    Arc<Mutex<Vec<RevokedPartition>>>,
+    Arc<Mutex<FetchingPartitions>>,
+) {
     let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
+    let fetching = Arc::new(Mutex::new(FetchingPartitions::default()));
     context.set_on_revoke(revoke_hook(
         revoker,
         Arc::clone(ledger),
         Arc::clone(settlement),
         Arc::clone(&revoked_partitions),
+        Arc::clone(&fetching),
     ));
-    context.set_on_assign(assign_hook(Arc::clone(settlement), assignment_epoch));
-    revoked_partitions
+    context.set_on_assign(assign_hook(
+        Arc::clone(settlement),
+        Arc::clone(&fetching),
+        assignment_epoch,
+    ));
+    (revoked_partitions, fetching)
 }
 
 /// Remove revoked partitions from in-flight polls, and remove polls left
@@ -453,6 +504,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+    fetching: Arc<Mutex<FetchingPartitions>>,
     settlement: Arc<dyn Settlement>,
 }
 
@@ -475,7 +527,7 @@ impl IngestionConsumer {
             options.commit_interval,
             options.partition_budget,
         );
-        let revoked_partitions = wire_rebalance_hooks(
+        let (revoked_partitions, fetching) = wire_rebalance_hooks(
             consumer.context(),
             batcher.revoker(),
             &topic_offset_ledger,
@@ -487,6 +539,7 @@ impl IngestionConsumer {
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            fetching,
             settlement,
             consumer,
             batcher,
@@ -542,7 +595,7 @@ impl IngestionConsumer {
                 .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?,
         );
         let context = RebalanceContext::new();
-        let revoked_partitions = wire_rebalance_hooks(
+        let (revoked_partitions, fetching) = wire_rebalance_hooks(
             &context,
             batcher.revoker(),
             &topic_offset_ledger,
@@ -569,6 +622,7 @@ impl IngestionConsumer {
             debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            fetching,
             settlement,
             batcher,
             outputs: Some(outputs),
@@ -864,40 +918,30 @@ impl IngestionConsumer {
     /// Paused partitions fill no poll, so a collection would wait out the batch
     /// timeout before the completions whose commits resume them.
     fn every_partition_paused(&self) -> bool {
-        let paused = self.settlement.paused();
-        if paused.is_empty() {
-            return false;
-        }
-        let Ok(assignment) = self.consumer.assignment() else {
-            return false;
-        };
-        let assigned: Vec<TopicPartition> = assignment
-            .elements()
-            .iter()
-            .map(|element| TopicPartition::new(element.topic(), element.partition()))
-            .collect();
-        covers_the_assignment(&paused, &assigned)
+        self.fetching.lock().unwrap().all_paused()
     }
 
     fn pause_partition(&self, topic_partition: &TopicPartition) {
-        if let Err(err) = self.consumer.pause(&partition_list(topic_partition)) {
-            error!(
+        match self.consumer.pause(&partition_list(topic_partition)) {
+            Ok(()) => self.fetching.lock().unwrap().paused(topic_partition),
+            Err(err) => error!(
                 topic = %topic_partition.topic,
                 partition = topic_partition.partition,
                 error = %err,
                 "Could not pause a partition at its budget"
-            );
+            ),
         }
     }
 
     fn resume_partition(&self, topic_partition: &TopicPartition) {
-        if let Err(err) = self.consumer.resume(&partition_list(topic_partition)) {
-            error!(
+        match self.consumer.resume(&partition_list(topic_partition)) {
+            Ok(()) => self.fetching.lock().unwrap().resumed(topic_partition),
+            Err(err) => error!(
                 topic = %topic_partition.topic,
                 partition = topic_partition.partition,
                 error = %err,
                 "Could not resume a partition under its budget"
-            );
+            ),
         }
     }
 
@@ -1111,10 +1155,6 @@ impl IngestionConsumer {
     }
 }
 
-fn covers_the_assignment(paused: &[TopicPartition], assigned: &[TopicPartition]) -> bool {
-    !assigned.is_empty() && assigned.iter().all(|partition| paused.contains(partition))
-}
-
 fn partition_list(topic_partition: &TopicPartition) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition(&topic_partition.topic, topic_partition.partition);
@@ -1314,32 +1354,54 @@ mod tests {
         apply_completion(in_flight, &completion, |_, _, _| Ok(())).unwrap();
     }
 
-    struct PausedAssignment {
-        paused: &'static [i32],
-        assigned: &'static [i32],
-        expected: bool,
+    fn partitions(numbers: &[i32]) -> Vec<TopicPartition> {
+        numbers
+            .iter()
+            .map(|&number| TopicPartition::new("events", number))
+            .collect()
     }
 
-    #[rstest::rstest]
-    #[case::nothing_paused(PausedAssignment { paused: &[], assigned: &[0, 1], expected: false })]
-    #[case::one_assigned_partition_fetching(PausedAssignment { paused: &[0], assigned: &[0, 1], expected: false })]
-    #[case::every_assigned_partition_paused(PausedAssignment { paused: &[0, 1], assigned: &[0, 1], expected: true })]
-    #[case::a_paused_partition_no_longer_assigned(PausedAssignment { paused: &[0, 2], assigned: &[0], expected: true })]
-    #[case::nothing_assigned(PausedAssignment { paused: &[0], assigned: &[], expected: false })]
-    fn collection_stops_only_while_every_assigned_partition_is_paused(
-        #[case] case: PausedAssignment,
-    ) {
-        let partitions = |numbers: &[i32]| -> Vec<TopicPartition> {
-            numbers
-                .iter()
-                .map(|&number| TopicPartition::new("events", number))
-                .collect()
-        };
+    #[test]
+    fn every_partition_is_paused_only_while_none_is_fetching() {
+        let mut fetching = FetchingPartitions::default();
+        assert!(!fetching.all_paused(), "nothing is assigned");
 
-        assert_eq!(
-            covers_the_assignment(&partitions(case.paused), &partitions(case.assigned)),
-            case.expected
+        fetching.assigned(&partitions(&[0, 1]));
+        fetching.paused(&TopicPartition::new("events", 0));
+        assert!(!fetching.all_paused(), "partition 1 still fetches");
+
+        fetching.paused(&TopicPartition::new("events", 1));
+        assert!(fetching.all_paused());
+
+        fetching.resumed(&TopicPartition::new("events", 1));
+        assert!(!fetching.all_paused());
+    }
+
+    #[test]
+    fn a_rebalance_changes_which_partitions_must_be_paused() {
+        let mut fetching = FetchingPartitions::default();
+        fetching.assigned(&partitions(&[0, 1]));
+        fetching.paused(&TopicPartition::new("events", 0));
+
+        fetching.revoked(&partitions(&[1]));
+        assert!(fetching.all_paused(), "only the paused partition is left");
+
+        fetching.assigned(&partitions(&[0]));
+        assert!(
+            !fetching.all_paused(),
+            "a reassigned partition starts fetching"
         );
+    }
+
+    #[test]
+    fn a_partition_that_is_not_assigned_neither_pauses_nor_resumes() {
+        let mut fetching = FetchingPartitions::default();
+
+        fetching.paused(&TopicPartition::new("events", 0));
+        assert!(!fetching.all_paused());
+
+        fetching.resumed(&TopicPartition::new("events", 0));
+        assert!(!fetching.all_paused());
     }
 
     #[test]
@@ -1351,7 +1413,11 @@ mod tests {
             BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
         ));
         let epoch = AssignmentEpoch::new();
-        let on_assign = assign_hook(Arc::clone(&settlement), epoch.clone());
+        let on_assign = assign_hook(
+            Arc::clone(&settlement),
+            Arc::new(Mutex::new(FetchingPartitions::default())),
+            epoch.clone(),
+        );
         let p0 = TopicPartition::new("events", 0);
         let one_event = [(
             MessageOffset(10),

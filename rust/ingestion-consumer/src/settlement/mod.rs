@@ -55,8 +55,6 @@ pub(crate) trait Settlement: Send + Sync {
     fn take_all(&self) -> Option<Commit>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
-
-    fn paused(&self) -> Vec<TopicPartition>;
 }
 
 pub(crate) trait Accounting: Send + Sync {
@@ -88,8 +86,6 @@ pub(crate) trait Admission: Send + Sync {
     fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
-
-    fn paused(&self) -> Vec<TopicPartition>;
 }
 
 #[derive(Debug, PartialEq, Eq)]

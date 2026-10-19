@@ -61,10 +61,6 @@ impl Admission for PartitionBudget {
         }
         gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
     }
-
-    fn paused(&self) -> Vec<TopicPartition> {
-        self.paused.lock().unwrap().iter().cloned().collect()
-    }
 }
 
 fn log_transition(topic_partition: &TopicPartition, transition: &str, uncommitted: Charge) {
@@ -117,7 +113,6 @@ mod tests {
         assert_eq!(budget.charged(&p0(), events(10)), Some(Pause));
 
         assert_eq!(budget.charged(&p0(), events(12)), None);
-        assert_eq!(budget.paused(), vec![p0()]);
     }
 
     #[rstest::rstest]
@@ -131,9 +126,7 @@ mod tests {
         let budget = budget_of_10_events_resuming_under_8();
         budget.charged(&p0(), events(10));
 
-        let resumed = expected.is_some();
         assert_eq!(budget.handed_out(&p0(), events(uncommitted)), expected);
-        assert_eq!(budget.paused().is_empty(), resumed);
     }
 
     #[test]
@@ -159,7 +152,6 @@ mod tests {
 
         budget.forget_partitions(&[p0()]);
 
-        assert!(budget.paused().is_empty());
         assert_eq!(budget.charged(&p0(), events(10)), Some(Pause));
     }
 }

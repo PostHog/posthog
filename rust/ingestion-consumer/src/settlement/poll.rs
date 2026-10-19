@@ -70,10 +70,6 @@ impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.uncommitted.forget_partitions(topic_partitions);
     }
-
-    fn paused(&self) -> Vec<TopicPartition> {
-        Vec::new()
-    }
 }
 
 enum NoFrontier {
@@ -304,7 +300,6 @@ mod tests {
         }));
 
         assert_eq!(settlement.charge(&p(0), 2, &[]), Ok(None));
-        assert!(settlement.paused().is_empty());
     }
 
     #[test]

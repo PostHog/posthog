@@ -83,10 +83,6 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
         self.accounting.forget_partitions(topic_partitions);
         self.admission.forget_partitions(topic_partitions);
     }
-
-    fn paused(&self) -> Vec<TopicPartition> {
-        self.admission.paused()
-    }
 }
 
 #[cfg(test)]
@@ -263,14 +259,6 @@ mod tests {
 
         assert_eq!(settlement.accounting.forgotten(), vec![p(0)]);
         assert_eq!(settlement.admission.forgotten(), vec![p(0)]);
-    }
-
-    #[test]
-    fn the_paused_partitions_come_from_the_admission() {
-        let settlement = settlement();
-        settlement.admission.pauses(&[p(0)]);
-
-        assert_eq!(settlement.paused(), vec![p(0)]);
     }
 }
 
@@ -474,7 +462,6 @@ mod integration_tests {
 
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
         assert!(settlement.take_due(now).is_none());
-        assert_eq!(settlement.paused(), vec![p0()]);
 
         let commit = match hand_out {
             HandOut::DueAfterTheInterval => settlement.take_due(now + HOUR),
@@ -482,7 +469,6 @@ mod integration_tests {
         }
         .expect("the frontier is handed out");
         assert_eq!(commit.resume, vec![p0()]);
-        assert!(settlement.paused().is_empty());
     }
 
     #[test]
@@ -517,7 +503,6 @@ mod integration_tests {
 
         settlement.forget_partitions(&[p0()]);
 
-        assert!(settlement.paused().is_empty());
         assert!(settlement.take_all().is_none());
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
         assert!(

@@ -106,7 +106,6 @@ impl Accounting for FakeAccounting {
 pub(super) struct FakeAdmission {
     pauses: Script<Option<Pause>>,
     resumes: Mutex<HashMap<TopicPartition, Resume>>,
-    paused: Mutex<Vec<TopicPartition>>,
     charged: Mutex<Vec<(TopicPartition, Charge)>>,
     handed_out: Mutex<Vec<(TopicPartition, Charge)>>,
     forgotten: Mutex<Vec<TopicPartition>>,
@@ -122,10 +121,6 @@ impl FakeAdmission {
             .lock()
             .unwrap()
             .insert(topic_partition.clone(), decision);
-    }
-
-    pub(super) fn pauses(&self, topic_partitions: &[TopicPartition]) {
-        *self.paused.lock().unwrap() = topic_partitions.to_vec();
     }
 
     pub(super) fn charged(&self) -> Vec<(TopicPartition, Charge)> {
@@ -163,9 +158,5 @@ impl Admission for FakeAdmission {
             .lock()
             .unwrap()
             .extend_from_slice(topic_partitions);
-    }
-
-    fn paused(&self) -> Vec<TopicPartition> {
-        self.paused.lock().unwrap().clone()
     }
 }
