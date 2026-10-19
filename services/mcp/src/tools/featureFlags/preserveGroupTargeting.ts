@@ -33,6 +33,13 @@
  * reports a group property in a person set and a person-aggregated property in a group set. The
  * evaluator supports both shapes. The merge keeps them where the stored flag already has them.
  *
+ * A person-aggregated set that changes the filters of its source and keeps the filters of another
+ * person-aggregated set with the same keys on different group types restores only the
+ * person-aggregated types its source holds. It looks up no other stored set. A swap of the two sets
+ * and an in-place edit that copies the other set's filters send the same payload. The two edits need
+ * different group types. A group property that such a set leaves untyped makes the API reject
+ * the write.
+ *
  * `aggregation_group_type_index: null` means person aggregation. Only a missing key is
  * filled from the existing flag.
  *
@@ -246,7 +253,7 @@ function mergeProperty(
     candidates: FlagProperty[] | undefined,
     otherCandidates: FlagProperty[] | undefined,
     setGroupTypeIndex: number | undefined,
-    sourceAggregatesOnPersons: boolean
+    sourceRestoresGroupType: boolean
 ): FlagProperty {
     const out: FlagProperty = { ...incoming }
 
@@ -258,11 +265,12 @@ function mergeProperty(
                 : (pickCandidate(candidates, out, isPersonAggregatedType)?.type ?? 'group')
         } else {
             // A person-aggregated source restores the group property it filters on, index
-            // included. Any other candidate restores only a person-aggregated type, because
-            // restoring `group` from it would name fields the agent never sent. Leaving the type
-            // unset then makes the API report the property the agent actually sent.
+            // included, unless the set keeps the filters of another person set instead. Any other
+            // candidate restores only a person-aggregated type, because restoring `group` from it
+            // would name fields the agent never sent. Leaving the type unset then makes the API
+            // report the property the agent actually sent.
             const restored =
-                pickCandidate(candidates, out, sourceAggregatesOnPersons ? isPresentType : isPersonAggregatedType) ??
+                pickCandidate(candidates, out, sourceRestoresGroupType ? isPresentType : isPersonAggregatedType) ??
                 pickCandidate(otherCandidates, out, isPersonAggregatedType)
             if (restored) {
                 out.type = restored.type
@@ -296,6 +304,12 @@ function holdsGroupProperty(existingSet: ExistingSet | undefined, prop: FlagProp
             .get(prop.key)
             ?.some((stored) => stored.type === 'group' && stored.group_type_index === prop.group_type_index)
     )
+}
+
+function holdsSameGroupProperties(a: ExistingSet, b: ExistingSet): boolean {
+    const covers = (x: ExistingSet, y: ExistingSet): boolean =>
+        [...x.propsByKey.values()].flat().every((prop) => prop.type !== 'group' || holdsGroupProperty(y, prop))
+    return covers(a, b) && covers(b, a)
 }
 
 function explicitGroupPropertyIndex(
@@ -352,9 +366,9 @@ function resolveSetAggregation(
 function typeSetProperties(
     group: FlagConditionGroup,
     typeCandidatesByKey: Map<string, FlagProperty[]> | undefined,
-    crossSetPropsByKey: Map<string, FlagProperty[]>,
+    crossSetPropsByKey: Map<string, FlagProperty[]> | undefined,
     setGroupTypeIndex: number | undefined,
-    sourceAggregatesOnPersons: boolean
+    sourceRestoresGroupType: boolean
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
@@ -368,9 +382,9 @@ function typeSetProperties(
             return mergeProperty(
                 prop,
                 typeCandidatesByKey?.get(prop.key),
-                crossSetPropsByKey.get(prop.key),
+                crossSetPropsByKey?.get(prop.key),
                 setGroupTypeIndex,
-                sourceAggregatesOnPersons
+                sourceRestoresGroupType
             )
         })
     }
@@ -440,12 +454,9 @@ export function preserveGroupTargetingFilters(
         const aggregations = existingSets.map((existingSet) => existingSet?.aggregation)
         const mixedAggregation = new Set(aggregations.filter((aggregation) => aggregation !== undefined)).size > 1
         const incomingGroups = result.groups
-        const sharesKeysAcrossAggregations = (existingSet: ExistingSet, index: number): boolean =>
-            existingSets.some(
-                (other, otherIndex) =>
-                    !!other &&
-                    aggregations[otherIndex] !== aggregations[index] &&
-                    hasSameKeySet(other.propsByKey, existingSet.propsByKey)
+        const sameKeySets = (existingSet: ExistingSet): ExistingSet[] =>
+            existingSets.filter(
+                (other): other is ExistingSet => !!other && hasSameKeySet(other.propsByKey, existingSet.propsByKey)
             )
         const keptKeys = existingSets.map((existingSet, index) => keepsKeys(incomingGroups[index], existingSet))
         // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
@@ -456,9 +467,23 @@ export function preserveGroupTargetingFilters(
             const ambiguous =
                 !!existingSet &&
                 isRecord(group) &&
-                sharesKeysAcrossAggregations(existingSet, index) &&
+                sameKeySets(existingSet).some((other) => other.aggregation !== existingSet.aggregation) &&
                 !keepsFilters(group, existingSet)
             return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
+        })
+        const keepsOtherPersonSet = sourceSets.map((sourceSet, index) => {
+            const group = incomingGroups[index]
+            return (
+                sourceSet?.aggregation === null &&
+                isRecord(group) &&
+                !keepsFilters(group, sourceSet) &&
+                sameKeySets(sourceSet).some(
+                    (other) =>
+                        other.aggregation === null &&
+                        !holdsSameGroupProperties(other, sourceSet) &&
+                        keepsFilters(group, other)
+                )
+            )
         })
 
         const resolvedGroups = result.groups.map((group, index) =>
@@ -490,19 +515,20 @@ export function preserveGroupTargetingFilters(
             if (!isRecord(group)) {
                 return group
             }
+            const sourceSet = sourceSets[index]
             const typeCandidatesByKey =
-                sourceSets[index]?.propsByKey ??
+                sourceSet?.propsByKey ??
                 (!mixedAggregation || statesOwnGroupType[index] ? crossSetPropsByKey : undefined)
             return typeSetProperties(
                 group,
                 typeCandidatesByKey,
-                crossSetPropsByKey,
+                keepsOtherPersonSet[index] ? undefined : crossSetPropsByKey,
                 resolveGroupIndex(
                     pinnedToPerson[index] ?? false,
                     group.aggregation_group_type_index,
                     effectiveFlagGroupIndex
                 ),
-                sourceSets[index]?.aggregation === null
+                sourceSet?.aggregation === null && !keepsOtherPersonSet[index]
             )
         })
     }
