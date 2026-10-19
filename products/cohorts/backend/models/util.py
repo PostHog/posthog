@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -163,6 +163,7 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 
 
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
+COHORT_STATS_CLOCK_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 logger = structlog.get_logger(__name__)
 
@@ -273,68 +274,68 @@ def run_cohort_query(
 
 def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: datetime, team_id: int) -> Optional[dict]:
     """
-    Retrieve query statistics from ClickHouse query_log_archive using query tags.
-    Similar to approach in ee/benchmarks/helpers.py but adapted for cohort calculations.
+    Retrieve query statistics for one cohort calculation from ClickHouse query_log_archive.
+
+    Matches on the `id` query tag that run_cohort_query sets, not on the query text, and bounds the
+    table's sort key by query start time, so the lookup reads only the team's recent rows and never
+    the query strings. start_time comes from the app server clock and the archive uses the ClickHouse
+    clock, so the bound allows for skew between the two.
+    Returns None when no row is in the archive yet. ClickHouse errors propagate, so the caller can
+    tell a failed lookup apart from rows that are not flushed yet.
     """
     if not tag_matcher:
         return None
 
-    try:
-        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-        result = sync_execute(
-            """
-            SELECT
-                query_id,
-                query_duration_ms,
-                read_rows,
-                read_bytes,
-                written_rows,
-                memory_usage,
-                exception
-            FROM query_log_archive
-            WHERE
-                lc_cohort_id = %(cohort_id)s
-                AND team_id = %(team_id)s
-                AND query LIKE %(matcher)s
-                AND event_date >= %(start_date)s
-                AND event_time >= %(start_time)s
-            ORDER BY event_time DESC
-            """,
-            {
-                "cohort_id": cohort_id,
-                "team_id": team_id,
-                "matcher": f"%{tag_matcher}%",
-                "start_date": start_time.date(),
-                "start_time": start_time,
-            },
-            settings={"max_execution_time": 10},
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-        )
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    result = sync_execute(
+        """
+        SELECT
+            query_id,
+            query_duration_ms,
+            read_rows,
+            read_bytes,
+            written_rows,
+            memory_usage,
+            exception
+        FROM query_log_archive
+        WHERE
+            team_id = %(team_id)s
+            AND initial_query_start_time >= %(earliest_start_time)s
+            AND lc_cohort_id = %(cohort_id)s
+            AND lc_id = %(tag_matcher)s
+        ORDER BY event_time DESC
+        """,
+        {
+            "cohort_id": cohort_id,
+            "team_id": team_id,
+            "tag_matcher": tag_matcher,
+            "earliest_start_time": start_time - COHORT_STATS_CLOCK_SKEW_ALLOWANCE,
+        },
+        settings={"max_execution_time": 10},
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+    )
 
-        if result and len(result) > 0:
-            # Helper function to safely get column values
-            def get_column(rows, col_index):
-                return [row[col_index] for row in rows if len(row) > col_index and row[col_index] is not None]
+    if not result:
+        return None
 
-            # Get the most recent query (first row after ORDER BY event_time DESC)
-            first_row = result[0]
+    # Helper function to safely get column values
+    def get_column(rows, col_index):
+        return [row[col_index] for row in rows if len(row) > col_index and row[col_index] is not None]
 
-            return {
-                "query_id": first_row[0] if len(first_row) > 0 else None,
-                "query_count": len(result),
-                "query_duration_ms": int(sum(get_column(result, 1))),
-                "read_rows": sum(get_column(result, 2)),
-                "read_bytes": sum(get_column(result, 3)),
-                "written_rows": sum(get_column(result, 4)),
-                "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
-                "exception": first_row[6] if len(first_row) > 6 else None,
-            }
+    # Get the most recent query (first row after ORDER BY event_time DESC)
+    first_row = result[0]
 
-    except Exception as e:
-        logger.exception("Failed to retrieve ClickHouse query stats", tag_matcher=tag_matcher, error=str(e))
-
-    return None
+    return {
+        "query_id": first_row[0] if len(first_row) > 0 else None,
+        "query_count": len(result),
+        "query_duration_ms": int(sum(get_column(result, 1))),
+        "read_rows": sum(get_column(result, 2)),
+        "read_bytes": sum(get_column(result, 3)),
+        "written_rows": sum(get_column(result, 4)),
+        "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
+        "exception": first_row[6] if len(first_row) > 6 else None,
+    }
 
 
 def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:

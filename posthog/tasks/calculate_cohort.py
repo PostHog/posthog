@@ -1204,7 +1204,17 @@ def collect_cohort_query_stats(
             return
 
         start_time = parser.parse(start_time_iso)
-        query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
+        try:
+            query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
+        except Exception as e:
+            logger.warning(
+                "Failed to retrieve ClickHouse query stats, not retrying",
+                tag_matcher=tag_matcher,
+                cohort_id=cohort_id,
+                history_id=history_id,
+                error=str(e),
+            )
+            return
 
         if query_stats:  # Skip if stats already collected (check if queries field is non-empty)
             if history.queries:

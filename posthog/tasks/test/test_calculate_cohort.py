@@ -32,6 +32,7 @@ from posthog.tasks.calculate_cohort import (
     STATIC_POPULATION_MAX_RETRIES,
     calculate_cohort_ch,
     calculate_cohort_from_list,
+    collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
@@ -2038,6 +2039,31 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort_b.refresh_from_db()
         self.assertFalse(cohort_a.is_calculating)
         self.assertFalse(cohort_b.is_calculating)
+
+    @parameterized.expand(
+        [
+            ("lookup_fails", {"side_effect": ClickHouseAtCapacity()}, False),
+            ("rows_not_flushed_yet", {"return_value": []}, True),
+        ]
+    )
+    def test_collect_query_stats_retries_only_while_rows_are_missing(
+        self, _name: str, lookup: dict, should_retry: bool
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="stats cohort")
+        history = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", **lookup),
+            patch.object(collect_cohort_query_stats, "retry", side_effect=Retry()) as mock_retry,
+        ):
+            try:
+                collect_cohort_query_stats(
+                    "cohort_calc:abcd1234", cohort.pk, timezone.now().isoformat(), str(history.id), "SELECT 1"
+                )
+            except Retry:
+                pass
+
+        self.assertEqual(mock_retry.called, should_retry)
 
 
 class TestCalculateCohortFromListRetries(APIBaseTest):

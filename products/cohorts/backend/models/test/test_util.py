@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
@@ -5,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
@@ -17,6 +19,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -33,6 +36,7 @@ from products.cohorts.backend.models.util import (
     _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
+    get_clickhouse_query_stats,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
@@ -1396,3 +1400,51 @@ class TestRecalculationErrorRecovery(BaseTest):
         self.assertIs(ctx.exception, real_error)
         assert mock_reset.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+
+class TestGetClickhouseQueryStats(BaseTest):
+    def _log_query(self, query_id: str, query: str, tag_id: str, cohort_id: int, read_rows: int) -> None:
+        sync_execute(
+            f"INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE} "
+            "(initial_query_id, initial_query_start_time, event_time_microseconds, team_id, type, query, read_rows, lc_id, lc_cohort_id) "
+            "VALUES (%(query_id)s, now64(6), now64(6), %(team_id)s, 'QueryFinish', %(query)s, %(read_rows)s, %(tag_id)s, %(cohort_id)s)",
+            {
+                "query_id": query_id,
+                "team_id": self.team.pk,
+                "query": query,
+                "read_rows": read_rows,
+                "tag_id": tag_id,
+                "cohort_id": cohort_id,
+            },
+        )
+
+    def test_matches_only_queries_tagged_with_the_calculation_id(self) -> None:
+        cohort_id = 7
+        cohort_tag = "cohort_calc:abcd1234"
+        start_time = timezone.now() - timedelta(minutes=1)
+        self._log_query(
+            "calculation",
+            "INSERT INTO cohortpeople SELECT 1",
+            tag_id=cohort_tag,
+            cohort_id=cohort_id,
+            read_rows=100,
+        )
+        self._log_query(
+            "quotes_the_tag",
+            f"SELECT query_id FROM query_log_archive WHERE query LIKE '%{cohort_tag}%'",
+            tag_id="posthog.tasks.calculate_cohort.collect_cohort_query_stats",
+            cohort_id=cohort_id,
+            read_rows=5,
+        )
+        self._log_query(
+            "other_calculation",
+            "/* cohort_calculation:cohort_calc:ffff0000 */ INSERT INTO cohortpeople SELECT 1",
+            tag_id="cohort_calc:ffff0000",
+            cohort_id=cohort_id,
+            read_rows=50,
+        )
+
+        stats = get_clickhouse_query_stats(cohort_tag, cohort_id, start_time, self.team.pk)
+
+        assert stats is not None
+        assert (stats["query_id"], stats["query_count"], stats["read_rows"]) == ("calculation", 1, 100)
