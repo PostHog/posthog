@@ -3,7 +3,10 @@ import { act, renderHook } from '@testing-library/react'
 import { useDashboardContainerWidth } from './useDashboardContainerWidth'
 
 describe('useDashboardContainerWidth', () => {
-    it('holds the latest width until release without letting unchanged widths delay it', () => {
+    it.each([
+        { duringDrag: true, widthAfterRelease: 800 },
+        { duringDrag: false, widthAfterRelease: 1200 },
+    ])('batches width changes during a sidebar drag: $duringDrag', ({ duringDrag, widthAfterRelease }) => {
         jest.useFakeTimers()
         const originalObserver = global.ResizeObserver
         let notify: ResizeObserverCallback = () => {}
@@ -20,13 +23,15 @@ describe('useDashboardContainerWidth', () => {
         })
 
         try {
-            document.body.classList.add('is-resizing')
-            act(() => {
-                for (const width of [900, 800]) {
+            if (duringDrag) {
+                document.body.classList.add('is-resizing')
+            }
+            for (const width of [900, 800]) {
+                act(() => {
                     notify([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver)
-                }
-                jest.advanceTimersByTime(500)
-            })
+                    jest.advanceTimersByTime(20)
+                })
+            }
             expect(result.current.width).toBe(1200)
 
             document.body.classList.remove('is-resizing')
@@ -36,6 +41,8 @@ describe('useDashboardContainerWidth', () => {
                     jest.advanceTimersByTime(8)
                 })
             }
+            expect(result.current.width).toBe(widthAfterRelease)
+            act(() => jest.runOnlyPendingTimers())
             expect(result.current.width).toBe(800)
         } finally {
             unmount()

@@ -13,12 +13,15 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
         let pendingWidth = Math.round(container.getBoundingClientRect().width)
         setWidth(pendingWidth)
         let timer: ReturnType<typeof setTimeout> | undefined
+        let deferredDuringResize = false
         const commitWidth = (): void => {
             if (document.body.classList.contains('is-resizing')) {
+                deferredDuringResize = true
                 timer = setTimeout(commitWidth, 16)
                 return
             }
             setWidth(Math.round(pendingWidth))
+            deferredDuringResize = false
         }
         const observer = new ResizeObserver(([entry]) => {
             if (!entry) {
@@ -33,7 +36,8 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
             // Commit after resize settles so sidebar drags do not render every dashboard tile each frame.
             clearTimeout(timer)
             pendingWidth = nextWidth
-            timer = setTimeout(commitWidth, 16)
+            deferredDuringResize ||= document.body.classList.contains('is-resizing')
+            timer = setTimeout(commitWidth, deferredDuringResize ? 16 : 100)
         })
         observer.observe(container)
 
