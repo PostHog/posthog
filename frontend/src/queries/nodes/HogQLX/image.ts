@@ -1,4 +1,5 @@
-const MAX_IMAGE_SOURCE_LENGTH = 1024 * 1024
+const MAX_IMAGE_SOURCE_LENGTH = 64 * 1024
+const MAX_IMAGE_DIMENSION = 24
 const DATA_IMAGE_SOURCE = /^data:image\/(png|jpeg|gif|webp|avif|svg\+xml)(;(charset=utf-8|utf8))?(;base64)?,/i
 
 export function imageSource(value: unknown): string | null {
@@ -21,5 +22,5 @@ export function imageSource(value: unknown): string | null {
 
 export function imageDimension(value: unknown): number {
     const size = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
-    return Number.isFinite(size) && size > 0 ? Math.min(size, 256) : 32
+    return Number.isFinite(size) && size > 0 ? Math.min(size, MAX_IMAGE_DIMENSION) : MAX_IMAGE_DIMENSION
 }
