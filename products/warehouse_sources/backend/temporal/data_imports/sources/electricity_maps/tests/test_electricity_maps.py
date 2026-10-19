@@ -34,6 +34,25 @@ def _page(zone: str) -> ScriptedResponse:
     )
 
 
+def _mix_page() -> ScriptedResponse:
+    # Shaped like the real electricity-mix (v4) response: "zone" sits only at the response root,
+    # never on a row, unlike every other wire this source reads.
+    return ScriptedResponse(
+        json={
+            "zone": "root-zone-unused-by-rows",
+            "data": [
+                {
+                    "datetime": "2025-06-10T00:00:00.000Z",
+                    "updatedAt": "2025-06-10T00:05:00.000Z",
+                    "mix": {"nuclear": 100, "wind": 50},
+                    "isEstimated": False,
+                    "estimationMethod": None,
+                }
+            ],
+        }
+    )
+
+
 def _driver(zones: str = "DE", history_days: int | None = None) -> SourceDriver:
     return SourceDriver(
         ElectricityMapsSource(),
@@ -161,6 +180,53 @@ class TestWindowWalk:
 
         assert isinstance(result.raised, ValueError)
         assert "zones" in str(result.raised)
+
+
+class TestApiVersionDispatch:
+    @time_machine.travel(_NOW, tick=False)
+    @pytest.mark.parametrize(
+        ("endpoint", "api_version", "expected_path"),
+        [
+            # carbon_intensity's request path is unaffected by the source's version pin.
+            ("carbon_intensity", "v3", "/v3/carbon-intensity/past-range"),
+            ("carbon_intensity", "v4", "/v3/carbon-intensity/past-range"),
+            # power_breakdown moves from the v3 host's deprecated endpoint to the v4 host's
+            # electricity-mix endpoint; a v3 pin keeps working on the old path.
+            ("power_breakdown", "v3", "/v3/power-breakdown/past-range"),
+            ("power_breakdown", "v4", "/v4/electricity-mix/past-range"),
+            # No pin resolves to the default version, v4.
+            ("power_breakdown", None, "/v4/electricity-mix/past-range"),
+        ],
+    )
+    def test_request_path_resolves_per_endpoint_and_version(
+        self, endpoint: str, api_version: str | None, expected_path: str
+    ) -> None:
+        # A watermark at `now` collapses the walk to one window, so a single zone needs one request.
+        result = _driver().run(
+            endpoint,
+            [_page("DE")],
+            api_version=api_version,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=_NOW,
+        )
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_v4_power_breakdown_stamps_the_request_zone_onto_rows_missing_it(self) -> None:
+        # electricity-mix (v4) carries "zone" only at the response root; a row without this
+        # stamping has no "zone" at all, breaking the primary_keys=["zone", "datetime"] contract.
+        result = _driver("DE, SE").run(
+            "power_breakdown",
+            [_mix_page(), _mix_page()],
+            api_version="v4",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=_NOW,
+        )
+
+        assert result.raised is None
+        assert [row["zone"] for row in result.rows] == ["DE", "SE"]
 
 
 class TestValidateCredentials:
