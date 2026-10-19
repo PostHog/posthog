@@ -1,14 +1,10 @@
-import { useValues } from 'kea'
-
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import type { OnboardingProduct } from '~/types'
 
 import { getProductIcon, toSentenceCase } from '../shared/utils'
-import { onboardingWelcomeLogic } from './onboardingWelcomeLogic'
+import { useWelcomeProductStatus } from './useWelcomeProductStatus'
 
 export function WelcomeProductNavItem({
     productKey,
@@ -21,9 +17,7 @@ export function WelcomeProductNavItem({
     active: boolean
     onSelect: () => void
 }): JSX.Element {
-    const { statusOverrides } = useValues(onboardingWelcomeLogic)
-    const { status: sharedStatus } = useValues(productSetupStatusLogic({ productKey }))
-    const status = statusOverrides[productKey] ?? sharedStatus
+    const status = useWelcomeProductStatus(productKey)
 
     return (
         <LemonButton

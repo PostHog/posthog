@@ -1,6 +1,6 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { WIZARD_FRAMEWORKS, type WizardBadgeItem } from './WizardModeShell'
+import { WIZARD_FRAMEWORKS, type WizardBadgeItem, WizardFrameworkIcon } from './WizardModeShell'
 
 // A spread across web, backend and mobile reads as "works with my stack" better than the list's
 // JS-heavy head.
@@ -12,8 +12,8 @@ function FrameworkIcon({ item }: { item: WizardBadgeItem }): JSX.Element | null 
     }
     return (
         <Tooltip title={item.name}>
-            <span className="inline-flex w-4 h-4 shrink-0 [&_svg]:!w-4 [&_svg]:!h-4" aria-label={item.name}>
-                {typeof item.icon === 'string' ? <img src={item.icon} alt="" className="w-4 h-4" /> : <item.icon />}
+            <span className="inline-flex" aria-label={item.name}>
+                <WizardFrameworkIcon icon={item.icon} size="md" />
             </span>
         </Tooltip>
     )

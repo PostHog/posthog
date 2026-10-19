@@ -19,23 +19,20 @@ import { OnboardingMcpStep } from './OnboardingMcpStep'
  */
 export const SIMPLE_ONBOARDING_PRODUCT_KEY = ProductKey.PRODUCT_ANALYTICS
 
-/** The posthog-js install step with Wizard up front, booked under the given product. */
-function buildWizardInstallStep(productKey: ProductKey): OnboardingStepDescriptor {
+function simpleStep(
+    stepKey: OnboardingStepKey,
+    label: string,
+    render: () => React.ReactElement,
+    extra: Partial<OnboardingStepDescriptor> = {}
+): OnboardingStepDescriptor {
     return {
-        id: `${OnboardingStepKey.INSTALL}:${productKey}`,
-        productKey,
-        stepKey: OnboardingStepKey.INSTALL,
-        label: 'Install PostHog',
+        id: `${stepKey}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
+        productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
+        stepKey,
+        label,
         role: 'primary',
-        setupTaskId: SetupTaskId.IngestFirstEvent,
-        dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
-        render: () => (
-            <OnboardingInstallStep
-                sdkInstructionMap={ProductAnalyticsSDKInstructions}
-                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
-                compact
-            />
-        ),
+        render,
+        ...extra,
     }
 }
 
@@ -44,36 +41,29 @@ export function buildSimpleOnboardingFlow(
     shouldShowBilling: boolean,
     canInviteTeammates: boolean
 ): OnboardingStepDescriptor[] {
-    const steps: OnboardingStepDescriptor[] = [
-        buildWizardInstallStep(SIMPLE_ONBOARDING_PRODUCT_KEY),
-        {
-            id: `${OnboardingStepKey.MCP}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
-            productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
-            stepKey: OnboardingStepKey.MCP,
-            label: 'Connect your AI agent',
-            role: 'primary',
-            render: () => <OnboardingMcpStep />,
-        },
+    return [
+        simpleStep(
+            OnboardingStepKey.INSTALL,
+            'Install PostHog',
+            () => (
+                <OnboardingInstallStep
+                    sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                    sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+                    compact
+                />
+            ),
+            { setupTaskId: SetupTaskId.IngestFirstEvent, dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS }
+        ),
+        simpleStep(OnboardingStepKey.MCP, 'Connect your AI agent', () => <OnboardingMcpStep />),
+        ...(shouldShowBilling && billingProduct
+            ? [
+                  simpleStep(OnboardingStepKey.PLANS, 'Select a plan', () => (
+                      <OnboardingUpgradeStep product={billingProduct} />
+                  )),
+              ]
+            : []),
+        ...(canInviteTeammates
+            ? [simpleStep(OnboardingStepKey.INVITE_TEAMMATES, 'Invite your team', () => <OnboardingInviteTeammates />)]
+            : []),
     ]
-    if (shouldShowBilling && billingProduct) {
-        steps.push({
-            id: `${OnboardingStepKey.PLANS}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
-            productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
-            stepKey: OnboardingStepKey.PLANS,
-            label: 'Select a plan',
-            role: 'primary',
-            render: () => <OnboardingUpgradeStep product={billingProduct} />,
-        })
-    }
-    if (canInviteTeammates) {
-        steps.push({
-            id: `${OnboardingStepKey.INVITE_TEAMMATES}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
-            productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
-            stepKey: OnboardingStepKey.INVITE_TEAMMATES,
-            label: 'Invite your team',
-            role: 'primary',
-            render: () => <OnboardingInviteTeammates />,
-        })
-    }
-    return steps
 }

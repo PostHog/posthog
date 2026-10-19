@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ProjectTokenSnippet } from '../shared/ProjectTokenSnippet'
-import { onboardingWelcomeLogic } from './onboardingWelcomeLogic'
+import { onboardingWelcomeLogic, WELCOME_PRODUCTS } from './onboardingWelcomeLogic'
 import { WelcomeAiPanel } from './WelcomeAiPanel'
 import { WelcomeProductNavItem } from './WelcomeProductNavItem'
 import { WelcomeProductPanel } from './WelcomeProductPanel'
@@ -19,7 +19,7 @@ export const scene: SceneExport = {
 }
 
 export function OnboardingWelcome(): JSX.Element {
-    const { products, selection } = useValues(onboardingWelcomeLogic)
+    const { selection } = useValues(onboardingWelcomeLogic)
     const { selectAi, selectProduct } = useActions(onboardingWelcomeLogic)
 
     return (
@@ -51,7 +51,7 @@ export function OnboardingWelcome(): JSX.Element {
                     <div className="w-full px-2 pb-1 pt-3 text-xxs font-semibold uppercase tracking-wide text-tertiary">
                         Or install a specific product
                     </div>
-                    {products.map(({ key, product }) => (
+                    {WELCOME_PRODUCTS.map(({ key, product }) => (
                         <WelcomeProductNavItem
                             key={key}
                             productKey={key}

@@ -84,22 +84,23 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
     // to unblock Continue.
     const continueDisabledReason =
         isLocalRunActive || activeCloudRun || props.installationComplete ? undefined : 'Installation is not complete'
+    // A cloud run wins over the local run view: the cloud wizard posts to the same session stream, so
+    // rendering both would show the same run twice. The cloud run's progress renders inside
+    // OnboardingInstallOptions (WizardCloudRunBlock pins to it).
+    const runView = activeCloudRun ? (
+        <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} compact={props.compact} />
+    ) : isLocalRunActive ? (
+        <InstallationProgressView mode="local" />
+    ) : null
     return (
         <WizardInstallShell
             continueDisabledReason={continueDisabledReason}
             showSkip={!props.installationComplete && !isLocalRunActive && !activeCloudRun}
             props={props}
         >
-            {/* A cloud run wins over the local run view: the cloud wizard posts to the same session
-                stream, so rendering both would show the same run twice. The cloud run's progress
-                renders inside OnboardingInstallOptions (WizardCloudRunBlock pins to it). */}
             {props.compact ? (
                 <WizardModeShell data-attr="wizard-install-compact">
-                    {activeCloudRun ? (
-                        <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} compact />
-                    ) : isLocalRunActive ? (
-                        <InstallationProgressView mode="local" />
-                    ) : (
+                    {runView ?? (
                         <>
                             <p className="text-muted mb-0">
                                 {props.wizardOverrides?.intro ??
@@ -116,14 +117,8 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
                         Want to set up manually?
                     </Link>
                 </WizardModeShell>
-            ) : activeCloudRun ? (
-                <div className="max-w-xl mx-auto">
-                    <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} />
-                </div>
-            ) : isLocalRunActive ? (
-                <div className="max-w-xl mx-auto">
-                    <InstallationProgressView mode="local" />
-                </div>
+            ) : runView ? (
+                <div className="max-w-xl mx-auto">{runView}</div>
             ) : (
                 <>
                     <WizardInstallIntro description={props.wizardOverrides?.intro} />

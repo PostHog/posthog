@@ -69,6 +69,7 @@ export interface navProductsTabLogicValues {
     pinnedItems: FileSystemImport[]
     rankedConfigurableApps: FileSystemImport[]
     search: string
+    showWelcomeNavItem: boolean
     starredProductIds: Record<string, string>
     starredProductsSaving: boolean
 }
@@ -226,12 +227,8 @@ export interface navProductsTabLogicMeta {
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
         allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
-        pinnedItems: (
-            allItems: FileSystemImport[],
-            search: string,
-            currentTeam: TeamPublicType | TeamType | null,
-            featureFlags: FeatureFlagsSet
-        ) => FileSystemImport[]
+        showWelcomeNavItem: (currentTeam: TeamPublicType | TeamType | null, featureFlags: FeatureFlagsSet) => boolean
+        pinnedItems: (allItems: FileSystemImport[], search: string, showWelcomeNavItem: boolean) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
         starredProductIds: (allItems: FileSystemImport[], shortcutData: FileSystemEntry[]) => Record<string, string>
@@ -482,15 +479,15 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
         ],
+        showWelcomeNavItem: [
+            (s) => [s.currentTeam, s.featureFlags],
+            (currentTeam: TeamPublicType | TeamType | null, featureFlags: FeatureFlagsSet): boolean =>
+                isWelcomeNavItemShown(currentTeam?.created_at, featureFlags),
+        ],
         pinnedItems: [
-            (s) => [s.allItems, s.search, s.currentTeam, s.featureFlags],
-            (
-                items: FileSystemImport[],
-                search: string,
-                currentTeam: TeamPublicType | TeamType | null,
-                featureFlags: FeatureFlagsSet
-            ): FileSystemImport[] =>
-                [...(isWelcomeNavItemShown(currentTeam?.created_at, featureFlags) ? [WELCOME_NAV_ITEM] : []), ...items]
+            (s) => [s.allItems, s.search, s.showWelcomeNavItem],
+            (items: FileSystemImport[], search: string, showWelcomeNavItem: boolean): FileSystemImport[] =>
+                [...(showWelcomeNavItem ? [WELCOME_NAV_ITEM] : []), ...items]
                     .filter((item) => item.category === PINNED_CATEGORY && productMatchesSearch(item, search))
                     .sort((a, b) => (a.visualOrder ?? Infinity) - (b.visualOrder ?? Infinity)),
         ],

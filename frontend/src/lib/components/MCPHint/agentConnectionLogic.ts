@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { createPollLoop, isPermanentPollError } from 'lib/wizard-sync/pollLoop'
+
 import { oauthConnectedAppsList } from '~/generated/core/api'
 import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 
@@ -107,21 +109,25 @@ export const agentConnectionLogic = kea<agentConnectionLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setPolling: ({ polling }) => {
-            if (polling) {
-                actions.loadConnectedApps()
-            } else {
+            if (!polling) {
                 cache.disposables.dispose('poll')
-            }
-        },
-        // The next poll starts only after the previous one returns, so requests never overlap.
-        loadConnectedAppsSuccess: () => {
-            if (!values.polling || values.hasConnectedAgent) {
                 return
             }
-            cache.disposables.add(() => {
-                const id = window.setTimeout(() => actions.loadConnectedApps(), POLL_INTERVAL_MS)
-                return () => window.clearTimeout(id)
-            }, 'poll')
+            cache.disposables.add(
+                createPollLoop({
+                    intervalMs: POLL_INTERVAL_MS,
+                    tick: async () => {
+                        // A load already in flight (the mount's or a focus refresh) answers this tick.
+                        if (!values.connectedAppsLoading) {
+                            actions.loadConnectedAppsSuccess(await oauthConnectedAppsList())
+                        }
+                        return values.hasConnectedAgent ? 'terminal' : 'ok'
+                    },
+                    onError: (error) => (isPermanentPollError(error) ? 'stop' : 'retry'),
+                    shouldStop: () => !values.polling || !!values.hasConnectedAgent,
+                }),
+                'poll'
+            )
         },
     })),
     afterMount(({ actions, values, cache }) => {

@@ -13,27 +13,20 @@ export const ONBOARDING_EVENT_PROPS = {
     entry_point: 'product_selection',
 } as const
 
-// pinned: event property values, see ONBOARDING_EVENT_PROPS.
-const SIMPLE_ONBOARDING_EVENT_PROPS = {
-    version: 1,
-    flow_variant: 'simple',
-    entry_point: 'simple_onboarding',
-} as const
-
-export function onboardingEventProps(
-    flowVariant: OnboardingFlowVariant
-): typeof ONBOARDING_EVENT_PROPS | typeof SIMPLE_ONBOARDING_EVENT_PROPS {
-    return flowVariant === 'simple' ? SIMPLE_ONBOARDING_EVENT_PROPS : ONBOARDING_EVENT_PROPS
+const EVENT_PROPS: Record<OnboardingFlowVariant, Record<string, string | number>> = {
+    default: ONBOARDING_EVENT_PROPS,
+    // pinned: event property values, see ONBOARDING_EVENT_PROPS.
+    simple: { version: 1, flow_variant: 'simple', entry_point: 'simple_onboarding' },
 }
 
 export function reportOnboardingStarted(flowVariant: OnboardingFlowVariant): void {
-    posthog.capture('onboarding started', onboardingEventProps(flowVariant))
+    posthog.capture('onboarding started', EVENT_PROPS[flowVariant])
 }
 
 export function reportOnboardingCompleted(productKey: string, flowVariant: OnboardingFlowVariant): void {
     posthog.capture('onboarding completed', {
         product_key: productKey,
-        ...onboardingEventProps(flowVariant),
+        ...EVENT_PROPS[flowVariant],
     })
 }
 
@@ -47,7 +40,7 @@ export function reportOnboardingStepCompleted(
         // Optional — only set when the caller knows which product owns the step.
         // Lets dashboards split step funnels by product without joining elsewhere.
         ...(productKey ? { product_key: productKey } : {}),
-        ...onboardingEventProps(flowVariant),
+        ...EVENT_PROPS[flowVariant],
     })
 }
 
@@ -59,6 +52,6 @@ export function reportOnboardingStepSkipped(
     posthog.capture('onboarding step skipped', {
         step_key: stepKey,
         ...(productKey ? { product_key: productKey } : {}),
-        ...onboardingEventProps(flowVariant),
+        ...EVENT_PROPS[flowVariant],
     })
 }

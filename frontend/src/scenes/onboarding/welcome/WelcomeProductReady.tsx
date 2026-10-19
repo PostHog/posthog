@@ -11,8 +11,8 @@ export function WelcomeProductReady({
     description,
 }: {
     product: OnboardingProduct
-    title: string
-    description: string
+    title?: string
+    description?: string
 }): JSX.Element {
     const Hedgehog = product.hedgehog
     const name = toSentenceCase(product.name)
@@ -24,8 +24,10 @@ export function WelcomeProductReady({
         >
             {Hedgehog ? <Hedgehog className="w-40" /> : null}
             <div className="flex flex-col gap-1">
-                <h2 className="m-0 text-xl font-semibold">{title}</h2>
-                <p className="m-0 text-secondary">{description}</p>
+                <h2 className="m-0 text-xl font-semibold">{title ?? name}</h2>
+                <p className="m-0 text-secondary">
+                    {description ?? product.userCentricDescription ?? product.description}
+                </p>
             </div>
             {product.valueProps?.length ? (
                 <div className="flex w-full flex-col gap-2 text-left">

@@ -47,6 +47,25 @@ export const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
     { name: 'Python', icon: pythonImage },
 ]
 
+const ICON_SIZE_CLASSES = {
+    sm: 'w-3 h-3 [&_svg]:!w-3 [&_svg]:!h-3',
+    md: 'w-4 h-4 [&_svg]:!w-4 [&_svg]:!h-4',
+}
+
+export function WizardFrameworkIcon({
+    icon: Icon,
+    size,
+}: {
+    icon: NonNullable<WizardBadgeItem['icon']>
+    size: keyof typeof ICON_SIZE_CLASSES
+}): JSX.Element {
+    return (
+        <span className={cn('inline-flex shrink-0', ICON_SIZE_CLASSES[size])}>
+            {typeof Icon === 'string' ? <img src={Icon} alt="" className="w-full h-full" /> : <Icon />}
+        </span>
+    )
+}
+
 export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: WizardBadgeItem[] } = {}): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1.5 items-center justify-center">
@@ -56,13 +75,7 @@ export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: W
                     key={fw.name}
                     className="inline-flex items-center gap-1 text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
                 >
-                    {typeof fw.icon === 'string' ? (
-                        <img src={fw.icon} alt="" className="w-3 h-3 shrink-0" />
-                    ) : fw.icon ? (
-                        <span className="inline-flex w-3 h-3 shrink-0 [&_svg]:!w-3 [&_svg]:!h-3">
-                            <fw.icon />
-                        </span>
-                    ) : null}
+                    {fw.icon ? <WizardFrameworkIcon icon={fw.icon} size="sm" /> : null}
                     {fw.name}
                 </span>
             ))}

@@ -30,6 +30,7 @@ describe('agentConnectionLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
     })
 
     it.each([
@@ -49,6 +50,28 @@ describe('agentConnectionLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.hasConnectedAgent).toBeNull()
+    })
+
+    it('polls until an agent connects, then stops', async () => {
+        const responses = [[], [], [AGENT_APP]]
+        let calls = 0
+        useMocks({
+            get: { '/api/oauth/connected-apps/': () => [200, responses[Math.min(calls++, responses.length - 1)]] },
+        })
+        initKeaTests()
+        jest.useFakeTimers()
+        logic = agentConnectionLogic()
+        logic.mount()
+        logic.actions.setPolling(true)
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.hasConnectedAgent).toBe(false)
+
+        await jest.advanceTimersByTimeAsync(10_000)
+        expect(logic.values.hasConnectedAgent).toBe(true)
+
+        const callsWhenConnected = calls
+        await jest.advanceTimersByTimeAsync(30_000)
+        expect(calls).toBe(callsWhenConnected)
     })
 
     it('keeps a newer connected response when an older empty one arrives late', async () => {

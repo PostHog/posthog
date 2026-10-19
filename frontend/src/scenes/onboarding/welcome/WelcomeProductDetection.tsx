@@ -1,12 +1,6 @@
 import { type LogicWrapper, useMountedLogic } from 'kea'
 
-export function WelcomeProductDetection({
-    statusLogic,
-    children,
-}: {
-    statusLogic: LogicWrapper
-    children: JSX.Element
-}): JSX.Element {
+export function WelcomeProductDetection({ statusLogic }: { statusLogic: LogicWrapper }): null {
     useMountedLogic(statusLogic)
-    return children
+    return null
 }

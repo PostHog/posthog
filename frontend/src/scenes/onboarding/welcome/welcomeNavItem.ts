@@ -1,6 +1,7 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
+import { isOnSimpleOnboardingArm } from '../simple/simpleOnboardingArm'
 
 export const WELCOME_NAV_ITEM_MAX_PROJECT_AGE_DAYS = 7
 
@@ -13,7 +14,6 @@ export function isWelcomeNavItemShown(
     if (!projectCreatedAt || now.diff(dayjs(projectCreatedAt), 'day', true) >= WELCOME_NAV_ITEM_MAX_PROJECT_AGE_DAYS) {
         return false
     }
-    // Read the flag only after the age check: each read reports an experiment exposure, and the
-    // sidebar renders for every user.
-    return featureFlags[FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW] === 'test'
+    // Read the flag only after the age check, because the sidebar renders for every user.
+    return isOnSimpleOnboardingArm(featureFlags)
 }

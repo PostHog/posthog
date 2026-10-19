@@ -3,6 +3,7 @@ import type { LogicWrapper } from 'kea'
 import { productEmptyStateGateActivation } from 'lib/components/ProductEmptyState/gateRender'
 import type { ProductEmptyStateConfig } from 'lib/components/ProductEmptyState/types'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { appScenes } from 'scenes/appScenes'
 import type { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -59,7 +60,7 @@ export async function loadWelcomeEmptyState(
         if (!importScene) {
             return null
         }
-        const sceneModule = await importScene()
+        const sceneModule = await retryImport(() => importScene())
         return pickWelcomeEmptyState(sceneModule.scene, productKey, sceneId, featureFlags)
     } catch {
         return null

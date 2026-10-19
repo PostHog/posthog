@@ -731,11 +731,10 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(currentPath()).toBe(pathname)
             expect(logic.values.flowVariant).toBe(flowVariant)
-            expect(capture.mock.calls.filter(([event]) => event === 'onboarding started')).toEqual(
-                flowVariant === 'simple'
-                    ? [['onboarding started', expect.objectContaining({ flow_variant: 'simple' })]]
-                    : []
-            )
+            const startedVariants = capture.mock.calls
+                .filter(([event]) => event === 'onboarding started')
+                .map(([, properties]) => properties?.flow_variant)
+            expect(startedVariants).toEqual(flowVariant === 'simple' ? ['simple'] : [])
         })
 
         it('the simple flow is install, MCP, then invite, and advancing stays on its own URL', async () => {

@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -39,6 +39,7 @@ import type {
 } from '../../types'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import { appendSharedTrailingSteps, mayBeAppendedLater } from './sharedSteps'
+import { isOnSimpleOnboardingArm } from './simple/simpleOnboardingArm'
 import { buildSimpleOnboardingFlow, SIMPLE_ONBOARDING_PRODUCT_KEY } from './simple/simpleOnboardingFlow'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
 import { type OnboardingFlowContext, type OnboardingFlowVariant, type OnboardingStepDescriptor } from './types'
@@ -396,10 +397,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     })),
     selectors({
-        isOnSimpleFlowArm: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => featureFlags[FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW] === 'test',
-        ],
+        isOnSimpleFlowArm: [(s) => [s.featureFlags], isOnSimpleOnboardingArm],
         canInviteTeammates: [
             (s) => [s.currentOrganization, s.user],
             (
