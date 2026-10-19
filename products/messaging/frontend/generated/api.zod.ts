@@ -280,7 +280,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
@@ -357,7 +357,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe(
-                                    'Email subject line. Supports Liquid templating. A draft may leave it blank until it is published.'
+                                    'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                                 ),
                             text: zod
                                 .string()
@@ -403,7 +403,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Draft email content. Replaced as a whole on update, so send the complete object.'),
+                    .describe('Email message content. Replaced as a whole on update — send the complete object.'),
             }),
             zod.null(),
         ])
@@ -442,7 +442,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
@@ -519,7 +519,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe(
-                                    'Email subject line. Supports Liquid templating. A draft may leave it blank until it is published.'
+                                    'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                                 ),
                             text: zod
                                 .string()
@@ -565,7 +565,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Draft email content. Replaced as a whole on update, so send the complete object.'),
+                    .describe('Email message content. Replaced as a whole on update — send the complete object.'),
             }),
             zod.null(),
         ])
@@ -605,7 +605,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Email subject line. Supports Liquid templating. Required for email-type templates.'
+                                'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                             ),
                         text: zod
                             .string()
@@ -682,7 +682,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe(
-                                    'Email subject line. Supports Liquid templating. A draft may leave it blank until it is published.'
+                                    'Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.'
                                 ),
                             text: zod
                                 .string()
@@ -728,7 +728,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Draft email content. Replaced as a whole on update, so send the complete object.'),
+                    .describe('Email message content. Replaced as a whole on update — send the complete object.'),
             }),
             zod.null(),
         ])

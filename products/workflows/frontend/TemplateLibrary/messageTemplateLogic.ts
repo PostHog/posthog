@@ -19,7 +19,7 @@ import {
     messagingTemplatesMakeTransactionalCreate,
     messagingTemplatesPartialUpdate,
 } from 'products/messaging/frontend/generated/api'
-import type { DraftMessageTemplateContentApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { MessageTemplateContentApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
@@ -84,7 +84,7 @@ export interface messageTemplateLogicValues {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -107,7 +107,7 @@ export interface messageTemplateLogicValues {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -192,7 +192,7 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
-        draft_content?: DraftMessageTemplateContentApi | null | undefined
+        draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
         transactional_hog_flow_id?: string | null | undefined
@@ -206,7 +206,7 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -294,7 +294,7 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -309,7 +309,7 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -337,7 +337,7 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
-        draft_content?: DraftMessageTemplateContentApi | null | undefined
+        draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
         transactional_hog_flow_id?: string | null | undefined
@@ -351,7 +351,7 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -366,7 +366,7 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
-        draft_content?: DraftMessageTemplateContentApi | null | undefined
+        draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
         transactional_hog_flow_id?: string | null | undefined
@@ -380,7 +380,7 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: DraftMessageTemplateContentApi | null | undefined
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
             transactional_hog_flow_id?: string | null | undefined
@@ -735,7 +735,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             try {
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     // The form type still allows the legacy 'hog' templating, which templates never use.
-                    draft_content: content as DraftMessageTemplateContentApi,
+                    draft_content: content as MessageTemplateContentApi,
                 })
                 actions.saveDraftDone(content, updated.updated_at)
             } catch {

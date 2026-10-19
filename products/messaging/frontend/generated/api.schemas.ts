@@ -293,7 +293,7 @@ export type EmailTemplateApiDesign = {
 }
 
 export interface EmailTemplateApi {
-    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
+    /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
     subject?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
@@ -369,64 +369,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-/**
- * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
- */
-export type DraftEmailTemplateApiDesignCounters = { [key: string]: unknown }
-
-export type DraftEmailTemplateApiDesignBodyRowsItem = { [key: string]: unknown }
-
-export type DraftEmailTemplateApiDesignBodyHeadersItem = { [key: string]: unknown }
-
-export type DraftEmailTemplateApiDesignBodyFootersItem = { [key: string]: unknown }
-
-/**
- * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
- */
-export type DraftEmailTemplateApiDesignBodyValues = { [key: string]: unknown }
-
-export type DraftEmailTemplateApiDesignBody = {
-    /** Any unique string. */
-    id?: string
-    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
-    rows: DraftEmailTemplateApiDesignBodyRowsItem[]
-    headers?: DraftEmailTemplateApiDesignBodyHeadersItem[]
-    footers?: DraftEmailTemplateApiDesignBodyFootersItem[]
-    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
-    values?: DraftEmailTemplateApiDesignBodyValues
-}
-
-/**
- * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
- */
-export type DraftEmailTemplateApiDesign = {
-    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
-    counters?: DraftEmailTemplateApiDesignCounters
-    /** Design schema version, e.g. 16. */
-    schemaVersion: number
-    body: DraftEmailTemplateApiDesignBody
-}
-
-export interface DraftEmailTemplateApi {
-    /** Email subject line. Supports Liquid templating. A draft may leave it blank until it is published. */
-    subject?: string
-    /** Plain-text fallback body for clients that can't render the email. */
-    text?: string
-    /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
-    html?: string
-    /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
-    design?: DraftEmailTemplateApiDesign
-}
-
-export interface DraftMessageTemplateContentApi {
-    /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
-     *
-     * * `liquid` - liquid */
-    templating?: MessageTemplateContentTemplatingEnumApi
-    /** Draft email content. Replaced as a whole on update, so send the complete object. */
-    email?: DraftEmailTemplateApi | null
-}
-
 export interface MessageTemplateApi {
     readonly id: string
     /**
@@ -459,7 +401,7 @@ export interface MessageTemplateApi {
      */
     readonly transactional_hog_flow_id: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
-    draft_content?: DraftMessageTemplateContentApi | null
+    draft_content?: MessageTemplateContentApi | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -503,7 +445,7 @@ export interface PatchedMessageTemplateApi {
      */
     readonly transactional_hog_flow_id?: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
-    draft_content?: DraftMessageTemplateContentApi | null
+    draft_content?: MessageTemplateContentApi | null
 }
 
 /**

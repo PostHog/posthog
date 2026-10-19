@@ -641,8 +641,6 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
-            # A template's content and its draft both carry this field, so no single component prefix names it.
-            "MessageTemplateContentTemplatingEnum": ["liquid"],
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],

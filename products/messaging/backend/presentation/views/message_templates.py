@@ -110,7 +110,9 @@ class UnlayerDesignField(serializers.JSONField):
 class EmailTemplateSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
-        help_text="Email subject line. Supports Liquid templating. Required for email-type templates.",
+        allow_blank=True,
+        help_text="Email subject line. Supports Liquid templating. Required in `content` for email-type templates. "
+        "A `draft_content` may leave it blank until it is published.",
     )
     text = serializers.CharField(
         required=False,
@@ -141,22 +143,6 @@ class MessageTemplateContentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Email message content. Replaced as a whole on update — send the complete object.",
-    )
-
-
-class DraftEmailTemplateSerializer(EmailTemplateSerializer):
-    subject = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Email subject line. Supports Liquid templating. A draft may leave it blank until it is published.",
-    )
-
-
-class DraftMessageTemplateContentSerializer(MessageTemplateContentSerializer):
-    email = DraftEmailTemplateSerializer(
-        required=False,
-        allow_null=True,
-        help_text="Draft email content. Replaced as a whole on update, so send the complete object.",
     )
 
 
@@ -222,7 +208,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         help_text="The workflow that sends this template over the transactional email API. Null until the "
         "template is made transactional. Each content save writes a new version of it.",
     )
-    draft_content = DraftMessageTemplateContentSerializer(
+    draft_content = MessageTemplateContentSerializer(
         required=False,
         allow_null=True,
         help_text="Unpublished edits to a transactional template's content. Sends keep using `content`. Saving "
@@ -232,7 +218,8 @@ class MessageTemplateSerializer(serializers.Serializer):
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
         email = data.get("content", {}).get("email") if data.get("content") else None
-        if template_type == "email" and email and not email.get("subject"):
+        # Only published content needs a subject. A draft may still be missing one.
+        if email and (template_type == "email" or "subject" in email) and not email.get("subject"):
             raise serializers.ValidationError(
                 {"content": {"email": {"subject": "Subject is required for email templates."}}}
             )
