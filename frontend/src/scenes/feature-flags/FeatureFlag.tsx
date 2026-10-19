@@ -80,7 +80,9 @@ import {
 
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    RESTORE_UNAVAILABLE_DISABLED_REASON,
     canArchiveFeatureFlag,
+    canRestoreFeatureFlag,
     featureFlagConfigFormatLabel,
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
@@ -151,6 +153,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         editorKind,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
+    const canRestore = canRestoreFeatureFlag(featureFlag.filters)
+    const restoreUnavailable = !!featureFlag.deleted && !canRestore
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -471,7 +475,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {isV1Config && (
+                        {configFormat !== 'unsupported' && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -496,6 +500,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             ...(disabledReason ? { [disabledReason]: true } : {}),
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
+                                            [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
                                             'Restoring…': featureFlagRestoreLoading,
                                         }}
                                     >
@@ -516,7 +521,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <LemonBanner
                             type="error"
                             action={
-                                featureFlag.can_edit && isV1Config
+                                featureFlag.can_edit && canRestore
                                     ? {
                                           children: 'Restore',
                                           onClick: () => restoreFeatureFlag(featureFlag),
@@ -527,8 +532,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             }
                         >
                             This feature flag is deleted. It's hidden from the flag list and can't be evaluated.{' '}
-                            {!isV1Config
-                                ? 'Restoring is not available for this flag yet.'
+                            {!canRestore
+                                ? RESTORE_UNAVAILABLE_DISABLED_REASON
                                 : featureFlag.can_edit
                                   ? 'Restore it to use it again.'
                                   : 'Ask someone with edit access to restore it.'}
@@ -598,7 +603,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </SceneMenuBarSubMenu>
                                 <SceneMenuBarSeparator />
                                 <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                                {isV1Config && (
+                                {configFormat !== 'unsupported' && (
                                     <>
                                         <SceneMenuBarSeparator />
                                         <AccessControlAction
@@ -608,7 +613,16 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             {({ disabledReason }) => (
                                                 <SceneMenuBarItem
                                                     variant="destructive"
-                                                    disabled={!!disabledReason || featureFlagRestoreLoading}
+                                                    disabled={
+                                                        !!disabledReason ||
+                                                        featureFlagRestoreLoading ||
+                                                        restoreUnavailable
+                                                    }
+                                                    tooltip={
+                                                        restoreUnavailable
+                                                            ? RESTORE_UNAVAILABLE_DISABLED_REASON
+                                                            : undefined
+                                                    }
                                                     data-attr={
                                                         featureFlag.deleted
                                                             ? `${RESOURCE_TYPE}-menubar-restore`

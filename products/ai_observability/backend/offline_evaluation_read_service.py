@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.db import connections
-from django.db.models import Case, Count, Exists, F, OuterRef, Q, When
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, When, prefetch_related_objects
 
 from posthog.dataclasses import frozen
 
@@ -43,6 +43,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
 )
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -156,7 +157,7 @@ class OfflineEvaluationReadService:
         return item
 
     def _filter_experiments(self, query: OfflineReadQuery, *, history: bool = False) -> QuerySet[OfflineExperiment]:
-        experiments = self._experiments()
+        experiments = ResourceTags.filter(self._experiments(), self.team_id, query.tags, query.tag_match)
         if query.date_from is not None:
             experiments = experiments.filter(started_at__gte=query.date_from)
         if query.date_to is not None:
@@ -278,6 +279,7 @@ class OfflineEvaluationReadService:
             }
 
     def _experiment_reads(self, experiments: list[OfflineExperiment]) -> list[OfflineExperimentRead]:
+        prefetch_related_objects(experiments, ResourceTags.prefetch())
         ids = [experiment.id for experiment in experiments]
         visible_counts = self._experiment_counts(ids)
         output = []
@@ -285,6 +287,7 @@ class OfflineEvaluationReadService:
             counts = visible_counts.get(experiment.id, _ExperimentCounts())
             output.append(
                 OfflineExperimentRead(
+                    tags=tuple(ResourceTags.names(experiment)),
                     id=experiment.id,
                     name=experiment.name,
                     run_source=experiment.run_source,
