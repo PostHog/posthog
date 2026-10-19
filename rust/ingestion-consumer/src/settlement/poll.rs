@@ -93,7 +93,7 @@ fn settle_slices(
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let frontier = match uncommitted.ledger().settle(
+        let frontier = match uncommitted.complete(
             slice.topic_partition,
             slice.generation,
             slice.charges.iter().map(|(offset, _)| *offset),
@@ -110,12 +110,7 @@ fn settle_slices(
             }
         };
         settled = true;
-        if frontier.is_none() {
-            continue;
-        }
-        if uncommitted.take_frontier(slice.topic_partition) {
-            handed_over = true;
-        }
+        handed_over |= frontier.is_some();
     }
     Ok(match (handed_over, settled) {
         (true, _) => None,

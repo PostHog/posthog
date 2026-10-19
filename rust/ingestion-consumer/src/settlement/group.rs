@@ -38,16 +38,11 @@ impl Settlement for GroupSettlement {
         generation: u64,
         offsets: &[Offset],
     ) -> anyhow::Result<()> {
-        match self
-            .uncommitted
-            .ledger()
-            .settle(topic_partition, generation, offsets.iter().copied())
+        if let Err(rejection) =
+            self.uncommitted
+                .complete(topic_partition, generation, offsets.iter().copied())
         {
-            Ok(Some(_)) => {
-                self.uncommitted.take_frontier(topic_partition);
-            }
-            Ok(None) => {}
-            Err(rejection) => report_rejection(
+            report_rejection(
                 "settle",
                 topic_partition,
                 rejection,
@@ -55,7 +50,7 @@ impl Settlement for GroupSettlement {
                     first: offsets[0].0,
                     last: offsets[offsets.len() - 1].0,
                 }),
-            )?,
+            )?;
         }
         Ok(())
     }

@@ -26,10 +26,6 @@ impl Uncommitted {
         }
     }
 
-    pub(super) fn ledger(&self) -> &TopicOffsetLedger {
-        &self.ledger
-    }
-
     pub(super) fn charge(
         &self,
         topic_partition: &TopicPartition,
@@ -44,15 +40,25 @@ impl Uncommitted {
         Ok(uncommitted)
     }
 
-    pub(super) fn take_frontier(&self, topic_partition: &TopicPartition) -> bool {
-        let Some(taken) = self.ledger.take_frontier(topic_partition) else {
-            return false;
-        };
-        self.pacer
-            .lock()
-            .unwrap()
-            .advance_frontier(topic_partition, taken);
-        true
+    /// Mark offsets complete and move the frontier that results, with its
+    /// charge, to the pacer. Returns that frontier, `None` while the front
+    /// of the window is still incomplete.
+    pub(super) fn complete(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: impl IntoIterator<Item = Offset>,
+    ) -> Result<Option<Offset>, Rejection> {
+        let frontier = self.ledger.settle(topic_partition, generation, offsets)?;
+        if frontier.is_some() {
+            if let Some(taken) = self.ledger.take_frontier(topic_partition) {
+                self.pacer
+                    .lock()
+                    .unwrap()
+                    .advance_frontier(topic_partition, taken);
+            }
+        }
+        Ok(frontier)
     }
 
     pub(super) fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
@@ -150,19 +156,18 @@ mod tests {
             .expect("the ledger accepts the charge")
     }
 
-    fn complete_and_take(uncommitted: &Uncommitted, offsets: &[i64]) {
-        uncommitted
-            .ledger()
-            .settle(&p0(), 0, offsets.iter().map(|&o| Offset(o)))
+    fn complete(uncommitted: &Uncommitted, offsets: &[i64]) {
+        let frontier = uncommitted
+            .complete(&p0(), 0, offsets.iter().map(|&o| Offset(o)))
             .expect("the ledger settles");
-        assert!(uncommitted.take_frontier(&p0()));
+        assert!(frontier.is_some());
     }
 
     #[test]
     fn a_take_stays_uncommitted_until_the_pacer_hands_it_out() {
         let uncommitted = uncommitted_every_hour();
         charge(&uncommitted, 0, 10);
-        complete_and_take(&uncommitted, &[10]);
+        complete(&uncommitted, &[10]);
 
         assert_eq!(charge(&uncommitted, 0, 11), held(2));
 
@@ -175,8 +180,8 @@ mod tests {
         let uncommitted = uncommitted_every_hour();
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
-        complete_and_take(&uncommitted, &[10]);
-        complete_and_take(&uncommitted, &[11]);
+        complete(&uncommitted, &[10]);
+        complete(&uncommitted, &[11]);
 
         assert_eq!(charge(&uncommitted, 0, 12), held(3));
     }
@@ -186,7 +191,7 @@ mod tests {
         let uncommitted = uncommitted_every_hour();
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
-        complete_and_take(&uncommitted, &[10]);
+        complete(&uncommitted, &[10]);
 
         uncommitted.forget_partitions(&[p0()]);
 
