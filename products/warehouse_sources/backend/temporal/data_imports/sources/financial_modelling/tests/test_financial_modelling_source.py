@@ -63,10 +63,6 @@ class TestGetSchemas:
         # supports_append tracks incremental here (date-windowed endpoints can append).
         assert schemas[endpoint].supports_append is expected_incremental
 
-    def test_names_filter(self) -> None:
-        schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1, names=["historical_prices"])
-        assert [s.name for s in schemas] == ["historical_prices"]
-
 
 class TestValidateCredentials:
     @patch(

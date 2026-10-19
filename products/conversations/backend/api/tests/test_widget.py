@@ -880,6 +880,48 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(_stale_counter() - before_stale, expected_stale_delta)
 
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_list_tickets_independently_rotated_secret_verifies(self):
+        # The staleness guard excluding an independently rotated secret locks the team out.
+        independent_secret = "an_independent_secret"
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team, secret=independent_secret, rotated_independently=True
+        )
+        self._create_ticket()
+        before_stale = _stale_counter()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": compute_identity_hash(self.distinct_id, independent_secret),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(_stale_counter() - before_stale, 0.0)
+
+    def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
+        # Even with the kill switch on, an independent rotation must revoke the legacy
+        # token for verification, or old hashes stay valid forever.
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team, secret="an_independent_secret", rotated_independently=True
+        )
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
         # After the backfill both stores hold the same value, so the response is 200 either
         # way and only the counter shows which one matched. Without this, reordering the

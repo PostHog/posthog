@@ -184,8 +184,16 @@ The playground keeps the provider's explanation so users can correct the setting
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
+A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
+Lower the setting if backfills crowd out live evaluations.
 Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
 A backfill run that still hits a DNS failure on its last attempt fails instead of recording a skip, so **Retry remaining** can run it again.
+After 10 failed runs in a row, the backfill pauses for 1, 2, 5, 10, then 30 minutes, and a success resets that sequence.
+The failure count and the pauses carry over between pages.
+When the pauses run out, or a run reports an error that disables the evaluation, the backfill stops as **Interrupted** and keeps its cursor.
+Its stop reason says whether the evaluation was disabled or the runs kept failing.
 Live evaluation retry budgets remain unchanged.
 Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
 Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.
@@ -194,6 +202,8 @@ An interrupted backfill preserves completed results.
 **Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
 It preserves usable existing results and retries units without usable results.
 It is not available for a backfill that re-ran existing results.
+A cancelled backfill still counts the runs it started before the cancel, because they finish and are billed.
+Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
 ## Result encoding
 

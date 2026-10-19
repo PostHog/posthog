@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
@@ -40,7 +40,7 @@ HISTORICAL_BACKFILL_DAYS = 365
 HISTORICAL_MAX_COUNT = 10000
 
 
-@dataclass
+@frozen
 class CoinMarketCapEndpointConfig:
     name: str
     # Path on https://pro-api.coinmarketcap.com (e.g. "/v1/cryptocurrency/map").
@@ -48,6 +48,9 @@ class CoinMarketCapEndpointConfig:
     # JSONPath to the list of records in the response body. Every CoinMarketCap
     # endpoint we sync wraps its collection under the top-level "data" key.
     data_selector: str = "data"
+    # Field that uniquely identifies a row. Most endpoints key on `id`; the v5 derivatives
+    # endpoints name it after the entity instead.
+    primary_key: str = "id"
     # Stable created-style datetime field to partition by, or None to skip
     # partitioning. Only set where the field is reliably present on every row.
     partition_key: Optional[str] = None
@@ -107,6 +110,24 @@ COINMARKETCAP_ENDPOINTS: dict[str, CoinMarketCapEndpointConfig] = {
             "sort_dir": "asc",
             "aux": "num_market_pairs,traffic_score,rank,exchange_score,effective_liquidity_24h,date_launched,fiats",
         },
+    ),
+    # Long, short and total liquidations per coin over rolling 1h/4h/24h windows.
+    "liquidations_by_cryptocurrency_latest": CoinMarketCapEndpointConfig(
+        name="liquidations_by_cryptocurrency_latest",
+        path="/v5/derivatives/liquidations/cryptocurrency/list/latest",
+        data_selector="data.cryptocurrencies",
+        primary_key="crypto_id",
+        # The `sort` enum offers only liquidation metrics, which have no stable order. Only coins
+        # with recorded liquidations are listed, so the table usually fits on one PAGE_SIZE page.
+        extra_params={"sort": "total_liquidations_24h", "sort_dir": "desc"},
+    ),
+    # Long, short and total liquidations per derivatives exchange over rolling 1h/4h/24h windows.
+    "liquidations_by_exchange_latest": CoinMarketCapEndpointConfig(
+        name="liquidations_by_exchange_latest",
+        path="/v5/derivatives/liquidations/exchange/list/latest",
+        data_selector="data.exchanges",
+        primary_key="exchange_id",
+        extra_params={"sort": "total_liquidations_24h", "sort_dir": "desc"},
     ),
 }
 

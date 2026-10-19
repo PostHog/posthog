@@ -476,8 +476,8 @@ describe('formatProductNames', () => {
 })
 
 describe('getUsageLimitConsequence', () => {
-    it('should return specific message for Data warehouse', () => {
-        expect(getUsageLimitConsequence('Data warehouse')).toEqual('data will not be synced')
+    it.each(['Data warehouse', 'Sources'])('should return the sync consequence for %s', (name) => {
+        expect(getUsageLimitConsequence(name)).toEqual('data will not be synced')
     })
 
     it('should return specific message for Feature flags & Experiments', () => {
@@ -515,6 +515,13 @@ describe('buildUsageLimitReachedMessage', () => {
     it('should build message for single unsubscribed product', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: false }])
         expect(result.message).toContain('upgrade your plan')
+    })
+
+    it.each(['Data warehouse', 'Sources'])('should explain stopped syncing for %s at its usage limit', (name) => {
+        const result = buildUsageLimitReachedMessage([{ type: 'data_warehouse', name, subscribed: true }])
+        expect(result.message).toEqual(
+            `You have reached the usage limit for ${name}. Please increase your billing limit or data will not be synced.`
+        )
     })
 
     it('should build message for multiple products with unique consequences', () => {

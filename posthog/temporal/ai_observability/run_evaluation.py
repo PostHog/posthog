@@ -48,6 +48,11 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import increment_errors
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -250,6 +255,17 @@ async def handle_terminal_user_error_result(
     return workflow_result
 
 
+def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:
+    # A backfill waits on its children, so each result lands in the backfill's own history. Hog
+    # output has no size cap, and a page of large results can pass Temporal's history limit.
+    if backfill_id is None:
+        return result
+    compact = result.copy()
+    compact.pop("reasoning", None)
+    compact.pop("message", None)
+    return compact
+
+
 @temporalio.workflow.defn(name="run-evaluation")
 class RunEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
@@ -262,6 +278,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
         # histories for one release, then delete this call (temporal-workflow-versioning rule).
         temporalio.workflow.deprecate_patch("remove-trial-evals")
@@ -292,12 +311,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         start_time=start_time,
                         backfill_id=inputs.backfill_id,
                     ),
-                    start_to_close_timeout=timedelta(seconds=120),
+                    start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
                     # Total deadline including queue wait: without it a task stuck in the queue
                     # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
                     # trigger for this (evaluation, event) pair.
-                    schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=8)),
-                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=3)),
+                    schedule_to_close_timeout=backfill_timeout(
+                        recover_backfill, HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT
+                    ),
+                    # A hog or sentiment run is local and deterministic, so repeating it on the emit schedule is cheap.
+                    retry_policy=backfill_retry_policy(recover_backfill, EMIT_EVENT_RETRY_POLICY),
                 )
             except temporalio.exceptions.ActivityError as e:
                 if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
@@ -317,6 +339,24 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             )
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+
+        # A backfill can outlive the evaluation it runs, so it checks before the billed judge call.
+        # The skip also tells the backfill to stop the rest of its page.
+        if (
+            result is None
+            and inputs.backfill_id is not None
+            and (evaluation["deleted"] or not evaluation["enabled"])
+            and temporalio.workflow.patched("evaluation-backfill-skips-disabled-evaluation")
+        ):
+            disabled_result: WorkflowResult = {
+                "skipped": True,
+                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+                "evaluation_id": inputs.evaluation_id,
+                "evaluation_type": evaluation_type,
+            }
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
+                disabled_result["verdict"] = None
+            return disabled_result
 
         if result is None:
             if evaluation_type == "hog":
@@ -385,9 +425,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # The activity reads the generation itself when it was handed a reference, and
                     # that event can run to several MiB, so it gets the same budget as the local
                     # evaluation activity rather than the 30s a capture call alone would need.
-                    start_to_close_timeout=timedelta(seconds=120),
-                    schedule_to_close_timeout=timedelta(minutes=8),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+                    schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    retry_policy=EMIT_EVENT_RETRY_POLICY,
                 )
             except Exception:
                 increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
