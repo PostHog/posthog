@@ -19,6 +19,7 @@ import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/q
 import { initKeaTests } from '~/test/init'
 import {
     BreakdownAttributionType,
+    CohortType,
     Experiment,
     ExperimentStatus,
     FeatureFlagBasicType,
@@ -1135,6 +1136,18 @@ describe('experimentLogic', () => {
                 .toDispatchActions(['updateExperimentSuccess'])
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
+        })
+    })
+
+    describe('createExposureCohortSuccess', () => {
+        it('links the cohort to the experiment when cohortsModel is not mounted', async () => {
+            logic.actions.setExperiment(experiment)
+            const exposureCohort = { id: 42, name: 'Exposure cohort' } as CohortType
+            await expectLogic(logic, () => {
+                logic.actions.createExposureCohortSuccess(exposureCohort)
+            }).toFinishAllListeners()
+            expect(logic.values.experiment.exposure_cohort).toEqual(42)
+            expect(lemonToast.success).toHaveBeenCalledWith('Exposure cohort created successfully', expect.anything())
         })
     })
 
