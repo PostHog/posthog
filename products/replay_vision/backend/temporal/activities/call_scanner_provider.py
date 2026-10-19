@@ -781,8 +781,11 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            # A gateway refusal is our fault, so it fails the pass even on an optional step.
-            if step.required or is_gateway_refusal(exc):
+            # A gateway refusal that repeats on every attempt (e.g. a 413) fails the pass even on an optional step.
+            # One that can clear (rate limit, budget cap) skips the step instead: a Temporal retry would re-spend
+            # the core step's video tokens, and a capped budget would refuse the retry too.
+            kind = classify_gemini_error(exc)
+            if step.required or (is_gateway_refusal(exc) and not (kind and kind.is_retryable)):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))

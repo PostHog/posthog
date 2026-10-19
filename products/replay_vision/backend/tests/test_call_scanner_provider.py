@@ -518,9 +518,14 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
     assert "media" not in out
 
 
-@pytest.mark.parametrize("code", [402, 404, 429])
+@pytest.mark.parametrize(
+    "code,fails_the_pass",
+    [(404, True), (413, True), (401, False), (402, False), (429, False)],
+)
 @pytest.mark.asyncio
-async def test_a_gateway_refusal_on_a_non_required_step_fails_the_pass(code: int) -> None:
+async def test_only_a_gateway_refusal_that_repeats_fails_the_pass_on_a_non_required_step(
+    code: int, fails_the_pass: bool
+) -> None:
     steps = [
         MissionStep(name="summary", instruction="sum", response_model=_Core),
         MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
@@ -536,9 +541,14 @@ async def test_a_gateway_refusal_on_a_non_required_step_fails_the_pass(code: int
     client = _FakeClient([])
     client.models = _RefusingModels([_Resp(text='{"verdict":"yes"}')])
 
-    with pytest.raises(ClientError) as raised:
-        await _run(client, steps)
-    assert raised.value is refusal
+    if fails_the_pass:
+        with pytest.raises(ClientError) as raised:
+            await _run(client, steps)
+        assert raised.value is refusal
+    else:
+        out = await _run(client, steps)
+        assert "summary" in out
+        assert "media" not in out
 
 
 @pytest.mark.asyncio
