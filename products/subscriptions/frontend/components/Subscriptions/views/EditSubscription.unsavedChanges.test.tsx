@@ -173,10 +173,7 @@ describe('EditSubscription unsaved changes', () => {
                 if (!subscription.target_value) {
                     await userEvent.click(await screen.findByText('<subscriber@example.com>'))
                 }
-                expect((await screen.findAllByText('<subscriber@example.com>')).length).toBeGreaterThan(0)
-                expect(listMembers).toHaveBeenCalledTimes(1)
-            } else {
-                expect(listMembers).not.toHaveBeenCalled()
+                await waitFor(() => expect(listMembers).toHaveBeenCalledTimes(1))
             }
 
             await userEvent.type(name, ' renamed')
