@@ -1098,7 +1098,7 @@ def get_user_github_integration(
     for integration in integrations:
         # A row flagged for reauthorization holds no tokens. Skipping it keeps a user with several
         # installs reaching a healthy one, which deleting the row used to do for free.
-        if UserGitHubIntegration(integration).needs_reauthorization:
+        if UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL).needs_reauthorization:
             continue
         if _user_integration_has_repository(
             integration,

@@ -959,6 +959,7 @@ class TestSlackTaskRunActorUser(TestCase):
 
 class TestGetUserGithubIntegration(TestCase):
     def test_a_flagged_install_is_skipped_for_a_healthy_one(self) -> None:
+        from posthog.egress.limiter.policies import Priority
         from posthog.models.user import User
         from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
@@ -979,7 +980,9 @@ class TestGetUserGithubIntegration(TestCase):
             config={"installation_id": "222"},
             sensitive_config={"user_access_token": "gho_b", "user_refresh_token": "ghr_b"},
         )
-        UserGitHubIntegration(flagged)._discard("refresh rejected by GitHub: bad_refresh_token")
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._discard(
+            "refresh rejected by GitHub: bad_refresh_token"
+        )
 
         resolved = get_user_github_integration(user)
 

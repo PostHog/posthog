@@ -1224,7 +1224,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         self.assertEqual(row.config["needs_reauthorization_reason"], "refresh rejected by GitHub: bad_refresh_token")
         self.assertNotIn("user_access_token", row.sensitive_config)
         self.assertNotIn("user_refresh_token", row.sensitive_config)
-        self.assertTrue(UserGitHubIntegration(row).needs_reauthorization)
+        self.assertTrue(UserGitHubIntegration(row, source="test", priority=Priority.CRITICAL).needs_reauthorization)
 
     def test_get_usable_user_access_token_raises_when_refresh_token_expired(self):
         now = int(time.time())
@@ -1300,7 +1300,9 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
 
     def test_reconnecting_clears_a_reauthorization_flag(self):
         flagged = _create_user_integration(self.user)
-        UserGitHubIntegration(flagged)._discard("refresh rejected by GitHub: bad_refresh_token")
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._discard(
+            "refresh rejected by GitHub: bad_refresh_token"
+        )
 
         integration = user_github_integration_from_installation(
             self.user,
@@ -1314,7 +1316,9 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
             _authorization(),
         )
 
-        self.assertFalse(UserGitHubIntegration(integration).needs_reauthorization)
+        self.assertFalse(
+            UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL).needs_reauthorization
+        )
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertTrue(user_has_personal_github_integration(self.user))
 
