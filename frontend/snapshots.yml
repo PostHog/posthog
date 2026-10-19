@@ -7971,17 +7971,17 @@ snapshots:
     products-web-analytics-content-autopilot-validation-summary--could-not-draft--light:
         hash: v1.k794b7964.3a0b5c3945e277188a6a0bca46cb7a0535d5dc7953305da002737d7f7b59226b.MgOwCiV2JN22OjipXelwiQsFTrRbznTGW9w3qV_B56A
     products-web-analytics-content-autopilot-validation-summary--needs-fixes--dark:
-        hash: v1.k794b7964.3f6a3b187c3dab30bd0cf6aaf6b78a4a470dd123e753b4f5bbafa4f4630c0ebd.8cPF5J9uIe2-6u745ZWpXpq2xBW0zyIDzsiGg_x-hQY
+        hash: v1.k794b7964.72f51335a3557e4dec3f31abae328dd79b42ebf41096d81ee85841c580486c13.e7TZZElcxTbripSfXohXwJK8-nO3Tt2eP8Elbnr_qps
     products-web-analytics-content-autopilot-validation-summary--needs-fixes--light:
-        hash: v1.k794b7964.5e0343da1edce2aaf3b73bf8bb88762652472a8aefb196de4154d007d979d2d3.ZZ9tS9mr8uMyI6UobIEWS5Ae41LKPgygD5DB5H2l5u4
+        hash: v1.k794b7964.46a6bd67df2bdad62fbb94d8fa7374492867e38dd7676842e988225161af4a87.u8Jwhlc2d-JmUKtAoBRkJ5SPkEn6pJLZZkkUWzGWwF8
     products-web-analytics-content-autopilot-validation-summary--ready-to-download--dark:
         hash: v1.k794b7964.b1f1f0156955cfb71934ed8e6d36c89cbc3fec80c414610051489ffd5d31a51a.VZrBXAxqQltffCaf1A2pP-FvMOzsz5XBy4FY960KkWI
     products-web-analytics-content-autopilot-validation-summary--ready-to-download--light:
         hash: v1.k794b7964.f639222c8527f580b0a7d50335747380610569aefbac7407470e6ad296ba8853.zIXXIN4nBZV1mazHQrhFcswCdHx7awK23LO95NJ5uoc
     products-web-analytics-content-autopilot-workspace--active-run--dark:
-        hash: v1.k794b7964.e78c4329f8ed2b268ae0f9e12750faf36b52a13f93afa4cdef6c6d3f967b85d4.seSi9FnXUv4lFgG8LnjWfQSx48DPmw0NvAouHKLV-hE
+        hash: v1.k794b7964.8c2ed1294b11ca61e7ec5617cac82665c0a4d7332cd0d054154e0218c3c34b1d.O3WCYleeseYtm_Fw86iV9ySVBS3WXsL84Ym0-VEdNk0
     products-web-analytics-content-autopilot-workspace--active-run--light:
-        hash: v1.k794b7964.01d2d2224dc6d1eec26cb051db45e73b3f09578cace3d92a865717270f36e9a0.fyfh1pZRPid9MiuWc2YolgmQRCYae61gLJ9TTZiQ_AU
+        hash: v1.k794b7964.6b7630980026305ba3812794c20848450305c77045037416b68b3e5c96b0266d.MFNbC3he9BPdOvnZM-eZMgu76EszZI10o9aBBGvKzfQ
     products-web-analytics-content-autopilot-workspace--drafts-tab--dark:
         hash: v1.k794b7964.637309bee3b445b811c08125b51c97c7405e998cef81982ab462a725251d9023.YjxtQHICh7pmzgtnLGi3ijA5kT3YtDuVR0fqCebxsRs
     products-web-analytics-content-autopilot-workspace--drafts-tab--light:
@@ -7995,19 +7995,19 @@ snapshots:
     products-web-analytics-content-autopilot-workspace--multiple-sites--light:
         hash: v1.k794b7964.21a7db13b993390e317a731761f511032ca5a9bc9cce892a25e7e971dc4132c9.n4GVrNk_EbdIHKcdoedPUNp__WazceU2Bz3hX_cdKLo
     products-web-analytics-content-autopilot-workspace--onboarding--dark:
-        hash: v1.k794b7964.e25d2ce438dde5ff089d92d1504c6fa7b4bef2753263469896a025c9a12ca8ef.Y5pJiZoVIFxN2U2W1U-Jhl_k6BiEer-NAFSZHG2nzNs
+        hash: v1.k794b7964.08bf9aece2a7e9651f0969618c95caef4b09a9ee202bc5362c705253e1fd2fb4.RreWWxQzJ1MGNJjBiE-TAYy-zLAaHhtIdwDEDcdTS6M
     products-web-analytics-content-autopilot-workspace--onboarding--light:
-        hash: v1.k794b7964.3260bba8be9bb83600881de8669062332538e93deb3db5293d9a66b9aa761126.2LtqyaPy7LCKst40HPfbLagOFtLgCG5jLWxI9rD_ubM
+        hash: v1.k794b7964.c8a74b09a875fc32f80049b21eeffe1020b067c73fcfb879e5941dfa148d1ff9.yO5nGkekmtOiwH-z82KWOuIO6pq6mzFlOiboATKIkmw
     products-web-analytics-content-autopilot-workspace--proposal-preview--dark:
-        hash: v1.k794b7964.2603b94d96ac1d8977930ba236120a36a6a42bc6f13d754fe27399dbd367df2d.nQScRCjEByxzq0m7TyFMOVNZN-_gXtFu2ORBwbsOK_8
+        hash: v1.k794b7964.3d45a7c7f322493920db20435d2182baa25f86af1a77e1cd1db94bcb1598015f.f-lDV9cFdR_QyAhO0XPEnKCvVu8p5unPUAEIznrI83k
     products-web-analytics-content-autopilot-workspace--proposal-preview--light:
-        hash: v1.k794b7964.918dc05271cb6a516a4ddac349229f8153d5422d38bb09be8870fe6427fb7d66.468dJUMixIUncJ2NydVmzcONY_cAFjHBWtLBO4xHu00
+        hash: v1.k794b7964.b8cfc1f9d3571584dcec5d27f3f544f04e2401472bd0cabccf5d76fdf4bf3472.QDh7oB5_GxqDPEuzCx7rYUiPN-dhfleeGZq_EtWk4mo
     products-web-analytics-content-autopilot-workspace--proposal-review--dark:
-        hash: v1.k794b7964.3dd695acd0f14fe26be179c56f03a3634928432881b5b55d593d111e3b464bab.ypcWxacARNVYXNxZK7XHLh7W72bJKyYiTVnptevisXg
+        hash: v1.k794b7964.3561e1adb9a9a5a26b95cdef970d0f76760cf1137786ca9b17940f80eef7e949.kseVCD0bpaF4XXkL6cPG9bnDkNS8pwDRSg9YC7n2FvU
     products-web-analytics-content-autopilot-workspace--proposal-review--light:
-        hash: v1.k794b7964.60e92f685328afbda918ce8a1d46a9b8f40509d3cba15a9b0d7eb31dfdf1253a.qdJZahp8Yox9x8AB-DJ22blfoEDsoHiyjCBBjgkh6L4
+        hash: v1.k794b7964.2938125cbd36f0d51e7a4e7b950075b59aa92b0f97e43e63306203b8de2191d0.NCk1bEMPM1vhBXP28nupt9KUqiS0quEHSS_g9r2tVP0
     products-web-analytics-content-autopilot-workspace--ready-for-review--dark:
-        hash: v1.k794b7964.e2a8bdaa2bb31d1d592af3e025420d607798e51389e2f09e947fdbc475f9416c.fB2i7pY1QaxzzAuxe8CmRPAK0rEFqg3Ybdrn3vPT5Aw
+        hash: v1.k794b7964.09962247e2a75af3c3a860dffa00b2147f64818d7ec9b239643ef148b74c2040.eAiKB6udmL05meYW4y7T5pyMlHlCVBtp7_gvGZzeRUc
     products-web-analytics-content-autopilot-workspace--ready-for-review--light:
         hash: v1.k794b7964.1585d95a6cf144524c72dee9425e4192bd5a7f57ca1efdf90f493411446bd4c6.CXyy2bM9ZICsNRXcpZYV5Y36zVMZ1rUD1zlybNCNWeI
     products-web-analytics-content-autopilot-workspace--site-settings--dark:
