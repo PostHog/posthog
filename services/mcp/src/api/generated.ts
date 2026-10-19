@@ -78098,6 +78098,7 @@ export namespace Schemas {
 
     /**
      * * `source_sync` - Source sync
+     * * `fastest_schedule` - Fastest schedule
      * * `read_rate` - Read rate
      * * `savings` - Savings
      */
@@ -78106,6 +78107,7 @@ export namespace Schemas {
 
     export const WarehouseSuggestionRefreshIntervalBasisEnum = {
       SourceSync: 'source_sync',
+      FastestSchedule: 'fastest_schedule',
       ReadRate: 'read_rate',
       Savings: 'savings',
     } as const;
@@ -78120,9 +78122,10 @@ export namespace Schemas {
        * * `full` - Full
        * * `incremental` - Incremental */
       refresh_mode: WarehouseSuggestionRefreshModeEnum;
-      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
        *
        * * `source_sync` - Source sync
+       * * `fastest_schedule` - Fastest schedule
        * * `read_rate` - Read rate
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
