@@ -3929,28 +3929,6 @@
                 }
             ]
         },
-        "recording_domains": {
-            "anyOf": [
-                {
-                    "items": {
-                        "anyOf": [
-                            {
-                                "maxLength": 200,
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Origins permitted to record session replays and heatmaps. Empty list allows all origins."
-        },
         "require_evaluation_contexts": {
             "anyOf": [
                 {

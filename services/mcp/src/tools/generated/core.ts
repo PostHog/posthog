@@ -865,9 +865,6 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.live_events_columns !== undefined) {
             body['live_events_columns'] = params.live_events_columns
         }
-        if (params.recording_domains !== undefined) {
-            body['recording_domains'] = params.recording_domains
-        }
         if (params.inject_web_apps !== undefined) {
             body['inject_web_apps'] = params.inject_web_apps
         }

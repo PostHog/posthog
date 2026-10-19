@@ -3082,8 +3082,6 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurati
 
 export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
-export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
-
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
@@ -3275,10 +3273,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 'ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.'
             ),
         live_events_columns: zod.array(zod.string()).nullish(),
-        recording_domains: zod
-            .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
-            .nullish()
-            .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
         extra_settings: zod.unknown().optional(),
         modifiers: zod.unknown().optional(),
