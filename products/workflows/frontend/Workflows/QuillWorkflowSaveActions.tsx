@@ -12,6 +12,68 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+// Module-level so AccessControlAction sees a stable element type and reconciles instead of
+// remounting; an inline child would close the draft menu whenever autosave re-rendered the header.
+function PublishActions({
+    isPrimary,
+    draftActionPending,
+    publishDisabledReason,
+    discardDisabledReason,
+    disabledReason,
+    onPublish,
+    onDiscardDraft,
+}: {
+    isPrimary: boolean
+    draftActionPending: string | null
+    publishDisabledReason: string | null | undefined
+    discardDisabledReason: string | null | undefined
+    disabledReason?: string | null
+    onPublish: () => void
+    onDiscardDraft: () => void
+}): JSX.Element {
+    const variant = isPrimary ? 'primary' : 'outline'
+    return (
+        <ButtonGroup>
+            <Button
+                data-attr="workflow-publish"
+                variant={variant}
+                onClick={onPublish}
+                loading={draftActionPending === 'publish'}
+                disabledReason={publishDisabledReason ?? disabledReason}
+            >
+                Publish
+            </Button>
+            <DropdownMenu>
+                <DropdownMenuTrigger
+                    render={
+                        <Button
+                            variant={variant}
+                            size="icon"
+                            aria-label="More draft actions"
+                            tooltip="More draft actions"
+                            data-attr="workflow-draft-actions"
+                            disabledReason={disabledReason}
+                        />
+                    }
+                >
+                    <IconChevronDown />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                        variant="destructive"
+                        disabledReason={discardDisabledReason}
+                        onClick={onDiscardDraft}
+                        data-attr="workflow-discard-draft"
+                    >
+                        <IconTrash />
+                        Discard draft
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </ButtonGroup>
+    )
+}
+
 export function QuillWorkflowSaveActions({
     hasUnsavedChanges,
     hasStagedDraft,
@@ -49,6 +111,7 @@ export function QuillWorkflowSaveActions({
     onPublish: () => void
     onDiscardDraft: () => void
 }): JSX.Element {
+    const publishIsPrimary = hasStagedDraft && !hasUnsavedChanges
     return (
         <>
             {hasUnsavedChanges && (
@@ -69,7 +132,7 @@ export function QuillWorkflowSaveActions({
                     >
                         <Button
                             data-attr="workflow-save"
-                            variant={hasStagedDraft && !hasUnsavedChanges ? 'outline' : 'primary'}
+                            variant={publishIsPrimary ? 'outline' : 'primary'}
                             type="submit"
                             form="workflow"
                             onClick={onSave}
@@ -85,48 +148,14 @@ export function QuillWorkflowSaveActions({
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={workflowUserAccessLevel}
                         >
-                            {({ disabledReason }) => (
-                                <ButtonGroup>
-                                    <Button
-                                        data-attr="workflow-publish"
-                                        variant={hasStagedDraft && !hasUnsavedChanges ? 'primary' : 'outline'}
-                                        onClick={onPublish}
-                                        loading={draftActionPending === 'publish'}
-                                        disabledReason={publishDisabledReason ?? disabledReason}
-                                    >
-                                        Publish
-                                    </Button>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger
-                                            render={
-                                                <Button
-                                                    variant={
-                                                        hasStagedDraft && !hasUnsavedChanges ? 'primary' : 'outline'
-                                                    }
-                                                    size="icon"
-                                                    aria-label="More draft actions"
-                                                    tooltip="More draft actions"
-                                                    data-attr="workflow-draft-actions"
-                                                    disabledReason={disabledReason}
-                                                />
-                                            }
-                                        >
-                                            <IconChevronDown />
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem
-                                                variant="destructive"
-                                                disabledReason={discardDisabledReason}
-                                                onClick={onDiscardDraft}
-                                                data-attr="workflow-discard-draft"
-                                            >
-                                                <IconTrash />
-                                                Discard draft
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </ButtonGroup>
-                            )}
+                            <PublishActions
+                                isPrimary={publishIsPrimary}
+                                draftActionPending={draftActionPending}
+                                publishDisabledReason={publishDisabledReason}
+                                discardDisabledReason={discardDisabledReason}
+                                onPublish={onPublish}
+                                onDiscardDraft={onDiscardDraft}
+                            />
                         </AccessControlAction>
                     )}
                 </>
