@@ -12321,6 +12321,7 @@ export namespace Schemas {
      * * `Northbeam` - Northbeam
      * * `NaverAds` - NaverAds
      * * `ChannelIO` - ChannelIO
+     * * `GoogleAdMob` - GoogleAdMob
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13709,7 +13710,8 @@ export namespace Schemas {
         | "LaravelCloud"
         | "Northbeam"
         | "NaverAds"
-        | "ChannelIO";
+        | "ChannelIO"
+        | "GoogleAdMob";
     /**
      * * `web` - web
      * * `api` - api
@@ -15107,6 +15109,7 @@ export namespace Schemas {
          * * `Northbeam` - Northbeam
          * * `NaverAds` - NaverAds
          * * `ChannelIO` - ChannelIO
+         * * `GoogleAdMob` - GoogleAdMob
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
