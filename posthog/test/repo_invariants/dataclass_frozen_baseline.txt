@@ -1477,7 +1477,7 @@
 6 posthog/hogql/base.py
 6 posthog/hogql/scripts/build_grammar_strategies.py
 6 posthog/local_bootstrap/config.py
-6 products/slack_app/backend/temporal/types.py
+5 products/slack_app/backend/temporal/types.py
 6 posthog/temporal/ai/sync_vectors.py
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
