@@ -2574,7 +2574,7 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
-    def signal_agent_turn_completed(self, *, succeeded: bool = False) -> None:
+    def signal_agent_turn_completed(self, *, succeeded: bool = False) -> bool:
         import asyncio
 
         from posthog.temporal.common.client import sync_connect
@@ -2592,6 +2592,8 @@ class TaskRun(models.Model):
             asyncio.run(signal_completion())
         except Exception as e:
             logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
+            return False
+        return True
 
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]

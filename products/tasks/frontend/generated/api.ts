@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentCallbackRequestApi,
+    AgentProxyCallbackResponseApi,
     ChannelContextGenerationApi,
     ChannelContributorsDTOApi,
     ChannelDTOApi,
@@ -1615,6 +1617,29 @@ export const tasksRunsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskRunUpdateApi),
+    })
+}
+
+export const getTasksRunsAgentCallbackCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/agent_callback/`
+}
+
+/**
+ * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks the agent sends instead of the agent-proxy.
+ * @summary Send an agent callback
+ */
+export const tasksRunsAgentCallbackCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    agentCallbackRequestApi: AgentCallbackRequestApi,
+    options?: RequestInit
+): Promise<AgentProxyCallbackResponseApi> => {
+    return apiMutator<AgentProxyCallbackResponseApi>(getTasksRunsAgentCallbackCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentCallbackRequestApi),
     })
 }
 

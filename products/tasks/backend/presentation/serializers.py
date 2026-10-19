@@ -5066,15 +5066,7 @@ class AgentProxyProcessKilledSerializer(serializers.Serializer):
     memory_limit_bytes = serializers.IntegerField(min_value=0, help_text="Sandbox memory limit, in bytes.")
 
 
-class AgentProxyCallbackRequestSerializer(serializers.Serializer):
-    """Request body for the agent-proxy side-effect callback.
-
-    Called by the standalone Node agent-proxy after it accepts an ingest event
-    that triggers a Temporal heartbeat or an awaiting-input push notification.
-    The request is authenticated with the original sandbox event ingest JWT so
-    Django can re-validate claims without an extra token round-trip.
-    """
-
+class AgentCallbackRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=[
             "heartbeat",
@@ -5121,18 +5113,13 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "False for any other stop reason."
         ),
     )
-    task_id = serializers.CharField(
-        max_length=36,
-        help_text="UUID of the Task that owns this run. Must match the JWT claim.",
-    )
-    team_id = serializers.IntegerField(
-        min_value=1,
-        help_text="Numeric team (project) ID. Must match the JWT claim.",
-    )
     sequence = serializers.IntegerField(
         required=False,
         min_value=1,
-        help_text="Event sequence used to deduplicate a budget steer or a process kill.",
+        help_text=(
+            "Stream sequence of the event this callback reports, used to drop retried callbacks. "
+            "Required for a budget steer or a process kill."
+        ),
     )
     timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
     stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")
@@ -5149,6 +5136,25 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     delivered_at = serializers.DateTimeField(required=False, help_text="Time when the steer reached the agent.")
     process_killed = AgentProxyProcessKilledSerializer(
         required=False, help_text="The kill the sandbox memory watchdog reported. Required for 'process_killed'."
+    )
+
+
+class AgentProxyCallbackRequestSerializer(AgentCallbackRequestSerializer):
+    """Request body for the agent-proxy side-effect callback.
+
+    Called by the standalone Node agent-proxy after it accepts an ingest event
+    that triggers a Temporal heartbeat or an awaiting-input push notification.
+    The request is authenticated with the original sandbox event ingest JWT so
+    Django can re-validate claims without an extra token round-trip.
+    """
+
+    task_id = serializers.CharField(
+        max_length=36,
+        help_text="UUID of the Task that owns this run. Must match the JWT claim.",
+    )
+    team_id = serializers.IntegerField(
+        min_value=1,
+        help_text="Numeric team (project) ID. Must match the JWT claim.",
     )
 
 

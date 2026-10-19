@@ -11704,6 +11704,111 @@ export namespace Schemas {
     }
 
     /**
+     * * `heartbeat` - heartbeat
+     * * `awaiting_input` - awaiting_input
+     * * `turn_failed` - turn_failed
+     * * `command_dispatched` - command_dispatched
+     * * `agent_activity` - agent_activity
+     * * `budget_steer` - budget_steer
+     * * `process_killed` - process_killed
+     */
+    export type AgentCallbackRequestKindEnum = typeof AgentCallbackRequestKindEnum[keyof typeof AgentCallbackRequestKindEnum];
+
+
+    export const AgentCallbackRequestKindEnum = {
+      Heartbeat: 'heartbeat',
+      AwaitingInput: 'awaiting_input',
+      TurnFailed: 'turn_failed',
+      CommandDispatched: 'command_dispatched',
+      AgentActivity: 'agent_activity',
+      BudgetSteer: 'budget_steer',
+      ProcessKilled: 'process_killed',
+    } as const;
+
+    export interface AgentProxyProcessKilled {
+      /**
+         * Command name of the root process the watchdog stopped.
+         * @maxLength 64
+         */
+      comm: string;
+      /**
+         * Last signal the watchdog sent, such as SIGTERM or SIGKILL.
+         * @maxLength 16
+         */
+      signal: string;
+      /**
+         * Resident memory of the stopped process tree, in bytes.
+         * @minimum 0
+         */
+      tree_rss_bytes: number;
+      /**
+         * Sandbox memory in use when the watchdog acted, in bytes.
+         * @minimum 0
+         */
+      memory_current_bytes: number;
+      /**
+         * Sandbox memory limit, in bytes.
+         * @minimum 0
+         */
+      memory_limit_bytes: number;
+    }
+
+    export interface AgentCallbackRequest {
+      /** Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.
+       *
+       * * `heartbeat` - heartbeat
+       * * `awaiting_input` - awaiting_input
+       * * `turn_failed` - turn_failed
+       * * `command_dispatched` - command_dispatched
+       * * `agent_activity` - agent_activity
+       * * `budget_steer` - budget_steer
+       * * `process_killed` - process_killed */
+      kind: AgentCallbackRequestKindEnum;
+      /** Whether the agent is currently active (true) or idle (false). This is true for 'heartbeat' and 'agent_activity', and false otherwise. */
+      agent_active: boolean;
+      /** Whether this heartbeat marks new activity after the agent was idle, bypassing throttling. */
+      activity_started?: boolean;
+      /** Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume to mark the agent idle without sending a completion notification or updating activity. */
+      turn_completed?: boolean;
+      /** Whether 'awaiting_input' reports a turn that ended with the 'end_turn' stop reason. False for any other stop reason. */
+      turn_succeeded?: boolean;
+      /**
+         * Stream sequence of the event this callback reports, used to drop retried callbacks. Required for a budget steer or a process kill.
+         * @minimum 1
+         */
+      sequence?: number;
+      /** Original event time, preserved across retries. */
+      timestamp?: string;
+      /** Budget stage: warn or critical. */
+      stage?: string;
+      /** Budget steer mode: publish or wrap_up. */
+      mode?: string;
+      /** Whether the steer reached the agent. */
+      delivered?: boolean;
+      /**
+         * Estimated spend when the steer was sent.
+         * @minimum 0
+         */
+      spent_usd?: number;
+      /**
+         * Gateway spending cap for this run.
+         * @minimum 0
+         */
+      cap_usd?: number;
+      /**
+         * Estimated spend when the budget stage was reached.
+         * @minimum 0
+         */
+      threshold_spent_usd?: number;
+      /** Time when the budget stage was reached. */
+      threshold_at?: string;
+      /** Time when the steer reached the agent. */
+      delivered_at?: string;
+      /** The kill the sandbox memory watchdog reported. Required for 'process_killed'. */
+      process_killed?: AgentProxyProcessKilled;
+    }
+
+    /**
      * A check a scout run answers: re-probe the report's claim and record one verdict.
      *
      * The kind for a claim no single number settles. A resolved error-tracking report is the usual
@@ -11776,6 +11881,14 @@ export namespace Schemas {
       UserInterview: 'user_interview',
       CustomerAnalytics: 'customer_analytics',
     } as const;
+
+    /**
+     * Response from the agent-proxy side-effect callback.
+     */
+    export interface AgentProxyCallbackResponse {
+      /** True when the requested side effect was dispatched; false when skipped (e.g. run not found). */
+      dispatched: boolean;
+    }
 
     export interface AggregatedSpanRow {
       avg_duration_nano: number;

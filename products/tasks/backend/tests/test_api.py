@@ -15029,6 +15029,69 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["code"], "reauth_required")
 
+    @parameterized.expand(
+        [
+            ("sandbox_of_opted_in_run", "sandbox", True, status.HTTP_200_OK, 1),
+            ("sandbox_of_proxy_reported_run", "sandbox", False, status.HTTP_403_FORBIDDEN, 0),
+            ("sandbox_of_another_run", "other_run_sandbox", True, status.HTTP_403_FORBIDDEN, 0),
+            ("human_session", "session", True, status.HTTP_403_FORBIDDEN, 0),
+        ]
+    )
+    def test_agent_callback_heartbeats_only_for_the_sandbox_of_an_opted_in_run(
+        self, _name, caller, opted_in, expected_status, expected_heartbeats
+    ):
+        task = self.create_task()
+        self._create_run_with_sandbox(task)
+        client = self._sandbox_oauth_client(task.id) if caller == "other_run_sandbox" else self.client
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": opted_in}
+        run.save(update_fields=["state"])
+        if caller == "sandbox":
+            client = self._sandbox_oauth_client(task.id)
+
+        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/",
+                {"kind": "heartbeat", "agent_active": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(heartbeat.call_count, expected_heartbeats)
+
+    @parameterized.expand(
+        [
+            ("same_sequence", [5, 5], [True, True], [200, 200], 1),
+            ("different_sequences", [5, 6], [True, True], [200, 200], 2),
+            ("no_sequence", [None, None], [True, True], [200, 200], 2),
+            ("retry_after_failed_signal", [5, 5], [False, True], [503, 200], 2),
+            ("retry_after_dispatch_error", [5, 5], [RuntimeError("database down"), True], [503, 200], 2),
+        ]
+    )
+    def test_agent_callback_drops_a_retried_turn_result(
+        self, _name, sequences, signal_results, expected_statuses, expected_signals
+    ):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": True}
+        run.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(task.id)
+
+        with patch.object(TaskRun, "signal_agent_turn_completed", side_effect=signal_results) as turn_completed:
+            statuses = []
+            for sequence in sequences:
+                body = {"kind": "awaiting_input", "agent_active": False, "turn_completed": True}
+                if sequence is not None:
+                    body["sequence"] = sequence
+                response = client.post(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/", body, format="json"
+                )
+                statuses.append(response.status_code)
+
+        self.assertEqual(statuses, expected_statuses)
+
+        self.assertEqual(turn_completed.call_count, expected_signals)
+
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
         other_user = self.create_organization_user("task-owner")

@@ -333,6 +333,12 @@ TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
     labelnames=["path", "origin_product"],
 )
 
+TASK_RUN_INGEST_REQUESTS_TOTAL = Counter(
+    "posthog_tasks_task_run_ingest_requests_total",
+    "Task-run ingest requests, by whether the agent or the ingest handler sends the run's callbacks",
+    labelnames=["callback_sender", "origin_product"],
+)
+
 TASK_RUN_SANDBOX_PROCESS_KILLED_TOTAL = Counter(
     "posthog_tasks_sandbox_process_killed_notifications_total",
     "Sandbox memory watchdog kills captured from the sequenced event ingest",
@@ -674,6 +680,12 @@ def observe_stream_token_routed(origin_product: str, route: StreamTokenRoute, re
 
 def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
     TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL.labels(path=path, origin_product=_metric_label(origin_product)).inc()
+
+
+def observe_ingest_request(callback_sender: Literal["agent", "ingest"], origin_product: str | None = None) -> None:
+    TASK_RUN_INGEST_REQUESTS_TOTAL.labels(
+        callback_sender=callback_sender, origin_product=_metric_label(origin_product)
+    ).inc()
 
 
 def observe_sandbox_process_killed() -> None:

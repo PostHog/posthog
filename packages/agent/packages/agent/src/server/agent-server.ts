@@ -136,6 +136,11 @@ import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
+import {
+  AGENT_CALLBACK_SETTLE_BUDGET_MS,
+  type AgentCallbackReporter,
+  createAgentCallbackReporter,
+} from "./agent-callback-reporter";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -305,6 +310,28 @@ function budgetSnapshotFromUsageUpdate(
   return typeof budget === "object" && budget !== null
     ? (budget as Record<string, unknown>)
     : undefined;
+}
+
+const GENERATING_SESSION_UPDATES = new Set([
+  "agent_message",
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+]);
+
+function isGeneratingUpdate(params: unknown): boolean {
+  if (typeof params !== "object" || params === null || !("update" in params)) {
+    return false;
+  }
+  const { update } = params;
+  return (
+    typeof update === "object" &&
+    update !== null &&
+    "sessionUpdate" in update &&
+    typeof update.sessionUpdate === "string" &&
+    GENERATING_SESSION_UPDATES.has(update.sessionUpdate)
+  );
 }
 
 export function isTurnCompleteNotification(message: unknown): boolean {
@@ -549,6 +576,7 @@ export class AgentServer {
   private contextSelectionAPI: PostHogAPIClient;
   private contextSelectionApiKey: string;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
+  private agentCallbacks: AgentCallbackReporter | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
   private questionRelayedToSlack = false;
@@ -720,10 +748,24 @@ export class AgentServer {
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
     if (config.eventIngestToken) {
+      this.agentCallbacks = createAgentCallbackReporter({
+        eventIngestToken: config.eventIngestToken,
+        logger: this.logger.child("AgentCallback"),
+        send: (callback) =>
+          this.posthogAPI.sendAgentCallback(
+            config.taskId,
+            config.runId,
+            callback,
+          ),
+        awaitEventAck: () =>
+          this.eventStreamSender?.awaitAckOfLastEvent() ??
+          Promise.resolve(null),
+      });
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
         eventIngestBaseUrl: config.eventIngestBaseUrl,
         keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
+        agentSendsCallbacks: this.agentCallbacks !== null,
         projectId: config.projectId,
         taskId: config.taskId,
         runId: config.runId,
@@ -1073,6 +1115,7 @@ export class AgentServer {
     };
     if (this.session) {
       this.broadcastAndPersistNotification(notification);
+      this.agentCallbacks?.processKilled(params);
       return;
     }
     this.pendingProcessKills.push(params);
@@ -1088,6 +1131,7 @@ export class AgentServer {
         method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
         params,
       });
+      this.agentCallbacks?.processKilled(params);
     }
   }
 
@@ -1239,6 +1283,11 @@ export class AgentServer {
           : (this.eventStreamSender?.stop({ complete: false }) ??
               Promise.resolve()),
         5_000,
+      );
+      this.agentCallbacks?.stopWaitingForAcks();
+      await withTimeout(
+        this.agentCallbacks?.settled() ?? Promise.resolve(),
+        AGENT_CALLBACK_SETTLE_BUDGET_MS,
       );
       // An abort during initialization leaves the root span open with no session
       // to carry it, and the caller exits the process as soon as this returns.
@@ -5850,6 +5899,38 @@ export class AgentServer {
       return;
     }
     this.broadcastEvent(event);
+    this.reportAgentMessage(message);
+  }
+
+  private reportAgentMessage(message: unknown): void {
+    if (
+      !this.agentCallbacks ||
+      typeof message !== "object" ||
+      message === null
+    ) {
+      return;
+    }
+    const { method, params } = message as {
+      method?: unknown;
+      params?: unknown;
+    };
+    if (method === "session/update") {
+      this.agentCallbacks.agentActivity(isGeneratingUpdate(params));
+    } else if (method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE) {
+      const stopReason =
+        typeof params === "object" && params !== null && "stopReason" in params
+          ? params.stopReason
+          : undefined;
+      this.agentCallbacks.turnCompleted(
+        typeof stopReason === "string" ? stopReason : "",
+      );
+    } else if (
+      method === POSTHOG_NOTIFICATIONS.BUDGET_STEER &&
+      typeof params === "object" &&
+      params !== null
+    ) {
+      this.agentCallbacks.budgetSteer(params as Record<string, unknown>);
+    }
   }
 
   /** The turn's gateway trace id: the one the Claude adapter reports via
@@ -5878,6 +5959,7 @@ export class AgentServer {
         ...(traceId ? { traceId } : {}),
       },
     });
+    this.agentCallbacks?.turnCompleted(stopReason);
   }
 
   private broadcastAndPersistNotification(
@@ -5929,6 +6011,7 @@ export class AgentServer {
       method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
       params: {},
     });
+    this.agentCallbacks?.commandDispatched();
   }
 
   private flushPreSessionEvents(): void {

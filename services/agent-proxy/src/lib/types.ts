@@ -124,6 +124,7 @@ export interface SandboxEventIngestTokenPayload {
     thinTail: boolean
     originProduct: string
     streamGeneration?: string
+    agentSendsCallbacks: boolean
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from posthog.utils import get_instance_region
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
+    AGENT_SENDS_CALLBACKS_STATE_KEY,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
@@ -89,6 +90,10 @@ def is_task_run_stream_thin_tail(origin_product: str) -> bool:
 def run_stream_thin_tail(state: dict | None) -> bool:
     """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means full tail."""
     return bool((state or {}).get("stream_thin_tail", False))
+
+
+def run_agent_sends_callbacks(state: dict | None) -> bool:
+    return (state or {}).get(AGENT_SENDS_CALLBACKS_STATE_KEY) is True
 
 
 def is_dev_stack_image_bake_enabled() -> bool:
