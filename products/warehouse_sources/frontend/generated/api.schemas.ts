@@ -2101,6 +2101,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `SimonData` - SimonData
  * * `CommissionJunction` - CommissionJunction
  * * `Liveblocks` - Liveblocks
+ * * `Livestorm` - Livestorm
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
  * * `Zenchef` - Zenchef
@@ -3500,6 +3501,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SimonData: 'SimonData',
     CommissionJunction: 'CommissionJunction',
     Liveblocks: 'Liveblocks',
+    Livestorm: 'Livestorm',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
     Zenchef: 'Zenchef',
@@ -5041,6 +5043,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -6947,6 +6950,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -8426,6 +8430,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -9829,6 +9834,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -11286,6 +11292,7 @@ export interface SourcePreviewRequestApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -12724,6 +12731,7 @@ export interface SourceSetupApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -14169,6 +14177,7 @@ export interface SourceCredentialCreateApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
