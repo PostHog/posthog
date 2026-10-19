@@ -10,6 +10,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+import structlog
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
@@ -146,6 +147,9 @@ class TestStableChunks(SimpleTestCase):
             "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123"
         )
         request.user = AnonymousUser()
+        # The structlog settings keep bound context in one dict per thread. Without this reset, keys
+        # that an earlier test bound on this thread appear in the event compared below.
+        structlog.get_logger().new()
 
         with capture_logs() as logs:
             stable_chunks_choice(request, None)
