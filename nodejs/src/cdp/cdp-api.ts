@@ -568,11 +568,13 @@ export class CdpApi {
 
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
+                // Sample globals from the app can carry a placeholder project, and a test send with
+                // mock_async_functions off delivers for real, so the server's project always wins.
                 project: {
+                    ...globals.project,
                     id: team.id,
                     name: team.name,
                     url: `${this.config.SITE_URL}/project/${team.id}`,
-                    ...globals.project,
                 },
             }
 

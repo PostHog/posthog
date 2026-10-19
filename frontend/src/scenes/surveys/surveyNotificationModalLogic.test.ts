@@ -11,11 +11,13 @@ import {
     SurveyEventProperties,
     SurveyQuestionType,
     SurveyType,
+    TeamType,
 } from '~/types'
 
 import {
     alignGlobalsWithNotificationFilter,
     buildLastSurveyResponseQuery,
+    buildTemplateGlobals,
     getDefaultSurveyMessage,
     mergeResponseFiltersIntoExistingFilters,
     remapSurveyResponseProperties,
@@ -317,5 +319,12 @@ describe('surveyNotificationModalLogic', () => {
 
         expect(merged?.events?.filter((event) => event.id === SurveyEventName.SENT)).toHaveLength(0)
         expect(merged?.events?.filter((event) => event.id === SurveyEventName.DISMISSED)).toHaveLength(1)
+    })
+
+    it('builds the sample test globals for the current project', () => {
+        const globals = buildTemplateGlobals({ ...NEW_SURVEY, id: 'survey-abc' }, { id: 42, name: 'Acme' } as TeamType)
+
+        expect(globals.project).toEqual({ id: 42, name: 'Acme', url: `${window.location.origin}/project/42` })
+        expect(globals.event.properties.$survey_id).toEqual('survey-abc')
     })
 })

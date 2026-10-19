@@ -256,6 +256,33 @@ describe('CDP API', () => {
         `)
     })
 
+    it('keeps the server project when the request globals carry a different one', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({
+                globals: {
+                    ...globals,
+                    project: { id: 999, name: 'Placeholder', url: 'https://example.com/project/999' },
+                },
+                mock_async_functions: true,
+                configuration: {
+                    inputs: {
+                        ...hogFunction.inputs,
+                        body: {
+                            value: { project_url: '{project.url}' },
+                            bytecode: { project_url: await compileHog("f'{project.url}'") },
+                        },
+                    },
+                },
+            })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
+        const fetchLog = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(fetchLog).toContain(`"project_url": "http://localhost:8000/project/${team.id}"`)
+        expect(fetchLog).not.toContain('/project/999')
+    })
+
     it('can invoke a function via the API with real fetch', async () => {
         mockFetch.mockImplementationOnce(() =>
             Promise.resolve({
