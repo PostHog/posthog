@@ -19,6 +19,10 @@ class TestOwnerrezSource:
         self.team_id = 123
         self.config = OwnerrezSourceConfig(email="host@example.com", api_key="pt_key")
 
+    def test_new_sources_default_to_v2(self) -> None:
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [

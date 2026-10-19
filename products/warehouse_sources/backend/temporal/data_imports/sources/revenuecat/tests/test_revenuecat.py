@@ -126,6 +126,18 @@ class TestValidateCredentials:
         probed_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert probed_url.startswith(f"{REVENUECAT_API_BASE_URL}/projects/proj_test/")
 
+    @parameterized.expand(
+        [
+            ("curly_quote", "sk_test\u2019"),
+            ("line_break", "sk_test\nREVENUECAT_PROJECT_ID=proj_test"),
+        ]
+    )
+    def test_rejects_key_that_cannot_be_sent_in_a_header(self, _name, api_key):
+        success, error = api_client.validate_credentials(api_key, project_id="proj_test")
+
+        assert success is False
+        assert error == api_client.UNSUPPORTED_KEY_CHARACTER_MESSAGE
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_returns_false_on_network_error(self, mock_session):
         mock_session.return_value.get.side_effect = requests.ConnectionError("dns fail")

@@ -67,7 +67,6 @@ export function WatchPicksList(): JSX.Element {
                                     key={`${picksLoad?.feedLoadId}-${item.observation.id}`}
                                     item={item}
                                     position={index}
-                                    surface="list"
                                     rank={index < LIST_TOP_COUNT ? index + 1 : undefined}
                                     isActive={item.observation.session_id === activeSessionId}
                                 />

@@ -25,9 +25,8 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { replayUrlPointsSomewhere, sessionReplaySceneLogic } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingSidebarTab } from '~/types'
+import { SessionRecordingSidebarTab } from '~/types'
 
 import { visionObservationsViewedCreate, visionScannersWatchFeedRetrieve } from '../generated/api'
 import type { WatchFeedItemApi } from '../generated/api.schemas'
@@ -41,20 +40,18 @@ import {
 } from './watchFeedTelemetry'
 
 export type WatchPicksListMode = 'recordings' | 'picks'
-export type WatchPickSurface = 'list' | 'top_10' | 'more'
 
 export interface WatchPicksLogicProps {
     logicKey: string
-    playlistLogicProps?: SessionRecordingPlaylistLogicProps
+    playlistLogicProps: SessionRecordingPlaylistLogicProps
 }
 
-export const TOP_PICKS_COUNT = 10
 const PICKS_LIMIT = 50
 const PICKS_DATE_FROM = '-7d'
 
 // Survey display conditions can only trigger on an event name, so the third
-// impression of the picks (on the Watch tab or the in-list toggle) is reported
-// as its own event. The impression count lives in this browser only
+// impression of the picks in the list is reported as its own event. The
+// impression count lives in this browser only
 export const PICKS_SHOWN_SURVEY_IMPRESSION = 3
 const teamStorageKey = (key: string) => (): string =>
     `${key}.${teamLogic.findMounted()?.values.currentTeamId ?? 'unknown'}`
@@ -72,13 +69,11 @@ export interface watchPicksLogicValues {
     effectiveListMode: WatchPicksListMode
     emptyImpressionsAtMount: number
     listMode: WatchPicksListMode | null
-    moreItems: WatchFeedItemApi[]
     openedOnDeepLink: boolean
     picks: WatchFeedItemApi[] | null
     picksFailed: boolean
     picksLoad: WatchFeedLoad | null
     picksLoading: boolean
-    topPicks: WatchFeedItemApi[]
     unwatchedCount: number
 }
 
@@ -89,12 +84,10 @@ export interface watchPicksLogicActions {
     }
     cardSeen: (
         item: WatchFeedItemApi,
-        position: number,
-        surface: WatchPickSurface
+        position: number
     ) => {
         item: WatchFeedItemApi
         position: number
-        surface: WatchPickSurface
     }
     loadPicks: () => {
         value: true
@@ -131,12 +124,10 @@ export interface watchPicksLogicActions {
     }
     watchPick: (
         item: WatchFeedItemApi,
-        position: number,
-        surface: WatchPickSurface
+        position: number
     ) => {
         item: WatchFeedItemApi
         position: number
-        surface: WatchPickSurface
     }
 }
 
@@ -150,9 +141,7 @@ export interface watchPicksLogicMeta {
             picksFailed: boolean,
             emptyImpressionsAtMount: number
         ) => WatchPicksListMode
-        topPicks: (picks: WatchFeedItemApi[] | null) => WatchFeedItemApi[]
         unwatchedCount: (picks: WatchFeedItemApi[] | null) => number
-        moreItems: (picks: WatchFeedItemApi[] | null) => WatchFeedItemApi[]
     }
 }
 
@@ -176,19 +165,11 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         loadPicks: true,
         setListMode: (mode: WatchPicksListMode) => ({ mode }),
         adoptPicksMode: true,
-        watchPick: (item: WatchFeedItemApi, position: number, surface: WatchPickSurface) => ({
-            item,
-            position,
-            surface,
-        }),
+        watchPick: (item: WatchFeedItemApi, position: number) => ({ item, position }),
         setActiveSessionId: (sessionId: string | null) => ({ sessionId }),
         markPickViewed: (observationId: string) => ({ observationId }),
         setPicksLoad: (load: WatchFeedLoad) => ({ load }),
-        cardSeen: (item: WatchFeedItemApi, position: number, surface: WatchPickSurface) => ({
-            item,
-            position,
-            surface,
-        }),
+        cardSeen: (item: WatchFeedItemApi, position: number) => ({ item, position }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -211,7 +192,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         ],
     })),
 
-    reducers(({ props }) => ({
+    reducers(() => ({
         picks: {
             markPickViewed: (state, { observationId }) =>
                 state?.map((pick) =>
@@ -235,13 +216,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             },
         ],
         emptyImpressionsAtMount: [emptyImpressions.get() ?? 0, {}],
-        openedOnDeepLink: [
-            Boolean(
-                props.playlistLogicProps &&
-                replayUrlPointsSomewhere(router.values.searchParams, router.values.hashParams)
-            ),
-            {},
-        ],
+        openedOnDeepLink: [replayUrlPointsSomewhere(router.values.searchParams, router.values.hashParams), {}],
         picksFailed: [
             false,
             {
@@ -271,48 +246,36 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                     ? 'recordings'
                     : 'picks'),
         ],
-        topPicks: [
-            (s) => [s.picks],
-            (picks: WatchFeedItemApi[] | null): WatchFeedItemApi[] => (picks ?? []).slice(0, TOP_PICKS_COUNT),
-        ],
         unwatchedCount: [
             (s) => [s.picks],
             (picks: WatchFeedItemApi[] | null): number =>
                 (picks ?? []).filter((pick) => !pick.observation.viewed).length,
         ],
-        moreItems: [
-            (s) => [s.picks],
-            (picks: WatchFeedItemApi[] | null): WatchFeedItemApi[] => (picks ?? []).slice(TOP_PICKS_COUNT),
-        ],
     }),
 
     listeners(({ actions, props, values, cache }) => {
         const reportPicksShown = (): void => {
-            if (!values.picks || (props.playlistLogicProps && values.effectiveListMode !== 'picks')) {
+            if (!values.picks || values.effectiveListMode !== 'picks') {
                 return
             }
             if (values.picks.length === 0) {
-                if (props.playlistLogicProps && values.listMode === null && !cache.emptyImpressionNoted) {
+                if (values.listMode === null && !cache.emptyImpressionNoted) {
                     cache.emptyImpressionNoted = true
                     emptyImpressions.set((emptyImpressions.get() ?? 0) + 1)
                 }
                 return
             }
-            const view = props.playlistLogicProps ? 'list' : 'page'
             const shownCount = (picksShownCount.get() ?? 0) + 1
             picksShownCount.set(shownCount)
             posthog.capture('replay_vision_watch_picks_shown', {
                 ...servedListProperties(values.picksLoad, values.picks),
-                view,
-                entry: props.playlistLogicProps
-                    ? undefined
-                    : sessionReplaySceneLogic.findMounted()?.values.watchTabEntry,
+                view: 'list',
                 count: values.picks.length,
                 unwatched_count: values.unwatchedCount,
                 shown_count: shownCount,
             })
             if (shownCount === PICKS_SHOWN_SURVEY_IMPRESSION) {
-                posthog.capture('replay_vision_watch_picks_shown_third_time', { view })
+                posthog.capture('replay_vision_watch_picks_shown_third_time', { view: 'list' })
             }
         }
         return {
@@ -326,8 +289,8 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             setPicksLoad: ({ load }) => {
                 cache.impressions.start(load)
             },
-            cardSeen: ({ item, position, surface }) => {
-                cache.impressions.add(item, position, surface)
+            cardSeen: ({ item, position }) => {
+                cache.impressions.add(item, position)
             },
             setListMode: ({ mode }) => {
                 posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })
@@ -335,15 +298,15 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                     reportPicksShown()
                 }
             },
-            watchPick: async ({ item, position, surface }) => {
+            watchPick: async ({ item, position }) => {
                 const { observation } = item
                 const keyMomentMs = observationKeyMomentMs(observation)
                 posthog.capture('replay_vision_watch_clip_clicked', {
-                    ...cardProperties(values.picksLoad, item, position, surface),
+                    ...cardProperties(values.picksLoad, item, position, 'list'),
                     scanner_type: observation.scanner_snapshot?.scanner_type,
                     has_key_moment: keyMomentMs !== null,
                     target: 'replay_page',
-                    view: surface,
+                    view: 'list',
                 })
                 const playerParams = {
                     t: keyMomentMs === null ? undefined : watchStartSeconds(keyMomentMs),
@@ -356,17 +319,10 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                         : null
                 sessionReplaySceneLogic.findMounted()?.actions.setPickSeekSessionId(observation.session_id)
                 const { location, searchParams, hashParams } = router.values
-                if (props.playlistLogicProps) {
-                    router.actions.replace(location.pathname, { ...searchParams, ...playerParams }, hashParams)
-                    sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
-                        observation.session_id
-                    )
-                } else {
-                    router.actions.push(urls.replay(ReplayTabs.Home), {
-                        sessionRecordingId: observation.session_id,
-                        ...playerParams,
-                    })
-                }
+                router.actions.replace(location.pathname, { ...searchParams, ...playerParams }, hashParams)
+                sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
+                    observation.session_id
+                )
                 if (!markViewed) {
                     return
                 }
@@ -380,16 +336,18 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                     actions.markPickViewed(observation.id)
                 }
             },
-            [props.playlistLogicProps
-                ? sessionRecordingsPlaylistLogic(props.playlistLogicProps).actionTypes.setSelectedRecordingId
-                : 'watchPicksLogic/noPlaylist']: ({ id }: { id: string | null }) => {
+            [sessionRecordingsPlaylistLogic(props.playlistLogicProps).actionTypes.setSelectedRecordingId]: ({
+                id,
+            }: {
+                id: string | null
+            }) => {
                 actions.setActiveSessionId(id)
             },
         }
     }),
 
-    afterMount(({ actions, cache, props }) => {
-        cache.impressions = new WatchFeedImpressions(props.playlistLogicProps ? 'list' : 'watch_page')
+    afterMount(({ actions, cache }) => {
+        cache.impressions = new WatchFeedImpressions('list')
         // Not paused on hide: hiding is when the batch must go out.
         cache.disposables.add(cache.impressions.flushOnHideAndUnmount, 'impressionsFlush', { pauseOnPageHidden: false })
         actions.loadPicks()

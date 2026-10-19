@@ -10,7 +10,7 @@ import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
-import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
+import { watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
@@ -19,16 +19,15 @@ import { WatchPickRankBadge } from './WatchPickRankBadge'
 interface WatchPickRowProps {
     item: WatchFeedItemApi
     position: number
-    surface: WatchPickSurface
     isActive: boolean
     rank?: number
 }
 
-export function WatchPickRow({ item, position, surface, isActive, rank }: WatchPickRowProps): JSX.Element {
+export function WatchPickRow({ item, position, isActive, rank }: WatchPickRowProps): JSX.Element {
     const { watchPick, cardSeen } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const { title, scannerName } = watchPickSummary(observation)
-    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position, surface), CARD_SEEN_DWELL_MS)
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
 
     return (
         <LemonButton
@@ -36,7 +35,7 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
             fullWidth
             size="small"
             active={isActive}
-            onClick={() => watchPick(item, position, surface)}
+            onClick={() => watchPick(item, position)}
             tooltip={<WatchPickPreview item={item} />}
             tooltipPlacement="right"
             className="min-w-0"

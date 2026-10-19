@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { toolHrefForPath } from 'scenes/tools/toolsUtils'
@@ -17,7 +18,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 import { TODAY_PANES } from './todayRailItems'
 
-export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products' | 'settings'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings'
 
 /** What showed or hid the sidebar. `navigation` is a page change that hides the unpinned sidebar. */
 export type TodaySidebarToggleSource =
@@ -79,14 +80,16 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
     }
-    // Notebooks and dashboards are views, list pages included, so they never open the Products pane.
+    // Notebooks, dashboards and insights are analytics, list pages included, so they never open the Products pane.
     if (
-        isUnderPath(path, urls.views()) ||
+        isUnderPath(path, urls.analytics()) ||
         isUnderPath(path, '/canvases') ||
         isUnderPath(path, urls.notebooks()) ||
-        isUnderPath(path, urls.dashboards())
+        isUnderPath(path, urls.dashboards()) ||
+        isUnderPath(path, '/insights') ||
+        fromPostHogProducts().some((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))
     ) {
-        return 'views'
+        return 'analytics'
     }
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'

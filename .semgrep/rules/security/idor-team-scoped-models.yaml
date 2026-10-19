@@ -159,7 +159,6 @@ rules:
                               |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
-                              |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
@@ -415,6 +414,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
@@ -631,7 +631,6 @@ rules:
                         |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
@@ -877,6 +876,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
@@ -1042,7 +1042,6 @@ rules:
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder

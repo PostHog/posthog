@@ -55,8 +55,10 @@ CANDIDATE_ROLE = "candidate"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
-REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
-NN_MODEL_NAME = "nn"
+# A recipe change takes a new name (`training/recipe.py`). The versions of an earlier name stay
+# servable by key, and their online grades keep their own series.
+REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings_v2"
+NN_MODEL_NAME = "nn_v2"
 # The Dagster code locations that train a family: `signals` on the main image, and `signals_ml` on
 # the image that carries torch.
 MAIN_LOCATION = "signals"

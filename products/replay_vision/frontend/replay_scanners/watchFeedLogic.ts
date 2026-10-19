@@ -485,7 +485,8 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             ): WatchFeedEmptyReason | null =>
                 scannersLoading || quotaLoading
                     ? null
-                    : resolveWatchFeedEmptyReason({ scanners, quota, hasFeedFilters }),
+                    : // The feed does not say anything about recording being off; that card lives in the picks column.
+                      resolveWatchFeedEmptyReason({ scanners, quota, sessionRecordingOptIn: null, hasFeedFilters }),
         ],
         hasFeedFilters: [
             (s) => [s.scannerIdsFilter, s.tagsFilter, s.createdByFilter, s.scannerTypeFilter, s.search],

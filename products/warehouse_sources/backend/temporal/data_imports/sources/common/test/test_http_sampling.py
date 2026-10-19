@@ -503,6 +503,12 @@ def test_scrub_body_redacts_webhook_signing_secret():
     assert out["webhooks"][0]["secret"] == "REDACTED"
 
 
+def test_scrub_body_redacts_postback_verification_token():
+    out = _scrub_body('{"advertisers": [{"network_advertiser_id": 135, "verification_token": "postback-token"}]}')
+    assert isinstance(out, dict)
+    assert out["advertisers"][0]["verification_token"] == "REDACTED"
+
+
 def test_scrub_body_redacts_preauthenticated_download_urls():
     out = _scrub_body(
         '{"@microsoft.graph.downloadUrl": "https://download.example/file", '

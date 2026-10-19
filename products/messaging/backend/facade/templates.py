@@ -35,6 +35,7 @@ class MessageTemplateRow:
     message_category_id: UUID | None
     deleted: bool
     transactional_hog_flow_id: UUID | None
+    draft_content: dict[str, Any] | None
 
 
 def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
@@ -50,6 +51,7 @@ def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
         message_category_id=row.message_category_id,
         deleted=row.deleted,
         transactional_hog_flow_id=row.transactional_hog_flow_id,
+        draft_content=row.draft_content,
     )
 
 
@@ -85,6 +87,11 @@ def create_template(team_id: int, created_by_id: int | None, fields: dict[str, A
 def update_template(team_id: int, template_id: UUID, fields: dict[str, Any]) -> MessageTemplateRow:
     """Set the given fields and save the whole row. `message_category` holds a category id or None."""
     return _to_contract(templates_service.update_template(team_id, template_id, fields))
+
+
+def save_template_draft(team_id: int, template_id: UUID, draft: dict[str, Any] | None) -> MessageTemplateRow:
+    """Replace only the template's unpublished draft. `None` discards it."""
+    return _to_contract(templates_service.save_draft(team_id, template_id, draft))
 
 
 def edit_template_content(

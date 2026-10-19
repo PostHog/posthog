@@ -59,7 +59,7 @@ export function cardProperties(
 
 /** Batches one load's seen cards into a single event. Flushes on tab hide too, since a closed tab sends nothing later. */
 export class WatchFeedImpressions {
-    private seen = new Map<string, { position: number; reason_kind: string; surface: string }>()
+    private seen = new Map<string, { position: number; reason_kind: string }>()
     // A tab hidden and shown again flushes twice in one load; a card is reported once per load.
     private reported = new Set<string>()
     private load: WatchFeedLoad | null = null
@@ -72,12 +72,11 @@ export class WatchFeedImpressions {
         this.load = load
     }
 
-    add(item: WatchFeedItemApi, position: number, surface: string = this.surface): void {
+    add(item: WatchFeedItemApi, position: number): void {
         if (!this.seen.has(item.observation.id) && !this.reported.has(item.observation.id)) {
             this.seen.set(item.observation.id, {
                 position: servedPosition(this.load, item, position),
                 reason_kind: item.reason.kind,
-                surface,
             })
         }
     }
