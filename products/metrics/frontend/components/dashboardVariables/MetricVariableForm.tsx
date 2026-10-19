@@ -165,7 +165,8 @@ export function MetricVariableForm({ variable }: { variable: MetricsDashboardVar
                             {previewError ? (
                                 <p className="text-danger text-sm m-0">{previewError}</p>
                             ) : preview?.length ? (
-                                <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+                                // Query results can hold customer data, so copying a value captures no text.
+                                <div className="ph-no-capture flex flex-wrap gap-1 max-h-28 overflow-y-auto">
                                     {preview.slice(0, PREVIEW_LIMIT).map((option) => (
                                         <LemonTag key={option} className="font-mono">
                                             {option}
