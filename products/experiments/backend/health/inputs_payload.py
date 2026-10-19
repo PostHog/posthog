@@ -3,15 +3,22 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 
-from products.experiments.backend.facade.contracts import ExperimentHealthInputsTrafficStatus
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFlagChangeKind,
+    ExperimentHealthInputsTrafficStatus,
+)
 from products.experiments.backend.health.checks.forced_variant import needs_condition_set_traffic
 from products.experiments.backend.health.condition_set_traffic import denied_scanned_properties
 from products.experiments.backend.health.context import (
+    BucketingChange,
+    BucketingSetting,
     ConditionSetTraffic,
+    FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagState,
     Split,
+    SplitChange,
 )
 from products.experiments.backend.health.exposure_inputs import ExposureInputs
 from products.experiments.backend.health.loader import HealthInputs
@@ -19,6 +26,22 @@ from products.experiments.backend.health.loader import HealthInputs
 
 def _health_inputs_split(split: Split) -> list[dict[str, Any]]:
     return [{"key": variant.key, "rollout_percentage": variant.rollout_percentage} for variant in split]
+
+
+def _health_inputs_percentage(value: float | None) -> str:
+    # Written as the page writes a number, so 50.0 reads "50%".
+    if value is None:
+        return "unset"
+    return f"{int(value) if value.is_integer() else value}%"
+
+
+def _health_inputs_split_text(split: Split) -> str:
+    if not split:
+        return "none"
+    return ", ".join(
+        f"{variant.key if variant.key is not None else 'no key'} {_health_inputs_percentage(variant.rollout_percentage)}"
+        for variant in split
+    )
 
 
 def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
@@ -37,13 +60,41 @@ def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
             for number, group in enumerate(flag.release_groups, start=1)
         ],
         "variants": _health_inputs_split(flag.variants),
+        "split_text": _health_inputs_split_text(flag.variants),
     }
 
 
-def _health_inputs_bucketing_value(value: str | int | bool | None) -> str | None:
-    if value is None or isinstance(value, str):
-        return value
-    return json.dumps(value)
+_SETTING_LABELS = {
+    BucketingSetting.KEY: "Key",
+    BucketingSetting.AGGREGATION: "Match by group type",
+    BucketingSetting.BUCKETING_IDENTIFIER: "Bucketing identifier",
+    BucketingSetting.EXPERIENCE_CONTINUITY: "Persist across authentication",
+}
+
+
+def _health_inputs_bucketing_value(value: str | int | bool | None) -> str:
+    if value is None:
+        return "none"
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def _health_inputs_flag_change(change: FlagChange) -> dict[str, Any]:
+    """A change as the staff view lists it, with its values as text, so the view needs no code per kind."""
+    match change:
+        case SplitChange():
+            return {
+                "kind": ExperimentHealthFlagChangeKind.SPLIT,
+                "changed": "Split",
+                "before": _health_inputs_split_text(change.before),
+                "after": _health_inputs_split_text(change.after),
+            }
+        case BucketingChange():
+            return {
+                "kind": ExperimentHealthFlagChangeKind.BUCKETING,
+                "changed": _SETTING_LABELS[change.setting],
+                "before": _health_inputs_bucketing_value(change.before),
+                "after": _health_inputs_bucketing_value(change.after),
+            }
 
 
 def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) -> dict[str, Any]:
@@ -51,43 +102,35 @@ def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) ->
         counted_since: datetime | None = history.counted_since
         reason = None
         exposed_before_first = history.exposed_before_first
-        exposed_between = {
-            "split_exposed_between": history.split_exposed_between,
-            "bucketing_exposed_between": history.bucketing_exposed_between,
-        }
+        exposed_between = history.exposed_between
     else:
-        counted_since, reason, exposed_before_first = None, history.reason.value, None
-        exposed_between = dict.fromkeys(("split_exposed_between", "bucketing_exposed_between"))
+        counted_since, reason, exposed_before_first, exposed_between = None, history.reason.value, None, {}
 
-    def counted(changed_at: datetime) -> bool:
-        return counted_since is not None and changed_at >= counted_since
-
+    changes = [
+        {
+            **_health_inputs_flag_change(change),
+            "changed_at": change.changed_at,
+            "counted": counted_since is not None and change.changed_at >= counted_since,
+        }
+        for change in history.changes
+    ]
+    counted_kinds = {change["kind"] for change in changes if change["counted"]}
     return {
         "checked": reason is None,
         "not_checked_reason": reason,
         "launched_at": history.launched_at,
         "team_timezone": history.team_timezone,
-        "split_changes": [
-            {
-                "changed_at": change.changed_at,
-                "before": _health_inputs_split(change.before),
-                "after": _health_inputs_split(change.after),
-                "counted": counted(change.changed_at),
-            }
-            for change in history.split_changes
-        ],
-        "bucketing_changes": [
-            {
-                "changed_at": change.changed_at,
-                "setting": change.setting.value,
-                "before": _health_inputs_bucketing_value(change.before),
-                "after": _health_inputs_bucketing_value(change.after),
-                "counted": counted(change.changed_at),
-            }
-            for change in history.bucketing_changes
-        ],
+        "changes": changes,
         "exposed_before_first": exposed_before_first,
-        **exposed_between,
+        "exposed_between": [
+            {
+                "kind": kind,
+                "question": f"Exposed between the first and last {kind.label.lower()} change",
+                "exposed": exposed_between.get(kind),
+            }
+            for kind in ExperimentHealthFlagChangeKind
+            if kind in counted_kinds
+        ],
     }
 
 
