@@ -120,6 +120,7 @@ def _flag_pages(flags: QuerySet[FeatureFlag]) -> Iterator[list[_FlagRow]]:
     flag_ids = list(flags.order_by("id").values_list("id", flat=True))
     for start in range(0, len(flag_ids), PAGE_SIZE):
         rows = (
+            # nosemgrep: idor-lookup-without-team -- operator-run scan across every team. The ids come from the query above.
             FeatureFlag.objects.filter(pk__in=flag_ids[start : start + PAGE_SIZE])
             .order_by("id")
             .values_list("id", "team_id", "team__project_id", "key", "filters", "last_called_at")
@@ -141,6 +142,7 @@ def _affected_flags(page: Sequence[_FlagRow]) -> Iterator[AffectedFlag]:
     cohort_ids_by_flag = {row.id: _direct_cohort_ids(row.filters) for row in page}
     stored_cohorts = {
         cohort_id: _StoredCohort(project_id=project_id, deleted=deleted, name=name)
+        # nosemgrep: idor-lookup-without-team -- operator-run scan across every team. _deleted_cohort compares each cohort's project with its flag's project.
         for cohort_id, project_id, deleted, name in Cohort.objects.filter(
             pk__in={cohort_id for ids in cohort_ids_by_flag.values() for cohort_id in ids}
         ).values_list("id", "team__project_id", "deleted", "name")
@@ -220,7 +222,10 @@ class _ViewersOfListedObjects(RecipientsResolver):
         # The body names the survey for a survey's flag, and the flag for a plain or product tour flag.
         survey_ids = [flag.owner.id for flag in self._flags if flag.owner and flag.owner.kind == "survey"]
         flag_ids = [flag.flag_id for flag in self._flags if not (flag.owner and flag.owner.kind == "survey")]
-        named: list[Model] = [*Survey.objects.filter(id__in=survey_ids), *FeatureFlag.objects.filter(id__in=flag_ids)]
+        named: list[Model] = [
+            *Survey.objects.filter(team__project_id=team.project_id, id__in=survey_ids),
+            *FeatureFlag.objects.filter(team__project_id=team.project_id, id__in=flag_ids),
+        ]
         if survey_ids:
             user_ids = self.filter_by_access_control(user_ids, "survey", team)
         if flag_ids:
