@@ -101,6 +101,7 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         )
 
         self.assertEqual(response.columns, ["client", "calls"])
+        self.assertEqual(response.column_formats, ["mcp_harness", None])
         self.assertEqual(response.results, [("OpenAI Codex", 2), ("Claude Code", 1)])
 
     def test_virtual_harness_property_is_empty_on_other_events(self) -> None:

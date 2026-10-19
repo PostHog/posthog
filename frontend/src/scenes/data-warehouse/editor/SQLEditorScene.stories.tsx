@@ -94,6 +94,26 @@ const SQL_RESULTS = {
     ],
 }
 
+const HARNESS_SQL = `SELECT properties.$virt_mcp_harness AS harness, count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+GROUP BY harness
+ORDER BY calls DESC`
+
+const HARNESS_RESULTS = {
+    columns: ['harness', 'calls'],
+    column_formats: ['mcp_harness', null],
+    types: [
+        ['harness', 'String'],
+        ['calls', 'UInt64'],
+    ],
+    results: [
+        ['Claude Code', 12],
+        ['OpenAI Codex', 7],
+        ['Other', 2],
+    ],
+}
+
 // The empty-warehouse notice in the sidebar renders a SourceIcon per provider, each of which shows a
 // LemonSkeleton until availableSourcesLogic resolves. Without this mock the skeletons never settle and
 // the visual-regression runner times out waiting for loaders to disappear.
@@ -170,6 +190,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
                 '/api/:scope/:team_id/external_data_sources/connections/': [],
                 '/api/:scope/:team_id/external_data_sources/direct_connection_options/': [],
+                '/api/projects/:team_id/query_tab_state/user': [200, { tabs: [] }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -183,6 +204,9 @@ const meta: Meta = {
                     }
                     if (body?.query?.query === 'SELECT category, revenue FROM example_sales') {
                         return [200, CHART_EXPERIMENT_RESULTS]
+                    }
+                    if (JSON.stringify(body?.query ?? {}).includes('$virt_mcp_harness')) {
+                        return [200, HARNESS_RESULTS]
                     }
                     return [200, SQL_RESULTS]
                 },
@@ -254,6 +278,29 @@ export const HostedTrino: Story = {
                 },
             },
         },
+    },
+}
+
+export const HarnessLogoInResults: Story = {
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        testOptions: { waitForSelector: '.rdg img[alt="Claude Code"]', viewport: { width: 1600, height: 900 } },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(
+            () => {
+                const logic = sqlEditorLogic({ tabId: 'default' })
+                expect(logic.values.queryInput).toBe(HARNESS_SQL)
+                expect(dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })).toBeTruthy()
+            },
+            { timeout: 15000 }
+        )
+        const runButton = await canvas.findByRole('button', { name: 'Run' }, { timeout: 15000 })
+        await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        await userEvent.click(runButton)
+        await expect(await canvas.findByRole('img', { name: 'Claude Code' }, { timeout: 15000 })).toBeVisible()
+        await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
     },
 }
 
