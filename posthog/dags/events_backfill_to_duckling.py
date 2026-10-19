@@ -1049,45 +1049,6 @@ def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str
     return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
 
 
-def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
-    """Query ClickHouse to find the earliest person modification date for a team.
-
-    Uses _timestamp (Kafka ingestion time) since persons don't have a natural
-    event timestamp like events do.
-
-    Returns:
-        The date of the earliest person modification, or None if no persons exist.
-    """
-    cluster = _get_cluster()
-    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
-
-    def query_earliest(client: Client) -> datetime | None:
-        # Filter _timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
-        # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
-        # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
-        result = client.execute(
-            """
-            SELECT toDate(min(_timestamp)) as earliest_date
-            FROM person
-            WHERE team_id = %(team_id)s
-              AND _timestamp >= '1970-01-01'
-            """,
-            {"team_id": team_id},
-        )
-        if result and result[0][0]:
-            date_val = result[0][0]
-            if isinstance(date_val, datetime):
-                return date_val
-            return datetime.combine(date_val, datetime.min.time())
-        return None
-
-    return cluster.any_host_by_role(
-        fn=query_earliest,
-        workload=workload,
-        node_role=NodeRole.DATA,
-    ).result()
-
-
 def _validate_identifier(identifier: str) -> None:
     """Validate that an identifier is safe for SQL interpolation.
 

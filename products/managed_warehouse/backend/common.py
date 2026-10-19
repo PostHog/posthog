@@ -669,9 +669,12 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
         # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
         # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
         # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
+        #
+        # Use minOrNull because min() over zero rows returns the type default (1970-01-01),
+        # which reads as history and backfills a team with no events from EARLIEST_BACKFILL_DATE.
         result = client.execute(
             """
-            SELECT toDate(min(timestamp)) as earliest_date
+            SELECT toDate(minOrNull(timestamp)) as earliest_date
             FROM events
             WHERE team_id = %(team_id)s
               AND timestamp >= '1970-01-01'

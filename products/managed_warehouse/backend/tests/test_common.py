@@ -1,4 +1,7 @@
+from datetime import date
+
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -9,12 +12,14 @@ from parameterized import parameterized
 from posthog.models import Organization
 
 from products.managed_warehouse.backend.common import (
+    NO_HISTORY_SENTINEL,
     default_bucket_region,
     duckgres_data_imports_table_name,
     get_trino_password_for_org,
     initialize_ducklake,
     is_version_mismatch,
     reset_ducklake_catalog,
+    resolve_team_earliest_event_date,
     upsert_duckgres_server_for_org,
 )
 from products.managed_warehouse.backend.models import DuckgresServer
@@ -52,6 +57,22 @@ class TestUpsertDuckgresServerForOrg:
             server.trino_password = "trino-secret"
             server.save(update_fields=["trino_password"])
             assert get_trino_password_for_org(str(org.id)) == "trino-secret"
+
+
+class TestResolveTeamEarliestEventDate(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("no_events", None, NO_HISTORY_SENTINEL),
+            ("has_events", "2026-10-16T12:00:00Z", date(2026, 10, 16)),
+        ]
+    )
+    def test_resolves_from_the_teams_events(self, _name: str, event_timestamp: str | None, expected: date) -> None:
+        if event_timestamp is not None:
+            _create_event(team=self.team, event="$pageview", distinct_id="user-1", timestamp=event_timestamp)
+            # The cluster client reads ClickHouse directly, so nothing flushes the batched test events for it.
+            flush_persons_and_events()
+
+        assert resolve_team_earliest_event_date(self.team.pk) == expected
 
 
 class TestDefaultBucketRegion:
