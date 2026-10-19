@@ -6170,6 +6170,22 @@ class TestHogFlowSendOnceVerified(APIBaseTest):
         assert created.json()["unverified_email_senders"] == [{"id": unverified.id, "domain": "example.com"}]
         assert response.json()["status"] == "waiting_for_domain"
 
+    def test_enabling_a_waiting_workflow_again_once_its_sender_verified_activates_it_once(self):
+        sender = self._sender(verified=False)
+        flow_id = self._create_draft(sender)
+        with self._flag(True):
+            assert self._set_status(flow_id, "active").json()["status"] == "waiting_for_domain"
+        sender.config = {**sender.config, "verified": True}
+        sender.save()
+        self.mock_report.reset_mock()
+
+        with self._flag(True):
+            response = self._set_status(flow_id, "active")
+
+        assert response.json()["status"] == "active"
+        sent = [call.args[1] for call in self.mock_report.call_args_list if call.args[1] in _SEND_ONCE_VERIFIED_EVENTS]
+        assert sorted(sent) == ["hog_flow_activated", "hog_flow_enable_requested"]
+
     def test_create_as_active_with_an_unverified_sender_waits(self):
         with self._flag(True):
             response = self._create(self._email_flow(self._sender(verified=False), flow_status="active"))
