@@ -83,10 +83,12 @@ describe('RedisCachedKeyStore', () => {
             await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Generate failed')
         })
 
-        it('should release Redis client even if setex fails', async () => {
-            mockRedisClient.setex.mockRejectedValue(new Error('Redis setex failed'))
+        it('should return the key and release Redis client if setex fails', async () => {
+            mockRedisClient.setex.mockRejectedValue(new Error("READONLY You can't write against a read only replica."))
 
-            await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Redis setex failed')
+            const result = await cachedKeyStore.generateKey('session-123', 1, 30)
+
+            expect(result).toEqual(mockSessionKey)
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
         })
     })
@@ -119,6 +121,25 @@ describe('RedisCachedKeyStore', () => {
                 86400,
                 expect.any(String)
             )
+            expect(result).toEqual(mockSessionKey)
+        })
+
+        it.each([
+            ['setex rejects', () => mockRedisClient.setex.mockRejectedValue(new Error('READONLY'))],
+            [
+                'pool acquire rejects',
+                () =>
+                    mockRedisPool.acquire
+                        .mockResolvedValueOnce(mockRedisClient)
+                        .mockRejectedValueOnce(new Error('acquire timeout')),
+            ],
+        ])('should return the delegate key on Redis miss when %s', async (_, setup) => {
+            mockRedisClient.get.mockResolvedValue(null)
+            setup()
+
+            const result = await cachedKeyStore.getKey('session-123', 1)
+
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
             expect(result).toEqual(mockSessionKey)
         })
 
@@ -195,6 +216,13 @@ describe('RedisCachedKeyStore', () => {
                 'Delete failed'
             )
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
+        })
+
+        it('should fail and not call delegate if cache clear fails', async () => {
+            mockRedisClient.del.mockRejectedValue(new Error('READONLY'))
+
+            await expect(cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow('READONLY')
+            expect(mockDelegate.deleteKey).not.toHaveBeenCalled()
         })
 
         it('should only clear cache for the specified team', async () => {
