@@ -239,6 +239,28 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         assert load.call_count == 8
 
+    def test_all_expansion_stops_before_its_values_outgrow_a_query(self) -> None:
+        definitions = {
+            name: MetricsDashboardVariable(
+                name=name, source=MetricsDashboardVariableSource.SQL, query="SELECT 1", includeAll=True
+            )
+            for name in ("a", "b")
+        }
+        all_value = Variable(values=(), is_all=True, all_value=None, options=())
+        with (
+            patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["x" * 6]),
+            patch("products.metrics.backend.variable_options.MAX_QUERY_SIZE_BYTES", 30),
+        ):
+            with pytest.raises(ValueError, match="too many values"):
+                fill_all_values(
+                    team=self.team,
+                    names=["a", "b"],
+                    variables=dict.fromkeys(definitions, all_value),
+                    definitions=definitions,
+                    date_from=timezone.now() - timedelta(hours=1),
+                    date_to=timezone.now(),
+                )
+
     @parameterized.expand(
         [
             ("chain_longer_than_the_cap", 60, timedelta(hours=1), "at most 50 variables"),

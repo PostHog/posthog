@@ -294,7 +294,7 @@ def run_metrics_sql_values(
             "value": ast.Field(chain=[name]),
             "inner": inner,
             "short": parse_expr(
-                "length(toString({value})) <= {max_length}",
+                "lengthUTF8(toString({value})) <= {max_length}",
                 placeholders={"value": ast.Field(chain=[name]), "max_length": ast.Constant(value=max_length)},
             )
             if max_length is not None
