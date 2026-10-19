@@ -216,6 +216,14 @@ def cancel_backfill(team_id: int, backfill_id: str | UUID) -> int:
     )
 
 
+def interrupt_backfill(team_id: int, backfill_id: str | UUID, reason: str) -> int:
+    return (
+        EvaluationBackfill.objects.for_team(team_id)
+        .filter(pk=backfill_id, status=EvaluationBackfillStatus.RUNNING)
+        .update(status=EvaluationBackfillStatus.INTERRUPTED, status_reason=reason, finished_at=timezone.now())
+    )
+
+
 def report_backfill_finished(
     team_id: int, backfill_id: str, *, status: str | None = None, stop_reason: str | None = None
 ) -> None:
@@ -235,9 +243,8 @@ def report_backfill_finished(
             properties={
                 "backfill_id": str(row.pk),
                 "evaluation_id": str(row.evaluation_id),
-                # Failed and stopped runs are both stored as cancelled, so only the caller can tell them apart.
                 "status": status or row.status,
-                "stop_reason": stop_reason,
+                "stop_reason": stop_reason or row.status_reason or None,
                 "target": row.target,
                 "evaluation_type": row.evaluation.evaluation_type,
                 "rerun_existing": row.rerun_existing,
@@ -248,6 +255,8 @@ def report_backfill_finished(
                 "remaining_count": row.remaining_count,
                 # Each dispatched evaluation emits one billed $ai_evaluation event.
                 "billed_evaluations": row.dispatched_count,
+                "completed_count": row.completed_count,
+                "evaluation_skipped_count": row.evaluation_skipped_count,
                 "duration_seconds": (finished_at - row.created_at).total_seconds(),
             },
             groups=groups(row.team.organization, row.team),
@@ -257,7 +266,7 @@ def report_backfill_finished(
 
 
 def _fail_backfill(inputs: EvaluationBackfillInputs) -> None:
-    if cancel_backfill(inputs.team_id, inputs.backfill_id):
+    if interrupt_backfill(inputs.team_id, inputs.backfill_id, "execution_failed"):
         report_backfill_finished(inputs.team_id, inputs.backfill_id, status="failed")
 
 
@@ -279,19 +288,19 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
 
     evaluation = row.evaluation
     # Three ways an evaluation can no longer produce a run, all ending the backfill. An unknown
-    # evaluation type has no workflow id prefix, so cancelling here keeps that failure in an
+    # evaluation type has no workflow id prefix, so interrupting here keeps that failure in an
     # activity rather than raising a KeyError inside workflow code. A disabled evaluation ends the
     # backfill too, because nothing would tell the loop the evaluation came back, so holding the
     # cursor would leave the row RUNNING and the workflow ticking forever.
     if evaluation.deleted or not evaluation.enabled or evaluation.evaluation_type not in EVALUATION_WORKFLOW_PREFIXES:
-        if cancel_backfill(inputs.team_id, inputs.backfill_id):
-            stop_reason = (
-                "evaluation_deleted"
-                if evaluation.deleted
-                else "evaluation_disabled"
-                if not evaluation.enabled
-                else "unsupported_evaluation_type"
-            )
+        stop_reason = (
+            "evaluation_deleted"
+            if evaluation.deleted
+            else "evaluation_disabled"
+            if not evaluation.enabled
+            else "unsupported_evaluation_type"
+        )
+        if interrupt_backfill(inputs.team_id, inputs.backfill_id, stop_reason):
             report_backfill_finished(inputs.team_id, inputs.backfill_id, status="stopped", stop_reason=stop_reason)
         return PrepareTickOutput(action=TickAction.FINISHED)
 

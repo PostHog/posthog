@@ -149,6 +149,7 @@ _FILE_END = "<<<AUTORESEARCH_FILE_END>>>"
 # store accepts, so a model that passes readback also passes persistence.
 _MAX_READBACK_BYTES = MAX_ARTIFACT_BYTES
 _MAX_SCRIPT_LOG_BYTES = 4000
+_READBACK_EXCERPT_CHARS = 80
 # Keys train.py must write into output.json.
 _REQUIRED_METRIC_KEYS = ("holdout_auc", "n_train", "n_features")
 # The worker expands every feature column across every row before the matrix reaches the
@@ -1144,10 +1145,7 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
     write_file is the only input channel and execute→stdout the only output channel,
     so we cat the file and slice between sentinels to survive any stray shell output.
     """
-    result = sandbox.execute(_readback_command(rel_path, encode=False), timeout_seconds=60)
-    if result.exit_code != 0:
-        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    body = _between_sentinels(result.stdout)
+    body = _readback(sandbox, rel_path, encode=False, timeout_seconds=60)
     if len(body.encode("utf-8")) > _MAX_READBACK_BYTES:
         raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return body
@@ -1155,10 +1153,7 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
 
 def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
     """Read a binary file (e.g. model.pkl) the bundle wrote, base64-encoded over the sentinel-bracketed cat."""
-    result = sandbox.execute(_readback_command(rel_path, encode=True), timeout_seconds=120)
-    if result.exit_code != 0:
-        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    encoded = "".join(_between_sentinels(result.stdout).split())
+    encoded = "".join(_readback(sandbox, rel_path, encode=True, timeout_seconds=120).split())
     try:
         content = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -1168,6 +1163,41 @@ def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
     if len(content) > _MAX_READBACK_BYTES:
         raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return content
+
+
+def _readback(sandbox: SandboxExecutor, rel_path: str, *, encode: bool, timeout_seconds: int) -> str:
+    # An exit 0 without both sentinels means the provider dropped or cut off stdout. The
+    # command only reads a finished file, so one retry is safe.
+    command = _readback_command(rel_path, encode=encode)
+    result = _execute_readback(sandbox, command, rel_path=rel_path, timeout_seconds=timeout_seconds)
+    try:
+        return _between_sentinels(result.stdout)
+    except SandboxInferenceError:
+        logger.warning("autoresearch_readback_retry", rel_path=rel_path, output=_describe_output(result))
+    result = _execute_readback(sandbox, command, rel_path=rel_path, timeout_seconds=timeout_seconds)
+    try:
+        return _between_sentinels(result.stdout)
+    except SandboxInferenceError as exc:
+        raise SandboxInferenceError(f"{exc} reading {rel_path} after a retry: {_describe_output(result)}") from exc
+
+
+def _execute_readback(
+    sandbox: SandboxExecutor, command: str, *, rel_path: str, timeout_seconds: int
+) -> ExecutionResult:
+    result = sandbox.execute(command, timeout_seconds=timeout_seconds)
+    if result.exit_code != 0:
+        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
+    return result
+
+
+def _describe_output(result: ExecutionResult) -> str:
+    # The excerpts are short and show the sentinel ends, enough to tell an empty stdout
+    # from one cut off mid-file without copying the file body into the error.
+    stdout, n = result.stdout, _READBACK_EXCERPT_CHARS
+    return (
+        f"stdout_chars={len(stdout)} begin={_FILE_BEGIN in stdout} end={_FILE_END in stdout} "
+        f"head={stdout[:n]!r} tail={stdout[-n:]!r} stderr={result.stderr[:500]!r}"
+    )
 
 
 def _read_log_tail(sandbox: SandboxExecutor) -> str:

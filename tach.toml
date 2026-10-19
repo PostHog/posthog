@@ -10,9 +10,11 @@ exclude = [
     # lint:tach` (what CI runs) excludes test code from the dependency pass only.
     # Eval trees are dev/CI-only tooling: the harness orchestrates many products by
     # design, and product-owned suites under products/*/evals import the harness
-    # contracts, so neither fits the production dependency graph.
+    # contracts, so neither fits the production dependency graph. Signals keeps its suite
+    # under eval/ rather than evals/, so it is listed by path.
     "products/posthog_ai/eval_harness",
     "products/*/evals",
+    "products/signals/eval",
 ]
 source_roots = [
     ".",
@@ -71,6 +73,7 @@ depends_on = [
     "products.skills",
     "products.revenue_analytics",
     "products.security",
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.business_knowledge",
@@ -139,6 +142,7 @@ depends_on = [
     "products.slack_app",
     "products.stamphog",
     "products.streamlit_apps",
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.today",
@@ -371,7 +375,20 @@ layer = "modules"
 
 [[modules]]
 path = "products.subscriptions"
-depends_on = []
+depends_on = [
+    "posthog",
+    "ee",
+    "products.access_control",
+    "products.ai_observability",
+    "products.annotations",
+    "products.dashboards",
+    "products.exports",
+    "products.notifications",
+    "products.posthog_ai",
+    "products.product_analytics",
+    # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
+    "products.slack_app",
+]
 layer = "modules"
 
 [[modules]]
@@ -980,6 +997,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.cdp",
     "products.conversations",
     "products.data_modeling",
@@ -1143,7 +1161,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1499,8 +1517,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-# products.slack_app is facade-only: an AI subscription asks whether the bot can answer a follow-up.
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control", "products.slack_app"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "products.product_analytics", "products.access_control"]
 layer = "modules"
 
 [[modules]]
@@ -1644,11 +1661,17 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
     "products.conversations",
+    "products.customer_analytics",
     "products.dashboards",
+    "products.data_catalog",
+    "products.error_tracking",
     "products.product_analytics",
     "products.signals",
     "products.tasks",
+    "products.web_analytics",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -1749,9 +1772,16 @@ from = [
 
 [[modules]]
 path = "products.commands"
-# Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
-# dispatch into these products.
-depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
+# Facade-only (enforced by each product's [[interfaces]] block): commands dispatch into these
+# products.
+depends_on = [
+    "posthog",
+    "products.error_tracking",
+    "products.review_hog",
+    "products.security",
+    "products.stamphog",
+    "products.tasks",
+]
 layer = "modules"
 
 [[interfaces]]

@@ -66,6 +66,7 @@ from .evaluation_errors import (
 )
 from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
+    BACKFILL_ACTIVITY_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
@@ -355,12 +356,13 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
     decide.assert_not_called()
 
 
+@pytest.mark.parametrize("provider,model", [("openrouter", "example/dual-model"), ("openai", "gpt-6-luna")])
 @pytest.mark.parametrize("flag", [True, False, None])
 @pytest.mark.parametrize("judge_method", [None, "llm"])
 def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
-    flag: bool | None, judge_method: str | None
+    provider: str, model: str, flag: bool | None, judge_method: str | None
 ) -> None:
-    key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
+    key = MagicMock(provider=provider, encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
@@ -370,9 +372,10 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.OpenAIDecisionAdapter.evaluate") as native_decide,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="openrouter", model="example/dual-model", provider_key=key, is_byok=True
+            provider=provider, model=model, provider_key=key, is_byok=True
         )
         complete.return_value = MagicMock(
             parsed=BooleanEvalResult(verdict=True, reasoning="Meets the criteria."), usage=None
@@ -391,8 +394,158 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
         )
     complete.assert_called_once()
     decide.assert_not_called()
+    native_decide.assert_not_called()
     assert result["verdict"] is True
     assert result["reasoning"] == "Meets the criteria."
+
+
+@pytest.mark.parametrize("applicable", [True, False])
+@pytest.mark.parametrize(
+    "output_type,output_config,answers,expected",
+    [
+        (
+            "boolean",
+            {},
+            [{"name": "verdict", "type": "predicate", "probability": 0.5}],
+            {"verdict": True, "probability": 0.5},
+        ),
+        (
+            "categorical",
+            {
+                "selection_mode": "single",
+                "options": [{"key": "resolved", "label": "Resolved"}, {"key": "other", "label": "Other"}],
+            },
+            [
+                {
+                    "name": "category",
+                    "type": "choice",
+                    "choice": "resolved",
+                    "confidence": 0.8,
+                    "probabilities": [
+                        {"value": "resolved", "probability": 0.8},
+                        {"value": "other", "probability": 0.2},
+                    ],
+                }
+            ],
+            {"categories": ["resolved"]},
+        ),
+        (
+            "categorical",
+            {
+                "selection_mode": "multiple",
+                "options": [{"key": "resolved", "label": "Resolved"}, {"key": "other", "label": "Other"}],
+            },
+            [
+                {"name": "category_0", "type": "predicate", "probability": 0.7},
+                {"name": "category_1", "type": "predicate", "probability": 0.2},
+            ],
+            {"categories": ["resolved"]},
+        ),
+        (
+            "numeric",
+            {"min": 0, "max": 10, "step": 5, "passing_rule": {"operator": "gte", "threshold": 4.9}},
+            [
+                {
+                    "name": "score",
+                    "type": "score",
+                    "score": 4.4099991,
+                    "confidence": 1,
+                    "probabilities": [{"value": index, "label": str(index), "probability": 0.1} for index in range(10)],
+                }
+            ],
+            {"score": 4.899999},
+        ),
+    ],
+)
+def test_openai_native_decisions_use_shared_result_semantics(
+    applicable: bool, output_type: str, output_config: dict, answers: list[dict], expected: dict
+) -> None:
+    team = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
+    evaluation = {
+        "id": "example-evaluation",
+        "name": "Response quality",
+        "team_id": 1,
+        "evaluation_config": {"prompt": "Evaluate the response quality.", "judge_method": "decision"},
+        "output_type": output_type,
+        "output_config": {**output_config, "allows_na": True},
+    }
+    payload = {
+        "model": "gpt-6-luna",
+        "answers": [
+            *answers,
+            {"name": "applicable", "type": "predicate", "probability": 0.9 if applicable else 0.1},
+        ],
+        "usage": {"input_tokens": 120, "output_tokens": 0},
+    }
+    response = httpx.Response(
+        200,
+        headers={"Content-Type": "application/json"},
+        stream=httpx.ByteStream(json.dumps(payload).encode()),
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport,
+    ):
+        teams.return_value.get.return_value = team
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai",
+            model="gpt-6-luna",
+            is_byok=True,
+            provider_key=MagicMock(encrypted_config={"api_key": "example-token"}),
+        )
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt="Unused chat instructions",
+            user_prompt="Example reply.",
+            allows_na=True,
+        )
+    sent = json.loads(transport.call_args.args[0].content)
+    assert sent["input"] == "Example reply."
+    assert result["applicable"] is applicable
+    assert result["reasoning"] == ""
+    assert result["input_tokens"] == 120
+    assert result["output_tokens"] == 0
+    for field, value in expected.items():
+        if not applicable and field in ("verdict", "score", "categories", "probability"):
+            assert result.get(field) is None
+        elif field == "score":
+            assert result["score"] == pytest.approx(value)
+        else:
+            assert result.get(field) == value
+    if output_type == "numeric":
+        assert len(sent["questions"][0]["levels"]) == 10
+        if applicable:
+            assert result["score"] < 4.9
+    if output_type != "boolean":
+        assert "probability" not in result
+
+
+@pytest.mark.parametrize("flag", [False, None])
+def test_openai_decisions_disabled_flag_skips_without_invalidating_key(flag: bool | None) -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as transport,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai",
+            model="gpt-6-luna",
+            is_byok=True,
+            provider_key=MagicMock(encrypted_config={"api_key": "example-token"}),
+        )
+        result = call_llm_judge(
+            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Check the reply.", "judge_method": "decision"}},
+            system_prompt="",
+            user_prompt="Example reply.",
+            allows_na=False,
+        )
+    assert result["skip_reason"] == "system_one_unavailable"
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+    transport.assert_not_called()
 
 
 @pytest.mark.parametrize("flag", [False, None])
@@ -872,7 +1025,9 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
 
 
-def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) -> EvaluationActivityResult:
+def _call_openai_compatible_judge(
+    resolved_ips: set[IPv4Address | IPv6Address], backfill: bool = False
+) -> EvaluationActivityResult:
     key = MagicMock(
         provider="openai_compatible",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -889,6 +1044,7 @@ def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) 
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
+            backfill=backfill,
         )
 
 
@@ -901,13 +1057,13 @@ def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
     assert "Base URL must be a public https:// URL" in result["reasoning"]
 
 
-@pytest.mark.parametrize("attempt", [1, 2])
-def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int) -> None:
+@pytest.mark.parametrize("attempt,backfill", [(1, False), (2, False), (3, True), (5, True)])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int, backfill: bool) -> None:
     env = ActivityEnvironment()
     env.info = dataclasses.replace(env.info, attempt=attempt)
 
     with pytest.raises(TransientJudgeError):
-        env.run(_call_openai_compatible_judge, set())
+        env.run(_call_openai_compatible_judge, set(), backfill)
 
 
 def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
@@ -923,8 +1079,18 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
 
 
 @pytest.mark.parametrize(
-    "provider, success_payload",
+    "provider, success_payload, status, retry_after",
     [
+        (
+            "openai",
+            {
+                "model": "gpt-6-luna",
+                "answers": [{"name": "verdict", "type": "predicate", "probability": 0.9}],
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            },
+            503,
+            60,
+        ),
         (
             "system_one",
             {
@@ -932,6 +1098,8 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
                 "answers": {"verdict": {"type": "noul", "noul": 0.9}},
                 "usage": {"input_tokens": 12, "output_tokens": 0},
             },
+            429,
+            15,
         ),
         (
             "openai_compatible",
@@ -951,21 +1119,37 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
                     }
                 ],
             },
+            429,
+            15,
         ),
     ],
 )
 @pytest.mark.parametrize(
-    "attempt,reportable",
+    "attempt,backfill,reportable",
     [
-        pytest.param(1, False, id="first attempt"),
-        pytest.param(3, True, id="last attempt"),
+        pytest.param(1, False, False, id="first attempt"),
+        pytest.param(3, False, True, id="last attempt"),
+        pytest.param(3, True, False, id="backfill third attempt"),
+        pytest.param(5, True, True, id="backfill last attempt"),
     ],
 )
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
-    provider: str, success_payload: dict[str, Any], attempt: int, reportable: bool
+    provider: str,
+    success_payload: dict[str, Any],
+    status: int,
+    retry_after: int,
+    attempt: int,
+    backfill: bool,
+    reportable: bool,
 ) -> None:
     env = ActivityEnvironment()
-    env.info = dataclasses.replace(env.info, attempt=attempt)
+    env.info = dataclasses.replace(
+        env.info, attempt=attempt, retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY, schedule_to_close_timeout=None
+    )
+    evaluation = {
+        "team_id": 1,
+        "evaluation_config": {"prompt": "Polite?", **({"judge_method": "decision"} if provider == "openai" else {})},
+    }
     key = MagicMock(
         provider=provider,
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -977,7 +1161,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[
-                httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
+                httpx.Response(status, headers={"Retry-After": str(retry_after)}, stream=httpx.ByteStream(b"")),
                 httpx.Response(
                     200,
                     headers={"Content-Type": "application/json"},
@@ -987,25 +1171,29 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         ) as transport,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
+            provider=provider,
+            model="gpt-6-luna" if provider == "openai" else "example-judge-v1",
+            provider_key=key,
+            is_byok=True,
         )
         with pytest.raises(ApplicationError) as error:
             env.run(
                 lambda: call_llm_judge(
-                    evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                    evaluation=evaluation,
                     system_prompt="",
                     user_prompt="Hello!",
                     allows_na=False,
+                    backfill=backfill,
                 )
             )
         assert not error.value.non_retryable
         assert isinstance(error.value, NonReportableError) is not reportable
-        assert error.value.next_retry_delay == timedelta(seconds=15)
+        assert error.value.next_retry_delay == timedelta(seconds=retry_after)
         assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
         assert transport.call_count == 1
 
         result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            evaluation=evaluation,
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
