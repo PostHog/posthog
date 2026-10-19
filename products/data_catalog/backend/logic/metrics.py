@@ -212,11 +212,15 @@ def _denied_tables(team: Team, user: User, user_access_control: UserAccessContro
     return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
 
 
-def _hidden_from_caller(metric: Metric, team: Team, user: User, user_access_control: UserAccessControl) -> bool:
-    """True when the metric reads a table the caller cannot read, so the catalog hides it from them."""
-    if not metric.referenced_table_names:
-        return False
-    return references_denied_table(metric.referenced_table_names, _denied_tables(team, user, user_access_control))
+def _live_metric_reads_tables(team: Team, name: str) -> bool:
+    """True when a live metric holds ``name`` and its definition reads tables. Reads without a lock."""
+    referenced = (
+        Metric.objects.for_team(team.id)
+        .filter(name=name, deleted=False)
+        .values_list("referenced_table_names", flat=True)
+        .first()
+    )
+    return bool(referenced)
 
 
 def _name_conflict(
@@ -275,7 +279,7 @@ def upsert_metric(
     unchanged, so the caller can ask a person before replacing it. With a ``user_access_control``,
     a name held by a metric hidden from ``user`` (see ``metrics_visible_to_user``) raises the same
     error for every value of ``overwrite`` and discloses nothing about that metric. Both checks run
-    under the row lock, so a concurrent write cannot slip a hidden metric past them.
+    on the locked row, so a concurrent write cannot slip a hidden metric past them.
 
     Refine is a partial merge: only the fields the caller supplies are written, so a refine that
     omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
@@ -306,13 +310,20 @@ def upsert_metric(
     fields.update(_resolve_definition_fields(definition, source_insight_short_id, team, user))
     written_fields = set(fields)
 
+    # The denied-table set needs the HogQL database, which is slow to build, so build it before the
+    # row lock, and only when the name is held by a metric that reads tables.
+    denied_tables: set[str] | None = None
+    if user is not None and user_access_control is not None and _live_metric_reads_tables(team, name):
+        denied_tables = _denied_tables(team, user, user_access_control)
+
     def refuse_taken_name(existing: Metric) -> None:
-        if (
-            user is not None
-            and user_access_control is not None
-            and _hidden_from_caller(existing, team, user, user_access_control)
-        ):
-            raise _name_conflict(existing, visible=False, team=team, user=user, request=request)
+        nonlocal denied_tables
+        if user is not None and user_access_control is not None and existing.referenced_table_names:
+            if denied_tables is None:
+                # A concurrent write gave the row its table references after the read above.
+                denied_tables = _denied_tables(team, user, user_access_control)
+            if references_denied_table(existing.referenced_table_names, denied_tables):
+                raise _name_conflict(existing, visible=False, team=team, user=user, request=request)
         if not overwrite:
             raise _name_conflict(existing, visible=True, team=team, user=user, request=request)
 
