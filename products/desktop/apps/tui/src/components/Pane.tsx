@@ -371,6 +371,10 @@ export function Pane({
   // long log of tool noise can show a few lines per window, and paging until it filled the pane locked the app.
   const pagedAt = useRef<number | null>(null);
   const filledOnce = useRef<ChatView | null>(null);
+  // A scroll up at the top always asks for the page above, also after the short-transcript page.
+  chat.onTopReached = () => {
+    if (hasOlder && !view.loadingOlder) loadOlder();
+  };
   useEffect(() => {
     if (!(width > 0 && hasOlder && !view.loadingOlder && chat.isAtTop()))
       return;
