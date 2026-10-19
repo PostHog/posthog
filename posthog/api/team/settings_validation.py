@@ -8,6 +8,8 @@ from pydantic import TypeAdapter
 from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, serializers
 
+from posthog.schema import CohortPropertyFilter
+
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
@@ -16,6 +18,8 @@ from posthog.models.project import Project
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.types import AnyPropertyFilter
+
+from products.cohorts.backend.models import Cohort
 
 from . import team_config
 
@@ -99,7 +103,11 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     except PydanticValidationError as error:
         raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
 
-    return cast(list[dict[str, object]], value)
+    filters = cast(list[dict[str, object]], value)
+    for property_filter in filters:
+        if property_filter.get("type") == "cohort":
+            property_filter["value"] = CohortPropertyFilter.model_validate(property_filter).value
+    return filters
 
 
 def _alias_backreferences(alias: str) -> list[int]:
@@ -206,6 +214,14 @@ def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team:
     )
 
 
+def _test_account_filters_project_id(view: TeamAndOrgViewSetMixin, instance: Team | Project | None) -> int | None:
+    if isinstance(instance, Team):
+        return instance.project_id
+    if instance is not None:
+        return instance.pk
+    return view.parents_query_dict.get("project_id")
+
+
 def validate_team_attrs(
     attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, instance: Team | Project | None
 ) -> dict[str, Any]:
@@ -240,6 +256,24 @@ def validate_team_attrs(
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
+                )
+
+    if "test_account_filters" in attrs:
+        cohort_ids = {prop["value"] for prop in attrs["test_account_filters"] if prop.get("type") == "cohort"}
+        if cohort_ids:
+            project_id = _test_account_filters_project_id(view, instance)
+            valid_ids = (
+                set(
+                    Cohort.objects.filter(id__in=cohort_ids, team__project_id=project_id, deleted=False).values_list(
+                        "id", flat=True
+                    )
+                )
+                if project_id is not None
+                else set()
+            )
+            if cohort_ids - valid_ids:
+                raise exceptions.ValidationError(
+                    {"test_account_filters": "Cohort filters must reference an existing cohort in this project."}
                 )
 
     # A new team has no warehouse tables yet, so only an update can reach a denied one.
