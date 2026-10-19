@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from requests.exceptions import ConnectTimeout, ReadTimeout
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
+from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -773,6 +773,22 @@ def test_get_schemas_advertises_incremental_fields_per_table() -> None:
     )
 
 
+def _trino_query_error(message: str) -> TrinoQueryError:
+    # Resource-exhaustion failures carry an errorType the client doesn't special-case
+    # ("INSUFFICIENT_RESOURCES", neither "EXTERNAL" nor "USER_ERROR"), so the driver raises the
+    # base TrinoQueryError rather than a USER/EXTERNAL subclass.
+    return TrinoQueryError(
+        {
+            "message": message,
+            "errorName": "GENERIC_INSUFFICIENT_RESOURCES",
+            "errorCode": 65540,
+            "errorType": "INSUFFICIENT_RESOURCES",
+            "failureInfo": {},
+        },
+        "20260902_120000_00000_abcde",
+    )
+
+
 def _trino_user_error(name: str, message: str) -> TrinoUserError:
     return TrinoUserError(
         {"message": message, "errorName": name, "errorCode": 1, "errorType": "USER_ERROR", "failureInfo": {}},
@@ -789,8 +805,21 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         (_trino_user_error("COLUMN_NOT_FOUND", "line 1:8: Column 'gone' cannot be resolved"), True),
         (_trino_external_error("Failed to query OPA backend"), False),
         (TrinoConnectionError("failed to execute: ('Connection aborted.', ConnectionResetError(104))"), False),
+        (_trino_query_error("Query exceeded distributed total memory limit of 2.64TB"), True),
+        # Deliberately retryable, not a regression: this depends on a worker's free disk at that
+        # moment, shared by every query Trino schedules there, so it can clear on its own.
+        (_trino_query_error("No free or healthy space available for spill"), False),
     ],
-    ids=["access_denied", "unauthorized", "table_not_found", "column_not_found", "opa_unavailable", "connection_reset"],
+    ids=[
+        "access_denied",
+        "unauthorized",
+        "table_not_found",
+        "column_not_found",
+        "opa_unavailable",
+        "connection_reset",
+        "query_memory_limit",
+        "spill_space_exhausted",
+    ],
 )
 def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool) -> None:
     with pytest.raises(Exception) as raised:

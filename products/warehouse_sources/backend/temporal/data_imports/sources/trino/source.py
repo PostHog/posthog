@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
     TRINO_COLUMN_NOT_FOUND_ERROR,
     TRINO_KNOWN_ERROR_MESSAGES,
+    TRINO_QUERY_MEMORY_LIMIT_ERROR,
     TRINO_SCHEMA_NOT_FOUND_ERROR,
     TRINO_TABLE_NOT_FOUND_ERROR,
     TRINO_WORKER_NODE_ERROR,
@@ -282,6 +283,10 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             "name=TABLE_NOT_FOUND": TRINO_TABLE_NOT_FOUND_ERROR,
             "name=SCHEMA_NOT_FOUND": TRINO_SCHEMA_NOT_FOUND_ERROR,
             "name=COLUMN_NOT_FOUND": TRINO_COLUMN_NOT_FOUND_ERROR,
+            # Raised mid-sync by a query against the cluster, not schema discovery, so this matches
+            # on the driver's own stable wording rather than an errorName. See the comment on the
+            # constant for why retrying can't recover from it.
+            "exceeded distributed total memory limit": TRINO_QUERY_MEMORY_LIMIT_ERROR,
             TrinoSchemaDiscoveryError.__name__: None,
         }
 
