@@ -1,8 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
-
 import __trendsRegionMap from '~/mocks/fixtures/api/projects/team_id/insights/trendsRegionMap.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { RegionMap } from './RegionMap'
 

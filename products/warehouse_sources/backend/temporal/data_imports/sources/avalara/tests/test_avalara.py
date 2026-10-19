@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -6,24 +5,36 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara import (
     AVALARA_ENVIRONMENT_HOSTS,
     AvalaraResumeConfig,
     _format_filter_date,
     _incremental_config_factory,
-    avalara_source,
     base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.settings import AVALARA_ENDPOINTS
-
-# rest_api_resource builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-AVALARA_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.source import AvalaraSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.avalara import (
+    AvalaraSourceConfig,
+)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        AvalaraSource(), AvalaraSourceConfig(account_id="12345", license_key="key", environment="production")
+    )
+
+
+def _page(items: list[dict[str, Any]], recordset_count: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"value": items, "@recordsetCount": recordset_count})
 
 
 class TestBaseUrl:
@@ -64,257 +75,158 @@ class TestIncrementalConfigFactory:
         assert convert(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)) == "modifiedDate gt '2026-03-04T02:58:14Z'"
 
 
-def _response(
-    items: list[dict[str, Any]] | None, *, recordset_count: int | None = None, drop_value_key: bool = False
-) -> Response:
-    body: dict[str, Any] = {}
-    if not drop_value_key:
-        body["value"] = items or []
-    if recordset_count is not None:
-        body["@recordsetCount"] = recordset_count
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: AvalaraResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return avalara_source(
-        account_id="12345",
-        license_key="key",
-        environment="production",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
 class TestAvalaraSourceNonFanout:
     @mock.patch.object(AVALARA_ENDPOINTS["Companies"], "page_size", 2)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_recordset_count_reached(self, MockSession) -> None:
+    def test_paginates_until_recordset_count_reached(self) -> None:
         # A full (page_size-length) first page is required: OffsetPaginator treats a page shorter
         # than the limit as terminal even when @recordsetCount says more remain.
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "Companies",
             [
-                _response([{"id": 1}, {"id": 2}], recordset_count=3),
-                _response([{"id": 3}], recordset_count=3),
+                _page([{"id": 1}, {"id": 2}], 3),
+                _page([{"id": 3}], 3),
             ],
         )
 
-        rows = _rows(_source("Companies", _make_manager()))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.params("$skip") == ["0", "2"]
+        assert result.requests[0].param("$orderBy") == "modifiedDate ASC"
 
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert session.send.call_count == 2
-        assert snapshots[0]["params"]["$skip"] == 0
-        assert snapshots[1]["params"]["$skip"] == 2
-        assert snapshots[0]["params"]["$orderBy"] == "modifiedDate ASC"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_cursor_added_as_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}], recordset_count=1)])
-
-        _rows(
-            _source(
-                "Companies",
-                _make_manager(),
-                should_use_incremental_field=True,
-                incremental_field="modifiedDate",
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
+    def test_incremental_cursor_added_as_filter(self) -> None:
+        result = _driver().run(
+            "Companies",
+            [_page([{"id": 1}], 1)],
+            incremental_field="modifiedDate",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["$filter"] == "modifiedDate gt '2026-03-04T02:58:14Z'"
+        assert result.raised is None
+        assert result.requests[0].param("$filter") == "modifiedDate gt '2026-03-04T02:58:14Z'"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_never_sends_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}], recordset_count=1)])
+    def test_full_refresh_never_sends_filter(self) -> None:
+        result = _driver().run("Companies", [_page([{"id": 1}], 1)])
 
-        _rows(_source("Companies", _make_manager(), should_use_incremental_field=False))
-
-        assert "$filter" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert result.requests[0].param("$filter") is None
 
     @mock.patch.object(AVALARA_ENDPOINTS["Companies"], "page_size", 1)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_saves_resume_state_only_while_pages_remain(self) -> None:
+        result = _driver().run(
+            "Companies",
             [
-                _response([{"id": 1}], recordset_count=2),
-                _response([{"id": 2}], recordset_count=2),
+                _page([{"id": 1}], 2),
+                _page([{"id": 2}], 2),
             ],
         )
 
-        manager = _make_manager()
-        _rows(_source("Companies", manager))
+        assert result.raised is None
+        assert result.saved_states == [AvalaraResumeConfig(next_offset=1)]
 
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == AvalaraResumeConfig(next_offset=1)
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "Companies",
+            [_page([{"id": 2}], 2)],
+            resume_state=AvalaraResumeConfig(next_offset=1),
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 2}], recordset_count=2)])
-
-        rows = _rows(_source("Companies", _make_manager(AvalaraResumeConfig(next_offset=1))))
-
-        assert [r["id"] for r in rows] == [2]
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["$skip"] == 1
-
-
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict[str, Any]]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper: Any) -> "_FakeDltResource":
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self) -> Any:
-        return iter(self._rows)
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [2]
+        assert result.params("$skip") == ["1"]
 
 
 class TestAvalaraSourceFanout:
     @parameterized.expand(["Transactions", "Nexus", "Customers", "ExemptionCertificates"])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara.build_dependent_resource"
-    )
-    def test_fanout_wires_selectors_and_page_size_param(self, endpoint: str, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
+    def test_fanout_wires_selectors_and_page_size_param(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"id": 7, "companyCode": "EXAMPLE"}], 1),
+                _page([{"id": 1, "companyId": 7}], 1),
+            ],
+        )
 
-        _source(endpoint, _make_manager())
+        assert result.raised is None
+        assert result.paths[0] == "/api/v2/companies"
+        assert result.paths[1].endswith(AVALARA_ENDPOINTS[endpoint].path.rsplit("/", 1)[-1])
+        assert result.params("$top") == ["500", "500"]
+        assert result.params("$skip") == ["0", "0"]
+        assert result.requests[1].param("$orderBy") == "modifiedDate ASC"
+        assert [row["id"] for row in result.rows] == [1]
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "$top"
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "value"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "value"
-        assert kwargs["fanout"].parent_name == "Companies"
-        assert kwargs["fanout"].child_params == {"$orderBy": "modifiedDate ASC"}
+    def test_transactions_resolves_on_company_code(self) -> None:
+        result = _driver().run(
+            "Transactions",
+            [_page([{"id": 7, "companyCode": "EXAMPLE"}], 1), _page([{"id": 1}], 1)],
+        )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara.build_dependent_resource"
-    )
-    def test_transactions_resolves_on_company_code(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        _source("Transactions", _make_manager())
-
-        fanout = mock_build_dependent_resource.call_args.kwargs["fanout"]
-        assert fanout.resolve_param == "companyCode"
-        assert fanout.resolve_field == "companyCode"
+        assert result.raised is None
+        assert result.paths[1] == "/api/v2/companies/EXAMPLE/transactions"
+        assert result.requests[1].param("companyCode") is None
 
     @parameterized.expand(["Nexus", "Customers", "ExemptionCertificates"])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara.build_dependent_resource"
-    )
-    def test_company_scoped_endpoints_resolve_on_company_id(self, endpoint: str, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
+    def test_company_scoped_endpoints_resolve_on_company_id(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"id": 7, "companyCode": "EXAMPLE"}], 1), _page([{"id": 1, "companyId": 7}], 1)],
+        )
 
-        _source(endpoint, _make_manager())
+        assert result.raised is None
+        assert result.paths[1].startswith("/api/v2/companies/7/")
+        assert result.requests[1].param("companyId") is None
 
-        fanout = mock_build_dependent_resource.call_args.kwargs["fanout"]
-        assert fanout.resolve_param == "companyId"
-        assert fanout.resolve_field == "id"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara.build_dependent_resource"
-    )
-    def test_incremental_fanout_uses_incremental_config_factory(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        _source(
+    def test_incremental_fanout_uses_incremental_config_factory(self) -> None:
+        result = _driver().run(
             "Transactions",
-            _make_manager(),
-            should_use_incremental_field=True,
+            [
+                _page([{"id": 7, "companyCode": "EXAMPLE"}], 1),
+                _page([{"id": 1, "modifiedDate": "2026-03-05T00:00:00Z"}], 1),
+            ],
             incremental_field="modifiedDate",
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["incremental_field"] == "modifiedDate"
-        assert kwargs["incremental_config_factory"] is _incremental_config_factory
+        assert result.raised is None
+        assert result.requests[0].param("$filter") is None
+        assert result.requests[1].param("$filter") == "modifiedDate gt '2026-03-04T00:00:00Z'"
+        assert result.requests[1].param("$orderBy") == "modifiedDate ASC"
 
 
 class TestValidateCredentials:
-    @mock.patch(AVALARA_SESSION_PATCH)
-    def test_authenticated_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(
-            status_code=200, json=lambda: {"authenticated": True}
-        )
-        assert validate_credentials("12345", "key", "production") == (True, None)
+    def test_authenticated_ok(self) -> None:
+        with scripted_network([ScriptedResponse(json={"authenticated": True})]):
+            assert validate_credentials("12345", "key", "production") == (True, None)
 
-    @mock.patch(AVALARA_SESSION_PATCH)
-    def test_unauthenticated_ping_reports_bad_credentials(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(
-            status_code=200, json=lambda: {"authenticated": False}
-        )
-        is_valid, message = validate_credentials("12345", "wrong-key", "production")
+    def test_unauthenticated_ping_reports_bad_credentials(self) -> None:
+        with scripted_network([ScriptedResponse(json={"authenticated": False})]):
+            is_valid, message = validate_credentials("12345", "wrong-key", "production")
         assert is_valid is False
         assert message == "Avalara authentication failed. Check your account ID and license key."
 
-    @mock.patch(AVALARA_SESSION_PATCH)
-    def test_unexpected_status_code(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=500)
-        is_valid, message = validate_credentials("12345", "key", "production")
+    def test_unexpected_status_code(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=500))) as network:
+            is_valid, message = validate_credentials("12345", "key", "production")
         assert is_valid is False
         assert message is not None and "500" in message
+        assert {request.path for request in network.requests_log} == {"/api/v2/utilities/ping"}
 
-    @mock.patch(AVALARA_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, message = validate_credentials("12345", "key", "production")
+    def test_swallows_transport_errors(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, message = validate_credentials("12345", "key", "production")
         assert is_valid is False
         assert message is not None and "Could not reach Avalara" in message
 
-    @mock.patch(AVALARA_SESSION_PATCH)
-    def test_probes_ping_endpoint_for_selected_environment(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(
-            status_code=200, json=lambda: {"authenticated": True}
-        )
+    def test_probes_ping_endpoint_for_selected_environment(self) -> None:
+        with scripted_network([ScriptedResponse(json={"authenticated": True})]) as network:
+            validate_credentials("12345", "key", "sandbox")
 
-        validate_credentials("12345", "key", "sandbox")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://sandbox-rest.avatax.com/api/v2/utilities/ping"
-        assert call.kwargs["auth"] == ("12345", "key")
+        assert network.requests_log[0].url == "https://sandbox-rest.avatax.com/api/v2/utilities/ping"
+        assert network.requests_log[0].headers["authorization"] == "Basic MTIzNDU6a2V5"
 
     def test_unknown_environment_fails_without_a_request(self) -> None:
-        with mock.patch(AVALARA_SESSION_PATCH) as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("12345", "key", "staging")
         assert is_valid is False
         assert message is not None and "Unknown Avalara environment" in message
-        mock_session.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []

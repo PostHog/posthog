@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -51,7 +51,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
-from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.worker import ActivityWorkerConfig, ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -139,6 +139,7 @@ from posthog.temporal.tests.utils.workflow import (
 )
 from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    AGGREGATION_ACTIVITIES as USAGE_REPORTS_AGGREGATION_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
 from posthog.temporal.warehouse_sources_queue_partition_management import (
@@ -226,16 +227,14 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
     WORKFLOWS as GROWTH_WORKFLOWS,
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    PLATFORM_SIGNAL_ACTIVITIES as LOGS_PLATFORM_SIGNAL_ACTIVITIES,
+    PLATFORM_SIGNAL_WORKFLOWS as LOGS_PLATFORM_SIGNAL_WORKFLOWS,
     SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
     SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
     VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
@@ -249,6 +248,10 @@ from products.logs.backend.temporal.retention_entitlements import (
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    WORKFLOWS as METRICS_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
@@ -271,7 +274,7 @@ from products.replay_vision.backend.temporal import (
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.temporal import (
+from products.review_hog.backend.facade.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
@@ -289,9 +292,17 @@ from products.signals.backend.temporal import (
     SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
+from products.slack_app.backend.facade.temporal import (
+    ACTIVITIES as SLACK_APP_ACTIVITIES,
+    WORKFLOWS as SLACK_APP_WORKFLOWS,
+)
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -319,6 +330,10 @@ from products.warehouse_suggestions.backend.facade.temporal import (
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal.page_history.registry import (
+    ACTIVITIES as HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    WORKFLOWS as HEATMAP_PAGE_HISTORY_WORKFLOWS,
 )
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
@@ -393,7 +408,8 @@ _task_queue_specs = [
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
         + SECURITY_WORKFLOWS
-        + TODAY_WORKFLOWS,
+        + TODAY_WORKFLOWS
+        + METRICS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -420,7 +436,8 @@ _task_queue_specs = [
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
         + SECURITY_ACTIVITIES
-        + TODAY_ACTIVITIES,
+        + TODAY_ACTIVITIES
+        + METRICS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -463,13 +480,10 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
-        # First step of merging them onto this queue — once master traffic has
-        # cut over and any in-flight runs have drained, drop them from
-        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
-        # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+        # PostHog Desktop Slack workflows share this queue with ProcessTaskWorkflow,
+        # which they hand off to once a repo is picked.
+        TASKS_WORKFLOWS + SLACK_APP_WORKFLOWS,
+        TASKS_ACTIVITIES + SLACK_APP_ACTIVITIES,
     ),
     (
         settings.WIZARD_TASK_QUEUE,
@@ -574,6 +588,11 @@ _task_queue_specs = [
         EVENT_SCREENSHOTS_ACTIVITIES,
     ),
     (
+        settings.WEB_ANALYTICS_TASK_QUEUE,
+        HEATMAP_PAGE_HISTORY_WORKFLOWS,
+        HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    ),
+    (
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
@@ -614,8 +633,8 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
-        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
+        ALERTS_PLATFORM_DELIVERY_WORKFLOWS + LOGS_PLATFORM_SIGNAL_WORKFLOWS,
+        ALERTS_PLATFORM_DELIVERY_ACTIVITIES + LOGS_PLATFORM_SIGNAL_ACTIVITIES,
     ),
 ]
 
@@ -632,6 +651,15 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+ACTIVITY_WORKER_CONFIGS = {
+    settings.BILLING_TASK_QUEUE: (
+        ActivityWorkerConfig(
+            task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
+            activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
+            max_concurrent_activities=1,
+        ),
+    ),
+}
 
 
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
@@ -941,6 +969,7 @@ class Command(BaseCommand):
                     ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
+                    activity_worker_configs=ACTIVITY_WORKER_CONFIGS.get(task_queue, ()),
                 )
             )
 

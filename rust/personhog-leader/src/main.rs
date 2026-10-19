@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::kafka_producer::create_kafka_producer;
+use common_kafka::kafka_producer::{create_kafka_producer, spawn_bounded_flush_on_shutdown};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
@@ -88,8 +88,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting personhog-leader service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!(
-        "Cache capacity: {} bytes per partition",
-        config.cache_memory_capacity_bytes
+        "Cache capacity: {} bytes per partition, properties compression: {}",
+        config.cache_memory_capacity_bytes,
+        config.cache_properties_compression_enabled
     );
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
@@ -281,7 +282,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Initialize partitioned cache and Kafka producer
-    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
+    let cache = Arc::new(
+        PartitionedCache::new(config.cache_memory_capacity_bytes)
+            .with_properties_compression(config.cache_properties_compression_enabled),
+    );
 
     let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
@@ -291,8 +295,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     // Runs at phase 1, after the coordination drain, so the drain's last
-    // records are in the queue it flushes.
-    personhog_leader::kafka::spawn_bounded_flush_on_shutdown(
+    // records are in the queue it flushes. The changelog path awaits each
+    // record's delivery before acking, so a timed-out flush drops only
+    // records nobody acked.
+    spawn_bounded_flush_on_shutdown(
         kafka_producer.clone(),
         kafka_handle,
         Duration::from_secs(10),

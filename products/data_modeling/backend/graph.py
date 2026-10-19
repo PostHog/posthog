@@ -24,7 +24,6 @@ class Graph:
     def __init__(
         self,
         team_id: int,
-        dag_id: UUID | str | None = None,
         exclude_table_sources: bool = True,
         exclude_table_targets: bool = True,
         hidden_types: frozenset[str] = frozenset(),
@@ -33,7 +32,6 @@ class Graph:
 
         Args:
             team_id: filter edges to this team
-            dag_id: if set, filter to a single DAG; otherwise load all DAGs
             exclude_table_sources: skip edges whose source is a TABLE node (for upstream counts)
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
             hidden_types: node types the reader may not see, dropped from both sides so a count
@@ -42,8 +40,6 @@ class Graph:
         qs = Edge.objects.filter(team_id=team_id).exclude(
             Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True)
         )
-        if dag_id:
-            qs = qs.filter(dag_id=dag_id)
 
         # Fetch edges with source/target types in a single query
         edge_rows = list(

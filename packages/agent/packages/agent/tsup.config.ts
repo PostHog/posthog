@@ -236,6 +236,7 @@ export default defineConfig([
     dts: false,
     clean: false,
     banner: { js: nodeEsmBanner },
+    define: { PI_BUNDLED_NODE: "true" },
     ...sharedOptions,
     noExternal: [/^(?!node:)/],
     external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`)],

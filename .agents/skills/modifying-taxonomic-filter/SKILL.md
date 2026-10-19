@@ -1,207 +1,96 @@
 ---
 name: modifying-taxonomic-filter
-description: Guides safe changes to the TaxonomicFilter, PostHog's picker for events, actions, properties, cohorts, and more. Use when adding features, fixing bugs, improving search or loading performance, or refactoring the classic picker, rebuild menu, or headless filter panel. Covers real selection behavior, two live surfaces, shared telemetry, the conditional Postgres search plan, and result reveal rules.
+description: Guides safe, evidence-led changes to the TaxonomicFilter, PostHog's picker for events, actions, properties, cohorts, and more. Use when adding features, fixing bugs, removing groups or tabs, changing search, ordering, recents, pinning, empty states, loading or performance, or refactoring the classic picker, rebuild menu, or headless filter panel. Indexes how users actually pick, known failure modes, the feature inventory, design principles, contested decisions, where to find evidence, and how to measure a change.
 ---
 
 # Modifying the TaxonomicFilter
 
-The TaxonomicFilter is the picker users hit to choose any "thing PostHog
-knows about" — events, properties, actions, cohorts, groups. It's the
-on-ramp into almost every analytics and replay configuration. Code lives
-in `frontend/src/lib/components/TaxonomicFilter/`.
+The TaxonomicFilter is the picker users hit to choose any "thing PostHog knows about": events, properties, actions, cohorts, groups.
+It is the on-ramp into almost every analytics, flags and replay configuration.
+Code lives in `frontend/src/lib/components/TaxonomicFilter/`.
 
-**Three guardrails:**
+This file is an index.
+Read it fully, then load only the references your change needs.
+The references hold the detail and the evidence.
 
-1. Changes that demote items users _actually pick_ are regressions, even
-   with all tests passing. Read "Product reality" before deciding any
-   change is safe. Ordering, promotion, or position-0 changes need
-   explicit human sign-off — don't let an agent decide alone.
-2. There are **two live surfaces**, and the
-   rebuild is a parallel reimplementation of the legacy data + group
-   layer — not a skin over it. A behaviour change usually has to land in
-   **both** the legacy code and the rebuild, or the two arms of the
-   experiment diverge. Read "Two surfaces" and "Mirroring changes"
-   before assuming one edit is enough.
-3. Search is the main selection path. The definition endpoints select a
-   Postgres plan from the project size. The picker also shows results before
-   optional counts finish. Read
-   [references/performance.md](references/performance.md) before you change
-   search, loading, pagination, or result reveal behavior.
+## Four guardrails
 
-## Product reality (last refreshed 2026-05-02, 90-day window)
+1. **Decide with evidence, not taste.**
+   Everyone who has worked on this picker has strong opinions, and some of them are wrong.
+   Check a claim against [product-reality](references/product-reality.md) and [evidence-sources](references/evidence-sources.md) before acting on it, including claims in issues, Slack, or this skill.
+2. **Demoting what users actually pick is a regression**, even with every test green.
+   Ordering, promotion, position-0 and default-tab changes need explicit human sign-off.
+3. **Two surfaces, two implementations.**
+   The rebuild reimplements the legacy data layer.
+   Most behavior changes land in both, or the arms diverge.
+   See [surfaces-and-mirroring](references/surfaces-and-mirroring.md).
+4. **Telemetry is a public contract.**
+   Dashboards and replay scanners read these events.
+   Never rename or repurpose a property silently.
+   `telemetryContract.test.ts` fails when a capture call and the contract disagree, so update the contract in the same PR.
+   See [telemetry-contract](references/telemetry-contract.md).
 
-Ratios from production telemetry. Re-run via
-[references/refreshing-product-reality.md](references/refreshing-product-reality.md)
-when older than ~3 months.
+## The picture in five lines (refreshed 2026-10-15)
 
-### How users pick
+- Most engaged legacy opens end in a selection (~85%), and most never touch a category tab (~96%).
+- The Suggested view carries about 70% of legacy selections.
+  Just over half of those come from recents.
+- Position matters: ~52% of legacy picks are row 0, ~85% are in the top three.
+- The biggest failure is a category picked first, then a search that finds nothing.
+  Most empty searches are the right word in the wrong tab.
+- Customers report broken UI and missing items far more than slowness.
 
-- **Top three rows carry ~80% of selections** (position 0: ~56%,
-  position 1: ~15%, position 2: ~8%). Demoting a popular item out of
-  the top three is a real-user regression.
-- **~34% selection rate.** Two of every three opens close without a
-  pick. p50 dwell ~7s, p90 ~53s — most opens are quick glances.
-- **Selection paths**: ~65% via search, ~19% browsed-no-search,
-  ~16% from recents, <1% from pinned items.
+Detail, windows and caveats: [product-reality](references/product-reality.md).
+These numbers are a snapshot.
+For current values, run the `taxonomic_filter_*` metrics in the PostHog data catalog (see [refreshing-product-reality](references/refreshing-product-reality.md#live-metrics)).
 
-### What users select
+## Route by what you are changing
 
-| Source group type   | Share |
-| ------------------- | ----- |
-| `events`            | ~40%  |
-| `event_properties`  | ~30%  |
-| `person_properties` | ~14%  |
-| `cohorts`           | ~2%   |
-| `email_addresses`   | ~2%   |
-| `actions`           | ~2%   |
-| `pageview_urls`     | ~1%   |
-| everything else     | <1%   |
+| You are changing                            | Read first                                                                                                                                                                    |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ordering, promotion, Suggested, default tab | [product-reality](references/product-reality.md), [design-principles](references/design-principles.md), [contested-decisions](references/contested-decisions.md)              |
+| Adding, removing or hiding a group or tab   | [feature-inventory](references/feature-inventory.md), [surfaces-and-mirroring](references/surfaces-and-mirroring.md), [call-sites](references/call-sites-and-blast-radius.md) |
+| Search, empty states, no-results recovery   | [failure-modes](references/failure-modes.md), [design-principles](references/design-principles.md)                                                                            |
+| Recents, pinning, remembered state          | [contested-decisions](references/contested-decisions.md), [design-principles](references/design-principles.md)                                                                |
+| Loading, latency, pagination, errors        | [performance](references/performance.md), [failure-modes](references/failure-modes.md)                                                                                        |
+| Telemetry or dashboards                     | [telemetry-contract](references/telemetry-contract.md), [measuring-changes](references/measuring-changes.md)                                                                  |
+| Any refactor                                | [architecture](references/architecture.md), [common-pitfalls](references/common-pitfalls.md), [testing-patterns](references/testing-patterns.md)                              |
+| A bug report you can't reproduce            | [surfaces-and-mirroring](references/surfaces-and-mirroring.md) (confirm the surface first)                                                                                    |
+| Deciding whether a change is worth it       | [evidence-sources](references/evidence-sources.md), [measuring-changes](references/measuring-changes.md)                                                                      |
 
-### What users search for (share of top-8 terms)
+## Working loop
 
-| Term      | Share |
-| --------- | ----- |
-| `email`   | ~29%  |
-| `url`     | ~22%  |
-| `user`    | ~12%  |
-| `utm`     | ~10%  |
-| `page`    | ~9%   |
-| `path`    | ~8%   |
-| `current` | ~6%   |
-| `country` | ~5%   |
-
-`email` and `url` are over half the top-8. They're the entire reason
-`PROMOTED_PROPERTIES_BY_SEARCH_TERM` (in `infiniteListLogic.ts`) maps
-them to `$email` and `$current_url` at position 0. **Touching
-promotion or ordering needs explicit human sign-off.**
-
-### Empty searches
-
-`email`, `url`, `utm`, `path` against `cohorts`, `event_feature_flags`,
-`session_properties` produce most empty-result events — users type the
-same canonical terms across every tab. Tab order, suggested-filters
-aggregation, and shortcut routing are how they get to the right answer.
-
-### Input mode
-
-~93% typed, ~7% pasted. Both feed `inputMode` on `taxonomic_filter_search_query`.
-
-## Telemetry is a contract
-
-Treat property shapes as a public API. Every `taxonomic filter *` event now
-carries a `surface` property (`legacy-pill` / `rebuild-menu`) so the
-surfaces are distinguishable by an explicit property. The classic-picker stamp comes from
-`legacyTaxonomicSurface()` in `taxonomicFilterSurface.ts`; the rebuild stamps
-`rebuild-menu` from `menu/TaxonomicFilterMenu.tsx`.
-
-Shared events both surfaces emit (keep these comparable across arms):
-
-- `taxonomic filter closed` — `surface`, `dwellMs`, `hadSelection` (legacy
-  also sends `groupType`; the rebuild omits it — there's no single active
-  tab at close)
-- `taxonomic filter item selected` — `surface`, `groupType`,
-  `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
-  `hadSearchInput`, `position`, `query`, `wasStale`
-
-Legacy-only: `taxonomic_filter_search_query`
-(`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),
-`taxonomic filter empty result` (`groupType`, `searchQuery`),
-`taxonomic filter include stale toggled`,
-`taxonomic filter category dropdown opened` (pill only).
-
-Rebuild-only menu events: `taxonomic filter menu opened` / `drilled` /
-`closed` / `option clicked` / `item selected`.
-
-When you add a property to a **shared** event, add it to **both** emitters
-or the arms stop being comparable. Adding properties: fine. Removing dead
-ones: fine. **Renaming or repurposing silently is the worst case** —
-dashboards keep working and start lying.
-
-## Two surfaces
-
-One feature flag selects between two surfaces. A bug report that doesn't reproduce
-locally is almost always a variant mismatch — confirm which surface the
-reporter is on first.
-
-| Surface        | Flag                            | Value | What renders                                  |
-| -------------- | ------------------------------- | ----- | --------------------------------------------- |
-| `legacy-pill`  | `TAXONOMIC_FILTER_MENU_REBUILD` | off   | classic picker with a category dropdown       |
-| `rebuild-menu` | `TAXONOMIC_FILTER_MENU_REBUILD` | on    | ground-up rewrite in `menu/` over `headless/` |
-
-- **legacy-pill** is the classic picker (`taxonomicFilterLogic.tsx` +
-  `InfiniteList`) with a suffix category dropdown. A person can pin the
-  category rail from that dropdown.
-- **rebuild-menu** is a separate, opt-in experiment (`@adamleith`) being
-  tested internally. It is a **fresh implementation**: the `menu/` dropdown
-  and combobox UI on top of `headless/` (a hooks-based filter panel). It
-  does **not** route through `taxonomicFilterLogic`/`infiniteListLogic`;
-  it has its own group definitions, fetch/pagination, and ordering. See
-  `headless/UX_SPEC.md` for its design source of truth.
-
-The rebuild is opt-in in exactly **two consumer wrappers**:
-`TaxonomicPopover.tsx` and
-`PropertyFilters/components/TaxonomicPropertyFilter.tsx`. Both check
-`TAXONOMIC_FILTER_MENU_REBUILD` and render `<TaxonomicFilterMenu>` or the
-legacy `<TaxonomicFilter>`. A call site reaching one of those wrappers can
-still land on the legacy path: `TaxonomicPopover` renders the rebuild only
-when `newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref
-== null`), because the rebuilt menu cannot honour those three capabilities.
-So "does this reach the rebuild?" depends on the wrapper _and_ the props
-that call site passes, not a single global switch — `ActionFilterRow` goes
-through `TaxonomicPopover` and passes none of the three, so it does reach
-the rebuild. Only a call site that hand-rolls its own popover around
-`<TaxonomicFilter>` bypasses the wrappers entirely.
-
-**Touching tab/group rendering means testing all three surfaces.**
-
-## Mirroring changes across variants
-
-The rebuild reimplements the legacy data layer rather than reusing it, so
-the same concern lives in two files. There is **no lint rule or test**
-enforcing parity — the only guard is "Mirrors the legacy…" comments. When
-you change one, change the other (or flag to the human that you can't).
-
-| Concern                                                  | Legacy                                                               | Rebuild                                                                           |
-| -------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Group definitions (endpoint, excluded props, group meta) | `taxonomicFilterLogic.tsx` `taxonomicGroups` selector                | `utils/buildTaxonomicGroups.tsx`                                                  |
-| Group ordering + SuggestedFilters injection              | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector            | `hooks/useTaxonomicFilter.ts` `resolveTaxonomicGroupTypes`                        |
-| Per-tab fetch / pagination / min-query-length            | `infiniteListLogic.ts`                                               | `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts` |
-| Data-warehouse config flow                               | inline in `InfiniteList.tsx`                                         | `menu/DwhFlow.tsx`                                                                |
-| `taxonomic filter item selected` / `closed` telemetry    | `taxonomicFilterLogic.tsx`                                           | `menu/TaxonomicFilterMenu.tsx`                                                    |
-| New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared) — then add group config in **both** tables above |                                                                                   |
-| Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                       | also register in `hooks/useTaxonomicLocalOverrides.ts`                            |
-
-**Genuinely shared — change once:** `types.ts` (the enum),
-`utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`),
-`recentTaxonomicFiltersLogic.ts` and
-`taxonomicFilterPinnedPropertiesLogic.ts` (the rebuild reads recents/pinned
-through these via a bridge, it doesn't fork them).
-
-`redistributeTopMatches` is legacy-only, not shared: it lives in
-`taxonomicFilterLogic.tsx` and the rebuild never calls it.
-
-One intentional divergence is already documented in
-`useTaxonomicFilter.ts`: both surfaces lead with SuggestedFilters when the
-picker has more than one substantive group. Preserve documented divergences;
-don't "fix" them into parity.
+1. **State the user problem.**
+   Which surface, which users, what goes wrong.
+   Find it in the evidence, not only in the request.
+   See [evidence-sources](references/evidence-sources.md).
+2. **Size it.**
+   Use ratios from telemetry.
+   A change that helps 0.1% of opens and risks the Suggested view is not worth it.
+3. **Check the principles and contested decisions** that apply.
+   If your change reverses a documented decision, say so and bring evidence.
+4. **Make the change in both surfaces**, or say explicitly why not.
+5. **Lock behavior with React Testing Library tests** at the call sites you touched.
+   Agents find this component confusing; RTL tests are the fastest guard.
+   See [testing-patterns](references/testing-patterns.md).
+6. **Decide how you will know it worked** before merging.
+   Ship ordering or default changes behind a flag with a metric and a guardrail.
+   See [measuring-changes](references/measuring-changes.md).
 
 ## Pre-change checklist
 
-- [ ] Read references when relevant: [architecture](references/architecture.md),
-      [common-pitfalls](references/common-pitfalls.md) (X/Y matrix),
-      [call-sites](references/call-sites-and-blast-radius.md) (smoke tests),
-      [testing-patterns](references/testing-patterns.md),
-      [performance](references/performance.md) (search plan, reveal barrier)
-- [ ] Decide whether the change must mirror across legacy and rebuild
-      (see "Mirroring changes") — if you can only do one, say so explicitly
-- [ ] Test both surfaces if you touched tabs/groups: `legacy-pill`,
-      `rebuild-menu`
-- [ ] Confirm shared telemetry payloads still match across both emitters
-- [ ] Ordering / promotion / position-0 -> human sign-off, not agent judgement
-- [ ] If you changed search or loading, verify the plan boundary and confirm
-      that optional requests do not delay results
-- [ ] Flag the internal `rebuild-menu` opt-in to the human reviewer
+- [ ] The user problem is linked to evidence (telemetry, replay, ticket)
+- [ ] Change mirrored across legacy and rebuild, or the gap is stated
+- [ ] Both surfaces tested if tabs or groups changed
+- [ ] Shared telemetry payloads still match across both emitters
+- [ ] Ordering, promotion, position-0 or default tab: human sign-off
+- [ ] Search or loading: plan boundary verified, optional requests don't delay results
+- [ ] A success metric and a guardrail metric are named
+- [ ] If you changed the facts, update [product-reality](references/product-reality.md)
 
 ```bash
 hogli test frontend/src/lib/components/TaxonomicFilter/
 ```
+
+Keep this skill honest: if the data contradicts it, fix the skill in the same PR.
+Refresh numbers with [refreshing-product-reality](references/refreshing-product-reality.md) when they are older than about three months.

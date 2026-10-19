@@ -1,64 +1,36 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
+    RipplingSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import (
     PAGE_SIZE,
     RipplingResumeConfig,
     _absolutize_next_url,
     _build_params,
     _format_filter_timestamp,
-    rippling_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the rippling module.
-RIPPLING_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
 
 
-def _response(items: list[dict[str, Any]], next_link: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({"results": items, "next_link": next_link}).encode()
-    return resp
+def _response(items: list[dict[str, Any]], next_link: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": items, "next_link": next_link})
 
 
-def _make_manager(resume_state: RipplingResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's URL + params AT SEND TIME.
-
-    ``request.params`` / ``request.url`` are mutated in place across pages (the paginator
-    rewrites ``url`` to the next-page link), so snapshot a copy when each request is prepared.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(RipplingSource(), RipplingSourceConfig(api_token="token"))
 
 
 class TestFormatFilterTimestamp:
@@ -76,15 +48,32 @@ class TestFormatFilterTimestamp:
 
 
 class TestBuildParams:
-    def test_incremental_builds_odata_filter_and_sort(self):
+    @pytest.mark.parametrize(
+        "endpoint, should_use_incremental_field, incremental_field, expected_filter, expected_order_by",
+        [
+            ("workers", True, "updated_at", "updated_at ge 2024-10-01T00:00:00", "updated_at"),
+            ("workers", True, "created_at", "created_at ge 2024-10-01T00:00:00", "created_at"),
+            ("workers", False, None, None, "created_at"),
+            ("time_entries", True, None, "updated_at ge 2024-10-01T00:00:00", "updated_at"),
+            ("time_entries", False, None, None, "created_at"),
+            # No server-side time filter exists, so a stray incremental flag must not send one.
+            ("leave_requests", True, "updated_at", None, "created_at"),
+            ("payroll_runs", True, None, None, "check_date"),
+            ("payroll_runs", False, None, None, "check_date"),
+        ],
+    )
+    def test_request_params(
+        self, endpoint, should_use_incremental_field, incremental_field, expected_filter, expected_order_by
+    ):
         params = _build_params(
-            should_use_incremental_field=True,
+            RIPPLING_ENDPOINTS[endpoint],
+            should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=datetime(2024, 10, 1, tzinfo=UTC),
-            incremental_field="updated_at",
+            incremental_field=incremental_field,
         )
 
-        assert params["filter"] == "updated_at ge 2024-10-01T00:00:00"
-        assert params["order_by"] == "updated_at"
+        assert params.get("filter") == expected_filter
+        assert params["order_by"] == expected_order_by
         assert params["limit"] == PAGE_SIZE
 
 
@@ -114,41 +103,89 @@ class TestValidateCredentials:
             (401, False),
         ],
     )
-    @mock.patch(RIPPLING_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("token") is expected
+    def test_validate_credentials_status_mapping(self, status_code, expected):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
+            assert validate_credentials("token") is expected
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_absolute_next_link_used_as_is(self, MockSession):
-        session = MockSession.return_value
+    def test_absolute_next_link_used_as_is(self):
         absolute = "https://rest.ripplingapis.com/workers?cursor=xyz"
-        snapshots = _wire(session, [_response([{"id": "1"}], next_link=absolute), _response([])])
 
-        _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        result = _driver().run("workers", [_response([{"id": "1"}], next_link=absolute), _response([])])
 
-        assert snapshots[1]["url"] == absolute
+        assert result.urls[1] == absolute
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
+    def test_resumes_from_saved_state(self):
         resume_url = "https://rest.ripplingapis.com/workers?cursor=resume"
-        snapshots = _wire(session, [_response([{"id": "9"}])])
 
-        manager = _make_manager(RipplingResumeConfig(next_url=resume_url))
-        _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=manager))
+        result = _driver().run(
+            "workers", [_response([{"id": "9"}])], resume_state=RipplingResumeConfig(next_url=resume_url)
+        )
 
-        assert snapshots[0]["url"] == resume_url
+        assert result.urls[0] == resume_url
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_domain_next_link_raises(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}], next_link="https://attacker.example/workers")])
+    def test_off_domain_next_link_raises(self):
+        result = _driver().run("workers", [_response([{"id": "1"}], next_link="https://attacker.example/workers")])
 
-        with pytest.raises(ValueError, match="off-domain"):
-            _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "off-domain" in str(result.raised)
+
+
+class TestWorkerPayrollRecordsFanout:
+    def test_walks_every_run_and_page_and_stamps_run_id(self):
+        script = route(
+            {
+                "/payroll-runs": [
+                    _response([{"id": "run-1"}], next_link="/payroll-runs?cursor=p2"),
+                    _response([{"id": "run-2"}]),
+                ],
+                "/payroll-runs/run-1/worker-payroll-records": [
+                    _response(
+                        [{"id": "rec-1", "worker_id": "w-1"}],
+                        next_link="/payroll-runs/run-1/worker-payroll-records?cursor=c2",
+                    ),
+                    _response([{"id": "rec-2", "worker_id": "w-2", "run_id": "run-1"}]),
+                ],
+                "/payroll-runs/run-2/worker-payroll-records": [
+                    _response([{"id": "rec-1", "worker_id": "w-1"}]),
+                ],
+            }
+        )
+
+        result = _driver().run("worker_payroll_records", script)
+
+        assert result.raised is None
+        assert [(row["run_id"], row["id"]) for row in result.rows] == [
+            ("run-1", "rec-1"),
+            ("run-1", "rec-2"),
+            ("run-2", "rec-1"),
+        ]
+        assert not any("_payroll_runs_id" in row for row in result.rows)
+        parent_queries = [q for q, path in zip(result.queries, result.paths) if path == "/payroll-runs"]
+        child_queries = [q for q, path in zip(result.queries, result.paths) if path != "/payroll-runs"]
+        assert parent_queries[0]["order_by"] == ("check_date",)
+        assert all("order_by" not in q for q in child_queries)
+
+    def test_resume_skips_completed_runs_and_continues_the_current_one(self):
+        resume = RipplingResumeConfig(
+            fanout_state={
+                "completed": ["/payroll-runs/run-1/worker-payroll-records"],
+                "current": "/payroll-runs/run-2/worker-payroll-records",
+                "child_state": {
+                    "next_url": "https://rest.ripplingapis.com/payroll-runs/run-2/worker-payroll-records?cursor=c9"
+                },
+            }
+        )
+        script = route(
+            {
+                "/payroll-runs": [_response([{"id": "run-1"}, {"id": "run-2"}])],
+                "/payroll-runs/run-2/worker-payroll-records": [_response([{"id": "rec-9", "worker_id": "w-9"}])],
+            }
+        )
+
+        result = _driver().run("worker_payroll_records", script, resume_state=resume)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["rec-9"]
+        assert result.urls[-1] == "https://rest.ripplingapis.com/payroll-runs/run-2/worker-payroll-records?cursor=c9"

@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -46,6 +47,36 @@ KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a fe
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^PADDLE_",
+            "^NEXT_PUBLIC_PADDLE_CLIENT_TOKEN$",
+            "^NEXT_PUBLIC_PADDLE_ENV$",
+            "^NEXT_PUBLIC_PADDLE_PRICE_ID$",
+        ),
+        script_hosts=(
+            "cdn.paddle.com",
+            "sandbox-cdn.paddle.com",
+            "buy.paddle.com",
+            "sandbox-buy.paddle.com",
+            "checkout.paddle.com",
+            "sandbox-checkout.paddle.com",
+        ),
+        npm=(
+            "@paddle/paddle-node-sdk",
+            "@paddle/paddle-js",
+            "@paddle/paddle-mcp",
+            "@paddle/partner-embeds",
+            "@paddle/partner-embeds-react",
+        ),
+        pypi=("paddle-python-sdk",),
+        cocoapods=("Paddle", "PaddleV4", "Paddle-MAS"),
+        composer=("paddlehq/paddle-php-sdk", "laravel/cashier-paddle"),
+        go=("github.com/PaddleHQ/paddle-go-sdk",),
+        rubygems=("paddle",),
+        swiftpm=("github.com/paddlehq/mac-framework-v4",),
+    )
+
     api_docs_url = "https://developer.paddle.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -1,33 +1,14 @@
-from typing import Any
-
 import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source import ChargifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
     ChargifySourceConfig,
 )
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "Customers",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestChargifySource:
@@ -77,16 +58,16 @@ class TestChargifySource:
         assert is_valid is expected_valid
         assert error_message == expected_message
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source.chargify_source")
-    def test_source_for_pipeline_leaves_an_endpoint_without_a_timestamp_unpartitioned(
-        self, mock_source: mock.MagicMock
-    ) -> None:
+    def test_source_for_pipeline_leaves_an_endpoint_without_a_timestamp_unpartitioned(self) -> None:
         # Credit notes expose no stable creation timestamp, so partitioning must stay off rather
         # than point at a column the rows do not carry.
-        response = self.source.source_for_pipeline(
-            self.config, mock.MagicMock(spec=ResumableSourceManager), _make_inputs(schema_name="CreditNotes")
+        result = SourceDriver(self.source, self.config).run(
+            "CreditNotes", [ScriptedResponse(json={"credit_notes": []})]
         )
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.partition_mode is None
         assert response.partition_format is None
         assert response.partition_keys is None

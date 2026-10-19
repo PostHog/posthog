@@ -35,10 +35,9 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 
 from posthog.schema import ProductKey
-
-from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -153,6 +152,7 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
+from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
     ReplayFlagGates,
@@ -932,29 +932,26 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _reserved_variant_key(filters: dict) -> str | None:
-    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
-    "true" under, if any.
+def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return
+    for variant in variants:
+        if isinstance(variant, dict) and isinstance(variant.get("key"), str):
+            yield variant["key"]
+
+
+def _reserved_variant_key(filters: dict, *, stored: Mapping[str, Any]) -> str | None:
+    """The first `multivariate.variants[].key` in `filters` that a write may not store over `stored`, if any.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
-    multivariate = filters.get("multivariate")
-    if not isinstance(multivariate, dict):
-        return None
-    variants = multivariate.get("variants")
-    if not isinstance(variants, list):
-        return None
-    return next(
-        (
-            variant["key"]
-            for variant in variants
-            if isinstance(variant, dict)
-            and isinstance(variant.get("key"), str)
-            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
-        ),
-        None,
-    )
+    held = set(_variant_keys(stored))
+    return next((key for key in _variant_keys(filters) if is_reserved_variant_key(key, held=held)), None)
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -1294,6 +1291,41 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
+COHORT_NAMES_CONTEXT_KEY = "feature_flag_cohort_names"
+
+
+class FeatureFlagListSerializer(serializers.ListSerializer):
+    """Resolves the cohort names of every flag on a page in one query, instead of one query per flag.
+
+    The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
+    the only hook DRF gives that sees the whole page.
+    """
+
+    def to_representation(self, data: Any) -> Any:
+        flags = list(data)
+        assert isinstance(self.child, FeatureFlagSerializer)
+        cohort_ids: set[int] = set()
+        for flag in flags:
+            config = decode_config(flag.get_filters())
+            # A document no reader can parse has no cohort names to show, and must not fail the page.
+            if isinstance(config, UnsupportedConfig):
+                continue
+            cohort_ids.update(references(config).cohort_ids)
+        cohort_names: dict[str, str | None] = {}
+        if cohort_ids:
+            cohort_names = {
+                str(cohort_id): name
+                for cohort_id, name in Cohort.objects.filter(
+                    id__in=cohort_ids, team__project_id=self.child.context["project_id"], deleted=False
+                ).values_list("id", "name")
+            }
+        self.child.context[COHORT_NAMES_CONTEXT_KEY] = cohort_names
+        try:
+            return super().to_representation(flags)
+        finally:
+            self.child.context.pop(COHORT_NAMES_CONTEXT_KEY, None)
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1363,6 +1395,7 @@ class FeatureFlagSerializer(
 
     class Meta:
         model = FeatureFlag
+        list_serializer_class = FeatureFlagListSerializer
         fields = [
             "id",
             "name",
@@ -1928,13 +1961,24 @@ class FeatureFlagSerializer(
     def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:
         """Translate pure validation errors into this endpoint's error envelope.
 
-        Same shape as the v1 structural tier: one detail per field error, prefixed with its
-        `filters....` path and carrying the validator's code. The validator's details never
-        echo config values, seeds or metadata.
+        Keyed by each error's path in the handler's nested-key form (`filters.rules[0].value`
+        becomes `filters__rules__0__value`, as for nested serializer errors), so the response's
+        `attr` is that path and its `detail` the bare message, with the validator's code. The
+        handler renders the first key, which is the validator's first error. The details never echo
+        config values, seeds or metadata. An unknown field's path ends in the client's key name, which
+        can itself read as a real field's path, so that error is keyed by `filters` and its path goes
+        in the detail. An error with no path, such as a repeated key, renders with `attr: null`.
         """
-        return serializers.ValidationError(
-            [ErrorDetail(f"{error.attr}: {error.detail}", code=error.code) for error in exc.errors]
-        )
+        errors: dict[str, list[ErrorDetail]] = {}
+        for error in exc.errors:
+            if error.attr is None:
+                attr, detail = api_settings.NON_FIELD_ERRORS_KEY, error.detail
+            elif error.code == "unknown_field":
+                attr, detail = "filters", f"{error.attr}: {error.detail}"
+            else:
+                attr, detail = re.sub(r"\[(\d+)\]", r"__\1", error.attr).replace(".", "__"), error.detail
+            errors.setdefault(attr, []).append(ErrorDetail(detail, code=error.code))
+        return serializers.ValidationError(errors)
 
     def _apply_v2_update(self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int) -> None:
         """Enforce the v2 row-version token and resolve the final document under the lock.
@@ -1967,12 +2011,15 @@ class FeatureFlagSerializer(
                 raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        reserved_variant_key = _reserved_variant_key(filters)
+        stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
+        reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
-            raise serializers.ValidationError(
-                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
-                code="reserved_variant_key",
+            message = (
+                "Variant keys can't be empty. Enter a key for each variant."
+                if reserved_variant_key == ""
+                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
             )
+            raise serializers.ValidationError(message, code="reserved_variant_key")
 
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
@@ -2941,20 +2988,10 @@ class FeatureFlagSerializer(
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
 
-        # Get all cohort IDs used in the feature flag
-        cohort_ids = set()
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_ids.add(cohort_prop.get("value"))
-
-        # Use prefetched cohorts if available
-        if hasattr(instance.team, "available_cohorts"):
-            cohorts = {
-                str(cohort.id): cohort.name
-                for cohort in instance.team.available_cohorts
-                if str(cohort.id) in map(str, cohort_ids)
-            }
-        else:
-            # Fallback to database query if cohorts weren't prefetched
+        # FeatureFlagListSerializer resolves the names of a whole page. Retrieve and writes serialize one flag.
+        cohorts = self.context.get(COHORT_NAMES_CONTEXT_KEY)
+        if cohorts is None:
+            cohort_ids = {cohort_prop.get("value") for cohort_prop in self._get_cohort_properties_from_filters(filters)}
             cohorts = {
                 str(cohort.id): cohort.name
                 for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
@@ -3022,26 +3059,6 @@ class FeatureFlagSerializer(
 # they identify a generated usage dashboard even after its flag is gone.
 USAGE_DASHBOARD_NAME_PREFIX = "Generated Dashboard: "
 USAGE_DASHBOARD_DESCRIPTION_PREFIX = "This dashboard was generated by the feature flag with key ("
-
-
-def _create_usage_dashboard(feature_flag: FeatureFlag, user):
-    from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
-
-    from products.dashboards.backend.models.dashboard import Dashboard
-
-    usage_dashboard = Dashboard.objects.create(
-        name=USAGE_DASHBOARD_NAME_PREFIX + feature_flag.key + " Usage",
-        description=USAGE_DASHBOARD_DESCRIPTION_PREFIX + feature_flag.key + ")",
-        team=feature_flag.team,
-        created_by=user,
-        creation_mode="template",
-    )
-    create_feature_flag_dashboard(feature_flag, usage_dashboard, user)
-
-    feature_flag.usage_dashboard = usage_dashboard
-    feature_flag.save()
-
-    return usage_dashboard
 
 
 def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
@@ -4057,16 +4074,10 @@ class FeatureFlagViewSet(
                         ).prefetch_related("actions"),
                     )
                 )
-                .prefetch_related(
-                    Prefetch(
-                        "team__cohort_set",
-                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                        to_attr="available_cohorts",
-                    )
-                )
             )
 
             survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+            # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
@@ -4699,6 +4710,7 @@ class FeatureFlagViewSet(
         # Exclude internal flags (survey targeting and product tour internal flags)
         # These are auto-generated and not user-editable, same as the main flags list
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
@@ -4851,6 +4863,7 @@ class FeatureFlagViewSet(
 
         # Exclude internal flags (same as list endpoint)
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
@@ -4953,6 +4966,7 @@ class FeatureFlagViewSet(
         # The stale-flags health check mirrors this guard's reference checks in
         # products/feature_flags/backend/temporal/health_checks/stale_flags.py. Keep the two in step.
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)

@@ -1,13 +1,19 @@
 from typing import Any
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import MAX_KEYWORDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
+    DataForSEOSourceConfig,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
 
@@ -28,6 +34,25 @@ def _make_config(
     config.location_name = location_name
     config.language_name = language_name
     return config
+
+
+def _driver(
+    targets: str = "example.com, posthog.com",
+    keywords: str | None = None,
+    location_name: str | None = None,
+    language_name: str | None = None,
+) -> SourceDriver:
+    return SourceDriver(
+        DataForSEOSource(),
+        DataForSEOSourceConfig(
+            api_login="login",
+            api_password="password",
+            targets=targets,
+            keywords=keywords,
+            location_name=location_name,
+            language_name=language_name,
+        ),
+    )
 
 
 class TestDataForSEOSource:
@@ -111,39 +136,30 @@ class TestDataForSEOSource:
         expected_location: str,
         expected_language: str,
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "domain_rank_overview"
-        inputs.logger = MagicMock()
-        config = _make_config(location_name=location_name, language_name=language_name)
-        with patch(f"{MODULE}.dataforseo_source") as source_fn:
-            DataForSEOSource().source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = source_fn.call_args.kwargs
-        assert kwargs["location_name"] == expected_location
-        assert kwargs["language_name"] == expected_language
+        result = _driver(location_name=location_name, language_name=language_name).run(
+            "domain_rank_overview", [ScriptedResponse(json={"tasks": []}) for _ in range(2)]
+        )
+        assert result.raised is None
+        payload = result.requests[0].json()[0]
+        assert payload["location_name"] == expected_location
+        assert payload["language_name"] == expected_language
 
     def test_source_for_pipeline_rejects_bad_targets(self) -> None:
         # A previously-saved bad config must fail the run instead of fanning out into a runaway sync.
-        inputs = MagicMock()
-        inputs.schema_name = "ranked_keywords"
-        inputs.logger = MagicMock()
-        oversized = _make_config(targets=",".join(f"site{i}.com" for i in range(26)))
-        with patch(f"{MODULE}.dataforseo_source") as source_fn:
-            with pytest.raises(ValueError, match="Too many target domains"):
-                DataForSEOSource().source_for_pipeline(oversized, MagicMock(), inputs)
-        source_fn.assert_not_called()
+        result = _driver(targets=",".join(f"site{i}.com" for i in range(26))).run("ranked_keywords", [])
+        assert isinstance(result.raised, ValueError)
+        assert "Too many target domains" in str(result.raised)
+        assert result.requests == []
 
     @parameterized.expand([("historical_search_volume",), ("serp_organic",)])
     def test_source_for_pipeline_rejects_keyword_table_without_keywords(self, schema_name: str) -> None:
         # A keyword-scoped table has nothing to request without keywords, so it must fail with a
         # message naming the fix rather than syncing an empty table.
-        inputs = MagicMock()
-        inputs.schema_name = schema_name
-        inputs.logger = MagicMock()
-        with patch(f"{MODULE}.dataforseo_source") as source_fn:
-            with pytest.raises(ValueError, match="Add at least one keyword") as exc_info:
-                DataForSEOSource().source_for_pipeline(_make_config(keywords=" , "), MagicMock(), inputs)
-        source_fn.assert_not_called()
-        assert error_message_matches(str(exc_info.value), DataForSEOSource().get_non_retryable_errors().keys())
+        result = _driver(keywords=" , ").run(schema_name, [])
+        assert isinstance(result.raised, ValueError)
+        assert "Add at least one keyword" in str(result.raised)
+        assert result.requests == []
+        assert error_message_matches(str(result.raised), DataForSEOSource().get_non_retryable_errors().keys())
 
     def test_source_for_pipeline_allows_missing_keywords_for_target_tables(self) -> None:
         # Only the keyword-scoped tables need keywords; a domain table must still sync without them.
@@ -163,6 +179,7 @@ class TestDataForSEOSource:
             ("body_low_balance", "DataForSEO API error [40210]"),
             ("body_blocked", "DataForSEO API error [40201]"),
             ("body_daily_limit", "DataForSEO API error [40203]"),
+            ("body_invalid_language", "Invalid Field: 'language_name'"),
         ]
     )
     def test_non_retryable_errors_cover_permanent_failures(self, _name: str, expected_key: str) -> None:

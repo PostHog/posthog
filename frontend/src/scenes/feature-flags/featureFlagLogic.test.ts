@@ -24,6 +24,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -879,6 +880,71 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('live key conflict check', () => {
+        const flagListUrl = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`
+        const flagList = (flags: { id: number; key: string }[]): [number, Record<string, any>] => [
+            200,
+            { results: flags.map((flag) => ({ ...MOCK_FEATURE_FLAG, ...flag })), count: flags.length },
+        ]
+
+        it.each([
+            [
+                'another flag uses the exact key',
+                'taken-key',
+                flagList([{ id: 42, key: 'taken-key' }]),
+                { existingFlagId: 42, existingFlagKey: 'taken-key', exact: true },
+            ],
+            [
+                'another flag uses the key with different case',
+                'taken-key',
+                flagList([{ id: 42, key: 'Taken-Key' }]),
+                { existingFlagId: 42, existingFlagKey: 'Taken-Key', exact: false },
+            ],
+            [
+                'a case-only match comes back before the exact match',
+                'taken-key',
+                flagList([
+                    { id: 43, key: 'Taken-Key' },
+                    { id: 42, key: 'taken-key' },
+                ]),
+                { existingFlagId: 42, existingFlagKey: 'taken-key', exact: true },
+            ],
+            [
+                'only the flag being edited matches',
+                'taken-key',
+                flagList([{ id: MOCK_FEATURE_FLAG.id, key: 'taken-key' }]),
+                null,
+            ],
+            ['no flag matches', 'free-key', flagList([]), null],
+            ['the lookup fails', 'taken-key', [500, {}] as [number, Record<string, any>], null],
+        ])('when %s', async (_desc, key, response, expectedConflict) => {
+            useMocks({ get: { [flagListUrl]: () => response } })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue(['key'], key)
+            })
+                .toDispatchActions(['checkKeyConflictSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.currentKeyConflict).toEqual(expectedConflict && { key, ...expectedConflict })
+        })
+
+        it('hides a conflict once the key changes again', async () => {
+            useMocks({ get: { [flagListUrl]: () => flagList([{ id: 42, key: 'taken-key' }]) } })
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue(['key'], 'taken-key')
+            })
+                .toDispatchActions(['checkKeyConflictSuccess'])
+                .toFinishAllListeners()
+            expect(logic.values.currentKeyConflict?.exact).toBe(true)
+
+            logic.actions.setFeatureFlagValue(['key'], 'taken-key-2')
+            expect(logic.values.currentKeyConflict).toBeNull()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.currentKeyConflict).toBeNull()
+        })
+    })
+
     describe('saveFeatureFlag error handling', () => {
         it('shows the friendly permission toast on a save-time 403', async () => {
             useMocks({
@@ -1074,16 +1140,125 @@ describe('featureFlagLogic', () => {
             expect(router.values.location.pathname).toBe(embeddedPathname)
         })
 
+        const approvalRequired = (): ApiError =>
+            new ApiError(undefined, 409, undefined, {
+                code: 'approval_required',
+                status: 'approval_required',
+                detail: 'A change request has been created and is pending approval.',
+                change_request_id: 'cr-1',
+            })
+
+        const editOnFlagPage = async (name: string): Promise<void> => {
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { edit: true })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name })
+        }
+
         it('keeps the current route when an embedded editor save requires approval', async () => {
             const notebookUrl = urls.notebook('embedded-flag')
             router.actions.push(notebookUrl)
             const embeddedPathname = router.values.location.pathname
+            jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
 
             await expectLogic(logic, () => {
-                logic.actions.saveFeatureFlagFailure('Approval required', { status: 409 })
+                logic.actions.saveFeatureFlagFailure('Approval required', approvalRequired())
             }).toFinishAllListeners()
 
             expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+
+        it('shows the stored flag without a leave prompt when an edit needs approval', async () => {
+            await editOnFlagPage('Unapproved name')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(approvalRequired())
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(confirmSpy).not.toHaveBeenCalled()
+            expect(approvalToast).toHaveBeenCalledTimes(1)
+            expect(router.values.searchParams.edit).toBeUndefined()
+            expect(logic.values).toMatchObject({
+                isEditingFlag: false,
+                hasUnsavedChanges: false,
+                featureFlag: partial({ name: MOCK_FEATURE_FLAG.name }),
+            })
+        })
+
+        it('opens the change request when creating a flag needs approval, and leaves the form clean', async () => {
+            router.actions.push(urls.featureFlag('new'))
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            try {
+                await expectLogic(newLogic).toFinishAllListeners()
+                // A template loads a starting point that differs from the form defaults.
+                await expectLogic(newLogic, () => {
+                    newLogic.actions.loadFeatureFlagSuccess({
+                        ...newLogic.values.featureFlag,
+                        filters: {
+                            ...NEW_FLAG.filters,
+                            groups: [{ properties: [], rollout_percentage: 50, variant: null }],
+                        },
+                    })
+                }).toFinishAllListeners()
+                newLogic.actions.startNewFlagDisabled()
+                expect(newLogic.values).toMatchObject({ isFormDirty: false, featureFlag: partial({ active: false }) })
+                newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, key: 'gated-flag' })
+                jest.spyOn(api, 'create').mockRejectedValueOnce(approvalRequired())
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+                await expectLogic(newLogic, () => {
+                    newLogic.actions.saveFeatureFlag(newLogic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(approvalToast).toHaveBeenCalledTimes(1)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.approval('cr-1'))
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).not.toHaveBeenCalled()
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.featureFlags())
+            } finally {
+                newLogic.unmount()
+            }
+        })
+
+        it.each([
+            [
+                'a version conflict',
+                new ApiError(undefined, 409, undefined, {
+                    code: 'conflict',
+                    detail: 'The feature flag was updated by another user since you started editing it.',
+                }),
+                'The feature flag was updated by another user since you started editing it.',
+            ],
+            [
+                'a policy conflict',
+                new ApiError(undefined, 400, undefined, {
+                    code: 'policy_conflict',
+                    error: 'This change matches multiple approval policies',
+                }),
+                "Couldn't save the flag. These changes need approval under more than one policy, so save them one at a time.",
+            ],
+        ])('keeps the edit open and explains %s', async (_, error, message) => {
+            await editOnFlagPage('Edited name')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(message)
+            expect(logic.values).toMatchObject({ isEditingFlag: true, featureFlag: partial({ name: 'Edited name' }) })
         })
     })
 
@@ -3922,8 +4097,11 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'provider/model-1.2', desc: 'slashes and dots (model-id style)' },
         { key: '0.85', desc: 'dotted number' },
         { key: 'a/b/c.d_e-f', desc: 'mixed dots, slashes, hyphens, underscores' },
-    ])('accepts valid variant key: $desc', ({ key }) => {
-        expect(validateFeatureFlagVariantKey(key)).toBeUndefined()
+        { key: 'NULL', desc: 'uppercase NULL' },
+        { key: 'Null', desc: 'title-case Null' },
+        { key: 'null', savedKeys: ['control', 'null'], desc: 'null the saved flag already has' },
+    ])('accepts valid variant key: $desc', ({ key, savedKeys }) => {
+        expect(validateFeatureFlagVariantKey(key, savedKeys)).toBeUndefined()
     })
 
     it.each([
@@ -3932,8 +4110,10 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'foo?bar', error: 'Only letters', desc: 'question marks' },
         { key: '', error: 'Please set a key', desc: 'empty key' },
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
-    ])('rejects variant key with $desc', ({ key, error }) => {
-        expect(validateFeatureFlagVariantKey(key)).toContain(error)
+        { key: 'null', error: 'reserved', desc: 'null on a new flag' },
+        { key: 'null', savedKeys: ['control', 'test'], error: 'reserved', desc: 'null the saved flag lacks' },
+    ])('rejects variant key with $desc', ({ key, savedKeys, error }) => {
+        expect(validateFeatureFlagVariantKey(key, savedKeys)).toContain(error)
     })
 })
 
@@ -4808,7 +4988,6 @@ describe('the editor a flag opens in', () => {
                         id: 'rule-experiment',
                         rule_type: 'experiment',
                         targeting: { properties: [] },
-                        experiment_id: 12,
                         paused: false,
                         variants: [
                             { key: 'control', weight: 50, value: false },

@@ -351,6 +351,19 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         'lossless',
     ],
     [
+        'sum(rate(http_requests_total{job=~"$job"}[${window}]))',
+        {
+            clauses: [
+                clause({
+                    metricName: 'http_requests_total',
+                    aggregation: 'rate',
+                    filters: [{ key: 'job', op: 'regex', value: '^$job$' }],
+                }),
+            ],
+        },
+        'lossy',
+    ],
+    [
         'sum(increase(jobs_total[1h]))',
         { clauses: [clause({ metricName: 'jobs_total', aggregation: 'increase' })] },
         'lossy',
@@ -683,7 +696,7 @@ describe('metrics query languages', () => {
             expect(parsePromQL(printPromQL(parsed))).toEqual(parsed)
         })
 
-        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()'])(
+        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()', 'sum(up) / $scale2'])(
             'rejects %j with a position',
             (text) => {
                 expect(() => parsePromQL(text)).toThrow(PromQLParseError)
@@ -748,7 +761,10 @@ describe('metrics query languages', () => {
                 ([, expected, kind]) =>
                     expected &&
                     kind === 'lossless' &&
-                    expected.clauses.every((clause) => clause.aggregation !== 'histogram_quantile')
+                    expected.clauses.every(
+                        (clause) =>
+                            clause.aggregation !== 'histogram_quantile' || [0.5, 0.95, 0.99].includes(clause.quantile!)
+                    )
             )
         )('switching %s to the builder and back is lossless', (text) => {
             const conversion = convertMetricsQuery(metricsQuery({ language: 'promql', promql: text }), 'builder')
@@ -895,10 +911,10 @@ describe('metrics query languages', () => {
                 'builder',
             ],
             [
-                'a histogram quantile, which the builder can chart but not edit',
+                'a histogram quantile without a builder percentile, which the builder can chart but not edit',
                 metricsQuery({
                     language: 'promql',
-                    promql: 'histogram_quantile(0.5, sum by (le) (rate({"http.server.duration_bucket"})))',
+                    promql: 'histogram_quantile(0.9, sum by (le) (rate({"http.server.duration_bucket"})))',
                 }),
                 'builder',
             ],

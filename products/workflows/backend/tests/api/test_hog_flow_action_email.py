@@ -6,9 +6,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.api import UnlayerRenderError
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow

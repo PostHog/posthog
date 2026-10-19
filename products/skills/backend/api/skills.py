@@ -76,7 +76,7 @@ from ..marketplace.packaging import (
 )
 from ..models.community_skills import CommunitySkillKind
 from ..models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
-from .archive_guards import SkillArchiveRefused
+from .archive_guards import SkillArchiveRefused, SkillRenameConflict, SkillRenameRefused
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
@@ -1653,7 +1653,12 @@ class LLMSkillViewSet(
             return access_error
 
         try:
-            skill_versions = archive_skill(self.team, skill_name, acting_user=cast(User, request.user))
+            skill_versions = archive_skill(
+                self.team,
+                skill_name,
+                acting_user=cast(User, request.user),
+                authenticator=request.successful_authenticator,
+            )
         except SkillArchiveRefused as err:
             # A sibling product owns what this skill runs and says this caller may not remove it.
             return Response({"detail": str(err)}, status=status.HTTP_403_FORBIDDEN)
@@ -1746,7 +1751,15 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=LLMSkillRenameSerializer, responses={200: LLMSkillSerializer})
+    @extend_schema(
+        request=LLMSkillRenameSerializer,
+        responses={
+            200: LLMSkillSerializer,
+            403: OpenApiResponse(
+                description="Another product owns what this skill runs and refuses this caller's rename."
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1769,7 +1782,17 @@ class LLMSkillViewSet(
         new_name = payload.validated_data["new_name"]
 
         try:
-            renamed_skill = rename_skill(self.team, skill_name=skill_name, new_name=new_name)
+            renamed_skill = rename_skill(
+                self.team,
+                skill_name=skill_name,
+                new_name=new_name,
+                acting_user=cast(User, request.user),
+                authenticator=request.successful_authenticator,
+            )
+        except SkillRenameRefused as err:
+            return Response({"detail": str(err)}, status=status.HTTP_403_FORBIDDEN)
+        except SkillRenameConflict as err:
+            raise serializers.ValidationError({"new_name": str(err)}, code="unique")
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
         except LLMSkillDuplicateNameConflictError:

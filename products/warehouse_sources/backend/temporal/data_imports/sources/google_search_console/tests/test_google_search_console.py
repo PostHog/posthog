@@ -717,6 +717,10 @@ def test_normalize_site_url(raw, expected):
         ("https://example.com/blog/", ["sc-domain:example.com"], None),
         ("https://plotlens.ai/", ["https://other.com/"], None),
         ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
+        # A domain property whose site is registered only as a root URL-prefix property.
+        ("sc-domain:example.com", ["https://example.com/"], "https://example.com/"),
+        ("sc-domain:example.com", ["http://www.example.com/"], "http://www.example.com/"),
+        ("sc-domain:example.com", ["https://example.com/blog/"], None),
     ],
 )
 def test_suggest_registered_site(site_url, registered, expected):

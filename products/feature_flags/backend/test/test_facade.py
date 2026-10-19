@@ -32,6 +32,7 @@ from products.feature_flags.backend.facade.filters import (
     _leads_with_unconditional_rollout,
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
+    reachable_conditions,
     replace_release_conditions,
     replace_variant_distribution,
     restrict_groups_to_cohort,
@@ -932,6 +933,46 @@ class TestReleaseConditionTransforms:
         result["groups"][0]["properties"][0]["key"] = "mutated"
         assert new_groups[0]["properties"][0]["key"] == "new"
         assert filters["groups"][0]["properties"][0]["key"] == "old"  # input not mutated
+
+
+EVERYONE: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
+STAFF: dict[str, Any] = {
+    "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
+    "rollout_percentage": 100,
+}
+
+
+class TestReachableConditions:
+    @parameterized.expand(
+        [
+            ("person_catch_all_ends_the_evaluation", [EVERYONE, STAFF], False, (0,)),
+            ("absent_rollout_reads_as_full", [{"properties": []}, STAFF], False, (0,)),
+            ("condition_at_zero_serves_nobody", [{**STAFF, "rollout_percentage": 0}, EVERYONE], False, (1,)),
+            ("partial_catch_all_continues", [{**EVERYONE, "rollout_percentage": 50}, STAFF], False, (0, 1)),
+            ("partial_catch_all_ends_with_early_exit", [{**EVERYONE, "rollout_percentage": 50}, STAFF], True, (0,)),
+            ("zero_catch_all_ends_with_early_exit", [{**EVERYONE, "rollout_percentage": 0}, EVERYONE], True, ()),
+            (
+                "group_catch_all_ends_only_its_group_type",
+                [{**EVERYONE, "aggregation_group_type_index": 0}, STAFF],
+                False,
+                (0, 1),
+            ),
+            (
+                "condition_of_an_ended_group_type_is_skipped",
+                [
+                    {**EVERYONE, "aggregation_group_type_index": 0},
+                    {**EVERYONE, "aggregation_group_type_index": 0},
+                    STAFF,
+                ],
+                False,
+                (0, 2),
+            ),
+        ]
+    )
+    def test_reachable_conditions(
+        self, _name: str, conditions: list[dict[str, Any]], early_exit: bool, expected: tuple[int, ...]
+    ) -> None:
+        assert reachable_conditions(conditions, flag_aggregation=None, early_exit=early_exit) == expected
 
 
 class TestExperimentRuleFromFilters:

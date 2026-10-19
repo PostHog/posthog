@@ -998,6 +998,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         [
             ("impact", "get"),
             ("affected_cohort", "post"),
+            ("create_dashboard", "post"),
         ]
     )
     def test_recording_derived_action_rejected_without_session_recording_read(self, url_path: str, method: str) -> None:
@@ -1007,12 +1008,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("session_recording", resp.json()["detail"])
 
-    def test_affected_cohort_rejected_without_cohort_edit_access(self) -> None:
+    @parameterized.expand(
+        [
+            ("affected_cohort", "cohort"),
+            ("create_dashboard", "dashboard"),
+        ]
+    )
+    def test_action_rejected_without_edit_access_to_what_it_creates(self, url_path: str, resource: str) -> None:
         scanner = self._create_scanner()
-        with self._patch_deny_resource("cohort"):
-            resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
+        with self._patch_deny_resource(resource):
+            resp = self.client.post(f"{self.scanners_url}{scanner.id}/{url_path}/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
-        self.assertIn("cohort", resp.json()["detail"])
+        self.assertIn(resource, resp.json()["detail"])
 
 
 class TestScannerScoutCallerRules(_VisionAPITestCase):
@@ -1080,15 +1087,54 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         self.assertEqual(resp.status_code, expected_status, resp.json())
         self.assertEqual(ReplayScanner.objects.filter(team=self.team, name="capped").exists(), expected_status == 201)
 
-    def test_scout_cannot_clear_a_credit_limit(self) -> None:
-        scanner = self._create_scanner(name="capped", credit_limit=500)
+    @parameterized.expand(
+        [
+            ("credit_limit", {"credit_limit": 500}, {"credit_limit": None}, 1000, 400),
+            ("free_only_without_own_limit", {"free_only": True}, {"free_only": False}, 1000, 400),
+            ("free_only_with_own_limit", {"free_only": True, "credit_limit": 500}, {"free_only": False}, 1000, 200),
+            (
+                "free_only_with_own_limit_in_an_uncapped_org",
+                {"free_only": True, "credit_limit": 500},
+                {"free_only": False},
+                None,
+                400,
+            ),
+            # Disabled, but armed to start when its experiment launches, so it is about to bill.
+            (
+                "armed_for_launch_in_an_uncapped_org",
+                {"free_only": True, "credit_limit": 500, "enabled": False, "armed_for_launch": True},
+                {"free_only": False},
+                None,
+                400,
+            ),
+        ]
+    )
+    def test_scout_cannot_remove_a_spend_ceiling(
+        self,
+        _name: str,
+        ceiling: dict[str, Any],
+        patch_body: dict[str, Any],
+        organization_limit: int | None,
+        expected_status: int,
+    ) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.save(update_fields=["usage"])
+        ceiling = dict(ceiling)
+        if ceiling.pop("armed_for_launch", False):
+            experiment = create_experiment(self.team, "armed-launch", variants=["control", "test"])
+            ceiling = {
+                **ceiling,
+                "scanner_type": ScannerType.EXPERIMENT,
+                "scanner_config": {"prompt": "p", "experiment_id": experiment.id, "start_on_launch": True},
+            }
+        scanner = self._create_scanner(name="capped", **ceiling)
         self._authenticate_as_scout()
 
-        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"credit_limit": None}, format="json")
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=patch_body, format="json")
 
-        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.status_code, expected_status, resp.json())
         scanner.refresh_from_db()
-        self.assertEqual(scanner.credit_limit, 500)
+        self.assertEqual(scanner.has_spend_ceiling, True)
 
     def test_scout_delete_is_refused_and_the_scanner_survives(self) -> None:
         scanner = self._create_scanner(name="keep-me")
@@ -1456,6 +1502,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "model": ScannerModel.GEMINI_3_8_FLASH,
                     "sampling_rate": 0.25,
                     "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+                    "free_only": True,
                 },
                 format="json",
             )
@@ -1473,6 +1520,8 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertTrue(properties["has_filters"])
         self.assertFalse(properties["has_experiment_targeting"])
         self.assertFalse(properties["uses_template_prompt"])
+        self.assertTrue(properties["free_only"])
+        self.assertFalse(properties["has_credit_limit"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
@@ -4264,8 +4313,10 @@ class TestScannerSpend(_VisionAPITestCase):
         # keyed on the wrong scanner would give every row the first row's answer.
         capped = self._create_scanner(name="capped")
         self._create_scanner(name="uncapped")
+        free = self._create_scanner(name="free")
         cost = observation_credits_for_model(capped.model)
         ReplayScanner.objects.filter(pk=capped.pk).update(credit_limit=cost)
+        ReplayScanner.objects.filter(pk=free.pk).update(free_only=True)
         self._spend_against_limit(capped, "capped-spend")
 
         resp = self.client.get(self.scanners_url)
@@ -4275,6 +4326,10 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertIs(by_name["uncapped"]["limit_reached"], False)
         self.assertEqual(by_name["capped"]["credits_used_against_limit"], cost)
         self.assertEqual(by_name["uncapped"]["credits_used_against_limit"], 0)
+        self.assertEqual(
+            {name: row["limit_from_free_credits"] for name, row in by_name.items()},
+            {"capped": False, "uncapped": False, "free": True},
+        )
 
     def test_limit_below_one_observation_reports_reached_before_any_spend(self) -> None:
         # `limit_reached` answers "can this scanner run again", not "has it spent its limit". A cap
@@ -4560,6 +4615,8 @@ class TestWatchFeedQueryValidation(SimpleTestCase):
             ("empty_scanner_ids", {"scanner_ids": ""}),
             ("not_uuid", {"scanner_ids": "not-a-uuid"}),
             ("bad_scanner_type", {"scanner_type": "nonsense"}),
+            ("empty_created_by", {"created_by": ""}),
+            ("non_numeric_created_by", {"created_by": "1,alice"}),
             ("limit_too_high", {"limit": "51"}),
             ("limit_zero", {"limit": "0"}),
         ]
@@ -5506,6 +5563,19 @@ class TestWatchFeedAPI(_VisionAPITestCase):
 
         resp = self.client.get(f"{self.feed_url}?tags=checkout")
         self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["tagged-sess"])
+
+    def test_created_by_filter_keeps_only_the_named_creators_scanners(self) -> None:
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", "pw")
+        mine = self._create_scanner(name="mine", created_by=creator)
+        theirs = self._create_scanner(name="theirs", created_by=self.user)
+        orphan = self._create_scanner(name="orphan", created_by=None)
+        self._succeeded_observation(mine, "mine-sess", 10, self._monitor_result("no"))
+        self._succeeded_observation(theirs, "theirs-sess", 5, self._monitor_result("no"))
+        self._succeeded_observation(orphan, "orphan-sess", 1, self._monitor_result("no"))
+
+        resp = self.client.get(f"{self.feed_url}?created_by={creator.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["mine-sess"])
 
     def test_malformed_scanner_result_ranks_by_recency_instead_of_500(self) -> None:
         scanner = self._create_scanner(name="m")

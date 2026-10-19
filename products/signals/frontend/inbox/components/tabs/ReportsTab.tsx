@@ -167,10 +167,12 @@ const ReportRow = memo(function ReportRow({
     report,
     sectionKey,
     rankingSortField,
+    timestampField,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
+    timestampField: 'created_at' | 'updated_at'
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -179,6 +181,7 @@ const ReportRow = memo(function ReportRow({
                 sectionKey={sectionKey}
                 selectable
                 rankingSortField={rankingSortField}
+                timestampField={timestampField}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -235,6 +238,7 @@ export function ReportsTab(): JSX.Element {
     const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
         useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
+    const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -402,7 +406,12 @@ export function ReportsTab(): JSX.Element {
                             {index > 0 && index === firstUnscoredIndex && (
                                 <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
                             )}
-                            <ReportRow report={report} sectionKey={sectionKey} rankingSortField={rankingSortField} />
+                            <ReportRow
+                                report={report}
+                                sectionKey={sectionKey}
+                                rankingSortField={rankingSortField}
+                                timestampField={timestampField}
+                            />
                         </Fragment>
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}

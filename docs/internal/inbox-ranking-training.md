@@ -6,14 +6,13 @@ The artefact's team/report IDs, creation timestamp, and actor attribution identi
 Selecting the current priority adds no correction. These records are available for future priority learning; they do not introduce a new ranking label or training head.
 Research already running when a priority is edited preserves that correction; a later research run can reassess it.
 
-The report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
+The report-embedding ranking family uses one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
 The label comes from the snapshot `horizon_days` later, including outcomes already present on the birth day.
 
-The `pr_merged` head includes every report and reads merges within 14 days.
-The `dismiss_wrong` head includes every report and reads wrong-dismissal outcomes within 21 days.
-The `dismiss_lowvalue` head includes every report and reads `wontfix_irrelevant` dismissals within 21 days.
+The families train only the heads the inbox reads: `open`, `action` and `fixed`.
+The dataset still snapshots the label columns of other outcomes, so a head can come back without a labels backfill.
 
 The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.
@@ -33,26 +32,18 @@ Each head is conditioned on its cohort (`training/heads.py`).
 Every head uses every report as its cohort, so the probabilities are over the same reports and can be compared.
 Each head is graded only on its cohort.
 
-| Head               | Probability                                                 | Horizon |
-| ------------------ | ----------------------------------------------------------- | ------- |
-| `open`             | P(opened) over every report                                 | 3d      |
-| `action`           | P(acted on) over every report                               | 7d      |
-| `discuss`          | P(discuss) over every report                                | 7d      |
-| `dismiss_wrong`    | P(dismissed as wrong) over every report                     | 21d     |
-| `reviewer_fix`     | P(reviewers corrected) over every report                    | 14d     |
-| `thumbs_up`        | P(thumbs up) over every report                              | 7d      |
-| `pr_created`       | P(PR created) over every report                             | 7d      |
-| `pr_merged`        | P(PR merged) over every report                              | 14d     |
-| `fixed`            | P(fixed) over every report                                  | 21d     |
-| `refund`           | P(refund) over every report                                 | 14d     |
-| `dismiss_lowvalue` | P(dismissed as real but not worth fixing) over every report | 21d     |
+| Head     | Probability                   | Horizon |
+| -------- | ----------------------------- | ------- |
+| `open`   | P(opened) over every report   | 7d      |
+| `action` | P(acted on) over every report | 14d     |
+| `fixed`  | P(fixed) over every report    | 30d     |
 
 Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
 
 ## Row budget
 
 A feature set can limit the rows one head keeps (`max_examples_per_head`).
-The embedding families set it to 100,000.
+The report-embedding family sets it to 100,000.
 The budget limits history, not the rows inside a day:
 
 - The head's examples are grouped by report-creation day, newest first.
@@ -68,14 +59,19 @@ Each head in `metadata.json` records `example_window_start`, the earliest report
 
 ## Promotion
 
-A candidate replaces its family's champion only when, on every head the champion could read:
+Promotion is manual.
+A person runs `inbox_ranking_promote_job` with a `model_key` and a `reason`, and the job writes `inbox_ranking_models/v1/served.json` and publishes the serving manifest.
+Training never moves that pointer.
 
-- its holdout AUC is at most `AUC_TOLERANCE` below the champion's, and
-- its holdout calibration error (ECE) is at most `ECE_TOLERANCE` above the champion's.
+Each run still grades every candidate against the served model of its own `model_name`.
+The decision says the candidate would promote only when, on every head the served model could read:
 
-Both champion numbers come from the champion's `<head>.holdout.ubj` scored on the candidate's holdout.
-A head without a paired champion ECE skips the calibration check.
-`inbox_ranking_promotion_decided` carries the paired values as `champion_<head>_auc_on_this_holdout` and `champion_<head>_ece_on_this_holdout`.
+- its holdout AUC is at most `AUC_TOLERANCE` below the served model's, and
+- its holdout calibration error (ECE) is at most `ECE_TOLERANCE` above the served model's.
+
+Both incumbent numbers come from the served model's `<head>.holdout.ubj` scored on the candidate's holdout.
+A head without a paired incumbent ECE skips the calibration check.
+`inbox_ranking_promotion_decided` carries the decision as `would_promote` and `gates_passed`, with `promoted` always false, and the paired values as `champion_<head>_auc_on_this_holdout` and `champion_<head>_ece_on_this_holdout`.
 
 ## Baked and unbaked unseen metrics
 
@@ -193,7 +189,7 @@ Models trained before thresholds existed have none, and no other value stands in
 
 - Population: D's newborn pool.
 - Score: per report and model key, the earliest scored event in D with this deployment's `environment`.
-- `model_role`: `served` when the event's roles hold it, else the first role (`daily_candidate`, `cross_family`, `pinned`), else `candidate`.
+- `model_role`: `served` when the event's roles hold it, else the first role (`recent`, `cross_family`, `pinned`), else `candidate`. Grades written before the `recent` role carry `daily_candidate` for the same read.
 - `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
 - Asset metadata: `served_pool_coverage`, `pool_coverage_by_model`, rows per model version, and the heads without a threshold.
 
@@ -203,7 +199,7 @@ A missing object is a skip in the asset metadata, not a failure.
 
 Caveats:
 
-- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- A manual promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
 - The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. `pool_coverage_by_model` shows how much of the pool each key covered.
 - A report first scored after D ends, for example when its vector arrived late, is not in D's rows. `served_pool_coverage` shows this for the served model. A later score never fills it in.
 - The sweep scores with the vector current at scoring time, so two keys that scored one report at different times did not always read the same vector.

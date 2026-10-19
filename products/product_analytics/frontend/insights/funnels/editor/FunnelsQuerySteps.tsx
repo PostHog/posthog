@@ -4,43 +4,30 @@ import { useActions, useValues } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { EditorFilterProps, FilterType } from '~/types'
+import { EditorFilterProps, InsightType } from '~/types'
 
 import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseStepDefinitionPopover'
 
 export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { series, querySource, isBreakdownSeries, seriesMathAvailability } = useValues(
+        insightVizDataLogic(insightProps)
+    )
+    const { updateSeries } = useActions(insightVizDataLogic(insightProps))
     const { hasPageview, hasScreen } = getProjectEventExistence()
-
-    const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
-    const setActionFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({
-            series: actionsAndEventsToSeries(
-                payload as any,
-                true,
-                MathAvailability.FunnelsOnly,
-                NodeKind.FunnelsDataWarehouseNode
-            ),
-        } as FunnelsQuery)
-    }
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    if (!actionFilters) {
+    if (!isInsightQueryNode(querySource)) {
         return null
     }
 
@@ -51,13 +38,16 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     return (
         <>
             <div className="FunnelsQuerySteps">
-                <ActionFilter
+                <SeriesActionFilter
                     allowBehavioralPropertyFilter
                     bordered={false}
-                    filters={actionFilters}
-                    setFilters={setActionFilters}
+                    series={filterSteps}
+                    onChange={updateSeries}
+                    insightType={InsightType.FUNNELS}
+                    hasBreakdown={isBreakdownSeries}
+                    dataWarehouseNodeKind={NodeKind.FunnelsDataWarehouseNode}
                     typeKey={keyForInsightLogicProps('new')(insightProps)}
-                    mathAvailability={MathAvailability.FunnelsOnly}
+                    mathAvailability={seriesMathAvailability}
                     hideDeleteBtn={filterSteps.length === 1}
                     buttonCopy="Add step"
                     showSeriesIndicator={showSeriesIndicator}

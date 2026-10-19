@@ -1,11 +1,17 @@
 from datetime import UTC, datetime
 
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airbrake import (
+    AirbrakeSourceConfig,
+)
 
 
 class TestAirbrakeSource:
@@ -23,19 +29,16 @@ class TestAirbrakeSource:
         assert api_key.required is True
 
     def test_get_schemas_filters_by_names(self) -> None:
-        schemas = AirbrakeSource().get_schemas(MagicMock(), team_id=1, names=["groups"])
+        schemas = AirbrakeSource().get_schemas(AirbrakeSourceConfig(api_key="user-key"), team_id=1, names=["groups"])
         assert [s.name for s in schemas] == ["groups"]
 
     @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Airbrake user API key"))])
-    def test_validate_credentials(self, _name: str, transport_result: bool, expected: tuple) -> None:
-        config = MagicMock()
-        config.api_key = "user-key"
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source.validate_airbrake_credentials",
-            return_value=transport_result,
-        ) as validate:
-            assert AirbrakeSource().validate_credentials(config, team_id=1) == expected
-        validate.assert_called_once_with("user-key")
+    def test_validate_credentials(self, _name: str, transport_result: bool, expected: tuple[bool, str | None]) -> None:
+        with scripted_network([ScriptedResponse(status=200 if transport_result else 401)]) as network:
+            result = AirbrakeSource().validate_credentials(AirbrakeSourceConfig(api_key="user-key"), team_id=1)
+            assert result == expected
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].param("key") == "user-key"
 
     @parameterized.expand(
         [
@@ -48,26 +51,21 @@ class TestAirbrakeSource:
     def test_source_for_pipeline_plumbs_incremental_inputs(
         self, _name: str, should_use_incremental_field: bool, last_value: datetime, expected_last_value: datetime | None
     ) -> None:
-        config = MagicMock()
-        config.api_key = "user-key"
-        inputs = MagicMock()
-        inputs.schema_name = "groups"
-        inputs.should_use_incremental_field = should_use_incremental_field
-        inputs.db_incremental_field_last_value = last_value
-        manager = MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source.airbrake_source"
-        ) as airbrake_source_mock:
-            AirbrakeSource().source_for_pipeline(config, manager, inputs)
-
-        airbrake_source_mock.assert_called_once_with(
-            api_key="user-key",
-            endpoint="groups",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
+        result = SourceDriver(AirbrakeSource(), AirbrakeSourceConfig(api_key="user-key")).run(
+            "groups",
+            [
+                ScriptedResponse(json={"count": 1, "projects": [{"id": 1}]}),
+                ScriptedResponse(json={"count": 1, "groups": [{"id": "g1"}]}),
+            ],
             should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=expected_last_value,
+            db_incremental_field_last_value=last_value,
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "g1"}]
+        assert result.paths == ["/api/v4/projects", "/api/v4/projects/1/groups"]
+        assert result.requests[1].param("key") == "user-key"
+        assert result.requests[1].param("start_time") == (
+            "2026-03-04T00:00:00.000Z" if expected_last_value is not None else None
         )
 
     @parameterized.expand(

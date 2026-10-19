@@ -23,7 +23,7 @@ import { ReportCard } from './ReportCard'
 
 jest.mock('posthog-js')
 jest.mock('lib/components/TZLabel', () => ({
-    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
+    TZLabel: ({ time, title }: { time: string; title?: string }) => <span title={title}>{time}</span>,
 }))
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
@@ -377,14 +377,24 @@ describe('ReportCard', () => {
         expect(screen.getByText('42')).toBeInTheDocument()
     })
 
-    it('keeps the timestamp on a redesigned row that has no figure', () => {
+    it.each([
+        ['the update time by default', true, undefined, '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time under a created sort', true, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+        ['the update time under an updated sort', false, 'updated_at', '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time without the impact column', false, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+    ] as const)('shows %s', (_name, impactColumn, timestampField, time, title) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
-        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [] })} />)
+        enableRedesign(impactColumn)
+        const { container } = render(
+            <ReportCard
+                report={makeReport('r-2', { metrics: [], updated_at: '2026-07-01T10:00:00Z' })}
+                timestampField={timestampField}
+            />
+        )
 
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-        expect(screen.getByText('2026-06-11T10:00:00Z')).toBeInTheDocument()
+        expect(screen.getByText(time)).toHaveAttribute('title', title)
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
@@ -413,12 +423,12 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        ['with the impact column', true, 'ranking_fixed', '2.7x fix'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% action',
+            '6.2% engage',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
@@ -432,9 +442,9 @@ describe('ReportCard', () => {
                 model_version: '2026-09-30',
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { pr_merged: 0.41, action: 0.062 },
-                lifts: { pr_merged: 2.7 },
-                readable_heads: ['action', 'pr_merged'],
+                scores: { fixed: 0.41, action: 0.062 },
+                lifts: { fixed: 2.7 },
+                readable_heads: ['action', 'fixed'],
                 stale: false,
             },
         })
@@ -450,7 +460,7 @@ describe('ReportCard', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableRedesign()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_pr_merged" />)
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
         expect(screen.getByText('Not scored')).toBeInTheDocument()
 
         const stale = makeReport('r-2', {
@@ -460,15 +470,15 @@ describe('ReportCard', () => {
                 model_version: '2026-09-30',
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { pr_merged: 0.41 },
-                lifts: { pr_merged: 2.7 },
-                readable_heads: ['pr_merged'],
+                scores: { fixed: 0.41 },
+                lifts: { fixed: 2.7 },
+                readable_heads: ['fixed'],
                 stale: true,
             },
         })
-        rerender(<ReportCard report={stale} rankingSortField="ranking_pr_merged" />)
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
         expect(screen.getByText('Edited since scored')).toBeInTheDocument()
-        expect(screen.queryByText('2.7x merge')).not.toBeInTheDocument()
+        expect(screen.queryByText('2.7x fix')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored')).not.toBeInTheDocument()

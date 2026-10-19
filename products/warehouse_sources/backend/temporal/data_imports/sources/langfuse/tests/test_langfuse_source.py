@@ -3,6 +3,13 @@ from datetime import date
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langfuse import (
+    LangfuseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
     ENDPOINTS,
     endpoints_for_version,
@@ -64,23 +71,27 @@ class TestLangfuseSource:
         [("v1", "traces"), ("v2", "sessions"), ("v3", "observations")],
     )
     def test_source_for_pipeline_reads_tables_served_by_the_pin(self, api_version, endpoint):
-        inputs = mock.MagicMock(api_version=api_version, schema_name=endpoint, should_use_incremental_field=False)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source.langfuse_source"
-        ) as langfuse_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-        assert langfuse_source.call_args.kwargs["endpoint"] == endpoint
+        driver = SourceDriver(
+            self.source,
+            LangfuseSourceConfig(host="https://cloud.langfuse.com", public_key="pk-lf-key", secret_key="sk-lf-key"),
+        )
+        result = driver.run(
+            endpoint, [ScriptedResponse(json={"data": [], "meta": {"totalPages": 1}})], api_version=api_version
+        )
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
 
     @pytest.mark.parametrize("endpoint", ["traces", "sessions"])
     def test_v3_refuses_retired_tables_with_a_non_retryable_error(self, endpoint):
-        inputs = mock.MagicMock(api_version="v3", schema_name=endpoint)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source.langfuse_source"
-        ) as langfuse_source:
-            with pytest.raises(ValueError) as exc_info:
-                self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-        langfuse_source.assert_not_called()
-        assert any(pattern in str(exc_info.value) for pattern in self.source.get_non_retryable_errors())
+        driver = SourceDriver(
+            self.source,
+            LangfuseSourceConfig(host="https://cloud.langfuse.com", public_key="pk-lf-key", secret_key="sk-lf-key"),
+        )
+        result = driver.run(endpoint, [], api_version="v3")
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
+        assert any(pattern in str(result.raised) for pattern in self.source.get_non_retryable_errors())
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["observations"])

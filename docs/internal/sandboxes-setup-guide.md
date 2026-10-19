@@ -133,6 +133,64 @@ keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
+Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
+The agent server links Claude's projects, session environment, plans and todos, and
+Codex's sessions and shell snapshots into that directory before starting a session.
+Authentication and platform configuration stay outside these mappings. Pi restores
+its session history through the task-session API.
+
+The agent stores completed prompt acknowledgements in its persistent state directory,
+so a resumed server skips completed prompts even when clearing their API state failed.
+Creating a resume snapshot preserves pending user messages until delivery handles
+them. If capture exceeds the file limit, it reports failure and retains the previous
+checkpoint without pruning the live workspace. Directory names such as `.cache` or
+`.venv` do not establish that their contents can be rebuilt. The legacy
+`allow_pruning` activity field remains readable but no longer enables deletion.
+
+`TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED` defaults to `false` during rollout.
+Deploy generation-aware token issuers and ingest handlers everywhere before enabling it.
+Leave rotation off until old workers drain; otherwise a resumed sandbox can receive
+an old-format token that the new ingest handlers reject. Already rotated streams
+keep their generation if rotation is disabled again.
+Stream completion is bound to the workflow's stream generation. A resume replaces
+that generation atomically with the stream reset, so late cleanup cannot close it.
+Dispatch saves the generation on the run and workflow input before context loading.
+Cancellation can tear down the sandbox without Redis and retains that generation across completion retries.
+Sandbox ingest tokens carry the same generation. Django and agent-proxy check it
+atomically when accepting events or completion, rejecting stale senders with HTTP 403
+and `stream_generation_mismatch`. The sender discards its buffer and stops on this code.
+Tokens issued before generation tracking remain valid only until the stream resets.
+
+`TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED` enables an experimental Modal layout
+for default, autoresearch, and VM task templates. Task processes see `/tmp`, `/var/tmp`, and `/root` backed by
+`/tmp/workspace/.posthog/task-filesystem`, so ordinary files at those paths enter
+directory snapshots. Modal control processes keep their original filesystem view.
+Agentsh, the setup wizard, dev-stack bootstrap, and preview services enter the task view; Docker must
+start there so bind mounts resolve the same paths. Fresh credential files remain
+outside the saved directories. Claude's pinned session settings resolve to a private
+runtime directory, and the one-use Codex token is staged under `/run`.
+Base images seed the persistent home outside the workspace during build, preserving
+ownership. Custom images and dev-stack bakes refresh that seed after warming their
+caches. Activation moves the seed into the workspace without copying it; disabled
+tasks leave it out of directory snapshots, and versioned restores keep their saved
+home. Fresh tasks using older images without a home seed keep the provider view
+until those images are rebuilt. Image-bake sandboxes keep the provider view, and wizard output
+lives under `/tmp/workspace/.posthog/wizard-cloud-run`.
+Namespace entry preserves the caller's working directory. Health and capability
+checks run in the provider view, while bundled-skill cleanup runs in the task view.
+Cleanup uses a fixed system PATH and absolute system binaries. Helper uploads
+use the caller's execution timeout.
+Automatic dev-stack bootstrap uses a fresh Docker config directory under `/run`.
+Launch preparation uses a fixed system PATH and the image's absolute agentsh path.
+
+Snapshots carry a layout version. Restoring that version initializes the task view
+even when the setting is disabled, while legacy workspace snapshots stay readable.
+Unversioned restores keep their original layout even when enabled, so existing
+files remain accessible without copying a home at startup.
+Missing namespaces and unknown versions fail startup. This layout covers files;
+processes, runtime sockets, system package changes, and service data outside these
+directories still need their own recovery. Keep it disabled until the checkpoint
+handoff and required service recovery are validated together.
 
 ## Running via the UI
 
@@ -222,6 +280,15 @@ worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, na
 the product the token is pinned to, and the agent routes on those in preference to
 what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
 
+Account audit runs use the reserved `account_audit` origin and AI product, and must
+carry the server-set `internal` flag before they can mint a token. Add
+`account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
+Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
+waits three minutes for cost accounting before reporting the audit result. Audits use an
+internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
+audit reasserts this policy; only the platform service allowlist stays reachable.
+
 When a run lands on the Python gateway unexpectedly, check those two variables first.
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
@@ -238,7 +305,7 @@ access. A parent project's flag does not enable its child environments, even tho
 their settings and reviews under the shared parent project.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
-the `reviewhog` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
+the `posthog-review` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
 Inbox switch.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
 Automatic reviews and the label trigger also need the project to claim the repository in the Code review
@@ -272,6 +339,11 @@ Automatic Flash uses your existing severity threshold and never resolves comment
 
 The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
 Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
+
+The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
+Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.
+**Commit fixes to my pull requests** allows Deep reviews to push fixes only with the author's own opt-in.
+The control's help explains when fixes are paused. Review skill descriptions summarize each check; editing skill text changes it for the whole project.
 
 To run Flash locally, use `run_review --review-mode flash` from the repository root:
 
@@ -313,6 +385,13 @@ The agent-server exports run/turn/tool lifecycle metadata (never message content
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
 
+The trace id of a run is its run UUID without dashes, so `/tracing?trace=<run UUID without dashes>` in the telemetry project opens the run.
+The agent-server spans, the mirrored run logs and the `process-task` Temporal workflow spans all carry that trace id.
+The workflow spans carry it only when the run has the telemetry flag on.
+Those runs are also marked as sampled, so a parent-based sampler on the worker keeps every one of them.
+They show up in the same trace only if the Temporal worker's collector forwards to the telemetry project.
+The workflow and the agent-server share a trace id but no parent span, so the workflow spans sit under a `<parent span missing>` row beside `task_run`.
+
 ### MCP server `.env`
 
 `MODAL_DOCKER` (and the local Docker provider) both depend on the MCP server running at `localhost:8787`. The server reads its config from `services/mcp/.env` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the server will either refuse to start or return broken responses to the sandbox.
@@ -326,6 +405,8 @@ Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY
 ### Memory pressure during agent validation
 
 The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
+
+A run whose whole sandbox stops usually still ends as completed, with `termination_reason` set to `sandbox_gone`. The `error_message` property on `task_run_completed` carries the sandbox exit reason. Exit code 137 there usually means the sandbox ran out of memory.
 
 Cloud Claude and Codex sessions deliver each watchdog warning separately to subagents and their parent. Codex uses native MCP tool hooks for shell calls, including the final result of an `exec_command` completed through `write_stdin`. Claude shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM. Codex hook payloads carry the command output without its exit status, so a Codex command counts as stopped when a kill record lands between its start and shortly after its end. A quick rerun of a long Codex command waits for that record before it starts.
 
@@ -412,6 +493,34 @@ Each sandbox is created from a template that determines its base image and capab
 | `VM_BASE`       | `ghcr.io/posthog/posthog-sandbox-vm`       | Docker-in-Docker capable. Layers Docker engine, compose v2, and buildx on the base image. Includes an idempotent `start-dockerd` helper for on-demand dockerd. |
 
 `VM_BASE` uses the Modal VM runtime (real Linux kernel) instead of gVisor because `dockerd` cannot run under gVisor. When a sandbox is created with `template=SandboxTemplate.VM_BASE`, `ModalSandbox.create` automatically sets `experimental_options={"vm_runtime": True}`.
+
+### Protected dev-stack activation
+
+Dev-stack bakes can use a durable, regional activation pointer instead of publishing over a shared Modal image name. The two infrastructure models are instance-global: they describe the shared image, not a tenant's sandbox or custom image. Explicit rebuild requests are recorded before observing inputs, so a newer routine observation can carry a pending request forward.
+
+```text
+VM digest + repository SHA + bake recipe
+  -> generation -> immutable snapshot -> boot verification
+  -> atomic activation -> new task sandboxes
+```
+
+Activation locks the target and checks its generation, attempt owner, lease and deadline. A superseded bake can finish its snapshot but cannot change the active pointer. Candidate verification boots the exact snapshot, restores the manifest's repository revision for retained container bind mounts, and checks its manifest, agent version, Postgres, Redis and ClickHouse. The previous active image remains available if verification fails. Failed verification commands log bounded output tails with the stage and attempt, image and sandbox IDs. Cleanup retries cannot replace the original verification failure.
+
+The two-minute sweep reconciles durable state using a fresh registry digest rather than the task-provisioning cache. A changed bake recipe requests a new generation even when the VM digest is unchanged. Dispatch retries reuse an attempt's Temporal workflow ID, and a lost activation acknowledgment reads the committed result. Workers renew two-minute leases every 30 seconds, with a separate three-hour deadline. Failed bakes retry after 2, 5 and then 15 minutes with up to 29 seconds of jitter. Each region allows three full bakes per rolling six hours across generations; snapshot verification does not consume that budget. The dashboard shows the next retry or blocking reason. Provider boot failures retry the checkpointed snapshot; confirmed candidate defects require a corrected target or a new manual request.
+
+Roll out one region at a time:
+
+1. Apply the additive migration and deploy the new workers and task readers. With no target row, the existing named-image behavior remains in place.
+2. Disable the legacy `tasks-dev-stack-image-bake` flag and drain legacy bake executions and old task workers. All task readers must understand protected activation before initialization.
+3. Run `python manage.py bake_dev_stack_image --initialize --seed-image-id <immutable-image-id>` using a known existing snapshot. This boots and checks the baseline before recording its ID and a verified attempt for rollback. Save the printed attempt UUID; its base provenance remains unknown. Omitting the seed deliberately leaves tasks on the plain VM base until the first verified activation.
+4. Run `python manage.py bake_dev_stack_image --enable`. The durable enablement setting now controls scheduling in this region; the legacy flag no longer controls protected bakes. GitHub App Contents read access is needed to pin the repository revision. The next sweep requests a generation from the current VM digest.
+5. Verify a successful candidate and a new task's image selection before enabling another region. Existing sandboxes are unchanged.
+
+Use `python manage.py bake_dev_stack_image --request-key <request-id>` for a manual refresh. Protected bakes reject `--inline`. `--disable` stops scheduling and activation while preserving the active image. A database read failure or missing active pointer falls back to the plain VM base with a recorded image-fallback reason, never to the mutable named image.
+
+To roll back, use `python manage.py bake_dev_stack_image --rollback-attempt <verified-attempt-uuid>`, including the seed's UUID. This creates a new generation and reverifies that attempt's immutable candidate. Automatic target updates remain paused until `--enable` resumes them. Initialization, enablement, disablement, and rollback must be separate commands. Do not delete the target row or redeploy alias-only readers as a rollback strategy. Candidate snapshots are retained; this change does not add automatic image deletion.
+
+The admin separates **Base current / Base behind / Base unknown** from **Queued / Building / Rebuilding / Verifying / Retry scheduled / Blocked / Baking disabled**. A same-base nightly rebuild can show Base current and Rebuilding together. Budget cooldowns show Retry scheduled with their reason and retry time; Blocked means intervention is required. Failed Temporal reads show retry guidance even when no execution data is available. Source timestamps describe observation time; activation time and the exact attempt's Temporal run link describe the bake.
 
 ### Optional: local repository mounts (Docker only)
 

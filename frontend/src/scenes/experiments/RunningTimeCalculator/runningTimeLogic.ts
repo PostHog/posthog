@@ -3,9 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
@@ -18,17 +16,12 @@ import type {
     RunningTimeCalculationResultApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse } from '../../../queries/schema/schema-general'
 import { experimentLogic, saveExperimentUpdate } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { modalsLogic } from '../modalsLogic'
-import {
-    getFlagVariants,
-    getOrderedMetricsWithResults,
-    isExperimentConflictError,
-    toConcurrencyPayload,
-} from '../utils'
+import { getFlagVariants, metricResults, isExperimentConflictError, toConcurrencyPayload } from '../utils'
+import type { MetricWithResult } from '../utils'
 import {
     ManualCalculatorMetricType,
     baselineStatsFromResults,
@@ -60,20 +53,11 @@ export interface ManualPreview {
 export interface runningTimeLogicValues {
     currentProjectId: number | null // experimentLogic
     experiment: Experiment // experimentLogic
-    orderedPrimaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[] // experimentLogic
-    primaryMetricsResultsLoading: boolean // experimentLogic
     unmodifiedExperiment: Experiment | null // experimentLogic
     isRecalculating: boolean // experimentMetricsLogic
-    recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
-    recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
+    primaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
+    primaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     isRunningTimeConfigModalOpen: boolean // modalsLogic
     automaticCalculation: RunningTimeCalculationResultApi | null
     automaticCalculationInput: RunningTimeCalculationInputApi | null
@@ -92,13 +76,7 @@ export interface runningTimeLogicValues {
     manualPreviewInput: RunningTimeCalculationInputApi | null
     manualPreviewLoading: boolean
     mde: number
-    metricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[]
+    metricsWithResults: MetricWithResult[]
     mode: RunningTimeConfig['mode']
     numberOfVariants: number
     remainingDays: number | null
@@ -191,41 +169,13 @@ export interface runningTimeLogicMeta {
         mode: (config: RunningTimeConfig) => RunningTimeConfig['mode']
         metricsWithResults: (
             experiment: Experiment,
-            featureFlags: FeatureFlagsSet,
-            orderedPrimaryMetricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
-            recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[],
-            recalcPrimaryMetricsResultsErrors: unknown[]
-        ) => {
-            displayIndex: number
-            error: any
-            metric: ExperimentMetricUnion
-            metricIndex: number
-            result: any
-        }[]
-        currentExposures: (
-            metricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[]
-        ) => number | null
+            primaryMetricsResults: CachedNewExperimentQueryResponse[],
+            primaryMetricsResultsErrors: unknown[]
+        ) => MetricWithResult[]
+        currentExposures: (metricsWithResults: MetricWithResult[]) => number | null
         automaticCalculationInput: (
             mode: 'automatic' | 'manual',
-            metricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
+            metricsWithResults: MetricWithResult[],
             numberOfVariants: number,
             mde: number
         ) => RunningTimeCalculationInputApi | null
@@ -253,8 +203,6 @@ export interface runningTimeLogicMeta {
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
         isCalculating: (
             isManualMode: boolean,
-            featureFlags: FeatureFlagsSet,
-            primaryMetricsResultsLoading: boolean,
             isRecalculating: boolean,
             automaticCalculationLoading: boolean
         ) => boolean
@@ -282,26 +230,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         return {
             values: [
                 experimentLogic({ experimentId }),
-                [
-                    'experiment',
-                    'unmodifiedExperiment',
-                    'orderedPrimaryMetricsWithResults',
-                    'primaryMetricsResultsLoading',
-                    'currentProjectId',
-                ],
-                // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
+                ['experiment', 'unmodifiedExperiment', 'currentProjectId'],
                 experimentMetricsLogic({ experiment: props.experiment }),
-                [
-                    'primaryMetricsResults as recalcPrimaryMetricsResults',
-                    'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
-                    'isRecalculating',
-                ],
+                ['primaryMetricsResults', 'primaryMetricsResultsErrors', 'isRecalculating'],
                 modalsLogic,
                 ['isRunningTimeConfigModalOpen'],
                 experimentsConfigLogic,
                 ['defaultMinimumDetectableEffect'],
-                featureFlagLogic,
-                ['featureFlags'],
             ],
             actions: [
                 experimentLogic({ experimentId }),
@@ -413,34 +348,14 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         mde: [(s) => [s.config], (config: RunningTimeConfig): number => config.mde],
         mode: [(s) => [s.config], (config: RunningTimeConfig): RunningTimeConfig['mode'] => config.mode],
 
-        // Legacy flow exposes metric results via experimentLogic; the recalculation flow exposes them
-        // via experimentMetricsLogic. Pick whichever is active so automatic mode always has a baseline.
+        // Primary metrics zipped with their results, so automatic mode always has a baseline to read.
         metricsWithResults: [
-            (s) => [
-                s.experiment,
-                s.featureFlags,
-                s.orderedPrimaryMetricsWithResults,
-                s.recalcPrimaryMetricsResults,
-                s.recalcPrimaryMetricsResultsErrors,
-            ],
+            (s) => [s.experiment, s.primaryMetricsResults, s.primaryMetricsResultsErrors],
             (
                 experiment: Experiment,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                legacyMetricsWithResults: {
-                    displayIndex: number
-                    error: any
-                    metric: import('../../../queries/schema').ExperimentMetricUnion
-                    metricIndex: number
-                    result: any
-                }[],
-                recalcResults: import('../../../queries/schema').CachedNewExperimentQueryResponse[],
-                recalcErrors: (unknown | null)[]
-            ) => {
-                if (experiment && featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                    return getOrderedMetricsWithResults(experiment, recalcResults, recalcErrors, [], [], false)
-                }
-                return legacyMetricsWithResults
-            },
+                results: import('../../../queries/schema').CachedNewExperimentQueryResponse[],
+                errors: (unknown | null)[]
+            ) => (experiment ? metricResults(experiment)(results, errors, 'primary') : []),
         ],
 
         currentExposures: [
@@ -586,29 +501,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         // instead of flashing a pending state during the gap between the two. Manual mode has no async
         // estimate to wait on, so it never counts as calculating.
         isCalculating: [
-            (s) => [
-                s.isManualMode,
-                s.featureFlags,
-                s.primaryMetricsResultsLoading,
-                s.isRecalculating,
-                s.automaticCalculationLoading,
-            ],
-            (
-                isManualMode: boolean,
-                featureFlags: FeatureFlagsSet,
-                primaryMetricsResultsLoading: boolean,
-                isRecalculating: boolean,
-                automaticCalculationLoading: boolean
-            ): boolean => {
+            (s) => [s.isManualMode, s.isRecalculating, s.automaticCalculationLoading],
+            (isManualMode: boolean, isRecalculating: boolean, automaticCalculationLoading: boolean): boolean => {
                 if (isManualMode) {
                     return false
                 }
-                // The recalculation flow sources results from experimentMetricsLogic, the legacy flow from
-                // experimentLogic. Watch whichever is active so neither path flashes a pending state on load.
-                const metricsLoading = featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
-                    ? isRecalculating
-                    : primaryMetricsResultsLoading
-                return metricsLoading || automaticCalculationLoading
+                return isRecalculating || automaticCalculationLoading
             },
         ],
         manualFormPreview: [

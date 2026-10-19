@@ -50,6 +50,21 @@ TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS: int | None = get_from_env(
     "TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS", None, optional=True, type_cast=int
 )
 
+# Opt-in task poller autoscaling. A MAX turns it on for that task type, and the SDK default
+# (5 pollers) applies when unset. Fixed poller counts leave a small worker fleet short of pollers.
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
     "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
@@ -65,6 +80,10 @@ TEMPORAL_LOGS_PROJECT_ID: int = get_from_env("TEMPORAL_LOGS_PROJECT_ID", 1, type
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
+
+TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED: bool = get_from_env(
+    "TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED", False, type_cast=str_to_bool
+)
 
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
@@ -106,6 +125,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
+    "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
     "signals_chat": "30",
@@ -165,6 +185,12 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
 TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
     "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
     True,
+    type_cast=str_to_bool,
+)
+
+TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED: bool = get_from_env(
+    "TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED",
+    False,
     type_cast=str_to_bool,
 )
 
@@ -330,6 +356,8 @@ TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
+# Keep aggregation separate even when local development combines the other queues.
+USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
@@ -344,6 +372,15 @@ ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
 if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
+# The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
+# cohort queries one after another, so this bounds the parallel run's concurrent logs queries.
+ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
     )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
@@ -375,6 +412,7 @@ MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
+WEB_ANALYTICS_TASK_QUEUE = _set_temporal_task_queue("web-analytics-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
 # env var still registers the autoresearch coordinator schedule on the queue that fleet polls.

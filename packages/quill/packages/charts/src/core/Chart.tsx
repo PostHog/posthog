@@ -70,6 +70,8 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
      *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -126,6 +128,7 @@ export function Chart<Meta = unknown>({
     drawHover,
     tooltip: renderTooltipProp,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
     className,
@@ -335,6 +338,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         resolveClickToNearestSeries,
         onPointClick,
+        isPointClickable,
         onDateRangeZoom,
         onAreaSelect,
         resolveValue,
@@ -435,7 +439,12 @@ export function Chart<Meta = unknown>({
                     overlayCanvasRef={overlayCanvasRef}
                     className={className}
                     dataAttr={dataAttr}
-                    pointer={hoverIndex >= 0 && !!onPointClick}
+                    pointer={
+                        hoverIndex >= 0 &&
+                        hoverIndex < labels.length &&
+                        !!onPointClick &&
+                        (isPointClickable?.(hoverIndex) ?? true)
+                    }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
                     ariaLabel={ariaLabel}
                     handlers={handlers}

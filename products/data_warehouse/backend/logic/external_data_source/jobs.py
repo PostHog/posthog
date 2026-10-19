@@ -153,6 +153,10 @@ def update_external_job_status(
         # moves: billing is what blocks this schema now.
         billing_limited_run = schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED
 
+        # Read the streak before this run moves it. The sync alerts decide "first failure" and
+        # "recovered" from the streak of the earlier runs, not from a streak that includes this run.
+        previous_failed_runs = schema.failed_runs_in_a_row
+
         # The streak moves for a halted schema too. Its schedule keeps running, and the streak is
         # the only thing that spaces out those runs, so skipping it lets a source that never
         # answers fail on every slot.
@@ -172,7 +176,6 @@ def update_external_job_status(
         else:
             schema_status_written = True
             previous_schema_status = schema.status
-            previous_failed_runs = schema.failed_runs_in_a_row
             schema.status = schema_status
             if not billing_limited_run:
                 schema.latest_error = error_to_persist

@@ -7,13 +7,17 @@ import { LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { captureScoutAction, captureScoutDetailViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic, ScoutDetailTab } from '../../../inboxSceneLogic'
+import { scoutAiContextItems } from '../../../logics/scoutAiLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
-import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL, scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { ScoutAskAiComposer } from './ScoutAskAiComposer'
 import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutLearnedPanel } from './ScoutLearnedPanel'
@@ -84,6 +88,11 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     // a beat after the page opens.
     const defaultMainTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
     const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? defaultMainTab
+    const scoutName = config ? scoutDisplayName(config) : null
+
+    // Registered by the page as well as the AI panel, so the scout is already attached when the
+    // panel composer mounts and sends the question at once. Any PostHog AI chat opened here gets it.
+    useAttachedContext(scoutName ? scoutAiContextItems({ skillName, scoutName }) : null)
 
     // Once per scout opened, as soon as its config resolves — the run rollup fills in a beat later
     // off the polled window, so the counts are whatever had loaded by then.
@@ -232,6 +241,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 noteCount={scoutNotes.length}
                 learnedCount={learnedCount}
             />
+            <ScoutAskAiComposer skillName={skillName} scoutName={scoutDisplayName(config)} />
 
             <div className="grid grid-cols-1 items-start gap-4 px-4 py-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="flex min-w-0 flex-col gap-4">

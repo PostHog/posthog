@@ -20,11 +20,14 @@ class SignalsConfig(AppConfig):
         from . import (
             activity_logging,  # noqa: F401
             receivers,  # noqa: F401
+            spend_receivers,
         )
 
         receivers.connect_task_run_assignment_sync()
+        spend_receivers.connect_spend_receivers()
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()
+        self._register_scout_skill_rename_hook()
 
     def _register_signal_emission_gate(self) -> None:
         """Let the data-import pipeline ask whether to emit signals for a source without
@@ -60,3 +63,29 @@ class SignalsConfig(AppConfig):
                 raise SkillArchiveRefused(str(err)) from err
 
         register_skill_archive_guard(_guard)
+
+    def _register_scout_skill_rename_hook(self) -> None:
+        """Let the skills product move or refuse a scout's config on rename without importing this one."""
+        from products.skills.backend.api.archive_guards import (
+            SkillRenameConflict,
+            SkillRenameRefused,
+            register_skill_rename_hook,
+        )
+
+        def _hook(team: "Team", skill_name: str, new_name: str, user: "User | None", authenticator: object) -> None:
+            from products.signals.backend.scout_harness.lifecycle_lock import (  # noqa: PLC0415
+                ScoutConfigNameTaken,
+                ScoutLifecycleLocked,
+                rename_scout_with_skill,
+            )
+
+            try:
+                rename_scout_with_skill(
+                    team=team, skill_name=skill_name, new_name=new_name, user=user, authenticator=authenticator
+                )
+            except ScoutLifecycleLocked as err:
+                raise SkillRenameRefused(str(err)) from err
+            except ScoutConfigNameTaken as err:
+                raise SkillRenameConflict(str(err)) from err
+
+        register_skill_rename_hook(_hook)

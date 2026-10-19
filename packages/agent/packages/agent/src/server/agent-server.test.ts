@@ -1138,6 +1138,7 @@ describe("AgentServer HTTP Mode", () => {
           {
             status: "failed",
             error_message: `agent_error: ${expected}`,
+            error_type: "agent_error",
             state: { agent_version: expect.any(String) },
           },
         );
@@ -1280,6 +1281,7 @@ describe("AgentServer HTTP Mode", () => {
         {
           status: "failed",
           error_message: "agent_error: old run failed",
+          error_type: "agent_error",
           state: { agent_version: expect.any(String) },
         },
       );
@@ -5271,65 +5273,91 @@ describe("AgentServer HTTP Mode", () => {
       expect(result).toBeNull();
     });
 
-    it("removes pending prompt keys when clearing initial prompt state", async () => {
-      const s = createServer();
-      const updateTaskRun = vi
-        .spyOn(
-          (
-            s as unknown as {
-              posthogAPI: {
-                updateTaskRun: (...args: unknown[]) => Promise<unknown>;
-              };
-            }
-          ).posthogAPI,
-          "updateTaskRun",
-        )
-        .mockResolvedValue({} as never);
-      const run = {
-        id: "test-run-id",
-        task: "test-task-id",
-        state: {
-          sandbox_url: "https://sandbox.example.com",
-          sandbox_connect_token: "token",
-          pending_user_message: "read this",
-          pending_user_artifact_ids: ["artifact-1"],
-          pending_user_message_ts: "123.456",
-        },
-      } as unknown as TaskRun;
+    it.each([false, true])(
+      "acknowledges pending prompts across restarts (patch fails: %s)",
+      async (patchFails) => {
+        const agentStateDir = join(repo.path, ".posthog", "agent-state");
+        const s = createServer({ agentStateDir });
+        const updateTaskRun = vi
+          .spyOn(
+            (
+              s as unknown as {
+                posthogAPI: {
+                  updateTaskRun: (...args: unknown[]) => Promise<unknown>;
+                };
+              }
+            ).posthogAPI,
+            "updateTaskRun",
+          )
+          .mockResolvedValue({} as never);
+        const run = {
+          id: "test-run-id",
+          task: "test-task-id",
+          state: {
+            sandbox_url: "https://sandbox.example.com",
+            sandbox_connect_token: "token",
+            pending_user_message: "read this",
+            pending_user_artifact_ids: ["artifact-1"],
+            pending_user_message_ts: "123.456",
+          },
+        } as unknown as TaskRun;
 
-      const nextState = (
-        s as unknown as TestableServer
-      ).getClearedPendingUserState(run);
-      expect(nextState).toEqual([
-        "pending_user_message",
-        "pending_user_artifact_ids",
-        "pending_user_message_ts",
-      ]);
+        const nextState = (
+          s as unknown as TestableServer
+        ).getClearedPendingUserState(run);
+        expect(nextState).toEqual([
+          "pending_user_message",
+          "pending_user_artifact_ids",
+          "pending_user_message_ts",
+        ]);
 
-      await (s as unknown as TestableServer).clearPendingInitialPromptState(
-        {
-          run_id: "test-run-id",
-          task_id: "test-task-id",
+        if (patchFails) updateTaskRun.mockRejectedValue(new Error("HTTP 503"));
+        await (s as unknown as TestableServer).clearPendingInitialPromptState(
+          {
+            run_id: "test-run-id",
+            task_id: "test-task-id",
+            team_id: 1,
+            user_id: 1,
+            distinct_id: "test-distinct-id",
+            mode: "interactive",
+          },
+          run,
+        );
+
+        expect(updateTaskRun).toHaveBeenCalledWith(
+          "test-task-id",
+          "test-run-id",
+          {
+            state_remove_keys: [
+              "pending_user_message",
+              "pending_user_artifact_ids",
+              "pending_user_message_ts",
+            ],
+          },
+        );
+        const restored = createServer({ agentStateDir });
+        const api = (restored as unknown as { posthogAPI: PostHogAPIClient })
+          .posthogAPI;
+        vi.spyOn(api, "getTaskRun").mockResolvedValue(run);
+        vi.spyOn(api, "updateTaskRun").mockResolvedValue(run);
+        const payload: JwtPayload = {
+          run_id: run.id,
+          task_id: run.task,
           team_id: 1,
           user_id: 1,
-          distinct_id: "test-distinct-id",
+          distinct_id: "test-user",
           mode: "interactive",
-        },
-        run,
-      );
-
-      expect(updateTaskRun).toHaveBeenCalledWith(
-        "test-task-id",
-        "test-run-id",
-        {
-          state_remove_keys: [
-            "pending_user_message",
-            "pending_user_artifact_ids",
-            "pending_user_message_ts",
-          ],
-        },
-      );
-    });
+        };
+        const startup = restored as unknown as StartupTestServer;
+        expect(
+          (await startup.prepareInitialTaskMessage(payload, run)).action,
+        ).toBe("idle");
+        run.state.pending_user_message_ts = "123.457";
+        expect(
+          (await startup.prepareInitialTaskMessage(payload, run)).action,
+        ).toBe("initial");
+      },
+    );
   });
 
   describe("resume prompt display", () => {
@@ -7069,7 +7097,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).not.toContain("gh pr checkout");
       expect(prompt).not.toContain("Create a draft pull request");
       expect(prompt).toContain("Generated-By: PostHog Desktop");
-      expect(prompt).toContain("Task-Id: test-task-id");
+      expect(prompt).not.toContain("test-task-id");
     });
 
     it("returns default prompt when no prUrl", () => {
@@ -7080,7 +7108,7 @@ describe("AgentServer HTTP Mode", () => {
         "Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.",
       );
       expect(prompt).toContain("Generated-By: PostHog Desktop");
-      expect(prompt).toContain("Task-Id: test-task-id");
+      expect(prompt).not.toContain("test-task-id");
       expect(prompt).not.toContain("gh pr create --draft");
       // If the user does explicitly ask for a PR in this review-first mode,
       // the agent must still use the PostHog Desktop footer, not Claude Code's default.
@@ -7124,7 +7152,7 @@ describe("AgentServer HTTP Mode", () => {
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
-          "Task-Id: test-task-id",
+          "a `Task-Id` trailer",
           "canonical `posthog:exec` tool",
           "`posthog:business-knowledge-documents-search`",
           "whatever else the question is about",
@@ -7196,7 +7224,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain("Create a draft pull request");
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).toContain("Generated-By: PostHog Desktop");
-      expect(prompt).toContain("Task-Id: test-task-id");
+      expect(prompt).not.toContain("test-task-id");
       // Slack-origin PRs are attributed to PostHog, not the PostHog Desktop app.
       expect(prompt).toContain(
         "Created with [PostHog](https://posthog.com?ref=pr)",

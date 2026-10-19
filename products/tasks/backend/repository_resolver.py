@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from django.apps import apps
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
 
@@ -18,7 +19,7 @@ class RepositoryContext:
         self.repository = repository
         self.organization = organization
         self.is_primary = is_primary
-        self.github_integration = GitHubIntegration(integration)
+        self.github_integration = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
 
     @property
     def full_name(self) -> str:
@@ -75,7 +76,7 @@ async def resolve_single_repository(issue) -> list[RepositoryContext]:
 
     if not org or not repo:
         # If not configured, use the first available repository
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
         repositories = await github.list_all_cached_repositories_async()
         if repositories:
             org = github.organization()
@@ -123,7 +124,7 @@ async def resolve_smart_select_repositories(issue) -> list[RepositoryContext]:
     allowed_integrations = await _get_allowed_integrations_for_smart_select(issue, constraints)
 
     for integration in allowed_integrations:
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
         try:
             repos = await github.list_all_cached_repositories_async()
             org = github.organization()
@@ -158,7 +159,7 @@ async def resolve_legacy_repository(issue) -> list[RepositoryContext]:
     if not integration:
         return []
 
-    github = GitHubIntegration(integration)
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     repositories, _ = await github.list_cached_repositories_async()
 
     if not repositories:
@@ -216,7 +217,7 @@ async def _get_allowed_integrations_for_smart_select(issue, constraints: dict) -
 
     integrations = []
     async for integration in Integration.objects.filter(team_id=issue.team_id, kind="github"):
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
         org = github.organization()
 
         # If organizations are specified, only include matching ones

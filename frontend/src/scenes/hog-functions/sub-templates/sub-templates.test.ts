@@ -23,10 +23,35 @@ describe('sub-templates', () => {
         ['$data_warehouse_billing_limit_reached', 'data-warehouse-alerts'],
         ['$billing_alert_firing', 'billing-alerts'],
         ['$replay_vision_alert_match', 'replay-vision-alerts'],
+        ['$replay_vision_request_completed', 'replay-vision-requests'],
         ['$pageview', 'standard'],
         [undefined, 'standard'],
     ])('reads %s as the %s context', (event, expected) => {
         expect(eventToHogFunctionContextId(event)).toBe(expected)
+    })
+
+    it.each([
+        ['error-tracking-issue-created', '$error_tracking_issue_created'],
+        ['error-tracking-issue-reopened', '$error_tracking_issue_reopened'],
+        ['error-tracking-issue-spiking', '$error_tracking_issue_spiking'],
+    ] as const)('pairs the %s PagerDuty trigger with issue resolution', (subTemplateId, triggerEvent) => {
+        const pagerDutyTemplate = HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find(
+            (template) => template.template_id === 'template-pagerduty'
+        )
+
+        expect(pagerDutyTemplate?.filters?.events).toEqual([
+            { id: triggerEvent, type: 'events' },
+            { id: '$error_tracking_issue_resolved', type: 'events' },
+        ])
+        expect(pagerDutyTemplate?.inputs).toMatchObject({
+            event_action: {
+                value: "{event.event == '$error_tracking_issue_resolved' ? 'resolve' : 'trigger'}",
+            },
+            dedup_key: { value: 'posthog-error-tracking-issue-{event.distinct_id}' },
+            severity: {
+                value: "{event.properties.severity == 'critical' ? 'critical' : event.properties.severity == 'high' ? 'error' : event.properties.severity == 'medium' ? 'warning' : event.properties.severity == 'low' ? 'info' : ''}",
+            },
+        })
     })
 
     // A placeholder the sample event leaves empty renders an empty Slack block. Slack then rejects

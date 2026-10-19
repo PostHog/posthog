@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionMode,
     SourceResponse,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -30,6 +31,27 @@ PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
 # Bucket for rows whose numerical partition key is null — they can't be bucketed arithmetically.
 NULL_NUMERICAL_PARTITION = "null"
+
+DATE_CURSOR_TYPES = frozenset(
+    {IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date}
+)
+
+
+def append_cursor_partition_keys(schema: ExternalDataSchema, *, table_is_replaced: bool = False) -> list[str] | None:
+    """The cursor column of an append-only schema, when a new table can be partitioned by its date.
+
+    An append-only sync never merges rows, so a hash of the primary key helps no read and no write.
+    Its cursor only moves forward, so date partitions on the cursor let a query that filters on it
+    skip every other partition. A schema that already has partitioning keys keeps them, unless the
+    run deletes the table and loads it again: the saved keys then describe a table that is gone.
+    """
+    if not schema.is_append or schema.partitioning_keys_override:
+        return None
+    if schema.partitioning_keys and not table_is_replaced:
+        return None
+    if schema.incremental_field and schema.incremental_field_type in DATE_CURSOR_TYPES:
+        return [schema.incremental_field]
+    return None
 
 
 async def setup_partitioning(
@@ -53,6 +75,11 @@ async def setup_partitioning(
     )
     partition_format = schema.partition_format or resource.partition_format
     partition_mode = schema.partition_mode_override or schema.partition_mode or resource.partition_mode
+
+    if partition_mode is None:
+        cursor_keys = append_cursor_partition_keys(schema)
+        if cursor_keys:
+            partition_keys, partition_mode = cursor_keys, "datetime"
 
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")
@@ -248,8 +275,11 @@ def append_partition_key_to_table(
                     date_format = "%Y-%m"
 
                 if isinstance(date, int):
-                    date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime(date_format))
+                    try:
+                        partition_array.append(datetime.datetime.fromtimestamp(date).strftime(date_format))
+                    except (ValueError, OverflowError, OSError):
+                        # Not a timestamp in seconds, for example one in milliseconds.
+                        partition_array.append("1970-01")
                 elif isinstance(date, datetime.datetime):
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.date):

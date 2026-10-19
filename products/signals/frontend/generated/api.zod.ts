@@ -17,6 +17,12 @@ export const signalsConfigCreateBodyDefaultSlackNotificationChannelMax = 255
 
 export const signalsConfigCreateBodyAutostartBaseBranchesMaxOne = 255
 
+export const signalsConfigCreateBodyScoutInstructionsMax = 20000
+
+export const signalsConfigCreateBodyResearchInstructionsMax = 20000
+
+export const signalsConfigCreateBodyImplementationInstructionsMax = 20000
+
 export const signalsConfigCreateBodyIssueTrackingConfigMaxOne = 255
 
 export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
@@ -46,6 +52,27 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization\/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch."
+        ),
+    scout_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyScoutInstructionsMax)
+        .optional()
+        .describe(
+            "Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only."
+        ),
+    research_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyResearchInstructionsMax)
+        .optional()
+        .describe(
+            'Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.'
+        ),
+    implementation_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyImplementationInstructionsMax)
+        .optional()
+        .describe(
+            'Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.'
         ),
     issue_tracking_integration: zod
         .number()
@@ -133,6 +160,26 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
+
+export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
+    action: zod
+        .enum(['get_it_merged', 'suggested_prompt'])
+        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+        ),
+    suggested_prompt_index: zod
+        .number()
+        .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
+        .optional()
+        .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+})
+
+/**
  * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
@@ -173,10 +220,12 @@ export const signalsReportsFeedbackCreateBodyNoteMax = 4000
 
 export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
     sentiment: zod
-        .enum(['positive', 'negative'])
-        .describe('\* `positive` - positive\n\* `negative` - negative')
+        .union([
+            zod.enum(['positive', 'negative']).describe('\* `positive` - positive\n\* `negative` - negative'),
+            zod.null(),
+        ])
         .describe(
-            "The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).\n\n\* `positive` - positive\n\* `negative` - negative"
+            "The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.\n\n\* `positive` - positive\n\* `negative` - negative"
         ),
     note: zod
         .string()
@@ -504,6 +553,12 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
+
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
 export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
@@ -526,6 +581,46 @@ export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                ),
+            monitoring: zod
+                .union([
+                    zod.object({
+                        reference_period_minutes: zod
+                            .number()
+                            .gt(
+                                signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin
+                            )
+                            .max(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax)
+                            .describe(
+                                'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                            ),
+                        threshold_scaling: zod
+                            .enum(['linear', 'fixed'])
+                            .describe(
+                                'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                            ),
+                        baseline_period_minutes: zod
+                            .union([
+                                zod
+                                    .number()
+                                    .gt(
+                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
+                                    )
+                                    .max(
+                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
                 ),
             comparison: zod
                 .object({
@@ -724,7 +819,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 10
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 12
 
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -830,7 +925,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -856,7 +951,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .max(signalsScoutCreateBodyConfigOnePrecheckQueryMax)
                     .nullish()
                     .describe(
-                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
                     ),
                 enabled: zod
                     .boolean()
@@ -1025,7 +1120,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 10
+export const signalsScoutConfigCreateBodyWriteScopesMax = 12
 
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
@@ -1089,7 +1184,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -1115,7 +1210,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyPrecheckQueryMax)
             .nullish()
             .describe(
-                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -1260,7 +1355,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 10
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 12
 
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
@@ -1416,14 +1511,20 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         precheck_query: zod
             .string()
             .max(signalsScoutConfigUpdateBodyPrecheckQueryMax)
             .nullish()
             .describe(
-                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
+            ),
+        precheck_disabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null.'
             ),
         suggestion_id: zod
             .string()
@@ -1455,7 +1556,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
- * Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the saved one. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
+ * Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the effective one: the saved query, or the default the scout's skill ships. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
  * @summary Test a scout pre-check
  */
 export const signalsScoutConfigPrecheckTestBodyPrecheckQueryMax = 10000
@@ -1466,7 +1567,7 @@ export const SignalsScoutConfigPrecheckTestBody = /* @__PURE__ */ zod.object({
         .max(signalsScoutConfigPrecheckTestBodyPrecheckQueryMax)
         .nullish()
         .describe(
-            'HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.'
+            "HogQL `SELECT` to try, with the same `{since}`, `{now}` and `{interval_minutes}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the scout's effective query: its own `precheck_query`, or the default its skill ships."
         ),
 })
 
@@ -2680,6 +2781,12 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax = 527040
+
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+
 export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
@@ -2723,6 +2830,48 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                            ),
+                        monitoring: zod
+                            .union([
+                                zod.object({
+                                    reference_period_minutes: zod
+                                        .number()
+                                        .gt(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin
+                                        )
+                                        .max(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax
+                                        )
+                                        .describe(
+                                            'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                                        ),
+                                    threshold_scaling: zod
+                                        .enum(['linear', 'fixed'])
+                                        .describe(
+                                            'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                                        ),
+                                    baseline_period_minutes: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .gt(
+                                                    signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
+                                                )
+                                                .max(
+                                                    signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
                             ),
                         comparison: zod
                             .object({

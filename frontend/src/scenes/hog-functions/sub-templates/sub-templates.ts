@@ -12,13 +12,54 @@ import {
 } from '~/types'
 
 // Deep link used in error tracking alert messages. Routes through the fingerprint redirect page
-// (/error_tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
+// (/error-tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
 // Also used by the onboarding alert setup (onboardingErrorTrackingAlertsLogic) — keep the format
 // in one place so URL changes can't drift between the two surfaces.
 // encodeURLComponent mirrors JS encodeURIComponent, which leaves `(` and `)` unescaped — a `)` in a
 // fingerprint would close the surrounding markdown link `[text](url)` early, so encode them too.
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
-    `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+    `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+
+// PagerDuty has no high, medium or low severity, so the issue severity maps onto its scale.
+// The template sends error for an issue without a severity.
+const ERROR_TRACKING_PAGERDUTY_SEVERITY =
+    "{event.properties.severity == 'critical' ? 'critical' : event.properties.severity == 'high' ? 'error' : event.properties.severity == 'medium' ? 'warning' : event.properties.severity == 'low' ? 'info' : ''}"
+
+// Every PagerDuty alert also runs on the resolved event, so resolving the issue resolves the incident
+// that the alert opened. One dedup key per issue joins the two events.
+const ERROR_TRACKING_ISSUE_RESOLVED_EVENT = '$error_tracking_issue_resolved'
+
+const errorTrackingPagerDutyFilters = (triggerEvent: string): HogFunctionSubTemplateType['filters'] => ({
+    source: 'internal-events',
+    events: [
+        { id: triggerEvent, type: 'events' },
+        { id: ERROR_TRACKING_ISSUE_RESOLVED_EVENT, type: 'events' },
+    ],
+})
+
+const errorTrackingPagerDutyInputs = (
+    summary: string,
+    extraDetails: Record<string, string> = {}
+): HogFunctionSubTemplateType['inputs'] => ({
+    event_action: { value: `{event.event == '${ERROR_TRACKING_ISSUE_RESOLVED_EVENT}' ? 'resolve' : 'trigger'}` },
+    dedup_key: { value: 'posthog-error-tracking-issue-{event.distinct_id}' },
+    summary: { value: summary },
+    source: { value: '{project.name}' },
+    severity: { value: ERROR_TRACKING_PAGERDUTY_SEVERITY },
+    component: { value: 'error tracking' },
+    custom_details: {
+        value: {
+            description: '{substring(event.properties.description, 1, 500)}',
+            status: '{event.properties.status}',
+            first_seen: '{event.properties.first_seen}',
+            severity: '{event.properties.severity}',
+            ...extraDetails,
+        },
+    },
+    links: {
+        value: [{ href: errorTrackingIssueLinkHogTemplate('pagerduty'), text: 'View issue in PostHog' }],
+    },
+})
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
 // actually invoked rides on $mcp_exec_tool_call_name. Rejected calls only carry the target.
@@ -295,6 +336,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
             events: [{ id: '$data_warehouse_billing_limit_reached', type: 'events' }],
         },
         flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
+    },
+    'replay-vision-request-completed': {
+        sub_template_id: 'replay-vision-request-completed',
+        type: 'internal_destination',
+        context_id: 'replay-vision-requests',
+        filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
 }
 
@@ -1227,6 +1274,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue created',
+            description:
+                'Triggers a PagerDuty incident when an issue is created and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_created'),
+            inputs: errorTrackingPagerDutyInputs('🔴 New issue: {event.properties.name}'),
+        },
     ],
     'error-tracking-issue-reopened': [
         {
@@ -1296,6 +1352,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: 'Issue reopened: {event.properties.name}',
                 },
             },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue reopened',
+            description:
+                'Triggers a PagerDuty incident when an issue is reopened and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_reopened'),
+            inputs: errorTrackingPagerDutyInputs('🔄 Issue reopened: {event.properties.name}'),
         },
     ],
     'error-tracking-issue-spiking': [
@@ -1380,6 +1445,17 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: 'Issue spiking: {event.properties.name}',
                 },
             },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue spiking',
+            description:
+                'Triggers a PagerDuty incident when an issue is spiking and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_spiking'),
+            inputs: errorTrackingPagerDutyInputs('📈 Issue spiking: {event.properties.name}', {
+                exceptions_in_last_5_minutes: '{event.properties.current_bucket_value}',
+            }),
         },
     ],
     'experiment-significant': [
@@ -1834,6 +1910,42 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'replay-vision-request-completed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when a Replay vision request completes',
+            description: 'Send a webhook when every session in a scan request has finished',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when a Replay vision request completes',
+            description: 'Post to a Slack channel when every session in a scan request has finished',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // verbatim stops Slack turning a caller's `@channel` in the reference into a ping.
+                                verbatim: true,
+                                text: 'Replay vision request {event.properties.label_mrkdwn} finished: *{event.properties.succeeded_count}* of {event.properties.session_count} sessions succeeded.',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Replay vision request {event.properties.request_id} finished: {event.properties.succeeded_count} of {event.properties.session_count} sessions succeeded',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1889,6 +2001,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$replay_vision_alert_auto_disabled':
         case '$replay_vision_alert_match':
             return 'replay-vision-alerts'
+        case '$replay_vision_request_completed':
+            return 'replay-vision-requests'
         default:
             return 'standard'
     }

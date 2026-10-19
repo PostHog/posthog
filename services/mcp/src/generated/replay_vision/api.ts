@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 52 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -671,6 +671,115 @@ export const EnvironmentVisionQuotaSpendSeriesRetrieveParams = () => zod.object(
 })
 
 /**
+ * Scan sessions with a saved scanner or an inline question. Poll the returned request for results.
+ */
+export const VisionRequestsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionRequestsCreateBodySessionIdsItemMax = 128
+
+export const visionRequestsCreateBodySessionIdsMax = 200
+
+export const visionRequestsCreateBodyInlineOnePromptMax = 20000
+
+export const visionRequestsCreateBodyInlineOneScannerTypeDefault = `monitor`
+export const visionRequestsCreateBodyInlineOneModelDefault = `gemini-3-flash-preview`
+export const visionRequestsCreateBodyIdempotencyKeyMax = 200
+
+export const visionRequestsCreateBodyReferenceDefault = ``
+export const visionRequestsCreateBodyReferenceMax = 200
+
+export const visionRequestsCreateBodyWaitForSessionEndDefault = false
+
+export const VisionRequestsCreateBody = () => zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionRequestsCreateBodySessionIdsItemMax))
+            .max(visionRequestsCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.'
+            ),
+        scanner_id: zod
+            .string()
+            .optional()
+            .describe('A saved scanner to apply to the sessions. Pass this or `inline`, not both.'),
+        inline: zod
+            .object({
+                prompt: zod
+                    .string()
+                    .max(visionRequestsCreateBodyInlineOnePromptMax)
+                    .describe(
+                        'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
+                    ),
+                scanner_type: zod
+                    .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+                    .describe(
+                        '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneScannerTypeDefault)
+                    .describe(
+                        "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
+                    ),
+                scanner_config: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+                    ),
+                model: zod
+                    .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
+                    .describe(
+                        '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneModelDefault)
+                    .describe(
+                        'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    ),
+            })
+            .describe('A question asked inline, without saving a scanner first.')
+            .optional()
+            .describe(
+                'A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both.'
+            ),
+        idempotency_key: zod
+            .string()
+            .max(visionRequestsCreateBodyIdempotencyKeyMax)
+            .optional()
+            .describe(
+                'Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.'
+            ),
+        reference: zod
+            .string()
+            .max(visionRequestsCreateBodyReferenceMax)
+            .default(visionRequestsCreateBodyReferenceDefault)
+            .describe('Your own id for this request, such as a ticket or job id. Returned unchanged.'),
+        wait_for_session_end: zod
+            .boolean()
+            .default(visionRequestsCreateBodyWaitForSessionEndDefault)
+            .describe(
+                "Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are."
+            ),
+    })
+    .describe('Body of POST \/vision\/requests\/ - the sessions plus a saved scanner or an inline question.')
+
+/**
+ * Start scans for named sessions from code, and read their results back through one request id.
+ */
+export const VisionRequestsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this replay observation request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const VisionScannersListParams = () => zod.object({
@@ -818,6 +927,12 @@ export const VisionScannersCreateBody = () => zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -992,6 +1107,12 @@ export const VisionScannersPartialUpdateBody = () => zod
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
             ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
+            ),
         provider: zod
             .enum(['google'])
             .describe('\* `google` - Google')
@@ -1139,6 +1260,22 @@ export const VisionScannersBulkObserveCreateBody = () => zod
             ),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/bulk_observe\/.')
+
+/**
+ * Create a dashboard that charts this scanner's observations, and link it to the scanner.
+ *
+ * The tiles depend on the scanner type: who the scanner matched, which accounts they belong to,
+ * type-specific breakdowns, and the latest matching recordings. Calling it again returns the
+ * existing dashboard rather than a second one.
+ */
+export const VisionScannersCreateDashboardCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * Copy a scanner into a new disabled scanner named "<name> (copy)".
@@ -1661,7 +1798,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 10
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 12
 
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1748,7 +1885,7 @@ export const VisionScannersScoutsCreateBody = () => zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1774,7 +1911,7 @@ export const VisionScannersScoutsCreateBody = () => zod
                     .max(visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax)
                     .nullish()
                     .describe(
-                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
                     ),
                 enabled: zod
                     .boolean()
@@ -1928,6 +2065,8 @@ export const visionScannersDraftCreateBodyGoalMax = 2000
 
 export const visionScannersDraftCreateBodyMonthlyCreditBudgetMax = 100000000
 
+export const visionScannersDraftCreateBodyExperimentIdMax = 2147483647
+
 export const VisionScannersDraftCreateBody = () => zod
     .object({
         goal: zod
@@ -1941,6 +2080,14 @@ export const VisionScannersDraftCreateBody = () => zod
             .optional()
             .describe(
                 "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+            ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.'
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
@@ -2062,23 +2209,16 @@ export const VisionScannersInlineScanCreateParams = () => zod.object({
         ),
 })
 
-export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
-
-export const visionScannersInlineScanCreateBodySessionIdsMax = 200
-
 export const visionScannersInlineScanCreateBodyPromptMax = 20000
 
 export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
 export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
+export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
+
+export const visionScannersInlineScanCreateBodySessionIdsMax = 200
 
 export const VisionScannersInlineScanCreateBody = () => zod
     .object({
-        session_ids: zod
-            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
-            .max(visionScannersInlineScanCreateBodySessionIdsMax)
-            .describe(
-                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
-            ),
         prompt: zod
             .string()
             .max(visionScannersInlineScanCreateBodyPromptMax)
@@ -2108,6 +2248,12 @@ export const VisionScannersInlineScanCreateBody = () => zod
             .default(visionScannersInlineScanCreateBodyModelDefault)
             .describe(
                 'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+            ),
+        session_ids: zod
+            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
+            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')
@@ -2188,6 +2334,11 @@ export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
 export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
 
 export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+    created_by: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated user IDs. Restrict the feed to observations from scanners those users created.'),
     date_from: zod
         .string()
         .min(1)

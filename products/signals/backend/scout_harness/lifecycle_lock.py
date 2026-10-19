@@ -15,6 +15,8 @@ scout's skill stops the scout just as surely as deleting its config does.
 
 from collections.abc import Mapping
 
+from django.db.models import Subquery
+
 import structlog
 from prometheus_client import Counter
 
@@ -25,7 +27,8 @@ from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.skill_loader import resolve_scout_acting_user_id
+from products.signals.backend.scout_harness.skill_loader import earliest_member_author_id, resolve_scout_acting_user_id
+from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +49,10 @@ class ScoutLifecycleLocked(Exception):
     A plain exception rather than a DRF error, because the skills product raises it from an MCP
     tool as well as from an endpoint, and each entrypoint renders it its own way.
     """
+
+
+class ScoutConfigNameTaken(Exception):
+    """A skill rename would move a scout's config onto a name another config already holds."""
 
 
 def resolve_auth_kind(authenticator: object) -> str:
@@ -87,6 +94,25 @@ def lock_protected_changes(requested: object, *, config: SignalScoutConfig | Non
     return changed if config.lifecycle_locked or "lifecycle_locked" in changed else []
 
 
+def resolve_scout_lifecycle_owner_id(team: Team, skill_name: str, config: SignalScoutConfig) -> int | None:
+    """The person the lock protects: the acting user, also after the skill is archived.
+
+    The delete flow archives the skill before it deletes the config. The acting-user lookup reads
+    live versions only, so without this fallback the skill author loses the claim between the two
+    steps and gets a refusal for their own scout. Only the most recent archive counts: an archive
+    stamps one `updated_at` on every version it tombstones, and an older skill that once used the
+    name must not give its author the claim.
+    """
+    if LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
+        return resolve_scout_acting_user_id(team, skill_name, config)
+    archived = LLMSkill.objects.filter(team=team, name=skill_name, deleted=True)
+    last_archive = archived.filter(updated_at=Subquery(archived.order_by("-updated_at").values("updated_at")[:1]))
+    archived_author_id = earliest_member_author_id(team, last_archive)
+    if archived_author_id is not None:
+        return archived_author_id
+    return resolve_scout_acting_user_id(team, skill_name, config)
+
+
 def user_holds_scout_lifecycle_claim(
     *,
     team: Team,
@@ -103,7 +129,7 @@ def user_holds_scout_lifecycle_claim(
     level = UserPermissions(user=user, team=team).current_team.effective_membership_level
     if level is not None and level >= OrganizationMembership.Level.ADMIN:
         return True
-    return resolve_scout_acting_user_id(team, skill_name, config) == user.pk
+    return resolve_scout_lifecycle_owner_id(team, skill_name, config) == user.pk
 
 
 def record_lifecycle_refusal(
@@ -128,6 +154,33 @@ def record_lifecycle_refusal(
     )
 
 
+def _refuse_without_claim(
+    *,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig,
+    user: User,
+    authenticator: object,
+    action: str,
+    verb: str,
+) -> None:
+    """Raise `ScoutLifecycleLocked` for a locked scout unless the caller holds its claim."""
+    if not config.lifecycle_locked:
+        return
+    if user_holds_scout_lifecycle_claim(team=team, skill_name=skill_name, config=config, user=user):
+        return
+    record_lifecycle_refusal(
+        team=team,
+        skill_name=skill_name,
+        action=action,
+        auth_kind=resolve_auth_kind(authenticator),
+        user_id=user.pk,
+    )
+    raise ScoutLifecycleLocked(
+        f"This scout is locked, so only the person its runs act as or a project admin can {verb} it."
+    )
+
+
 def assert_can_archive_scout_skill(
     *,
     team: Team,
@@ -145,17 +198,54 @@ def assert_can_archive_scout_skill(
     """
     scoped_team = canonical_team(team)
     config = SignalScoutConfig.objects.for_team(scoped_team.id).filter(skill_name=skill_name).first()
-    if config is None or not config.lifecycle_locked:
+    if config is None:
         return
-    if user_holds_scout_lifecycle_claim(team=scoped_team, skill_name=skill_name, config=config, user=user):
-        return
-    record_lifecycle_refusal(
+    _refuse_without_claim(
         team=scoped_team,
         skill_name=skill_name,
+        config=config,
+        user=user,
+        authenticator=authenticator,
         action="archive_skill",
-        auth_kind=resolve_auth_kind(authenticator),
-        user_id=user.pk,
+        verb="delete",
     )
-    raise ScoutLifecycleLocked(
-        "This scout is locked, so only the person its runs act as or a project admin can delete it."
-    )
+
+
+def rename_scout_with_skill(
+    *,
+    team: Team,
+    skill_name: str,
+    new_name: str,
+    user: User | None,
+    authenticator: object = None,
+) -> None:
+    """Move a scout's config to its skill's new name, behind the same gate as archiving.
+
+    The config is keyed on the skill name. A rename that left it behind would orphan the config
+    and stop the scout, so a rename removes a scout as surely as an archive does. Call it inside
+    the rename transaction, before the skill rows move: the owner lookup reads the old name.
+
+    A no-op for a skill that is not a scout. A caller with no acting user is a system path, so it
+    is not gated.
+    """
+    scoped_team = canonical_team(team)
+    configs = SignalScoutConfig.objects.for_team(scoped_team.id)
+    config = configs.select_for_update().filter(skill_name=skill_name).first()
+    if config is None:
+        return
+    if user is not None:
+        _refuse_without_claim(
+            team=scoped_team,
+            skill_name=skill_name,
+            config=config,
+            user=user,
+            authenticator=authenticator,
+            action="rename_skill",
+            verb="rename",
+        )
+    if configs.filter(skill_name=new_name).exists():
+        raise ScoutConfigNameTaken(
+            "Another scout config already uses this name. Delete that config or pick another name."
+        )
+    config.skill_name = new_name
+    config.save(update_fields=["skill_name", "updated_at"])

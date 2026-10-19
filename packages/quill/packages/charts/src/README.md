@@ -93,8 +93,8 @@ what to do with the range (typically updating a date filter).
 />
 ```
 
-The cursor switches to `crosshair` while enabled, except over an
-actionable point (`onPointClick` is set) where it stays `pointer`. A
+The cursor switches to `crosshair` while enabled, except over a
+clickable point (`onPointClick` set, and `isPointClickable` passes) where it stays `pointer`. A
 plain click without movement still pins the tooltip or fires `onPointClick`.
 
 ## Custom overlays

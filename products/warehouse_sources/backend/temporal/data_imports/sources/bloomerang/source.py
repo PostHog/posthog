@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeConfig]):
+    codebase_detection = detect(env=("^BLOOMERANG_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # The source has always spoken Bloomerang's current v2 REST API on the wire (BASE_URL ends in
@@ -124,7 +127,7 @@ class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeC
             category=DataWarehouseSourceCategory.CRM,
             keywords=["donor", "nonprofit", "fundraising"],
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Bloomerang private API key to pull your donor database into the PostHog Data warehouse, including constituents, transactions, interactions, appeals, campaigns, and funds.
+            caption="""Enter your Bloomerang private API key to pull your donor database into the PostHog Data warehouse, including constituents, households, phones, transactions, refunds, soft credits, interactions, appeals, campaigns, and funds.
 
 Generate a private API key under **Settings → User Settings → API Keys** in your Bloomerang account. This key grants full read/write access to your Bloomerang data, so keep it secret.""",
             iconPath="/static/services/bloomerang.png",

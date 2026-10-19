@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightModel } from '~/types'
@@ -16,6 +17,9 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     /** The name the toast shows. It defaults to `object.name`, which the request body also sends. */
     label?: string
     callback?: (undo: boolean, object: T) => void
+    /** Runs when the request fails, so a caller that removed the object from its state before the
+     * request can put it back. */
+    onError?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -43,6 +47,7 @@ export async function deleteWithUndo<T extends Record<string, any>>({
         // Show error toast with the error message from the API
         const errorMessage = error.detail || error.message || 'Failed to delete'
         lemonToast.error(errorMessage)
+        props.onError?.(undo, props.object)
     }
 }
 
@@ -62,6 +67,11 @@ export async function deleteInsightWithUndo({
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
             ...props.object,
+            // The body is the whole insight, so it carries the insight's dashboards too. An explicit
+            // `dashboards` on the object replaces the list read from the tiles.
+            dashboards:
+                props.object.dashboards ??
+                (props.object.dashboard_tiles ? liveDashboardIds(props.object.dashboard_tiles) : undefined),
             deleted: !undo,
         })
         props.callback?.(undo, props.object)
