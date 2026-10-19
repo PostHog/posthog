@@ -717,6 +717,7 @@ impl Harness {
             common::PRODUCTION_PACK_TARGETS,
             None,
             CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
         )
         .await
     }
@@ -748,6 +749,7 @@ impl Harness {
                 attempts: BUDGET_ATTEMPTS,
             }),
             CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
         )
         .await
     }
@@ -774,6 +776,7 @@ impl Harness {
             pack_targets,
             None,
             CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
         )
         .await
     }
@@ -799,6 +802,7 @@ impl Harness {
             common::ONE_MESSAGE_PER_REQUEST,
             None,
             CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
         )
         .await
     }
@@ -819,6 +823,7 @@ impl Harness {
             common::PRODUCTION_PACK_TARGETS,
             None,
             CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
         )
         .await
     }
@@ -829,6 +834,25 @@ impl Harness {
         partitions: i32,
         worker_count: usize,
         max_in_flight: usize,
+    ) -> Self {
+        Self::start_group_granularity_committing_every(
+            pack_targets,
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            COMMIT_INTERVAL,
+        )
+        .await
+    }
+
+    async fn start_group_granularity_committing_every(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        commit_interval: Duration,
     ) -> Self {
         Self::start_inner(
             topic,
@@ -842,6 +866,7 @@ impl Harness {
             pack_targets,
             None,
             CompletionGranularity::Group,
+            commit_interval,
         )
         .await
     }
@@ -859,6 +884,7 @@ impl Harness {
         pack_targets: PackTargets,
         budget: Option<RequestBudget>,
         completion_granularity: CompletionGranularity,
+        commit_interval: Duration,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -912,7 +938,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
                 completion_granularity,
-                commit_interval: COMMIT_INTERVAL,
+                commit_interval,
                 ledger: Arc::clone(&ledger),
             },
             handle,
@@ -1036,20 +1062,7 @@ impl Harness {
     /// The group's committed offset for one partition of the harness topic;
     /// `None` while nothing is committed.
     fn committed_offset(&self, partition: i32) -> Option<i64> {
-        let probe: BaseConsumer = ClientConfig::new()
-            .set("bootstrap.servers", KAFKA_BROKERS)
-            .set("group.id", &self.group_id)
-            .create()
-            .expect("committed-offset probe");
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition(&self.topic, partition);
-        let committed = probe
-            .committed_offsets(tpl, Duration::from_secs(2))
-            .expect("fetch committed offsets");
-        match committed.elements()[0].offset() {
-            rdkafka::Offset::Offset(offset) => Some(offset),
-            _ => None,
-        }
+        broker_committed_offset(&self.group_id, &self.topic, partition)
     }
 
     async fn wait_for(&self, total: usize, timeout: Duration) {
@@ -1153,6 +1166,23 @@ fn fast_registry_config() -> WorkerRegistryConfig {
 }
 
 /// Poll `cond` until it returns true or the timeout elapses (panics on timeout).
+fn broker_committed_offset(group_id: &str, topic: &str, partition: i32) -> Option<i64> {
+    let probe: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", group_id)
+        .create()
+        .expect("committed-offset probe");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(topic, partition);
+    let committed = probe
+        .committed_offsets(tpl, Duration::from_secs(2))
+        .expect("fetch committed offsets");
+    match committed.elements()[0].offset() {
+        rdkafka::Offset::Offset(offset) => Some(offset),
+        _ => None,
+    }
+}
+
 async fn wait_until(timeout: Duration, msg: &str, mut cond: impl FnMut() -> bool) {
     let deadline = tokio::time::Instant::now() + timeout;
     while !cond() {
@@ -2583,6 +2613,51 @@ async fn group_granularity_commits_the_ledger_frontier() {
     assert_commits_track_the_ledger_frontier(
         Harness::start_group_granularity(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, 1).await,
     )
+    .await;
+}
+
+#[tokio::test]
+async fn group_granularity_commits_the_pending_frontier_on_stop() {
+    let topic = format!("e2e-group-stop-commit-{}", Uuid::new_v4());
+    let harness = Harness::start_group_granularity_committing_every(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(3600),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let producer = make_producer();
+
+    produce(&producer, &topic, 0, "tok", "user-a", 0).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the first frontier to commit",
+        || harness.committed_offset(0) == Some(1),
+    )
+    .await;
+
+    for seq in 1..10usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "every message to settle", || {
+        harness.workers[0].count() == 10 && harness.ledger.held(&p0).offsets == 0
+    })
+    .await;
+    assert_eq!(
+        harness.committed_offset(0),
+        Some(1),
+        "the interval holds the later frontier"
+    );
+
+    let group_id = harness.group_id.clone();
+    harness.stop().await;
+
+    wait_until(Duration::from_secs(10), "the stop to commit", || {
+        broker_committed_offset(&group_id, &topic, 0) == Some(10)
+    })
     .await;
 }
 
