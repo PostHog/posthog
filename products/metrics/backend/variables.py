@@ -203,8 +203,10 @@ class _PromQLScanner:
                 before = self.index - 1
                 while before >= 0 and expr[before].isspace():
                     before -= 1
-                self.in_regex = before >= 1 and expr[before] == "~" and expr[before - 1] in "=!"
-                self.in_replacement = bool(self.groups) and self.groups[-1] == ["(", "label_replace", 2]
+                call = self.groups[-1] if self.groups else None
+                after_matcher = before >= 1 and expr[before] == "~" and expr[before - 1] in "=!"
+                self.in_regex = after_matcher or call == ["(", "label_replace", 4]
+                self.in_replacement = call == ["(", "label_replace", 2]
             self.index += 1
         if self.quote is None and self.index > position:
             return None
