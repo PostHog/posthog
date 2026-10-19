@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
+from ..facade.evaluation_signals import evaluation_output_changed
 from .evaluation_configs import (
     EVALUATION_CONFIG_MODELS,
     EvaluationType,
@@ -146,6 +147,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
+    _output_changed_on_save = False
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Snapshot of the fields as last loaded / saved — used by _coerce_status_and_enabled to know which
@@ -227,6 +230,16 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self.status_reason_detail = reason_detail
         self.save(update_fields=["status", "status_reason", "status_reason_detail", "enabled", "updated_at"])
 
+    def _output_differs_from_stored(self) -> bool:
+        if self._state.adding:
+            return True
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id)
+            .values_list("output_type", "output_config")
+            .first()
+        )
+        return stored != (self.output_type, self.output_config)
+
     def _condition_filters_changed(self) -> bool:
         # Compare against the stored row, not an in-memory snapshot, so in-place edits count as changes.
         if self._state.adding:
@@ -302,6 +315,10 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             raise ValidationError({"conditions": compile_error})
 
         self.conditions = compiled_conditions
+        # Compared against the stored row for the same reason as the condition filters. Only a save that writes an
+        # output field can change the pass rules.
+        writes_output = update_fields is None or bool({"output_type", "output_config"} & set(update_fields))
+        self._output_changed_on_save = writes_output and self._output_differs_from_stored()
         result = super().save(*args, **kwargs)
         # Refresh the baseline so the next save cycle compares against the post-save state.
         self._initial_enabled = self.enabled
@@ -328,4 +345,18 @@ def evaluation_saved(sender, instance, created, **kwargs):
     # on_commit fires synchronously, preserving prior behavior.
     team_id = instance.team_id
     evaluation_id = str(instance.id)
+    # Registered before the worker reload, because an on_commit callback that raises stops the ones after it.
+    if instance._output_changed_on_save:
+        transaction.on_commit(lambda: _notify_evaluation_output_changed(team_id))
     transaction.on_commit(lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=[evaluation_id]))
+
+
+def _notify_evaluation_output_changed(team_id: int) -> None:
+    for receiver_fn, response in evaluation_output_changed.send_robust(sender=Evaluation, team_id=team_id):
+        if isinstance(response, Exception):
+            logger.error(
+                "evaluation_output_changed_receiver_failed",
+                receiver=getattr(receiver_fn, "__qualname__", repr(receiver_fn)),
+                team_id=team_id,
+                exc_info=response,
+            )
