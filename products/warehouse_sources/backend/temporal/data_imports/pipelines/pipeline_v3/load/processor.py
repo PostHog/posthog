@@ -114,6 +114,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -355,34 +356,7 @@ def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: Ex
     return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
 
 
-def _rebuild_compaction_enabled(schema: ExternalDataSchema) -> bool:
-    """Evaluate the rebuild compaction flag. Any evaluation failure returns False: the post-load pass
-    still compacts the run, as it did before the flag existed."""
-    try:
-        team = schema.team
-        return bool(
-            posthoganalytics.feature_enabled(
-                REBUILD_COMPACTION_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                person_properties={
-                    "schema_id": str(schema.id),
-                    "team_id": str(team.id),
-                    "source_type": str(schema.source.source_type),
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
-
-
-def _compacts_during_rebuild(
+def _rebuild_compaction_due(
     export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
 ) -> bool:
     """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
@@ -399,7 +373,7 @@ def _compacts_during_rebuild(
         and not _partial_data_loading_applies(export_signal, schema)
         and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
         and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
-        and _rebuild_compaction_enabled(schema)
+        and is_schema_flag_enabled(schema, REBUILD_COMPACTION_FLAG)
     )
 
 
@@ -1132,33 +1106,15 @@ def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
 
 
 def _compact_during_rebuild(
-    delta_table_ref: DeltaTableRef,
-    export_signal: ExportSignalMessage,
-    verify_ownership: Callable[[], None] | None,
-    timer: BatchStepTimer,
+    delta_table_ref: DeltaTableRef, verify_ownership: Callable[[], None] | None, timer: BatchStepTimer
 ) -> None:
-    # The batch is committed and marked processed, so a failed compaction must not fail it: the next
-    # check, or the post-load pass, compacts the same files.
     if verify_ownership is not None:
         verify_ownership()
     report_phase("compact_during_rebuild")
-    outcome = "skipped"
     with timer.step("compact_during_rebuild"):
-        try:
-            if async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_rebuild)(
-                settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES
-            ):
-                outcome = "compacted"
-        except Exception as e:
-            outcome = "failed"
-            logger.warning(
-                "compact_during_rebuild_failed",
-                team_id=export_signal.team_id,
-                external_data_schema_id=export_signal.schema_id,
-                batch_index=export_signal.batch_index,
-                error=str(e),
-            )
-            capture_exception(e)
+        outcome = async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_rebuild)(
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES
+        )
     DELTA_COMPACT_DURING_REBUILD_TOTAL.labels(outcome=outcome).inc()
 
 
@@ -1550,8 +1506,8 @@ def _process_message_reported(
             finals = final_run_signals(constituents)
         else:
             finals = [export_signal] if export_signal.is_final_batch else []
-        if not finals and _compacts_during_rebuild(export_signal, schema, members):
-            _compact_during_rebuild(delta_table_ref, export_signal, verify_ownership, timer)
+        if not finals and _rebuild_compaction_due(export_signal, schema, members):
+            _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
         for run_signal in finals:
             run_job = job if run_signal.job_id == export_signal.job_id else _load_job(run_signal.job_id)
             run_schema = run_job.schema

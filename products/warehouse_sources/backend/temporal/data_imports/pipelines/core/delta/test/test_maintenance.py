@@ -18,6 +18,7 @@ import deltalite
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
     DeltaLiteHandleCache,
 )
@@ -645,6 +646,7 @@ class TestDeltaliteCompaction:
             commit_metadata={"compact_engine": "deltalite", "job_id": "job-1"},
             min_partition_removable_files=1,
             max_bins_per_commit=COMPACT_MAX_BINS_PER_COMMIT,
+            partitions=None,
         )
         assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
         [done] = self._info_calls(table_ref, "compact: done")
@@ -704,7 +706,7 @@ class TestDeltaliteCompaction:
         ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class, enabled=enabled)
 
         assert ran is True
-        delta_rs_compact.assert_awaited_once_with(refreshed if enabled else first, _DEFAULT_PLAN)
+        delta_rs_compact.assert_awaited_once_with(refreshed if enabled else first, _DEFAULT_PLAN, partitions=None)
         assert table_ref.note_deltalite_commit.called is (expected_reason == "deltalite_error")
         fallbacks = self._info_calls(table_ref, "compact: falling back to delta-rs")
         assert [call["compact_fallback_reason"] for call in fallbacks] == ([expected_reason] if expected_reason else [])
@@ -756,39 +758,62 @@ class TestCompactDuringRebuild:
             for i in range(files_per_partition):
                 deltalake.write_deltalake(
                     path,
-                    pa.table({"p": [f"b{part:02d}"], "id": [part * 1000 + i]}),
+                    pa.table({PARTITION_KEY: [str(part)], "id": [part * 1000 + i]}),
                     mode="append",
-                    partition_by=["p"],
+                    partition_by=[PARTITION_KEY],
                 )
 
     @parameterized.expand(
         [
-            # Two partitions of seven tiny files: a compaction removes six files from each.
-            ("below_the_budget_delta_rs", False, 13, False),
-            ("at_the_budget_delta_rs", False, 12, True),
-            ("below_the_budget_deltalite", True, 13, False),
-            ("at_the_budget_deltalite", True, 12, True),
+            # Seven tiny files per partition: a compaction removes six files from each.
+            ("below_the_budget_delta_rs", False, 2, 13, "skipped", 14),
+            ("at_the_budget_delta_rs", False, 2, 12, "compacted", 2),
+            ("below_the_budget_deltalite", True, 2, 13, "skipped", 14),
+            ("at_the_budget_deltalite", True, 2, 12, "compacted", 2),
+            # A backlog over the budget compacts only the partitions that reach it.
+            ("backlog_capped_delta_rs", False, 4, 12, "compacted", 2 + 2 * 7),
+            ("backlog_capped_deltalite", True, 4, 12, "compacted", 2 + 2 * 7),
         ]
     )
     @pytest.mark.asyncio
-    async def test_compacts_once_enough_files_are_removable(
-        self, _name: str, deltalite_engine: bool, budget: int, expected_ran: bool
+    async def test_compacts_up_to_the_budget(
+        self, _name: str, deltalite_engine: bool, partitions: int, budget: int, outcome: str, files_after: int
     ):
         with (
             tempfile.TemporaryDirectory() as path,
             override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=deltalite_engine),
         ):
-            self._fill(path, partitions=2, files_per_partition=7)
-            version_before = deltalake.DeltaTable(path).version()
+            self._fill(path, partitions=partitions, files_per_partition=7)
             rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
 
-            ran = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=budget)
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
+                min_removable_files=budget
+            )
 
             table = deltalake.DeltaTable(path)
-            assert ran is expected_ran
-            assert (table.version() > version_before) is expected_ran
-            assert len(table.file_uris()) == (2 if expected_ran else 14)
+            assert result == outcome
+            assert len(table.file_uris()) == files_after
             assert table.to_pyarrow_table().sort_by("id").to_pydict() == rows_before
+
+    @parameterized.expand(
+        [
+            ("transient_object_store_error", TransientObjectStoreError("throttled"), False),
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_failed_pass_is_reported_and_never_raises(self, _name: str, error: Exception, expect_capture: bool):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            patch.object(DeltaMaintenance, "_compact", AsyncMock(side_effect=error)),
+            patch(f"{_MAINTENANCE_MODULE}.capture_exception") as capture,
+        ):
+            self._fill(path, partitions=2, files_per_partition=7)
+
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=1)
+
+            assert result == "failed"
+            assert capture.called is expect_capture
 
     @pytest.mark.asyncio
     async def test_deltalite_commits_a_long_compaction_in_chunks(self):
@@ -800,10 +825,10 @@ class TestCompactDuringRebuild:
             self._fill(path, partitions=3, files_per_partition=4)
             version_before = deltalake.DeltaTable(path).version()
 
-            ran = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=1)
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=9)
 
             table = deltalake.DeltaTable(path)
-            assert ran is True
+            assert result == "compacted"
             assert table.version() - version_before == 3
             assert len(table.file_uris()) == 3
 

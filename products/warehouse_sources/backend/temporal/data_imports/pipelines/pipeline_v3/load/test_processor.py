@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
@@ -39,13 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
-    _compacts_during_rebuild,
     _enrich_cdc_rows,
     _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _rebuild_compaction_due,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
@@ -2036,14 +2035,13 @@ class TestCompactionDuringRebuild:
     ) -> None:
         signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
         members = members or [(signal.run_uuid, signal.batch_index)]
-        with patch(f"{_PROCESSOR}.posthoganalytics.feature_enabled", return_value=True):
-            assert _compacts_during_rebuild(signal, self._schema(source_type or "Postgres"), members) is expected
+        with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=True):
+            assert _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), members) is expected
 
-    @parameterized.expand([("flag_off", False, None), ("flag_evaluation_fails", None, RuntimeError("flags down"))])
-    def test_the_flag_turns_it_off(self, _name: str, enabled: bool | None, error: Exception | None) -> None:
+    def test_the_flag_turns_it_off(self) -> None:
         signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
-        with patch(f"{_PROCESSOR}.posthoganalytics.feature_enabled", return_value=enabled, side_effect=error):
-            assert _compacts_during_rebuild(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+        with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=False):
+            assert _rebuild_compaction_due(signal, self._schema(), [(signal.run_uuid, 10)]) is False
 
     def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
         write_deltalake(table_path, TestTableHandleReuse._SEED)
@@ -2051,7 +2049,7 @@ class TestCompactionDuringRebuild:
             override_settings(DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES=3),
             patch(f"{_PROCESSOR}.REBUILD_COMPACT_CHECK_EVERY", 5),
             TestTableHandleReuse()._loader(table_path, []),
-            patch(f"{_PROCESSOR}.posthoganalytics.feature_enabled", return_value=enabled),
+            patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=enabled),
         ):
             for index in range(first_index, first_index + 12):
                 process_message(TestTableHandleReuse._batch(index, sync_type=sync_type))
@@ -2076,15 +2074,3 @@ class TestCompactionDuringRebuild:
                 == off_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
             )
             assert (len(on_table.file_uris()) < len(off_table.file_uris())) is compacts
-
-    def test_a_failed_compaction_does_not_fail_the_batch(self) -> None:
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            patch.object(
-                DeltaMaintenance, "compact_during_rebuild", AsyncMock(side_effect=RuntimeError("boom"))
-            ) as compact,
-        ):
-            self._load(tmp, "full_refresh", 0, enabled=True)
-
-            assert compact.await_count == 2
-            assert DeltaTable(tmp).to_pyarrow_table().num_rows == 12 * 3

@@ -6,7 +6,7 @@ import datetime as dt
 import resource
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from django.conf import settings
 
@@ -23,6 +23,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
     get_handle_cache,
 )
@@ -41,6 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_object_store_permission_denied,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import _delta_table_identity
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    partition_key_from_add_path,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     note_post_load_phase,
     recorded_phase,
@@ -107,6 +111,8 @@ _COMPACT_RATIO_SAMPLE_FILES = 2
 # deltalite commits after this many bins instead of once at the end. A pass that a deploy or the load
 # worker's stuck-batch timeout stops then keeps the bins it finished, and the next pass plans only the rest.
 COMPACT_MAX_BINS_PER_COMMIT = 16
+
+RebuildCompactOutcome = Literal["compacted", "skipped", "failed"]
 
 
 @frozen
@@ -215,6 +221,8 @@ def removable_file_count(file_sizes: Iterable[int], target_size: int = DEFAULT_C
 
 @frozen
 class _PartitionFileStats:
+    # The `_ph_partition_key` value, or None for an unpartitioned table and the null partition.
+    key: str | None
     size_bytes: int
     removable_files: int
 
@@ -229,11 +237,29 @@ def _partition_file_stats(
         sizes[path.rpartition("/")[0]].append(size or 0)
     return [
         _PartitionFileStats(
+            key=partition_key_from_add_path(directory),
             size_bytes=sum(partition_sizes),
             removable_files=removable_file_count(partition_sizes, target_size),
         )
-        for partition_sizes in sizes.values()
+        for directory, partition_sizes in sizes.items()
     ]
+
+
+def _partitions_up_to(partitions: list[_PartitionFileStats], removable_files: int) -> list[str] | None:
+    """The partitions with the most removable files, until together they reach `removable_files`.
+
+    None means the whole table: it has no partition column, or every partition is needed anyway.
+    """
+    selected: list[str] = []
+    reached = 0
+    for partition in sorted(partitions, key=lambda p: p.removable_files, reverse=True):
+        if reached >= removable_files:
+            break
+        if partition.key is None:
+            return None
+        selected.append(partition.key)
+        reached += partition.removable_files
+    return selected if len(selected) < len(partitions) else None
 
 
 @frozen
@@ -445,7 +471,9 @@ class DeltaMaintenance:
         return plan_compaction(ratio, get_governor().slot_budget_mb())
 
     @recorded_phase("compact")
-    async def _compact(self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None) -> bool:
+    async def _compact(
+        self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None, *, partitions: list[str] | None = None
+    ) -> bool:
         plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
         if target_size is None:
@@ -472,6 +500,12 @@ class DeltaMaintenance:
         while True:
 
             def _compact_op(size: int = target_size, tasks: int | None = max_concurrent_tasks) -> dict[str, Any]:
+                if partitions:
+                    return table.optimize.compact(
+                        partition_filters=[(PARTITION_KEY, "in", partitions)],
+                        target_size=size,
+                        max_concurrent_tasks=tasks,
+                    )
                 return table.optimize.compact(target_size=size, max_concurrent_tasks=tasks)
 
             try:
@@ -510,7 +544,9 @@ class DeltaMaintenance:
         await self._logger.adebug(json.dumps(compact_stats))
         return True
 
-    async def _compact_with_deltalite(self, table: deltalake.DeltaTable) -> bool | None:
+    async def _compact_with_deltalite(
+        self, table: deltalake.DeltaTable, *, partitions: list[str] | None = None
+    ) -> bool | None:
         """Compact through deltalite's native compaction. None means delta-rs must compact instead.
 
         deltalite streams each bin under byte budgets and caps every output file by its decoded size,
@@ -540,6 +576,7 @@ class DeltaMaintenance:
             "commit_metadata": {"compact_engine": "deltalite", "job_id": str(self._table.job.id)},
             "min_partition_removable_files": 1,
             "max_bins_per_commit": COMPACT_MAX_BINS_PER_COMMIT,
+            "partitions": partitions,
         }
 
         def _run() -> dict[str, Any]:
@@ -756,61 +793,88 @@ class DeltaMaintenance:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
 
+        return await self._compact_table(
+            table,
+            lambda planned: triggered(_small_file_fragmentation(planned, table_wide_small_files)),
+            pass_name="compact_if_fragmented",
+            stats=stats,
+        )
+
+    async def _compact_table(
+        self,
+        table: deltalake.DeltaTable,
+        triggered: Callable[[list[_PartitionFileStats]], bool],
+        *,
+        pass_name: str,
+        stats: str,
+        partitions: list[str] | None = None,
+    ) -> bool:
+        """Compact with deltalite when it is on, else with delta-rs. `partitions` limits the pass."""
         if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
-            await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-            compacted = await self._compact_with_deltalite(table)
+            await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
+            compacted = await self._compact_with_deltalite(table, partitions=partitions)
             if compacted is not None:
                 return compacted
-            table = await self._table.get_delta_table()
-            if table is None:
+            reread = await self._table.get_delta_table()
+            if reread is None:
                 return False
+            table = reread
 
         plan = await self._plan_compaction(table)
         if plan.target_size is None:
-            await self._compact(table, plan)
+            await self._compact(table, plan, partitions=partitions)
             return False
 
         if plan.target_size != DEFAULT_COMPACT_TARGET_SIZE_BYTES:
             # A smaller bin can merge fewer of the files, so the trigger must hold at the planned size too.
-            partitions = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
-            if not triggered(_small_file_fragmentation(partitions, table_wide_small_files)):
+            planned = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
+            if not triggered(planned):
                 await self._logger.adebug(
-                    f"compact_if_fragmented: skipping; no files are removable at planned target_size="
-                    f"{plan.target_size} ({stats})"
+                    f"{pass_name}: skipping; no files are removable at planned target_size={plan.target_size} ({stats})"
                 )
                 return False
 
-        await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        return await self._compact(table, plan)
+        await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
+        return await self._compact(table, plan, partitions=partitions)
 
-    async def compact_during_rebuild(self, min_removable_files: int) -> bool:
+    async def compact_during_rebuild(self, min_removable_files: int) -> RebuildCompactOutcome:
         """Compact a table that a rebuild run is still loading, once a compaction removes enough files.
 
-        A rebuild run replaced the table at its first batch, so every file here is one that the same
-        run wrote. The trigger counts the files a compaction is sure to remove, which bounds the work
-        of one pass at any partition count. Returns True if compaction ran.
+        A rebuild run loads the table from empty, so every file here is one that the same run wrote.
+        One pass compacts only the partitions with the most removable files, up to
+        `min_removable_files`, so a backlog takes several passes instead of one long batch. Never
+        raises an `Exception`: the batch is committed, and the next check or the post-load pass
+        compacts the same files.
         """
-        table = await self._table.get_delta_table()
-        if table is None:
-            return False
-
-        partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
-        removable_files = sum(partition.removable_files for partition in partitions)
-        if removable_files < min_removable_files:
-            return False
-
-        await self._logger.ainfo(
-            f"compact_during_rebuild: triggering compact (removable_files={removable_files}, "
-            f"partitions={len(partitions)}, min_removable_files={min_removable_files})"
-        )
-        if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
-            compacted = await self._compact_with_deltalite(table)
-            if compacted is not None:
-                return compacted
+        try:
             table = await self._table.get_delta_table()
             if table is None:
-                return False
-        return await self._compact(table)
+                return "skipped"
+
+            partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+            removable_files = _small_file_fragmentation(partitions, table_wide_small_files=False).total_removable
+            if removable_files < min_removable_files:
+                return "skipped"
+
+            selected = _partitions_up_to(partitions, min_removable_files)
+            compacted = await self._compact_table(
+                table,
+                lambda planned: (
+                    _small_file_fragmentation(planned, table_wide_small_files=False).total_removable
+                    >= min_removable_files
+                ),
+                pass_name="compact_during_rebuild",
+                stats=(
+                    f"removable_files={removable_files}, partitions={len(partitions)}, "
+                    f"selected_partitions={len(selected) if selected is not None else 'all'}, "
+                    f"min_removable_files={min_removable_files}"
+                ),
+                partitions=selected,
+            )
+            return "compacted" if compacted else "skipped"
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="compact_during_rebuild")
+            return "failed"
 
     def _vacuumed_during_job(self, watermarks: VacuumWatermarks) -> bool:
         # The pre-write pass vacuums before it writes, and it never checks small files. The post-load
