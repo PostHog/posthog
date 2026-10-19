@@ -691,6 +691,43 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.map((prop) => prop.group_type_index)).toEqual([1, 0])
     })
 
+    it('moves a person set to group aggregation when no single stored set holds every typed group property', () => {
+        const otherSet = {
+            properties: [
+                { key: 'plan', type: 'person', operator: 'exact', value: 'free' },
+                { key: 'country', type: 'group', group_type_index: 0, operator: 'exact', value: 'CA' },
+            ],
+            rollout_percentage: 50,
+        }
+        const existing = {
+            groups: [
+                {
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'business' },
+                        { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                    ],
+                    rollout_percentage: 50,
+                },
+                otherSet,
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                {
+                    properties: [
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'free' },
+                        { key: 'country', type: 'group', group_type_index: 0, operator: 'exact', value: 'CA' },
+                    ],
+                    rollout_percentage: 50,
+                },
+                otherSet,
+            ],
+        })
+
+        expect(merged?.groups?.map((group) => group.aggregation_group_type_index ?? null)).toEqual([0, null])
+    })
+
     const onGroupType0 = { type: 'group', group_type_index: 0 }
     const onGroupType1 = { type: 'group', group_type_index: 1 }
     const planOnTwoGroupTypes = [
@@ -743,7 +780,42 @@ describe('preserveGroupTargetingFilters', () => {
                 { ...onGroupType1, value: 'pro' },
             ],
             values: ['pro', 'enterprise', 'pro'],
-            restored: [{}, onGroupType0, onGroupType1],
+            restored: [{}, onGroupType0, {}],
+        },
+        {
+            name: 'two sets with one filter on different group types trade rollouts',
+            stored: [
+                { ...onGroupType0, value: 'business' },
+                { ...onGroupType1, value: 'business' },
+            ],
+            storedRollouts: [100, 0],
+            values: ['business', 'business'],
+            sentRollouts: [0, 100],
+            restored: [{}, {}],
+        },
+        {
+            name: 'a set changes only its rollout',
+            values: ['enterprise', 'pro'],
+            sentRollouts: [50, 100],
+            restored: [onGroupType0, onGroupType1],
+        },
+        {
+            name: 'the agent deletes one of two sets that differ only in property type',
+            stored: [
+                { ...onGroupType1, value: 'pro' },
+                { type: 'person', value: 'pro' },
+            ],
+            values: ['pro'],
+            restored: [{}],
+        },
+        {
+            name: 'the agent echoes two sets that differ only in property type',
+            stored: [
+                { ...onGroupType1, value: 'pro' },
+                { type: 'person', value: 'pro' },
+            ],
+            values: ['pro', 'pro'],
+            restored: [onGroupType1, { type: 'person' }],
         },
         {
             name: 'the agent types both properties after the sets trade places',
@@ -753,18 +825,18 @@ describe('preserveGroupTargetingFilters', () => {
         },
     ])(
         'merges a group property that two person-aggregated sets hold when $name',
-        ({ stored = planOnTwoGroupTypes, values, typed = [], restored }) => {
+        ({ stored = planOnTwoGroupTypes, storedRollouts = [], values, sentRollouts = [], typed = [], restored }) => {
             const existing = {
-                groups: stored.map((property) => ({
+                groups: stored.map((property, index) => ({
                     properties: [{ key: 'plan', operator: 'exact', ...property }],
-                    rollout_percentage: 100,
+                    rollout_percentage: storedRollouts[index] ?? 100,
                 })),
             }
 
             const merged = preserveGroupTargetingFilters(existing, {
                 groups: values.map((value, index) => ({
                     properties: [{ key: 'plan', operator: 'exact', value, ...typed[index] }],
-                    rollout_percentage: 100,
+                    rollout_percentage: sentRollouts[index] ?? 100,
                 })),
             })
 
