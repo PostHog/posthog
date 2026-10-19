@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSkeleton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { HogFunctionType } from '~/types'
 
 import {
+    CUSTOM_MESSAGE_TAG,
     getHogFunctionEventKind,
     LOGS_ALERT_EVENT_KIND_META,
     logsAlertEventKindsFor,
@@ -44,7 +46,9 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         alertId,
         hogFunctionId,
         firstSlackIntegration,
+        messageCustomized,
     } = useValues(logsAlertNotificationDetailSceneLogic)
+    const customizationEnabled = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
     const { deleteDestination, loadHogFunctions, setHogFunctionEnabled } = useActions(
         logsAlertNotificationDetailSceneLogic
     )
@@ -127,6 +131,11 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                             <LemonTag type={destinationGroup.enabled ? 'success' : 'default'}>
                                 {destinationGroup.enabled ? 'Active' : 'Paused'}
                             </LemonTag>
+                            {customizationEnabled && messageCustomized ? (
+                                <Tooltip title={CUSTOM_MESSAGE_TAG.tooltip}>
+                                    <LemonTag>{CUSTOM_MESSAGE_TAG.label}</LemonTag>
+                                </Tooltip>
+                            ) : null}
                             <LemonButton
                                 size="small"
                                 type="secondary"
@@ -160,6 +169,9 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                 <p className="text-sm text-muted m-0">
                     These hog functions only run for this alert. Open one to edit the message body, headers, filters, or
                     destination details for the matching lifecycle event.
+                    {customizationEnabled
+                        ? ' Changes apply to notifications sent after you save. If the alert is firing now, its resolve message may still use the earlier version.'
+                        : null}
                 </p>
 
                 {loading ? (
