@@ -264,7 +264,11 @@ def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSum
     spend.task_ids = totals.task_ids
     spend.token_cost_microusd = totals.cost_microusd
     spend.task_count = totals.task_count
-    spend.accounting_failed = bool(totals.failed_stages)
+    # Keep unfinished task receipts in shared recovery, even between cost updates.
+    # Only genuinely missing costs count against the grant's incomplete_sources.
+    spend.accounting_failed = bool(totals.failed_stages) or any(
+        source["is_task"] and not source["finished"] for source in _sources(spend).values()
+    )
     if spend.accounting_failed or not totals.tasks_finished:
         spend.finalized_at = None
     elif finalize:
@@ -633,6 +637,13 @@ def complete_task_spend(*, team_id: int, run_id: str) -> bool:
     run = get_task_run(run_id, team_id=team_id)
     if run is None or not run.is_terminal:
         return False
+    if run.state.get("self_driving_funding", {}).get("funding") == "trial":
+        from posthog.models import Team  # noqa: PLC0415 -- keeps trial policy off shared spend startup
+
+        from products.signals.backend.trial.policy import TrialPolicy
+        from products.signals.backend.trial.tasks import release_abandoned_report_attempts
+
+        release_abandoned_report_attempts(TrialPolicy(Team.objects.get(id=team_id)), run.id)
     with transaction.atomic():
         spend = _task_spend(team_id=team_id, run_id=run_id)
         if spend is None:

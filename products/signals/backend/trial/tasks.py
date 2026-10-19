@@ -1,12 +1,29 @@
+from uuid import UUID
+
 from celery import shared_task
 
 from posthog.models import Team
 
-from products.signals.backend.trial.models import SignalTrialGrant
+from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy
-from products.tasks.backend.facade.api import iter_trial_task_runs
+from products.tasks.backend.facade.api import has_active_task_runs, iter_trial_task_runs
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.facade.contracts import TaskRunDTO
+
+
+def release_abandoned_report_attempts(policy: TrialPolicy, run_id: UUID) -> None:
+    grant = policy.grant()
+    if grant is None:
+        return
+    with policy.locked_grant(grant.id):
+        reservations = SignalTrialReportReservation.objects.for_team(policy.team_id, canonical=True).filter(
+            grant=grant, status=SignalTrialReportReservation.Status.RESERVED, attempt_run_ids__contains=[run_id]
+        )
+        for reservation in reservations:
+            if not has_active_task_runs(team_id=policy.team_id, run_ids=reservation.attempt_run_ids):
+                reservation.status = SignalTrialReportReservation.Status.RELEASED
+                reservation.active_attempts = 0
+                reservation.save(update_fields=["status", "active_attempts"])
 
 
 def cancel_trial_run(run: TaskRunDTO) -> bool:
@@ -37,3 +54,18 @@ def cancel_trial_grant(team_id: int, grant_id: str) -> None:
         return
     for run in iter_trial_task_runs(team_id=team_id, grant_id=grant_id):
         cancel_trial_run(run)
+
+
+def release_abandoned_report_reservations() -> None:
+    # A worker can disappear inside a direct-report request. Task termination is
+    # already durable, so reservations can release abandoned attempts from it.
+    for reservation in (
+        SignalTrialReportReservation.objects.unscoped()
+        .filter(status=SignalTrialReportReservation.Status.RESERVED, active_attempts__gt=0, attempt_run_ids__len__gt=0)
+        .order_by("created_at")[:100]
+    ):
+        # nosemgrep: celery-task-team-scope-audit -- Cross-team scanner resolves each reservation's explicit team identity.
+        team = Team.objects.filter(id=reservation.team_id).first()
+        if team is not None:
+            for run_id in reservation.attempt_run_ids:
+                release_abandoned_report_attempts(TrialPolicy(team), run_id)

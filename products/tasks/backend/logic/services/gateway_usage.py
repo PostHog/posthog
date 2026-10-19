@@ -66,7 +66,7 @@ def _save_accounting_state(run: TaskRun) -> None:
     # Accounting can finish after completion; it must not emit completion signals again.
     # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
     TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state)
-    task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=run.team_id)
+    task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=run.team_id, task_id=run.task_id)
 
 
 def record_gateway_routing(*, run_id: UUID | str, team_id: int, uses_gateway: bool) -> None:

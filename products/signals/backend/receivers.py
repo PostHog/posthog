@@ -24,7 +24,7 @@ from posthog.event_usage import groups
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSpend
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from products.signals.backend.implementation_pr import PrCloseReason
+    from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -49,14 +50,36 @@ _SNOOZE_SOURCE_STATUSES = frozenset(
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
 
 
-def refresh_spend_after_cost_update(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
+def refresh_spend_after_cost_update(*, run_id: UUID, team_id: int, task_id: UUID, **kwargs: object) -> None:
     from products.signals.backend.spend import refresh_task_spend  # noqa: PLC0415 -- keeps accounting off startup
 
+    # The cost update and its recovery marker commit together; a failed callback
+    # must remain recoverable even when this receipt was previously complete.
+    SignalSpend.objects.for_team(team_id).filter(
+        task_ids__contains=[task_id], trial_sources__has_key=f"task:{run_id}"
+    ).update(accounting_failed=True)
     transaction.on_commit(lambda: refresh_task_spend(team_id=team_id, run_id=str(run_id)), robust=True)
+
+
+def finish_trial_report_attempts(
+    sender: type, instance: TaskRun, update_fields: frozenset[str] | None = None, **kwargs: object
+) -> None:
+    if update_fields is not None and "status" not in update_fields:
+        return
+    if not instance.is_terminal or instance.state.get("self_driving_funding", {}).get("funding") != "trial":
+        return
+    from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- keeps trial policy off startup
+    from products.signals.backend.trial.tasks import release_abandoned_report_attempts
+
+    transaction.on_commit(
+        lambda: release_abandoned_report_attempts(TrialPolicy(instance.team), instance.id), robust=True
+    )
+    refresh_spend_after_cost_update(run_id=instance.id, team_id=instance.team_id, task_id=instance.task_id)
 
 
 def connect_task_run_spend_sync() -> None:
     connect_task_run_cost_updated(refresh_spend_after_cost_update, dispatch_uid="signals_task_run_spend_sync")
+    connect_task_run_post_save(finish_trial_report_attempts, dispatch_uid="signals_finish_trial_report_attempts")
 
 
 def connect_task_run_assignment_sync() -> None:
