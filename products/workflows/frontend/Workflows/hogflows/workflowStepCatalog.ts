@@ -265,6 +265,7 @@ const ALL_CATALOG_STEPS: CreateActionType[] = [
     AI_TASK_ACTION_NODE,
     RUN_SCOUT_ACTION_NODE,
     CLASSIFY_ACTION_NODE,
+    REPLAY_VISION_ACTION_NODE,
 ]
 
 /** Destinations already offered as their own step stay out of the destination list. */

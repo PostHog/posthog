@@ -91,6 +91,11 @@ describe('workflowStepCatalog', () => {
             'Send message',
         ],
         [
+            'a Replay Vision step',
+            { type: 'function', config: { template_id: 'template-posthog-replay-vision' } },
+            'Replay Vision',
+        ],
+        [
             'a destination it does not list',
             { type: 'function', config: { template_id: 'template-hubspot' } },
             undefined,
