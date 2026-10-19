@@ -290,7 +290,10 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 cache.impressions.start(load)
             },
             cardSeen: ({ item, position }) => {
-                cache.impressions.add(item, position)
+                // Fallback rows below the picks were not served by the ranker, so they are not impressions of this load.
+                if (values.picksLoad?.positions[item.observation.id] !== undefined) {
+                    cache.impressions.add(item, position)
+                }
             },
             setListMode: ({ mode }) => {
                 posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })
@@ -302,7 +305,12 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 const { observation } = item
                 const keyMomentMs = observationKeyMomentMs(observation)
                 posthog.capture('replay_vision_watch_clip_clicked', {
-                    ...cardProperties(values.picksLoad, item, position, 'list'),
+                    ...cardProperties(
+                        values.picksLoad?.positions[observation.id] !== undefined ? values.picksLoad : null,
+                        item,
+                        position,
+                        'list'
+                    ),
                     scanner_type: observation.scanner_snapshot?.scanner_type,
                     has_key_moment: keyMomentMs !== null,
                     target: 'replay_page',

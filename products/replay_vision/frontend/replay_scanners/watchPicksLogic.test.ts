@@ -101,6 +101,18 @@ describe('watchPicksLogic', () => {
             ])
         })
 
+        it('reports impressions of served picks only, not of the unranked fallback rows', () => {
+            const [served] = logic.values.picks ?? []
+            logic.actions.cardSeen(served as any, 0)
+            logic.actions.cardSeen(item('fallback', 'session-c') as any, 0)
+            logic.unmount()
+            const batches = captureSpy.mock.calls
+                .filter(([name]) => name === 'replay_vision_watch_feed_impressions')
+                .map(([, props]) => props.impressions.map((i: { observation_id: string }) => i.observation_id))
+            expect(batches).toEqual([['o1']])
+            logic.mount()
+        })
+
         it.each([
             [1, []],
             [2, [{ view: 'list' }]],
