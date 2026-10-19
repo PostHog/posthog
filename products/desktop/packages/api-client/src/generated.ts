@@ -12327,6 +12327,7 @@ export namespace Schemas {
      * * `Creem` - Creem
      * * `Leantime` - Leantime
      * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13720,7 +13721,8 @@ export namespace Schemas {
         | "Airship"
         | "Creem"
         | "Leantime"
-        | "Testomatio";
+        | "Testomatio"
+        | "GoogleAdMob";
     /**
      * * `web` - web
      * * `api` - api
@@ -15123,6 +15125,7 @@ export namespace Schemas {
          * * `Creem` - Creem
          * * `Leantime` - Leantime
          * * `Testomatio` - Testomatio
+         * * `GoogleAdMob` - GoogleAdMob
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
