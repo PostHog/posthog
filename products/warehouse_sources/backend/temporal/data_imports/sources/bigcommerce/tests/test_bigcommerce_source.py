@@ -4,7 +4,9 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
     ENDPOINTS,
+    ORDER_FAN_OUT_ENDPOINTS,
     PARTITION_FIELDS,
+    V2_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source import BigCommerceSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -26,8 +28,8 @@ class TestBigCommerceSource:
 
     @staticmethod
     def _empty_page(endpoint: str) -> ScriptedResponse:
-        # Order transactions fan out over the V2 orders listing.
-        if endpoint in ("orders", "order_transactions"):
+        # Per-order endpoints fan out over the V2 orders listing.
+        if endpoint in V2_ENDPOINTS | ORDER_FAN_OUT_ENDPOINTS:
             return ScriptedResponse(json=[])
         return ScriptedResponse(json={"data": [], "meta": {"pagination": {"current_page": 1, "total_pages": 1}}})
 
