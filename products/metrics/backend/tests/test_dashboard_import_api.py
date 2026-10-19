@@ -66,7 +66,7 @@ class TestDashboardImportAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.url = f"/api/projects/{self.team.id}/metrics/dashboard_imports/"
-        self.flags = {"metrics", "metrics-dashboard-import", SNUFFLE_API_FEATURE_FLAG}
+        self.flags = {"metrics-dashboard-import", SNUFFLE_API_FEATURE_FLAG}
         self.enterContext(
             patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key in self.flags)
         )

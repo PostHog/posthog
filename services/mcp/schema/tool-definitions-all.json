@@ -2691,7 +2691,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "metrics",
         "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved"
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
@@ -10088,8 +10087,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "metrics"
+        }
     },
     "metric-attributes-list": {
         "description": "List the attribute keys (labels) of the project's metrics, from the key on the most series to the key on the fewest. Pass metricName to list the keys of one metric. Use a key as a filter or a group-by key in query-metrics, or as a PromQL label name. In PromQL, service.name is service_name and other names with dots need quotes.",
@@ -10104,7 +10102,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "metrics",
         "system_prompt_hint": "Find the labels of a metric before you filter or group it"
     },
     "metric-describe": {
@@ -10148,7 +10145,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "metrics",
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
     "metrics-dashboard-panels-validate": {
@@ -11344,7 +11340,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "metrics",
         "system_prompt_hint": "Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas"
     },
     "query-paths": {

@@ -38,7 +38,6 @@ from products.metrics.backend.dashboard_import.promql_text import drop_match_all
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import (
-    METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -84,15 +83,6 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
         user_access_control.assert_access_level_for_resource("metrics", "viewer")
-        # Private alpha: RBAC alone isn't enough — mirror MetricsViewSet's flag gate here,
-        # or POST /query with a MetricsQuery bypasses it.
-        if not posthog_feature_flag_enabled(
-            METRICS_FEATURE_FLAG,
-            str(user.distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-        ):
-            raise UserAccessControlError("metrics", "viewer")
         # PromQL runs through Snuffle, which has its own private-alpha flag.
         if self._sends_promql() and not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
@@ -103,24 +93,16 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             raise UserAccessControlError("metrics", "viewer")
         return True
 
-    def _enforce_alpha_gates_without_a_request_user(self) -> None:
+    def _enforce_promql_gate_without_a_request_user(self) -> None:
         # Shared-link renders execute with an anonymous SharedLinkUser, and userless runs (scheduled
         # refreshes, cache warming) have no user. Both skip validate_query_runner_access (the share
-        # link is the authorization), so the alpha flag gates must also hold here.
+        # link is the authorization), so the Snuffle flag gate must also hold here.
         # user is typed Optional[User] but runtime also passes SharedLinkUser (shared
         # renders); broaden for is_anonymous.
         user = cast("Optional[User | SharedLinkUser]", self.user)
         if user is not None and not user.is_anonymous:
             return
         distinct_id = str(getattr(user, "distinct_id", None) or f"shared-viewer-{self.team.pk}")
-        # Userless runs pass the metrics gate: they only ever refresh insights of teams with the flag.
-        if user is not None and not posthog_feature_flag_enabled(
-            METRICS_FEATURE_FLAG,
-            distinct_id,
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-        ):
-            raise UserAccessControlError("metrics", "viewer")
         # A team can have metrics without Snuffle, so a PromQL insight checks the Snuffle flag on every run.
         if self._sends_promql() and not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
@@ -246,7 +228,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         return self._loaded_variables
 
     def _calculate(self) -> MetricsQueryResponse:
-        self._enforce_alpha_gates_without_a_request_user()
+        self._enforce_promql_gate_without_a_request_user()
         try:
             series = self._run()
         except ValueError as exc:

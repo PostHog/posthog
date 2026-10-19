@@ -9,7 +9,6 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
-import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -23,7 +22,6 @@ import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogi
 import { MetricsViewer } from './components/MetricsViewer'
 import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
-import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
 export const METRICS_LOGIC_KEY = 'metrics'
@@ -45,11 +43,9 @@ export const scene: SceneExport = {
 
 export function MetricsScene(): JSX.Element {
     return (
-        <FeaturePreviewSceneGate config={metricsFeaturePreviewGate}>
-            <SceneContent className="@container/metrics-scene h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
-                <MetricsSceneContent />
-            </SceneContent>
-        </FeaturePreviewSceneGate>
+        <SceneContent className="@container/metrics-scene h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            <MetricsSceneContent />
+        </SceneContent>
     )
 }
 
@@ -106,14 +102,14 @@ const MetricsSceneContent = (): JSX.Element => {
             />
             <LemonBanner
                 type="warning"
-                dismissKey="metrics-alpha-notice"
                 action={{
                     icon: <IconFeedback />,
                     children: 'Share feedback',
                     onClick: onFeedbackClick,
                 }}
             >
-                Metrics is in alpha. Please share feedback on how to improve the product.
+                <strong>Open alpha:</strong> Metrics is still in active development, so things may change or break.
+                Please share feedback on how to improve the product.
             </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
                 activeKey={activeTab}

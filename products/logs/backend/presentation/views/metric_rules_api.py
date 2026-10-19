@@ -284,8 +284,8 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsMetricRule.objects.unscoped().order_by("created_at")
     serializer_class = LogsMetricRuleSerializer
     lookup_field = "id"
-    # A rule's output is only readable in the Metrics product, so the Metrics alpha flag is what
-    # admits a team. Whether a rule then runs is a separate, ops-level decision: ingestion checks
+    # Metric rules stay behind the `metrics` flag while the Metrics product itself is open alpha.
+    # Whether a rule then runs is a separate, ops-level decision: ingestion checks
     # its own LOGS_METRICS_RULES_ENABLED_TEAMS allowlist, which no feature flag feeds.
     posthog_feature_flag = "metrics"
     permission_classes = [PostHogFeatureFlagPermission, MetricRuleCanonicalTeamPermission]

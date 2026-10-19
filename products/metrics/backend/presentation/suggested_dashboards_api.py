@@ -17,7 +17,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import User
-from posthog.permissions import IsStaffUser, PostHogFeatureFlagPermission, posthog_feature_flag_enabled
+from posthog.permissions import IsStaffUser, posthog_feature_flag_enabled
 
 from products.metrics.backend.facade.api import (
     analyze_team_metrics_now,
@@ -31,7 +31,6 @@ from products.metrics.backend.facade.api import (
     reject_dashboard_template,
 )
 from products.metrics.backend.facade.contracts import (
-    METRICS_FEATURE_FLAG,
     METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG,
     SuggestedDashboardError,
     SuggestedDashboardNotFound,
@@ -101,8 +100,6 @@ class MetricsDashboardTemplateSerializer(serializers.Serializer):
 class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
-    posthog_feature_flag = METRICS_FEATURE_FLAG
-    permission_classes = [PostHogFeatureFlagPermission]
     lookup_value_regex = UUID_REGEX
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
