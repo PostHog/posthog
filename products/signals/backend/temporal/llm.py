@@ -15,7 +15,7 @@ from posthog.llm.gateway_client import (
     resolve_ai_gateway_config,
 )
 
-from products.signals.backend.llm_spend import generate_with_spend
+from products.signals.backend.llm_spend import accounted_message, generate_with_spend
 from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
@@ -161,6 +161,13 @@ async def call_llm(
     properties: Mapping[str, str] | None = None,
     signal_id: str | None = None,
 ) -> T:
+    from posthog.sync import database_sync_to_async
+
+    from products.signals.backend.trial.reports import requires_trial_accounting
+
+    trial = team_id is not None and await database_sync_to_async(requires_trial_accounting)(team_id)
+    if trial:
+        ai_product = "signals"
     model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     capabilities = get_model_capabilities(model)
@@ -183,6 +190,8 @@ async def call_llm(
         )
     else:
         client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
+    if trial:
+        client = client.with_options(max_retries=0)
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
@@ -237,7 +246,7 @@ async def call_llm(
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
-            generation = client.messages.create(**create_kwargs)
+            generation = accounted_message(client, **create_kwargs)
             priced = await generate_with_spend(
                 generation, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage_label
             )

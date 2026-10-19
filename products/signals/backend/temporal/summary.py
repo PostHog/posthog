@@ -395,6 +395,7 @@ class SignalReportSummaryWorkflow:
                 report_id=inputs.report_id,
                 signal_count=signal_count,
                 source_products=source_products,
+                trial_policy_version=1 if workflow.patched("self-driving-trial-v2") else 0,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -731,8 +732,23 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
     its own gate. Never raises: any failure resolves to False (run proceeds), matching both
     modules' fail-open policy.
     """
+    from products.signals.backend.trial.policy import TrialPolicy, TrialRefused  # noqa: PLC0415 -- lazy policy boundary
+    from products.signals.backend.trial.reports import (  # noqa: PLC0415 -- lazy policy boundary
+        active_report_pass,
+        research_pass_started,
+    )
+
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        if input.stage != "summary_entry":
+            parent = await database_sync_to_async(active_report_pass)(team, input.report_id)
+            if parent is not None and parent.grant_id is not None:
+                finishing = await database_sync_to_async(research_pass_started)(team.id, parent)
+                try:
+                    await database_sync_to_async(TrialPolicy(team).check_funding)(parent, finishing_research=finishing)
+                except TrialRefused:
+                    return True
+                return False
         gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
         if gate.limited:
             capture_signal_report_quota_paused(
@@ -791,8 +807,13 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
         report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
         if report.status != SignalReport.Status.IN_PROGRESS:
             return
+        from products.signals.backend.trial.policy import (
+            TrialPolicy,  # noqa: PLC0415 -- keep models out of replay imports
+        )
+
         updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-        report.save(update_fields=updated_fields)
+        with TrialPolicy(report.team).publish_report(report.id, delivered=False):
+            report.save(update_fields=updated_fields)
 
     await database_sync_to_async(do_update, thread_sensitive=False)()
     logger.info(
@@ -802,12 +823,13 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     )
 
 
-@dataclass
+@frozen
 class MarkReportInProgressInput:
     team_id: int
     report_id: str
     signal_count: int
     source_products: list[str] = field(default_factory=list)
+    trial_policy_version: int = 0
 
 
 @temporalio.activity.defn
@@ -820,6 +842,16 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     it won't immediately re-promote — it must accumulate 3 new signals beyond the current count
     before the promotion gate passes again.
     """
+    if input.trial_policy_version:
+        from products.signals.backend.trial.reports import (
+            prepare_report_pass,  # noqa: PLC0415 -- avoids eager workflow imports
+        )
+
+        team = await Team.objects.select_related("organization").aget(id=input.team_id)
+        info = temporalio.activity.info()
+        await database_sync_to_async(prepare_report_pass)(
+            team=team, report_id=input.report_id, operation_key=f"report-pass:{info.workflow_run_id}:{info.activity_id}"
+        )
     try:
 
         @transaction.atomic
