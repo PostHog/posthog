@@ -117,6 +117,7 @@ describe('metricVariables', () => {
         ['a list, which does not use the regex', 'custom', '(', undefined],
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
         ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
+        ['a quoted regex that looks like it repeats', 'promql', '\\Q(a{1000}){1000}\\E', undefined],
         ['a regex with the RE2 any-byte class', 'promql', '\\C+', undefined],
         ['a regex with the any-byte class inside a class', 'promql', '[\\C]', 'regex'],
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
