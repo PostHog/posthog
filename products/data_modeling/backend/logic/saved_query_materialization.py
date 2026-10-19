@@ -8,8 +8,6 @@ from django.db.models import Q, QuerySet
 
 import structlog
 
-from posthog.hogql.database.database import Database
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -24,7 +22,10 @@ from products.data_modeling.backend.facade.contracts import (
 )
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
+from products.data_modeling.backend.logic.incremental_eligibility import (
+    check_incremental_eligibility,
+    definition_database,
+)
 from products.data_modeling.backend.logic.node_frequency import SavedQueryFrequencyBounds, saved_query_target_bounds
 from products.data_modeling.backend.logic.node_materialization import SavedQueryNotFoundError
 from products.data_modeling.backend.logic.saved_query_dag_sync import update_node_type
@@ -191,7 +192,7 @@ def _refuse_an_incremental_config_the_query_forbids(
         (saved_query.query or {}).get("query") or "",
         incremental_config,
         column_types=get_saved_query_columns(saved_query.team_id, saved_query.pk),
-        database=Database.create_for(team_id=saved_query.team_id, user=user),
+        database=definition_database(saved_query.team_id, user=user),
     )
     if not result.eligible:
         raise IncrementalConfigRefusedError(" ".join(result.blockers), tuple(result.blocked_keys))

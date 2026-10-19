@@ -576,6 +576,12 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 None,
             ),
             (
+                "array_join_over_a_subquery",
+                GROUPED.replace(" GROUP BY", " ARRAY JOIN (SELECT groupArray(event) FROM events) AS labels GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
                 "union_branches_can_repeat_a_key",
                 f"{GROUPED} UNION ALL {GROUPED}",
                 {"day": "DateTime", "c": "UInt64"},
@@ -599,6 +605,15 @@ class TestProposeIncrementalConfig(SimpleTestCase):
         self, _name: str, query: str, column_types: dict[str, str], expected: Optional[IncrementalConfig]
     ) -> None:
         assert propose_incremental_config(query, column_types) == expected
+
+    def test_an_array_grouping_column_blocks_the_proposal(self) -> None:
+        proposed = propose_incremental_config(
+            "SELECT toStartOfDay(timestamp) AS day, [event] AS tags, count() AS c FROM events GROUP BY day, tags",
+            {"day": "DateTime", "tags": "Array(String)", "c": "UInt64"},
+            database=Database(),
+        )
+
+        assert proposed is None
 
     def test_a_moving_window_inside_a_view_the_query_reads_blocks_the_proposal(self) -> None:
         database = Database()

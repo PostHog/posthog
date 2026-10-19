@@ -18,11 +18,13 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 READ_ACCESS_CHECK = "products.data_modeling.backend.logic.saved_query_materialization.assert_user_can_read_query"
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
+TIMESTAMP_COLUMN = {"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}}
 HOSTILE_KEY = IncrementalConfig(incremental_key='day"; DROP TABLE events; --', unique_key=("day",))
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 NODE_MATERIALIZATION_SYNC_CONNECT = "products.data_modeling.backend.logic.node_materialization.sync_connect"
@@ -211,25 +213,44 @@ class TestEnableSavedQueryMaterialization(BaseTest):
 
     @parameterized.expand(
         [
-            ("limit_in_its_own_query", None, None, DAY_KEY),
+            ("limit_in_its_own_query", None, None, DAY_KEY, False),
             (
                 "limit_inside_a_view_it_reads",
                 "SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 100",
                 "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM recent_events GROUP BY day",
                 DAY_KEY,
+                False,
             ),
-            ("key_that_is_not_an_output_column", None, DAILY_COUNTS, HOSTILE_KEY),
+            (
+                "limit_inside_a_materialized_view_it_reads",
+                "SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 100",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM recent_events GROUP BY day",
+                DAY_KEY,
+                True,
+            ),
+            ("key_that_is_not_an_output_column", None, DAILY_COUNTS, HOSTILE_KEY, False),
         ]
     )
     def test_an_incremental_config_the_query_forbids_is_refused_before_anything_is_written(
-        self, _name: str, upstream_query: str | None, query: str | None, incremental_config: IncrementalConfig
+        self,
+        _name: str,
+        upstream_query: str | None,
+        query: str | None,
+        incremental_config: IncrementalConfig,
+        upstream_materialized: bool,
     ) -> None:
         if upstream_query is not None:
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name="recent_events",
                 query={"kind": "HogQLQuery", "query": upstream_query},
-                columns={"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}},
+                columns=TIMESTAMP_COLUMN,
+                is_materialized=upstream_materialized,
+                table=DataWarehouseTable.objects.create(
+                    team=self.team, name="recent_events_tbl", format="Delta", columns=TIMESTAMP_COLUMN
+                )
+                if upstream_materialized
+                else None,
             )
         if query is not None:
             self.saved_query.query = {"kind": "HogQLQuery", "query": query}

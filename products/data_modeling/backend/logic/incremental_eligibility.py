@@ -17,8 +17,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
@@ -41,7 +44,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 
 if TYPE_CHECKING:
-    from posthog.hogql.database.database import Database
+    from posthog.models import User
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_filter import find_key_expression
@@ -123,12 +126,22 @@ class EligibilityResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def definition_database(team_id: int, *, user: Optional["User"] = None) -> Database:
+    """The team's HogQL schema with every saved query read as its definition, never as its materialized table."""
+    return Database.create_for(
+        team_id=team_id,
+        user=user,
+        modifiers=HogQLQueryModifiers(useMaterializedViews=False),
+        bypass_warehouse_access_control=user is None,
+    )
+
+
 def check_incremental_eligibility(
     query: str,
     config: Optional[IncrementalConfig],
     *,
     column_types: Optional[dict[str, str]] = None,
-    database: Optional["Database"] = None,
+    database: Optional[Database] = None,
 ) -> EligibilityResult:
     """``column_types`` is the saved query's stored ClickHouse types, used only to catch a nullable
     unique key. Omit it and that check is skipped; the runtime guard still catches it.
@@ -183,6 +196,7 @@ def check_incremental_eligibility(
     for select in selects:
         _check_key(select, config, key_blockers, warnings)
         _check_unique_key(select, config, unique_key_blockers)
+    _check_unique_key_types(config, key_candidate_types, unique_key_blockers)
 
     _check_nullable_unique_key(config, column_types, unique_key_blockers)
     _check_determinism(node, warnings)
@@ -205,7 +219,7 @@ def check_incremental_eligibility(
 
 
 def propose_incremental_config(
-    query: str, column_types: Mapping[str, str], *, database: Optional["Database"] = None
+    query: str, column_types: Mapping[str, str], *, database: Optional[Database] = None
 ) -> Optional[IncrementalConfig]:
     """The incremental config a grouped query admits on its own, or None when choosing one needs a person."""
     try:
@@ -255,7 +269,14 @@ def _value_expressions(select: ast.SelectQuery) -> list[ast.Expr]:
             join_constraints.append(join.constraint.expr)
         join = join.next_join
     filters = [expression for expression in (select.where, select.prewhere, select.having) if expression is not None]
-    return [*select.select, *(select.group_by or []), *filters, *column_ctes, *join_constraints]
+    return [
+        *select.select,
+        *(select.group_by or []),
+        *(select.array_join_list or []),
+        *filters,
+        *column_ctes,
+        *join_constraints,
+    ]
 
 
 def _grouped_output_names(select: ast.SelectQuery) -> Optional[list[str]]:
@@ -296,7 +317,7 @@ def _unique(messages: list[str]) -> list[str]:
 
 
 def _resolved_selects(
-    node: ast.SelectQuery | ast.SelectSetQuery, database: Optional["Database"]
+    node: ast.SelectQuery | ast.SelectSetQuery, database: Optional[Database]
 ) -> Optional[list[ast.SelectQuery]]:
     """The query's leaf selects with types resolved, which expands ``*`` to the table's columns.
 
@@ -398,7 +419,7 @@ def _expression_field_label(field_type: ast.ExpressionFieldType, context: HogQLC
         return None
 
 
-def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -> dict[str, str]:
+def _key_candidate_types(selects: list[ast.SelectQuery], database: Database) -> dict[str, str]:
     """Coarse type labels for the picker's type tags, from the resolved AST.
 
     A raw table column resolves to its schema DatabaseField, which is the reliable source; only
@@ -599,6 +620,20 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
                 f"The unique key must include every GROUP BY column. Add {', '.join(uncovered)}, "
                 "or rows that differ only by those columns will overwrite each other."
             )
+
+
+def _check_unique_key_types(
+    config: IncrementalConfig, key_candidate_types: dict[str, str], blockers: list[str]
+) -> None:
+    unusable = sorted(
+        column for column in config.unique_key if key_candidate_types.get(column) in _NON_UNIQUE_KEY_TYPE_LABELS
+    )
+    if unusable:
+        blockers.append(
+            f"Unique key {'columns' if len(unusable) > 1 else 'column'} {', '.join(unusable)} "
+            f"{'have' if len(unusable) > 1 else 'has'} a type that cannot identify a row, such as an array or a map. "
+            "Use plain columns for the unique key."
+        )
 
 
 def _check_nullable_unique_key(
