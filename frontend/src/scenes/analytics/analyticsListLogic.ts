@@ -272,12 +272,12 @@ export interface analyticsListLogicMeta {
         mode: (filters: AnalyticsListFilters) => AnalyticsListMode
         filtersActive: (filters: AnalyticsListFilters) => boolean
         currentUserUuid: (user: UserType | null) => string | null
-        creators: (filters: AnalyticsListFilters, currentUserUuid: any, scope: AnalyticsListScope) => string[]
+        creators: (filters: AnalyticsListFilters, currentUserUuid: string | null, scope: AnalyticsListScope) => string[]
         feedQuery: (
             filters: AnalyticsListFilters,
             feedSearch: string,
             creators: string[],
-            currentUserUuid: any
+            currentUserUuid: string | null
         ) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
