@@ -13,8 +13,9 @@ Each case reproduces, on Hedgebox, a request shape that the online evaluation
   conversion window that ``query-funnel`` and ``query-retention`` keep.
 - A justified ``system.*`` lookup, followed by an analysis that stays on SQL.
 
-``NoAnalyticsSql`` grades a case the way the online judge does: any SQL call against event data
-fails it, while ``system.*`` catalog lookups pass.
+``AnswerFromTypedQuery`` checks which data the answer reports: its values must come from a typed
+query result. A SQL query that checks a typed result is allowed, which is looser than the online
+judge, because the judge fails any SQL call against event data.
 ``eval_justified_sql_controls`` holds requests where SQL is the right tool, so a guidance
 change that removes these misses cannot pass by sending everything to typed runners.
 
@@ -33,8 +34,13 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
-from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool, NoAnalyticsSql
-from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, TYPED_QUERY_TOOLS, InsightShape
+from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
+from products.posthog_ai.evals.product_analytics.scorers import (
+    INSIGHT_WRITE_TOOLS,
+    TYPED_QUERY_TOOLS,
+    AnswerFromTypedQuery,
+    InsightShape,
+)
 
 from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
 
@@ -42,7 +48,7 @@ from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
 def _case(name: str, prompt: str, *, first_tool: str | None = None, **shape: Any) -> SandboxedEvalCase:
     expected: dict[str, Any] = {}
     if first_tool is None:
-        expected["no_analytics_sql"] = {}
+        expected["answer_from_typed_query"] = {}
     else:
         expected["first_relevant_tool"] = {"tool": first_tool}
     if shape:
@@ -140,7 +146,7 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "For users who first fired logged_in in the last 30 days, what are their day-1 and day-7 return rates?",
             tool="query-retention",
         ),
-        # The system.* lookup is justified SQL, so NoAnalyticsSql allows it.
+        # The system.* lookup is justified SQL and does not count as analytics SQL.
         _case(
             "existing_insight_check_then_query",
             "Check whether we already have a saved insight for weekly logins by browser. If we don't, show me "
@@ -156,7 +162,7 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            NoAnalyticsSql(),
+            AnswerFromTypedQuery(),
             AnswerToolCallNot("execute-sql", TYPED_QUERY_TOOLS),
             InsightShape(),
         ],

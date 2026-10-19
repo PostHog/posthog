@@ -36,8 +36,6 @@ unrelated cases don't drag the rollup down.
 * ``ChartFromTypedQuery`` — was that chart the typed query, not rewritten SQL?
 * ``NoMarkdownDataTable`` — did the agent avoid retyping the result as a long
   Markdown table?
-* ``NoAnalyticsSql`` — did the agent avoid SQL against event data, apart from
-  ``system.*`` catalog lookups?
 """
 
 from __future__ import annotations
@@ -58,7 +56,6 @@ __all__ = [
     "ExecBeforeRender",
     "InfoBeforeCall",
     "FirstRelevantTool",
-    "NoAnalyticsSql",
     "NoMarkdownDataTable",
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
@@ -1310,33 +1307,3 @@ def is_catalog_sql(call: ToolCall) -> bool:
     ctes = {name.lower() for name in _CTE_NAME_RE.findall(query)}
     sources = [source for source in _SQL_SOURCE_RE.findall(query) if source.lower() not in ctes]
     return bool(sources) and all(source.lower().startswith("system.") for source in sources)
-
-
-class NoAnalyticsSql(Scorer):
-    """Binary: did the agent answer without an analytics ``execute-sql`` query?
-
-    ``expected = {"no_analytics_sql": {}}``
-
-    Mirrors the online evaluation "MCP SQL: typed query runner choice": a request that a
-    typed runner can answer fails on any successful SQL call against event data, even when a
-    typed query also ran. ``system.*`` catalog lookups are allowed (``is_catalog_sql``).
-    Event discovery written as SQL over ``events`` fails, which is stricter than the judge:
-    ``read-data-schema`` answers which events exist. ``None`` if the spec is absent.
-    """
-
-    def _name(self) -> str:
-        return "no_analytics_sql"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        if _read_spec(expected, self._name()) is None:
-            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
-        parser = _build_parser(output)
-        if parser is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        sql_calls = [call for call in parser.get_tool_calls("execute-sql") if not call.is_error]
-        analytics = [call.call_id for call in sql_calls if not is_catalog_sql(call)]
-        return Score(
-            name=self._name(),
-            score=0.0 if analytics else 1.0,
-            metadata={"analytics_sql_calls": analytics, "catalog_sql_calls": len(sql_calls) - len(analytics)},
-        )

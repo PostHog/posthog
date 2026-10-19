@@ -32,10 +32,9 @@ from products.posthog_ai.evals.cli_mcp.scorers import (
     ChartFromTypedQuery,
     ChartShown,
     DidNotCiteRawSqlAfterTypedQuery,
-    NoAnalyticsSql,
     NoMarkdownDataTable,
 )
-from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
+from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, AnswerFromTypedQuery
 
 
 def _chart_case(name: str, prompt: str, tool: str) -> SandboxedEvalCase:
@@ -43,7 +42,7 @@ def _chart_case(name: str, prompt: str, tool: str) -> SandboxedEvalCase:
         name=name,
         prompt=prompt,
         expected={
-            "no_analytics_sql": {},
+            "answer_from_typed_query": {},
             "chart_shown": {"tool_name_any_of": [tool]},
             "chart_from_typed_query": {"tool_name_any_of": [tool]},
             "no_markdown_data_table": {},
@@ -88,7 +87,7 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         SandboxedEvalCase(
             name="table_request_keeps_typed_runner",
             prompt="List the weekly signup counts for the last 8 weeks as a table.",
-            expected={"no_analytics_sql": {}},
+            expected={"answer_from_typed_query": {}},
         ),
     ]
 
@@ -97,7 +96,7 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            NoAnalyticsSql(),
+            AnswerFromTypedQuery(),
             ChartShown(),
             ChartFromTypedQuery(),
             NoMarkdownDataTable(),

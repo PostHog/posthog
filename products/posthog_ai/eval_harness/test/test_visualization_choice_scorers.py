@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
-from products.posthog_ai.evals.product_analytics.scorers import InsightShape
+from products.posthog_ai.evals.product_analytics.scorers import AnswerFromTypedQuery, InsightShape
 
 
 def _output(calls) -> dict:
@@ -237,3 +237,41 @@ def test_insight_shape_checks_only_the_expected_keys(calls, shape, score, mismat
 
 def test_insight_shape_skips_without_expectation() -> None:
     assert InsightShape()._run_eval_sync(_output([_trends_call()]), {}).score is None
+
+
+def _result(tool: str, text: str, query: dict | None = None) -> tuple:
+    return (f"mcp__posthog__{tool}", query or {}, {"content": [{"type": "text", "text": text}]})
+
+
+_TYPED = _result("query-trends", "Date range|Uploads|Unique uploaders\n2026-10-12 to 2026-10-19|21|917")
+_SQL = _result("execute-sql", "uploads|downloads\n20|846", {"query": "SELECT count() FROM events"})
+_CATALOG = _result("execute-sql", "id|name\n42|Weekly logins", {"query": "SELECT id, name FROM system.insights"})
+_SQL_LINK = "[Uploads](https://us.example.com/project/1/sql?open_query=SELECT%20count()%20FROM%20events)"
+
+
+@pytest.mark.parametrize(
+    "calls,answer,score",
+    [
+        ([_TYPED], "Oct 12 to Oct 19: 21 uploads and 917 unique uploaders.", 1.0),
+        (
+            [_TYPED, _SQL],
+            f"There were 21 uploads and 917 downloads.\n\n{_SQL_LINK}\n\nA rolling window gives 20 and 846.",
+            1.0,
+        ),
+        ([_TYPED, _SQL], "There were 20 uploads and 846 downloads.", 0.0),
+        ([_SQL], "There were 20 uploads and 846 downloads.", 0.0),
+        ([_CATALOG, _TYPED], "No saved insight exists. There were 21 uploads.", 1.0),
+        ([_CATALOG], "Insight 42 already tracks weekly logins.", None),
+        ([_TYPED, _SQL], "Uploads rose by a third.", None),
+    ],
+)
+def test_answer_from_typed_query_traces_reported_values(calls, answer, score) -> None:
+    output = {
+        "raw_log": _raw_tool_log(calls),
+        "prompt": "How many uploads in the last 7 days?",
+        "messages": [{"role": "assistant", "content": [{"type": "text", "text": answer}]}],
+    }
+
+    result = AnswerFromTypedQuery()._run_eval_sync(output, {"answer_from_typed_query": {}})
+
+    assert result.score == score

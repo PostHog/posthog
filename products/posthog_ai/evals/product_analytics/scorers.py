@@ -13,7 +13,10 @@ and only then runs the actual query tool.
 
 from __future__ import annotations
 
+import re
+import json
 from collections.abc import Iterable
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from pydantic import BaseModel
@@ -29,6 +32,7 @@ from products.posthog_ai.eval_harness.scorers import (
     JudgedScorer,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.posthog_ai.evals.cli_mcp.scorers import assistant_text, is_catalog_sql
 
 QUERY_TRENDS_TOOL_NAME = "query-trends"
 QUERY_RETENTION_TOOL_NAME = "query-retention"
@@ -923,3 +927,98 @@ def _actual_events(query: dict[str, Any]) -> list[str | float | None]:
         elif entry.get("kind") == "ActionsNode":
             events.append(entry.get("id"))
     return events
+
+
+# Text that holds digits but no reported values: links (URL encoding such as ``%20``), ISO dates and
+# times, clock times, and "Oct 12" style dates.
+_NON_VALUE_RES = (
+    re.compile(r"https?://\S+"),
+    re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+)?(?:Z|[+-]\d{2}:?\d{2})?"),
+    re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b"),
+    re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}\b", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b", re.IGNORECASE),
+)
+_VALUE_RE = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\w])|(?<![\w.])\d+(?:\.\d+)?(?![\w])")
+
+
+def reported_values(text: str, ignore: frozenset[str] = frozenset()) -> set[str]:
+    """Data values in ``text``, normalized so ``1,234``, ``1234`` and ``1234.0`` compare equal.
+
+    Single-digit integers and years are dropped because they also appear as window sizes,
+    step numbers, and dates, so they cannot show where a value came from.
+    """
+    for pattern in _NON_VALUE_RES:
+        text = pattern.sub(" ", text)
+    values: set[str] = set()
+    for raw in _VALUE_RE.findall(text):
+        try:
+            number = Decimal(raw.replace(",", ""))
+        except InvalidOperation:
+            continue
+        if number == number.to_integral_value() and (number < 10 or 1900 <= number <= 2100):
+            continue
+        value = format(number.normalize(), "f")
+        if value not in ignore:
+            values.add(value)
+    return values
+
+
+def _result_text(call: ToolCall) -> str:
+    try:
+        payload = json.loads(call.output)
+    except (TypeError, ValueError):
+        return call.output
+    if isinstance(payload, dict) and isinstance(payload.get("content"), list):
+        return "\n".join(
+            block.get("text", "")
+            for block in payload["content"]
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return call.output
+
+
+class AnswerFromTypedQuery(Scorer):
+    """Binary: does the answer report data from a typed query result rather than from SQL?
+
+    ``expected = {"answer_from_typed_query": {}}``
+
+    Compares the values in the agent's messages with the values each tool returned. The case
+    passes when the answer reports at least one value from a successful typed query result. A
+    SQL query that checks a typed result is allowed, and the answer can mention its values too.
+    The case fails when the reported values come only from analytics SQL results, or when
+    analytics SQL ran and no typed query did. ``system.*`` catalog lookups are not analytics SQL.
+    ``None`` when the answer has no value traceable to either source, or the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "answer_from_typed_query"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not isinstance(expected, dict) or not isinstance(expected.get(self._name()), dict):
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+        parser = parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        calls = [call for call in parser.get_tool_calls() if not call.is_error]
+        typed_calls = [call for call in calls if call.name in TYPED_QUERY_TOOLS]
+        sql_calls = [call for call in calls if call.name == "execute-sql" and not is_catalog_sql(call)]
+        if not typed_calls:
+            if sql_calls:
+                return Score(name=self._name(), score=0.0, metadata={"reason": "Only analytics SQL ran"})
+            return Score(name=self._name(), score=None, metadata={"reason": "No query ran"})
+
+        ignore = frozenset(reported_values(user_prompt(output)))
+        answer = reported_values(assistant_text(output), ignore)
+        typed = set().union(*(reported_values(_result_text(call)) for call in typed_calls))
+        sql_only = set().union(*(reported_values(_result_text(call)) for call in sql_calls)) - typed
+        typed_hits = sorted(answer & typed)
+        sql_hits = sorted(answer & sql_only)
+        metadata = {"typed_values_reported": typed_hits, "sql_only_values_reported": sql_hits}
+        if typed_hits:
+            return Score(name=self._name(), score=1.0, metadata=metadata)
+        if sql_hits:
+            return Score(name=self._name(), score=0.0, metadata=metadata)
+        return Score(
+            name=self._name(), score=None, metadata={**metadata, "reason": "No reported value matches a query result"}
+        )

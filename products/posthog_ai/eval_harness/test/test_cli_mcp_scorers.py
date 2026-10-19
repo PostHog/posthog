@@ -11,7 +11,6 @@ from products.posthog_ai.evals.cli_mcp.scorers import (
     ChartShown,
     DidNotCiteRawSqlAfterTypedQuery,
     FirstRelevantTool,
-    NoAnalyticsSql,
     NoMarkdownDataTable,
 )
 
@@ -311,36 +310,6 @@ def test_no_markdown_data_table_flags_long_tables(_name: str, texts: list[str], 
 
     result = NoMarkdownDataTable()._run_eval_sync(
         {"messages": messages, "last_message": texts[-1]}, expected={"no_markdown_data_table": {}}
-    )
-
-    assert result.score == score
-
-
-def _sql(query: str) -> tuple:
-    return ("mcp__posthog__execute-sql", {"query": query}, "rows")
-
-
-@parameterized.expand(
-    [
-        ("typed_only", [_TRENDS_RESULT], 1.0),
-        (
-            "catalog_lookup_then_typed",
-            [_sql("SELECT id, name FROM system.insights WHERE name ILIKE '%x%'"), _TRENDS_RESULT],
-            1.0,
-        ),
-        ("catalog_cte", [_sql("WITH a AS (SELECT id FROM system.actions) SELECT count() FROM a")], 1.0),
-        ("events_sql", [_sql("SELECT count() FROM events WHERE event = 'signed_up'")], 0.0),
-        (
-            "typed_then_events_sql",
-            [_TRENDS_RESULT, _sql("SELECT toStartOfWeek(timestamp), count() FROM events GROUP BY 1")],
-            0.0,
-        ),
-        ("join_to_events", [_sql("SELECT i.name FROM system.insights i JOIN events e ON e.uuid = i.id")], 0.0),
-    ]
-)
-def test_no_analytics_sql_allows_only_catalog_lookups(_name: str, calls: list[tuple], score: float) -> None:
-    result = NoAnalyticsSql()._run_eval_sync(
-        {"raw_log": _raw_tool_log(calls), "prompt": "Weekly signups"}, expected={"no_analytics_sql": {}}
     )
 
     assert result.score == score
