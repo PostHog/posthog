@@ -105,6 +105,32 @@ describe('metricVariableEditorLogic', () => {
         expect(onSave).toHaveBeenCalledTimes(1)
     })
 
+    it('checks a regex again after a failed check, and saves nothing once the editor closes', async () => {
+        mockOptions.mockRejectedValueOnce({ status: 429, detail: 'Too many requests' })
+        mockOptions.mockResolvedValue({ results: [] })
+        const onSave = jest.fn()
+        const logic = metricVariableEditorLogic({
+            dashboardId: 1,
+            variables: [{ name: 'job', source: 'sql', query: 'SELECT job', regex: 'a(.*)' }],
+            options: {},
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.apply(onSave)).toFinishAllListeners()
+        expect(onSave).not.toHaveBeenCalled()
+        await expectLogic(logic, () => logic.actions.apply(onSave)).toFinishAllListeners()
+        expect(onSave).toHaveBeenCalledTimes(1)
+
+        let finish: (value: { results: string[] }) => void = () => {}
+        mockOptions.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
+        logic.actions.updateVariable(0, { regex: 'b(.*)' })
+        logic.actions.apply(onSave)
+        logic.unmount()
+        finish({ results: [] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(onSave).toHaveBeenCalledTimes(1)
+    })
+
     it('sends a preview only after the one before it finishes', async () => {
         let finish: (value: { results: string[] }) => void = () => {}
         mockOptions.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
