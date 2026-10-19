@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -16,8 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaa
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
     ENDPOINTS,
+    FANOUT_PARENTS,
     INCREMENTAL_FIELDS,
     PARTITION_KEYS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -36,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
+    codebase_detection = detect(env=("^ASAAS_",), maven=("com.asaas:api-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -106,10 +111,12 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
             partition_mode="datetime" if partition_key else None,
             partition_format="month" if partition_key else None,
             partition_keys=[partition_key] if partition_key else None,
+            # The fan-out saves no checkpoint, so a shutdown hand-off would only restart the sweep.
+            supports_resume=inputs.schema_name not in FANOUT_PARENTS,
         )
 
     @property
@@ -121,7 +128,8 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
             caption=(
                 "Connect your Asaas account using an API key to sync customers, payments, "
                 "subscriptions, transfers, installments, invoices, received splits, Pix "
-                "transactions, and your account statement. Find your key in Asaas under "
+                "transactions, payment links, dunnings, bill payments, and your account "
+                "statement. Find your key in Asaas under "
                 "**Integrações** > **API**."
             ),
             keywords=["billing", "payments", "brazil"],

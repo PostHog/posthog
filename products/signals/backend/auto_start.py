@@ -13,6 +13,7 @@ from django.utils.text import slugify
 import structlog
 import posthoganalytics
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
@@ -428,11 +429,16 @@ def _build_autostart_task_description(
     )
 
 
-def _fetch_source_references(team_id: int, report_id: str) -> list[SignalSourceReference]:
+def _fetch_source_references(
+    team_id: int,
+    report_id: str,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[SignalSourceReference]:
     """PR traceability is best-effort: a ClickHouse hiccup here must not block auto-start."""
     try:
         team = Team.objects.get(pk=team_id)
-        return fetch_source_references_for_report(team, report_id)
+        return fetch_source_references_for_report(team, report_id, ch_user=ch_user)
     except Exception:
         logger.exception("signals auto-start source reference fetch failed", report_id=report_id, team_id=team_id)
         return []
@@ -458,11 +464,18 @@ def _stamp_billing_exemption(report: SignalReport, declared_reason: str | None) 
     return report.billing_exempt_reason
 
 
-def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_id: str) -> None:
+def _capture_billing_exempted(
+    *,
+    team: Team,
+    report_id: str,
+    reason: str,
+    task_id: str,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> None:
     """`signals_pr_billing_exempted` — exempt volume is a cost signal for the weekly refund review."""
     try:
         source_products: list[str] = []
-        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ch_user).get(report_id)
         if meta is not None:
             source_products = meta.source_products
         posthoganalytics.capture(
@@ -596,7 +609,7 @@ def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | Non
         status = statuses.get(candidate)
         if status is None:
             continue
-        if candidate in with_work or status == SignalReport.Status.RESOLVED:
+        if candidate in with_work or status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return candidate
     return None
 
@@ -742,6 +755,7 @@ def _create_implementation_task_if_absent(
     dispatch: ImplementationDispatch | None = None,
     requested_after_run_count: int | None = None,
     runner_source: str = "requested",
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -928,7 +942,9 @@ def _create_implementation_task_if_absent(
     if exempt_reason and task_id:
         # After commit: the exempt report's implementation task exists — count it (includes a
         # best-effort ClickHouse lookup, so it must not run under the lock).
-        _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
+        _capture_billing_exempted(
+            team=team, report_id=report_id, reason=exempt_reason, task_id=task_id, ch_user=ch_user
+        )
     if task_id:
         _capture_steering_attached(
             team=team, report_id=report_id, task_id=task_id, steering=steering, runner_source=runner_source
@@ -936,7 +952,11 @@ def _create_implementation_task_if_absent(
     return True
 
 
-def start_requested_implementation(request: RequestedImplementation) -> str:
+def start_requested_implementation(
+    request: RequestedImplementation,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> str:
     team = Team.objects.select_related("organization").get(id=request.team_id)
     user = User.objects.filter(id=request.user_id, is_active=True, organization__id=team.organization_id).first()
     if user is None or UserPermissions(user=user, team=team).current_team.effective_membership_level is None:
@@ -1031,7 +1051,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
                 summary=report.summary,
                 repository=repo_selection.repository,
                 priority=priority,
-                source_references=_fetch_source_references(request.team_id, request.report_id),
+                source_references=_fetch_source_references(request.team_id, request.report_id, ch_user=ch_user),
                 steering=steering,
             ),
             expected_content=expected_content,
@@ -1041,6 +1061,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
             steering=steering,
             free_trial_enabled=self_driving_free_trial_enabled(team),
             requested_after_run_count=request.after_run_count,
+            ch_user=ch_user,
         )
         if not created:
             raise RequestedImplementationUnavailable("Another implementation started before this request")
@@ -1326,6 +1347,7 @@ async def maybe_autostart_implementation_task(
     implementation_decision: ImplementationDecision | None = None,
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -1389,7 +1411,11 @@ async def maybe_autostart_implementation_task(
     if title != expected_content.title or summary != expected_content.summary:
         if remaining_retries:
             return await maybe_autostart_from_report_artefacts(
-                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
+                team_id=team_id,
+                report_id=report_id,
+                remaining_retries=remaining_retries - 1,
+                dispatch=dispatch,
+                ch_user=ch_user,
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
     supersede = await database_sync_to_async(_resolve_supersede, thread_sensitive=False)(
@@ -1559,7 +1585,7 @@ async def maybe_autostart_implementation_task(
         base_branch = stack_base_branch
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
-        team_id, report_id
+        team_id, report_id, ch_user=ch_user
     )
     steering = await database_sync_to_async(load_report_steering, thread_sensitive=False)(
         team_id, report_id, memory_writable=grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)
@@ -1594,11 +1620,16 @@ async def maybe_autostart_implementation_task(
             supersede=supersede,
             dispatch=dispatch,
             runner_source=runner_source,
+            ch_user=ch_user,
         )
     except ReportChangedDuringAutostart:
         if remaining_retries:
             return await maybe_autostart_from_report_artefacts(
-                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
+                team_id=team_id,
+                report_id=report_id,
+                remaining_retries=remaining_retries - 1,
+                dispatch=dispatch,
+                ch_user=ch_user,
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
     if isinstance(created, AutostartSkip):
@@ -1657,7 +1688,12 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
 
 
 async def maybe_autostart_from_report_artefacts(
-    *, team_id: int, report_id: str, remaining_retries: int = 2, dispatch: ImplementationDispatch | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    remaining_retries: int = 2,
+    dispatch: ImplementationDispatch | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Re-evaluate auto-start from a report's *current* artefacts.
 
@@ -1760,4 +1796,5 @@ async def maybe_autostart_from_report_artefacts(
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,
         dispatch=dispatch,
+        ch_user=ch_user,
     )

@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 import time_machine
 from posthog.test.base import (
@@ -86,6 +87,54 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    @parameterized.expand(
+        [
+            ("ascii", "abc"),
+            ("utf8_digest", "99937"),
+            ("trailing_nul_digest", "25"),
+            ("utf8_trailing_nul_digest", "19130574"),
+            ("empty", ""),
+            ("unicode", "ünïcødé-😀"),
+            ("nul", "a\0b"),
+            ("long", "a" * 1000),
+        ]
+    )
+    def test_hogql_sha1_results_are_json_safe_and_cached(self, _name: str, value: str) -> None:
+        query = HogQLQuery(
+            query="""
+                SELECT sha1({value}), [sha1({value})], tuple(sha1({value}), 'plain text'),
+                    map('digest', sha1({value})), map(sha1({value}), 'digest'),
+                    length(sha1({value})), sha1(NULL), sha1(toNullableString({value})),
+                    toTypeName(sha1({value})),
+                    accurateCast('abc', 'FixedString(3)'), accurateCast('abc', 'FixedString(20)')
+            """,
+            values={"value": value},
+        )
+        digest = hashlib.sha1(value.encode()).hexdigest()
+        expected = [
+            [
+                digest,
+                [digest],
+                [digest, "plain text"],
+                {"digest": digest},
+                {digest: "digest"},
+                40,
+                None,
+                digest,
+                "String",
+                "abc",
+                "abc",
+            ]
+        ]
+        for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query.model_dump(), "refresh": refresh},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], expected)
+            self.assertEqual(response.json()["is_cached"], is_cached)
 
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
@@ -1671,6 +1720,19 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(bool(executed_query.dateRange.explicitDate), expected_explicit)
 
 
+def _latest_log_comment_for_team(team_id: int) -> dict:
+    sync_execute("SYSTEM FLUSH LOGS")
+    rows = sync_execute(
+        "SELECT log_comment FROM system.query_log "
+        "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
+        "AND type = 'QueryFinish' "
+        "ORDER BY event_time DESC LIMIT 1",
+        {"team_id": team_id},
+    )
+    assert rows, f"No query_log entry found for team {team_id}"
+    return json.loads(rows[0][0])
+
+
 class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
     """End-to-end tests that an MCP request to the /query endpoint ends up tagged as
     product=mcp in `system.query_log` — *unless* a more specific product was set somewhere
@@ -1679,17 +1741,7 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
     def _get_log_comment_for_team(self) -> dict:
-        """Return the log_comment of the most recent QueryFinish entry for this team."""
-        sync_execute("SYSTEM FLUSH LOGS")
-        rows = sync_execute(
-            "SELECT log_comment FROM system.query_log "
-            "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
-            "AND type = 'QueryFinish' "
-            "ORDER BY event_time DESC LIMIT 1",
-            {"team_id": self.team.pk},
-        )
-        assert rows, f"No query_log entry found for team {self.team.pk}"
-        return json.loads(rows[0][0])
+        return _latest_log_comment_for_team(self.team.pk)
 
     def test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped(self):
         # Raw HogQLQuery has query_type="hogql_query" (not a NodeKind value) and no scene,
@@ -1748,6 +1800,35 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
         comment = self._get_log_comment_for_team()
         self.assertNotEqual(comment.get("source"), "mcp")
         self.assertNotEqual(comment.get("product"), Product.MCP.value)
+
+
+class TestQueryProductTag(ClickhouseTestMixin, APIBaseTest):
+    def _post_with_product_key(self, product_key: str):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "tags": {"scene": "Settings", "productKey": product_key, "name": "product_tag_test"},
+                }
+            },
+        )
+
+    def test_unknown_product_key_runs_the_query_untagged(self):
+        response = self._post_with_product_key("not_a_product")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        comment = _latest_log_comment_for_team(self.team.pk)
+        self.assertEqual(comment.get("name"), "product_tag_test")
+        self.assertNotEqual(comment.get("product"), "not_a_product")
+
+    def test_known_product_key_is_tagged(self):
+        response = self._post_with_product_key(Product.LLM_ANALYTICS.value)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        comment = _latest_log_comment_for_team(self.team.pk)
+        self.assertEqual(comment["product"], Product.LLM_ANALYTICS.value)
 
 
 class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):

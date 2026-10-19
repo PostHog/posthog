@@ -7,8 +7,8 @@ keeping.
 ClickHouse has no unique constraint, so the insert carries a deduplication token instead. The
 token names the batch by its contents, and the replicated engine drops a second insert that
 arrives under a token it has already seen. A reader still deduplicates on
-`(alert_id, evaluation_key)`, because the token only covers a retry of the same batch and the
-engine only remembers a bounded window of them.
+`(configuration_id, alert_id, evaluation_key)`, because the token only covers a retry of the same
+batch and the engine only remembers a bounded window of them.
 """
 
 import json
@@ -22,6 +22,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
@@ -29,8 +30,11 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    PlatformAlertHistory,
+    PlatformStateChange,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
@@ -46,6 +50,8 @@ class PlatformAlertEventRow:
     """
 
     team_id: int
+    # The source whose check this was, so a reader can tell sources apart without a Postgres join.
+    source_kind: str
     configuration_id: UUID
     alert_id: UUID
     grouping_key: str
@@ -114,6 +120,12 @@ def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) ->
     return digest.hexdigest()
 
 
+def _execute(query: str, args: Any, *, team_id: int, settings: dict[str, Any] | None = None) -> Any:
+    """`sync_execute` as the platform's own user, so this bookkeeping never takes from `default`'s
+    per-user concurrency budget. A pod without that user wired falls back to its own default user."""
+    return sync_execute(query, args, team_id=team_id, settings=settings, ch_user=ClickHouseUser.ALERTS_PLATFORM)
+
+
 def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     """Records a batch's history. Returns how many rows it wrote.
 
@@ -127,7 +139,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
         # `sync_execute` requires both tags. The platform product rather than a source's, because
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-        sync_execute(
+        _execute(
             _INSERT_SQL,
             [row.as_row() for row in rows],
             settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
@@ -144,9 +156,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     return len(rows)
 
 
-_ANNOUNCEMENT_SQL = f"""
-SELECT grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
-       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures
+_ANNOUNCED_ROWS = f"""
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
@@ -156,6 +166,25 @@ ORDER BY grouping_key, occurred_at DESC
 LIMIT 1 BY grouping_key
 """
 
+_ANNOUNCEMENT_COLUMNS = """grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
+       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures"""
+
+_ANNOUNCEMENT_SQL = f"SELECT {_ANNOUNCEMENT_COLUMNS} {_ANNOUNCED_ROWS}"
+
+# Deals the announced groups out by their position in key order, so the parts of one evaluation
+# cover every group exactly once, and each part decodes only its own rows.
+_ANNOUNCEMENT_PART_SQL = f"""
+SELECT {_ANNOUNCEMENT_COLUMNS}
+FROM (
+    SELECT *, row_number() OVER (ORDER BY grouping_key) - 1 AS position
+    FROM ({_ANNOUNCEMENT_SQL})
+)
+WHERE modulo(position, %(parts)s) = %(part)s
+ORDER BY grouping_key
+"""
+
+_ANNOUNCED_KINDS_SQL = f"SELECT grouping_key, kind {_ANNOUNCED_ROWS}"
+
 
 def announcement(
     team_id: int,
@@ -164,6 +193,8 @@ def announcement(
     *,
     source: SourceKind,
     incident_grouping_keys: Collection[str] = (),
+    part: int = 0,
+    parts: int = 1,
 ) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
 
@@ -175,19 +206,21 @@ def announcement(
     `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
     engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
     enough behind writes a second row for a group. The newest is the one this evaluation meant.
+
+    With `parts` above one, only the groups of that `part` come back, and None when it has none.
     """
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    rows = sync_execute(
-        _ANNOUNCEMENT_SQL,
-        {
-            "team_id": team_id,
-            "configuration_id": configuration_id,
-            "evaluation_key": evaluation_key,
-            "check_kind": AlertEventKind.CHECK.value,
-            "incident_grouping_keys": list(incident_grouping_keys),
-        },
-        team_id=team_id,
-    )
+    parameters: dict[str, Any] = {
+        "team_id": team_id,
+        "configuration_id": configuration_id,
+        "evaluation_key": evaluation_key,
+        "check_kind": AlertEventKind.CHECK.value,
+        "incident_grouping_keys": list(incident_grouping_keys),
+    }
+    if parts > 1:
+        rows = _execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
+    else:
+        rows = _execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
     if not rows:
         return None
 
@@ -202,6 +235,7 @@ def announcement(
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
             occurred_at=occurred_at,
+            evaluation_key=evaluation_key,
         )
         for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
     )
@@ -216,6 +250,29 @@ def announcement(
     )
 
 
+def announced_kinds(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    incident_grouping_keys: Collection[str] = (),
+) -> dict[str, AlertEventKind]:
+    """The kind of every group `announcement` returns across all parts, without the rows' payloads."""
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = _execute(
+        _ANNOUNCED_KINDS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "evaluation_key": evaluation_key,
+            "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": list(incident_grouping_keys),
+        },
+        team_id=team_id,
+    )
+    return {grouping_key: AlertEventKind(kind) for grouping_key, kind in rows}
+
+
 def _snapshot(raw: str) -> dict[str, Any]:
     """A snapshot column the writer may have left empty, or that predates the field it holds."""
     if not raw:
@@ -225,3 +282,71 @@ def _snapshot(raw: str) -> dict[str, Any]:
     except ValueError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+# The inner read deduplicates on the pair the writer names, as `announcement` does. The outer one
+# keeps the checks that moved the alert and the newest check, so a page of alerts that check every
+# minute returns a few rows each rather than a day of them.
+_HISTORY_SQL = f"""
+SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest
+FROM (
+    SELECT configuration_id, occurred_at, previous_state, state, error_message,
+           occurred_at = max(occurred_at) OVER (PARTITION BY configuration_id) AS is_latest
+    FROM (
+        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message
+        FROM {PLATFORM_ALERT_EVENTS_TABLE}
+        WHERE team_id = %(team_id)s
+          AND configuration_id IN %(configuration_ids)s
+          AND grouping_key = ''
+          AND occurred_at >= %(since)s
+          AND occurred_at < %(until)s
+        ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+        LIMIT 1 BY alert_id, evaluation_key
+    )
+)
+WHERE previous_state != state OR is_latest
+ORDER BY configuration_id, occurred_at
+"""
+
+
+def history(
+    team_id: int, configuration_ids: Collection[UUID], *, since: datetime, until: datetime
+) -> dict[UUID, PlatformAlertHistory]:
+    """Each configuration's state changes and last check in `[since, until)`, in one query.
+
+    Only the ungrouped instance is read, because a source that shows one state per alert has no
+    groups. A configuration with no check in the window is left out.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`: the web API calls this too, and naming a user would replace the one
+    # `sync_execute` picks for request traffic.
+    rows = sync_execute(
+        _HISTORY_SQL,
+        {"team_id": team_id, "configuration_ids": list(configuration_ids), "since": since, "until": until},
+        team_id=team_id,
+    )
+    changes: dict[UUID, list[PlatformStateChange]] = {}
+    latest: dict[UUID, tuple[datetime, str]] = {}
+    for configuration_id, occurred_at, previous_state, state, error_message, is_latest in rows:
+        if previous_state != state:
+            changes.setdefault(configuration_id, []).append(
+                PlatformStateChange(
+                    occurred_at=occurred_at,
+                    previous_state=PlatformAlertState(previous_state),
+                    state=PlatformAlertState(state),
+                )
+            )
+        if is_latest:
+            latest[configuration_id] = (occurred_at, error_message)
+    return {
+        configuration_id: PlatformAlertHistory(
+            state_changes=tuple(changes.get(configuration_id, ())),
+            last_checked_at=last_checked_at,
+            last_error_message=error_message or None,
+        )
+        for configuration_id, (last_checked_at, error_message) in latest.items()
+    }

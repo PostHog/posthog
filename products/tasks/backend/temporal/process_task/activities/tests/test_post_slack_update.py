@@ -75,6 +75,6 @@ def test_cancelled_run_clears_progress_without_posting(mock_update_state: MagicM
 
     _post_cancelled_once(task_run, handler)
 
-    handler.update_reaction.assert_called_once_with("hedgehog")
+    handler.update_reaction.assert_not_called()
     handler.delete_progress.assert_called_once_with()
     mock_update_state.assert_called_once()

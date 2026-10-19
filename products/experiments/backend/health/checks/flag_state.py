@@ -12,7 +12,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.context import FlagState, HealthContext
+from products.experiments.backend.health.context import FlagHistoryNotChecked, FlagState, HealthContext, SplitChange
+from products.experiments.backend.health.split_changes import (
+    SplitChangeShape,
+    describe_split,
+    format_change_time,
+    net_effect,
+)
 
 # pinned: the page's warning keys. The page sends them as `finding_variant` and
 # `warning_key` on its events, and picks the banner text by them.
@@ -83,7 +89,8 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
                 subcode=RUNNING_BUT_SINGLE_VARIANT_SHIPPED,
                 title="The experiment is running, but all users see a single variant",
                 detail=(
-                    f"{shipped} rolled out to 100% of users. The experiment is not comparing variants. "
+                    f"{shipped} rolled out to 100% of users. {_rollout_since(ctx)}"
+                    "The experiment is not comparing variants. "
                     "End the experiment with a conclusion, or adjust the variant distribution of the linked "
                     "feature flag to resume proper A/B testing."
                 ),
@@ -134,6 +141,20 @@ def _finding(
         actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG,),
         diagnostic_ref="A5",
     )
+
+
+def _rollout_since(ctx: HealthContext) -> str:
+    # The split check leaves this rollout to this finding, so the finding carries the date of the change.
+    history = ctx.flag_history
+    if history is None:
+        return ""
+    effect = net_effect(
+        history.of_kind(SplitChange) if isinstance(history, FlagHistoryNotChecked) else history.counted(SplitChange)
+    )
+    if effect is None or effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
+        return ""
+    at = format_change_time(effect.last.changed_at, history.team_timezone)
+    return f"It has been at 100% since {at}, and the split was {describe_split(effect.last.before)} before. "
 
 
 def _has_zero_rollout(flag: FlagState) -> bool:

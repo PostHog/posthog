@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     UNKNOWN_RESOURCE_PREFIX,
     UnknownResourceError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     PostHogInternalDatabaseError,
@@ -1694,6 +1695,44 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         assert (
             _resolve_reset_pipeline(inputs, schema, job_created_at=datetime(2026, 9, 22, 1, 30, tzinfo=UTC)) is expected
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_reset,destination_reset_required,reset_handed_over,expected",
+    [
+        pytest.param(True, False, False, True, id="run_asked_for_a_reset"),
+        pytest.param(False, True, False, True, id="source_asked_for_a_reset"),
+        pytest.param(True, True, True, False, id="source_handed_the_reset_over"),
+    ],
+)
+async def test_the_pipeline_deletes_the_table_only_for_a_reset_the_source_kept(
+    run_reset: bool, destination_reset_required: bool, reset_handed_over: bool, expected: bool
+) -> None:
+    source_response = SourceResponse(
+        name="users",
+        items=lambda: iter(()),
+        primary_keys=["id"],
+        destination_reset_required=destination_reset_required,
+        reset_handed_over=reset_handed_over,
+    )
+    pipeline_cls = mock.MagicMock()
+    pipeline_cls.return_value.run = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module, "_get_models", new=mock.AsyncMock()),
+        mock.patch.object(module, "v3_pipeline_class", return_value=pipeline_cls),
+    ):
+        await module._run(
+            mock.MagicMock(),
+            source_response,
+            mock.AsyncMock(),
+            reset_pipeline=run_reset,
+            shutdown_monitor=mock.MagicMock(),
+            resumable_source_manager=None,
+        )
+
+    assert pipeline_cls.call_args.args[3] is expected
 
 
 _STORED_WATERMARK = datetime(2026, 6, 14, 15, 33, 31, 802833)

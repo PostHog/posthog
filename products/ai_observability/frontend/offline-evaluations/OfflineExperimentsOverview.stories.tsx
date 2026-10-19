@@ -29,6 +29,10 @@ const meta: Meta<typeof OfflineExperimentsOverview> = {
         ),
         mswDecorator({
             get: {
+                '/api/projects/:team/tags': ({ request }) => {
+                    const tags = ['production', 'quality', 'regression', 'support']
+                    return new URL(request.url).searchParams.has('limit') ? { results: tags, next: null } : tags
+                },
                 '/api/projects/:team/ai_observability/offline_experiments/': {
                     count: 8,
                     next_cursor: null,

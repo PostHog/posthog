@@ -2,7 +2,7 @@ import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters
 import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
-import { ActionFilter, Entity, EntityTypes, FilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType } from '~/types'
 
 import {
     SeriesNode,
@@ -148,8 +148,6 @@ export type LocalFilter = ActionFilter & {
     [key: string]: any
 }
 
-export type BareEntity = Pick<Entity, 'id' | 'name'>
-
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
     const localFilters = [
         ...(filters[EntityTypes.ACTIONS] || []),
@@ -168,20 +166,4 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
               }
             : { ...filter, uuid: uuid() }
     )
-}
-
-export function toFilters(localFilters: LocalFilter[]): FilterType {
-    const filters = localFilters.map((filter, index) => ({
-        ...filter,
-        order: index,
-        // The first step of a funnel cannot be optional
-        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
-    }))
-
-    return {
-        [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
-        [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
-        [EntityTypes.GROUPS]: filters.filter((filter) => filter.type === EntityTypes.GROUPS),
-    } as FilterType
 }

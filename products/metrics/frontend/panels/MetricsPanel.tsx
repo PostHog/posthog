@@ -4,6 +4,7 @@ import type { MetricsExemplar } from '../components/MetricsExemplarMarkers'
 import type { MetricsChartSeries } from '../components/metricsSeries'
 import { BarGaugePanel } from './BarGaugePanel'
 import { GaugePanel } from './GaugePanel'
+import type { MetricsPartialBucketQuery } from './metricsPartialBucket'
 import { seriesUnit } from './metricsReduce'
 import { resolvePanelType } from './registry'
 import { StatPanel } from './StatPanel'
@@ -30,11 +31,14 @@ export function MetricsPanel({
     display,
     fallbackName,
     exemplars,
+    query,
 }: {
     series: MetricsChartSeries[]
     display?: MetricsDisplaySettings
     fallbackName: string
     exemplars?: MetricsExemplar[]
+    /** Lets the time-series panel tell counter series apart, to extrapolate a partial last bucket. */
+    query?: MetricsPartialBucketQuery
 }): JSX.Element {
     const type = resolvePanelType(display)
     const resolvedSeries = withResolvedUnits(series, display?.unit)
@@ -58,6 +62,7 @@ export function MetricsPanel({
                     display={display ?? {}}
                     fallbackName={fallbackName}
                     exemplars={exemplars}
+                    query={query}
                 />
             )
     }

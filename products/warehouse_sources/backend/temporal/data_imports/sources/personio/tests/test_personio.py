@@ -174,10 +174,20 @@ class TestGetRows:
         assert result.requests[-1].param("updated_at.gt") is None
         assert result.requests[-1].param("limit") == "50"
 
-    @pytest.mark.parametrize("endpoint", ["salary_bands", "cost_centers"])
-    def test_dimension_endpoint_never_sends_timestamp_filter(self, endpoint: str) -> None:
-        # salary-bands and cost-centers have no updated_at field, so incremental_param is None. Even
-        # if incremental is requested, the request must go out as a full refresh with no timestamp
+    @pytest.mark.parametrize(
+        "endpoint, expected_limit",
+        [
+            ("salary_bands", "100"),
+            ("cost_centers", "100"),
+            ("recruiting_jobs", "200"),
+            ("recruiting_categories", None),
+        ],
+    )
+    def test_full_refresh_only_endpoint_never_sends_timestamp_filter(
+        self, endpoint: str, expected_limit: str | None
+    ) -> None:
+        # These endpoints have no usable updated_at cursor, so incremental_param is None. Even if
+        # incremental is requested, the request must go out as a full refresh with no timestamp
         # param — sending one the API ignores would silently claim a filtered sync.
         result = _driver().run(
             endpoint,
@@ -188,7 +198,7 @@ class TestGetRows:
 
         assert result.raised is None
         assert not any(key.startswith("updated_at") for key in result.requests[-1].query)
-        assert result.requests[-1].param("limit") == "100"
+        assert result.requests[-1].param("limit") == expected_limit
 
     def test_resumes_from_saved_state(self) -> None:
         resume_url = "https://api.personio.de/v2/persons?cursor=cur_resume"

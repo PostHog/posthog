@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import mail
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,6 +13,8 @@ from rest_framework import status
 from posthog.api.instance_settings import (
     REDACTED,
     UNSET,
+    InstanceSettingHelper,
+    InstanceSettingsSerializer,
     _redact_if_secret,
     cast_str_to_desired_type,
     get_instance_setting as get_instance_setting_helper,
@@ -108,6 +111,25 @@ class TestSecretSettingsCoverage(unittest.TestCase):
         self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
 
+class TestHostSettingValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("native.example.com", True),
+            ("localhost", True),
+            ("", True),
+            ("https://native.example.com", False),
+            ("native.example.com:8443", False),
+            ("native.example.com/path", False),
+            (True, False),
+        ]
+    )
+    def test_host_setting_accepts_hostnames_only(self, value: object, valid: bool) -> None:
+        serializer = InstanceSettingsSerializer(
+            instance=InstanceSettingHelper(key="CLICKHOUSE_NATIVE_EVENTS_HOST"), data={"value": value}, partial=True
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+
+
 class TestInstanceSettings(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -190,17 +212,24 @@ class TestInstanceSettings(APIBaseTest):
             self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
-    def test_update_setting(self):
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
+    @parameterized.expand(
+        [
+            ("AUTO_START_ASYNC_MIGRATIONS", False, True),
+            ("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [], [44]),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", "native.example.com"),
+        ]
+    )
+    def test_update_setting(self, key: str, before: object, after: object) -> None:
+        response = self.client.get(f"/api/instance_settings/{key}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], False)
+        self.assertEqual(response.json()["value"], before)
 
-        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response = self.client.patch(f"/api/instance_settings/{key}", {"value": after}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], True)
+        self.assertEqual(response.json()["value"], after)
 
-        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, True)
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), True)
+        self.assertEqual(get_instance_setting_helper(key).value, after)
+        self.assertEqual(get_instance_setting(key), after)
 
     def test_updating_email_settings(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -274,19 +303,26 @@ class TestInstanceSettings(APIBaseTest):
         )
         self.assertEqual(get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"), True)
 
-    def test_non_staff_user_cant_update(self):
+    @parameterized.expand(
+        [
+            ("AUTO_START_ASYNC_MIGRATIONS", False, True),
+            ("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [], [44]),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", "native.example.com"),
+        ]
+    )
+    def test_non_staff_user_cant_update(self, key: str, before: object, after: object) -> None:
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response = self.client.patch(f"/api/instance_settings/{key}", {"value": after}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json(),
             self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
-        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), False)
+        self.assertEqual(get_instance_setting_helper(key).value, before)
+        self.assertEqual(get_instance_setting(key), before)
 
     @parameterized.expand(
         [

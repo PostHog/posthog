@@ -644,12 +644,14 @@ class TestResetLoadWritesTheQueuedScheme:
                 {"partition_count_override": 11},
             ),
             ({"repartition_pending": {"attempts": 2}, "repartition_rewrite": {"temp_uri": "x"}}, {}),
+            ({"repartition_pending": {**_PENDING_SCHEME, "dropping": True}}, {}),
             ({}, {}),
         ],
         ids=[
             "queued_target_becomes_the_scheme",
             "operator_pin_stays",
             "bookkeeping_only_marker_goes",
+            "target_being_dropped_goes",
             "nothing_queued",
         ],
     )
