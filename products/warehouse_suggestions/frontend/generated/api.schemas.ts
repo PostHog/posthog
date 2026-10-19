@@ -61,9 +61,9 @@ export type WarehouseSuggestionPayloadApi =
 export type WarehouseSuggestionEvidenceApiRequestsBySurface = { [key: string]: number }
 
 export interface WarehouseSuggestionEvidenceApi {
-    /** Days of read history the daily job had for the whole project, up to 30. */
+    /** Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any project, so it shows how much history exists, not how active this project is. */
     days_with_data?: number
-    /** Queries people ran that read the subject in that history. */
+    /** Queries people ran that read the subject in the usage window. */
     human_requests?: number
     /** Distinct people who ran those queries. */
     human_users?: number
@@ -73,7 +73,7 @@ export interface WarehouseSuggestionEvidenceApi {
     background_requests?: number
     /** Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp. */
     requests_by_surface?: WarehouseSuggestionEvidenceApiRequestsBySurface
-    /** When a person last read the subject. */
+    /** When any query last read the subject, including queries PostHog ran on its own. */
     last_read_at?: string
 }
 

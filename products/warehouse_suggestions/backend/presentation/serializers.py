@@ -131,10 +131,14 @@ class WarehouseSuggestionStatusSerializer(DataclassSerializer):
 @extend_schema_serializer(component_name="WarehouseSuggestionEvidence")
 class SuggestionEvidenceSerializer(serializers.Serializer):
     days_with_data = serializers.IntegerField(
-        required=False, help_text="Days of read history the daily job had for the whole project, up to 30."
+        required=False,
+        help_text=(
+            "Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any "
+            "project, so it shows how much history exists, not how active this project is."
+        ),
     )
     human_requests = serializers.IntegerField(
-        required=False, help_text="Queries people ran that read the subject in that history."
+        required=False, help_text="Queries people ran that read the subject in the usage window."
     )
     human_users = serializers.IntegerField(required=False, help_text="Distinct people who ran those queries.")
     human_days = serializers.IntegerField(required=False, help_text="Days on which people read the subject.")
@@ -147,7 +151,10 @@ class SuggestionEvidenceSerializer(serializers.Serializer):
         required=False,
         help_text="Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.",
     )
-    last_read_at = serializers.DateTimeField(required=False, help_text="When a person last read the subject.")
+    last_read_at = serializers.DateTimeField(
+        required=False,
+        help_text="When any query last read the subject, including queries PostHog ran on its own.",
+    )
 
 
 @extend_schema_serializer(component_name="WarehouseSuggestion")

@@ -14747,7 +14747,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-get": {
-        "description": "Get one warehouse suggestion by id, including `evidence`: how many queries and people read the view or table, on how many days, and from which places, between `evidence_window_start` and `evidence_window_end`. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
+        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Get a warehouse suggestion",
