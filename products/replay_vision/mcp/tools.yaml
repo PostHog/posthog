@@ -626,9 +626,9 @@ tools:
             `vision-quota-get` first and skip the free choice when `credits_used` has reached `free_monthly_credits`.
             Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query`, a `rationale`
             addressed to the person, the chosen `model`, and the `free_only` and `credit_limit` to save. `sampling_mode`
-            and `sampling_rate` are solved to fit the budget, and come back null only when the cost estimate failed. A draft
-            that watches an experiment comes back as an `experiment` scanner; pass `experiment_id` to draft one on a
-            launched experiment the person picked. Review the draft with the person, then pass it to
+            and `sampling_rate` are solved to fit the budget, and come back null only when the cost estimate failed. A
+            draft that watches an experiment comes back as an `experiment` scanner; pass `experiment_id` to draft one on
+            a launched experiment the person picked. Review the draft with the person, then pass it to
             `vision-scanners-create`. The call is an inline LLM request and can take a while.
         requires_ai_consent: true
     vision-scanners-duplicate:
@@ -719,15 +719,15 @@ tools:
         title: Scan sessions against a prompt
         description: >
             Answer a one-off question about session recordings you already have in hand, without creating a scanner
-            first. Pass the `session_ids` and either a `prompt` or a `built_in` scan; no scheduled scanner is created, though the observations it
-            produces persist and are reused on a repeat call. Prefer this over `vision-scanners-create` whenever you
-            have specific sessions and a question about them — a scanner is for a standing watch over future recordings,
-            and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to
-            `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config`
-            (`tags`, `scale`, optional `length`) when you want structured output. For "summarize this recording" and
-            "what happened in this session", pass `built_in: "summarize_recording"` and no `prompt`, `scanner_type` or
-            `scanner_config`: it runs the same AI summary as the Summarize button in the replay player and shares its
-            results. Results are not returned inline: the response gives a `scan_id`, which
+            first. Pass the `session_ids` and either a `prompt` or a `built_in` scan; no scheduled scanner is created,
+            though the observations it produces persist and are reused on a repeat call. Prefer this over
+            `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a
+            standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep
+            behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with
+            the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. For
+            "summarize this recording" and "what happened in this session", pass `built_in: "summarize_recording"` and
+            no `prompt`, `scanner_type` or `scanner_config`: it runs the same AI summary as the Summarize button in the
+            replay player and shares its results. Results are not returned inline: the response gives a `scan_id`, which
             is a scanner id, and you read the observations from `vision-scanners-observations-list` with `scanner_id`
             set to it, polling until each session's observation leaves `pending`/`running`. `vision-observations-list`
             works too when you want one session's observations across every scanner, since it takes a `session_id`
