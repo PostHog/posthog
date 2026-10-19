@@ -129,6 +129,7 @@ logger = structlog.get_logger(__name__)
 FILE_COUNT_LOG_SAMPLE_EVERY = 100
 # The check lists the add-file sizes of the open snapshot, O(files in table), so it skips most batches.
 REBUILD_COMPACT_CHECK_EVERY = 10
+REBUILD_COMPACTION_FLAG = "warehouse-rebuild-run-compaction"
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
@@ -354,24 +355,51 @@ def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: Ex
     return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
 
 
+def _rebuild_compaction_enabled(schema: ExternalDataSchema) -> bool:
+    """Evaluate the rebuild compaction flag. Any evaluation failure returns False: the post-load pass
+    still compacts the run, as it did before the flag existed."""
+    try:
+        team = schema.team
+        return bool(
+            posthoganalytics.feature_enabled(
+                REBUILD_COMPACTION_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                person_properties={
+                    "schema_id": str(schema.id),
+                    "team_id": str(team.id),
+                    "source_type": str(schema.source.source_type),
+                },
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
 def _compacts_during_rebuild(
     export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
 ) -> bool:
     """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
 
-    A rebuild run (first sync, reset, full refresh) overwrites the table at batch 0, so a compaction
-    rewrites only files of the same run, and the rollback of an unfinished append run never needs
-    them. A run that adds to an existing table would compact files from before it.
+    A rebuild run (first sync, reset, full refresh) loads the table from empty, so a compaction
+    rewrites only files of the same run. A run that adds to an existing table would compact files
+    from before it, which the rollback of an unfinished append run restores.
     Not for CDC: each CDC run is short and ends with its own post-load pass.
     Not for partial data loading: it publishes the files of each batch, and a compaction replaces them.
     """
     return (
-        settings.DATA_WAREHOUSE_REBUILD_COMPACTION
-        and (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
+        (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
         and export_signal.cdc_write_mode is None
         and not _partial_data_loading_applies(export_signal, schema)
         and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
         and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
+        and _rebuild_compaction_enabled(schema)
     )
 
 

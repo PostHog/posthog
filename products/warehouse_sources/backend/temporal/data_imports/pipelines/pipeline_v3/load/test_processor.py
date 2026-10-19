@@ -2036,21 +2036,22 @@ class TestCompactionDuringRebuild:
     ) -> None:
         signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
         members = members or [(signal.run_uuid, signal.batch_index)]
-        assert _compacts_during_rebuild(signal, self._schema(source_type or "Postgres"), members) is expected
+        with patch(f"{_PROCESSOR}.posthoganalytics.feature_enabled", return_value=True):
+            assert _compacts_during_rebuild(signal, self._schema(source_type or "Postgres"), members) is expected
 
-    @override_settings(DATA_WAREHOUSE_REBUILD_COMPACTION=False)
-    def test_the_setting_turns_it_off(self) -> None:
+    @parameterized.expand([("flag_off", False, None), ("flag_evaluation_fails", None, RuntimeError("flags down"))])
+    def test_the_flag_turns_it_off(self, _name: str, enabled: bool | None, error: Exception | None) -> None:
         signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
-        assert _compacts_during_rebuild(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+        with patch(f"{_PROCESSOR}.posthoganalytics.feature_enabled", return_value=enabled, side_effect=error):
+            assert _compacts_during_rebuild(signal, self._schema(), [(signal.run_uuid, 10)]) is False
 
     def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
         write_deltalake(table_path, TestTableHandleReuse._SEED)
         with (
-            override_settings(
-                DATA_WAREHOUSE_REBUILD_COMPACTION=enabled, DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES=3
-            ),
+            override_settings(DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES=3),
             patch(f"{_PROCESSOR}.REBUILD_COMPACT_CHECK_EVERY", 5),
             TestTableHandleReuse()._loader(table_path, []),
+            patch(f"{_PROCESSOR}.posthoganalytics.feature_enabled", return_value=enabled),
         ):
             for index in range(first_index, first_index + 12):
                 process_message(TestTableHandleReuse._batch(index, sync_type=sync_type))

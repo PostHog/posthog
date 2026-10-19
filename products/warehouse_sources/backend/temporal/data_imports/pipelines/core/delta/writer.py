@@ -162,7 +162,6 @@ def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
 
 
 _MAINTENANCE_OPERATIONS = frozenset({"OPTIMIZE", "VACUUM START", "VACUUM END"})
-# Bounds the scan of a table whose recent history is all maintenance commits.
 _MAX_HISTORY_SCAN = 2000
 
 

@@ -212,7 +212,6 @@ class TestHasBatchBeenCommitted:
     async def test_finds_the_batch_behind_later_commits(
         self, _name: str, operation: str, later_commits: int, expected: bool
     ) -> None:
-        # Newest first, as delta history returns it.
         commits = [{"operation": operation} for _ in range(later_commits)] + [
             {"operation": "WRITE", "run_uuid": "run-1", "batch_index": "5"}
         ]

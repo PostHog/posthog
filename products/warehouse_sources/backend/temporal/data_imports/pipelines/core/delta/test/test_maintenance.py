@@ -704,7 +704,6 @@ class TestDeltaliteCompaction:
         ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class, enabled=enabled)
 
         assert ran is True
-        # A deltalite pass commits in chunks, so delta-rs must compact the table as the log now stands.
         delta_rs_compact.assert_awaited_once_with(refreshed if enabled else first, _DEFAULT_PLAN)
         assert table_ref.note_deltalite_commit.called is (expected_reason == "deltalite_error")
         fallbacks = self._info_calls(table_ref, "compact: falling back to delta-rs")
