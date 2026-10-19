@@ -88,7 +88,8 @@ export function promqlReferencedNames(
             const call = groups.at(-1)
             const labelReplace = call?.bracket === '(' && call.name === 'label_replace'
             const before = previousNonSpace(text, index)
-            const afterMatcher = before > 0 && text[before] === '~' && (text[before - 1] === '=' || text[before - 1] === '!')
+            const afterMatcher =
+                before > 0 && text[before] === '~' && (text[before - 1] === '=' || text[before - 1] === '!')
             regex = char !== '#' && (afterMatcher || (labelReplace && call.argument === 4))
             replacement = char !== '#' && labelReplace && call.argument === 2
         }
@@ -167,9 +168,7 @@ export function variableParents(variable: MetricsDashboardVariable, variables: M
     }
     // The query of a variable gets no value for the variable itself, so in a replacement `$name` stays a regex group.
     const own = promqlReferencedNames(variable.query, { replacements: false }).includes(variable.name)
-    return promqlReferencedNames(variable.query).filter(
-        (name) => names.has(name) && (name !== variable.name || own)
-    )
+    return promqlReferencedNames(variable.query).filter((name) => names.has(name) && (name !== variable.name || own))
 }
 
 export function orderVariables(variables: MetricsDashboardVariable[]): { order: string[]; cycle: string[] } {
@@ -280,25 +279,32 @@ export function selectionsForRequest(
 ): _MetricVariableSelectionApi[] {
     const parents = new Set(variableParents(variable, variables))
     parents.delete(variable.name)
-    return variables
-        .filter((other) => parents.has(other.name))
-        .filter((other) => other.current && (other.current.values.length || other.current.all))
-        // The server reads All as the options sent, so a SQL query waits until they load.
-        .filter(
-            (other) =>
-                !(variable.source === 'sql' && other.current!.all && other.includeAll && !ownValue(options, other.name))
-        )
-        .map((other) => {
-            const all = !!(other.current!.all && other.includeAll)
-            return {
-                name: other.name,
-                values: all
-                    ? variable.source === 'sql'
-                        ? (ownValue(options, other.name) ?? [])
-                        : []
-                    : other.current!.values,
-                all,
-                allValue: other.allValue ?? null,
-            }
-        })
+    return (
+        variables
+            .filter((other) => parents.has(other.name))
+            .filter((other) => other.current && (other.current.values.length || other.current.all))
+            // The server reads All as the options sent, so a SQL query waits until they load.
+            .filter(
+                (other) =>
+                    !(
+                        variable.source === 'sql' &&
+                        other.current!.all &&
+                        other.includeAll &&
+                        !ownValue(options, other.name)
+                    )
+            )
+            .map((other) => {
+                const all = !!(other.current!.all && other.includeAll)
+                return {
+                    name: other.name,
+                    values: all
+                        ? variable.source === 'sql'
+                            ? (ownValue(options, other.name) ?? [])
+                            : []
+                        : other.current!.values,
+                    all,
+                    allValue: other.allValue ?? null,
+                }
+            })
+    )
 }

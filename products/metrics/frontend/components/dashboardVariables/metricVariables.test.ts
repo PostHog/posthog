@@ -118,7 +118,13 @@ describe('metricVariables', () => {
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
         ['an options function in capitals', 'promql', undefined, 'query', 'LABEL_VALUES(job)'],
         ['a query that refers to a missing variable', 'promql', undefined, 'query', 'label_values(up{a="$gone"}, b)'],
-        ['a query with built-in and group references', 'promql', undefined, undefined, 'query_result(rate(up[$__range]))'],
+        [
+            'a query with built-in and group references',
+            'promql',
+            undefined,
+            undefined,
+            'query_result(rate(up[$__range]))',
+        ],
     ])('checks %s', (_name, source, regex, field, query = 'label_values(job)') => {
         const variable = { name: 'v', source, query, customValues: ['a'], regex }
         expect(ownValue(variableErrors([variable as MetricsDashboardVariable]), 'v')?.field).toEqual(field)

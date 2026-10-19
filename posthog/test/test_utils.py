@@ -1112,7 +1112,7 @@ class TestSharingOverrideProtection(SimpleTestCase):
         assert result["metricVariables"] == [{**saved, "current": {"values": ["b"]}}]
 
     def test_filters_override_rejects_a_metric_variable_name_that_is_not_a_string(self):
-        override = {"metricVariables": [{"name": []}]}
+        override: dict[str, list[dict[str, list[str]]]] = {"metricVariables": [{"name": []}]}
         request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
         dashboard = type("Dashboard", (), {"filters": {}})()
 

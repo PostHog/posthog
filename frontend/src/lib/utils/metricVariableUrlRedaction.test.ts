@@ -6,8 +6,16 @@ const filters = encodeURIComponent(
 
 describe('redactMetricVariableUrl', () => {
     it.each([
-        ['an insight link', `https://us.posthog.com/insights/abc?filters_override=${filters}#x`, 'https://us.posthog.com/insights/abc'],
-        ['a dashboard', `https://us.posthog.com/dashboard/1?query_filters=${filters}`, 'https://us.posthog.com/dashboard/1'],
+        [
+            'an insight link',
+            `https://us.posthog.com/insights/abc?filters_override=${filters}#x`,
+            'https://us.posthog.com/insights/abc',
+        ],
+        [
+            'a dashboard',
+            `https://us.posthog.com/dashboard/1?query_filters=${filters}`,
+            'https://us.posthog.com/dashboard/1',
+        ],
         [
             'a login redirect',
             `https://us.posthog.com/login?next=${encodeURIComponent(`/dashboard/1?query_filters=${filters}`)}`,

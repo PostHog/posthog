@@ -171,7 +171,9 @@ describe('dashboardMetricVariablesLogic', () => {
 
     it('keeps loading options when the dashboard restores other selections', async () => {
         const zone = deferred()
-        mockOptions.mockImplementation(async (_team, body) => (body.query === 'SELECT zone' ? zone.promise : { results: [] }))
+        mockOptions.mockImplementation(async (_team, body) =>
+            body.query === 'SELECT zone' ? zone.promise : { results: [] }
+        )
         const withZone: MetricsDashboardVariable[] = [
             { name: 'env', source: 'textbox', current: { values: ['prod'] } },
             { name: 'zone', source: 'sql', query: 'SELECT zone' },
@@ -181,7 +183,10 @@ describe('dashboardMetricVariablesLogic', () => {
         logic.mount()
         await flush()
 
-        dashboardMetricVariablesLogic({ ...props, variables: [{ ...withZone[0], current: { values: ['dev'] } }, withZone[1]] })
+        dashboardMetricVariablesLogic({
+            ...props,
+            variables: [{ ...withZone[0], current: { values: ['dev'] } }, withZone[1]],
+        })
         await flush()
         zone.resolve(['eu'])
         await expectLogic(logic).toFinishAllListeners()
