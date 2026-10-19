@@ -59,6 +59,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
         {
             name: 'a batch email accepted as a broadcast',
             actions: [trigger('batch'), email, exit],
+            exitCondition: 'exit_only_at_end' as const,
             choice: 'broadcast' as const,
             asked: true,
             originProduct: 'broadcasts',
@@ -67,6 +68,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
         {
             name: 'a batch email kept as a workflow',
             actions: [trigger('batch'), email, exit],
+            exitCondition: 'exit_only_at_end' as const,
             choice: 'workflow' as const,
             asked: true,
             originProduct: undefined,
@@ -75,24 +77,42 @@ describe('workflowLogic broadcast suggestion on create', () => {
         {
             name: 'an event-triggered email',
             actions: [trigger('event'), email, exit],
+            exitCondition: 'exit_only_at_end' as const,
             choice: 'broadcast' as const,
             asked: false,
             originProduct: undefined,
             path: `/workflows/${CREATED_ID}/workflow`,
         },
-    ])('creates $name with the right owner and opens it', async ({ actions, choice, asked, originProduct, path }) => {
-        jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(choice)
-        logic.actions.setWorkflowValues({ name: 'Monthly update', actions, edges: emailEdges })
+        {
+            name: 'a batch email that exits on conversion',
+            actions: [trigger('batch'), email, exit],
+            exitCondition: 'exit_on_conversion' as const,
+            choice: 'broadcast' as const,
+            asked: false,
+            originProduct: undefined,
+            path: `/workflows/${CREATED_ID}/workflow`,
+        },
+    ])(
+        'creates $name with the right owner and opens it',
+        async ({ actions, exitCondition, choice, asked, originProduct, path }) => {
+            jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(choice)
+            logic.actions.setWorkflowValues({
+                name: 'Monthly update',
+                actions,
+                edges: emailEdges,
+                exit_condition: exitCondition,
+            })
 
-        await expectLogic(logic, () => {
-            logic.actions.submitWorkflow()
-        }).toDispatchActions(['saveWorkflowSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.submitWorkflow()
+            }).toDispatchActions(['saveWorkflowSuccess'])
 
-        expect(jest.mocked(confirmCreateAsBroadcast).mock.calls.length).toBe(asked ? 1 : 0)
-        expect(createdBodies).toHaveLength(1)
-        expect(createdBodies[0].origin_product).toBe(originProduct)
-        expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
-    })
+            expect(jest.mocked(confirmCreateAsBroadcast).mock.calls.length).toBe(asked ? 1 : 0)
+            expect(createdBodies).toHaveLength(1)
+            expect(createdBodies[0].origin_product).toBe(originProduct)
+            expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
+        }
+    )
 
     it('creates nothing when the user closes the dialog', async () => {
         jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(null)

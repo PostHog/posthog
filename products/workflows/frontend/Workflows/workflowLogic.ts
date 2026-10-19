@@ -3541,6 +3541,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (
                     (!props.id || props.id === 'new') &&
                     !props.editTemplateId &&
+                    // The broadcast editor always saves this exit condition, so any other one would be lost.
+                    values.exit_condition === 'exit_only_at_end' &&
                     isBroadcastShaped(values.actions) &&
                     canEditInWizard(values.actions, values.edges)
                 ) {
