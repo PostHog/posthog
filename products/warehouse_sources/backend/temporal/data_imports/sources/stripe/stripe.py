@@ -92,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     ClientFactory,
+    CreditNoteListWithAllLines,
     InvoiceListWithAllLines,
     PacedClientFactory,
     RateLimitCallback,
@@ -373,6 +374,27 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         e._message = cleaned
         e.args = (cleaned,)
         raise
+
+
+def _iter_cleaning_errors(objects: Iterable[Any]) -> Iterator[Any]:
+    """Iterate a Stripe listing and clean errors raised while it pages, as `_call_stripe` does.
+
+    A listing wrapper such as `InvoiceListWithAllLines` makes its first request only when it is
+    iterated, so `_call_stripe` around the method call never sees that request's error.
+    """
+    iterator = iter(objects)
+    try:
+        while True:
+            try:
+                obj = _call_stripe(next, iterator)
+            except StopIteration:
+                return
+            yield obj
+    finally:
+        # Close the inner generator now, so a listing wrapper shuts down its thread pool.
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
 
 
 def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
@@ -759,8 +781,8 @@ def _build_resources(
     checks). Nested resources carry their parent on `.parent`, so callers can derive the
     nested→parent linkage without restating it elsewhere.
 
-    `logger` and `client_factory` are only consumed by InvoiceListWithAllLines; pass None when the
-    caller doesn't need the wrapped invoice expansion (e.g. validation, which just probes the list
+    `logger` and `client_factory` are only consumed by the invoice and credit note line expansion;
+    pass None when the caller doesn't need it (e.g. validation, which just probes the list
     endpoint). The factory gives each of its worker threads a client of its own.
     """
     return {
@@ -796,7 +818,13 @@ def _build_resources(
                 "expand": ["data.discounts", "data.items.data.discounts"],
             },
         ),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(
+            method=(
+                (lambda params: CreditNoteListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+                if logger is not None and client_factory is not None
+                else client.credit_notes.list
+            )
+        ),
         COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         # The one nested resource that reads its parent from the warehouse. Its skip predicate
         # answers from the parent row itself, so a run is dominated by paging the customer
@@ -1152,7 +1180,7 @@ def get_rows(
         else:
 
             def _list_resource(params: dict[str, Any]) -> Any:
-                return _call_stripe(resource.method, params=params).auto_paging_iter()
+                return _iter_cleaning_errors(_call_stripe(resource.method, params=params).auto_paging_iter())
 
             list_params = {**default_params, **resource.params, **resume_params}
             cursor_restarted = False
@@ -1208,7 +1236,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
+        yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -1223,7 +1251,7 @@ def get_rows(
             },
         )
         yield from _batch_and_yield(
-            stripe_objects.auto_paging_iter(),
+            _iter_cleaning_errors(stripe_objects.auto_paging_iter()),
             batcher,
             incremental_field_name=incremental_field_name,
             stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
