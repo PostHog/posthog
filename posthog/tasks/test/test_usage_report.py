@@ -3757,7 +3757,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         team_id = self.org_1_team_1.id
         other_team_id = self.org_1_team_2.id
 
-        def row(team: int, bucket: datetime, version: int, pattern: str, service: str = "api", severity: str = "info"):
+        def row(
+            team: int, bucket: datetime, version: int, pattern: str, service: str = "api", severity: str = "info"
+        ) -> str:
             return json.dumps(
                 {
                     "team_id": team,
