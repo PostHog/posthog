@@ -24,7 +24,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { PaginatedResponse, isAbortError } from 'lib/api'
 import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
@@ -675,10 +675,31 @@ function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
 // Leaving the flag page unmounts its logic, so the wait and its outcome avoid breakpoints and the logic's values.
 async function waitForFlagCohort(projectId: string, cohortId: number): Promise<CohortApi> {
     const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
-    let status = await cohortsRetrieve(projectId, cohortId)
+    // Each request gets what is left of the wait, so a stalled one cannot hold the toast past the deadline.
+    const retrieve = async (): Promise<CohortApi> => {
+        // A plain abort, because the API client passes AbortError through but wraps a TimeoutError.
+        const controller = new AbortController()
+        const timer = window.setTimeout(
+            () => controller.abort(),
+            Math.max(deadline - Date.now(), BROADCAST_COHORT_POLL_MS)
+        )
+        try {
+            return await cohortsRetrieve(projectId, cohortId, { signal: controller.signal })
+        } finally {
+            window.clearTimeout(timer)
+        }
+    }
+    let status = await retrieve()
     while (status.is_calculating && Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, BROADCAST_COHORT_POLL_MS))
-        status = await cohortsRetrieve(projectId, status.id)
+        try {
+            status = await retrieve()
+        } catch (error) {
+            if (isAbortError(error)) {
+                return status
+            }
+            throw error
+        }
     }
     return status
 }
@@ -4858,8 +4879,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 autoClose: false,
             })
         },
-        findOrCreateBroadcastCohortFailure: () => {
+        findOrCreateBroadcastCohortFailure: ({ errorObject }) => {
             dismissBroadcastProgress(cache)
+            // The shared loader error toast needs an HTTP status, which a dropped connection never has.
+            if (errorObject?.status === undefined) {
+                lemonToast.error("Couldn't reach PostHog to find the people who have this flag. Try again.")
+            }
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {

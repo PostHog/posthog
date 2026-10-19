@@ -1291,6 +1291,13 @@ describe('featureFlagLogic', () => {
                 outcome: 'still filling',
             },
             {
+                scenario: 'points to the cohort when a status check stalls past the wait',
+                polls: [FILLING],
+                expectedPolls: 2,
+                outcome: 'still filling',
+                stallAfter: 1,
+            },
+            {
                 scenario: 'offers the broadcast in a toast when the person left the flag page',
                 polls: [READY],
                 expectedPolls: 1,
@@ -1305,7 +1312,7 @@ describe('featureFlagLogic', () => {
                 startPath: urls.cohorts(),
                 unmountOnLeave: true,
             },
-        ])('$scenario', async ({ polls, expectedPolls, outcome, startPath, unmountOnLeave }) => {
+        ])('$scenario', async ({ polls, expectedPolls, outcome, startPath, unmountOnLeave, stallAfter }) => {
             jest.useFakeTimers()
             router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
             let pollCount = 0
@@ -1318,7 +1325,13 @@ describe('featureFlagLogic', () => {
                 },
                 get: {
                     '/api/projects/:projectId/cohorts/': () => [200, { count: 0, results: [] }],
-                    '/api/projects/:projectId/cohorts/42/': () => [200, polls[Math.min(pollCount++, polls.length - 1)]],
+                    '/api/projects/:projectId/cohorts/42/': () => {
+                        const poll = pollCount++
+                        if (stallAfter !== undefined && poll >= stallAfter) {
+                            return new Promise(() => {})
+                        }
+                        return [200, polls[Math.min(poll, polls.length - 1)]]
+                    },
                 },
             })
 
@@ -1368,6 +1381,15 @@ describe('featureFlagLogic', () => {
                 expect(router.values.location.pathname).toContain('/broadcasts/new')
                 expect(router.values.searchParams).toMatchObject(broadcastDetails)
             }
+        })
+
+        it.each([
+            ['a dropped connection', {}, 1],
+            ['an HTTP error the shared loader toast already reports', { status: 500 }, 0],
+        ])('reports a failed broadcast lookup after %s', (_, errorObject, errorToasts) => {
+            logic.actions.findOrCreateBroadcastCohortFailure('failed', errorObject)
+
+            expect(lemonToast.error).toHaveBeenCalledTimes(errorToasts)
         })
 
         it.each([
