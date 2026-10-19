@@ -1695,7 +1695,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
                     )
         elif linked_flag_variant and not linked_flag_id:
-            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
+            if self.instance is None:
+                raise serializers.ValidationError(
+                    "linkedFlagVariant can only be used when a linked_flag_id is specified"
+                )
+            if "linked_flag_id" in data or not self.instance.linked_flag_id:
+                # Deleting the flag sets linked_flag to NULL but keeps the variant, so drop it instead of blocking every save.
+                data["conditions"] = {key: value for key, value in conditions.items() if key != "linkedFlagVariant"}
 
         if (
             self.context["request"].method == "POST"
