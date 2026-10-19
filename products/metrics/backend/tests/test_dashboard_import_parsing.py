@@ -564,6 +564,10 @@ def test_a_listed_all_matches_only_the_listed_values() -> None:
             id="regex_over_the_api_limit",
         ),
         pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/([^,]+)/g"},
+            id="regex_with_the_global_flag",
+        ),
+        pytest.param(
             {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/^${env}-(.*)$/"},
             id="regex_with_a_variable",
         ),
