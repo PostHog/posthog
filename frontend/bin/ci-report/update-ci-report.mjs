@@ -14,6 +14,7 @@ export const MARKER = '<!-- posthog-ci-report -->'
 // Adding a check means adding it here — that is deliberate: it keeps the order a
 // reviewed decision rather than an accident of which job happened to write first.
 export const SECTIONS = [
+    { id: 'stack-depth', title: 'Stack depth' },
     { id: 'trunk-lane', title: 'Trunk lane' },
     { id: 'complexity-python', title: 'Complexity (Python)' },
     { id: 'complexity-ts', title: 'Complexity (TypeScript)' },

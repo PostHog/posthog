@@ -37,6 +37,8 @@ PR_EVENT_FANOUT_BUDGET: Mapping[str, int] = {
     "ready_for_review": 11,
     "reopened": 24,
     "review_requested": 1,
+    # pr-housekeeping's stack-depth job re-checks a PR when it joins a stack without a push.
+    "stacked": 1,
     "synchronize": 28,
 }
 

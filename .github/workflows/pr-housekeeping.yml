@@ -7,7 +7,9 @@ name: PR housekeeping
 
 on:
     pull_request:
-        types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft]
+        # `stacked` fires when a PR joins a stack without a push. Only the
+        # stack-depth job runs on it.
+        types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft, stacked]
 
 # Keyed by event action so a new push (synchronize) cancels the previous
 # push's run without cancelling runs fired by other event types on the PR.
@@ -127,6 +129,14 @@ jobs:
         uses: ./.github/workflows/ci-migrations-service-separation-check.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    stack-depth:
+        # No action filter, because a skipped check run satisfies a required context:
+        # any event that skipped this job would turn a failing result green.
+        uses: ./.github/workflows/pr-stack-depth.yml
+        permissions:
+            contents: read
+            pull-requests: write
 
     release-plan:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)

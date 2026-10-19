@@ -1,0 +1,34 @@
+name: PR stack depth
+
+# Fails a pull request above the fifth open layer of its GitHub stack, because
+# each layer starts its own CI runs on every push and restack.
+
+on:
+    workflow_call:
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    stack-depth:
+        name: Stack depth
+        # The merge queue's batch PR is not a stack layer. The skip sits here, not on the
+        # caller job, because a skipped caller reports only `stack-depth` and never the
+        # `stack-depth / Stack depth` context that the ruleset requires.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/check-stack-depth.mjs
+                      frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
+
+            - name: Check open layers below this pull request
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: node .github/scripts/check-stack-depth.mjs
