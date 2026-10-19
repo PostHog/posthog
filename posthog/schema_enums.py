@@ -2226,6 +2226,13 @@ class MetricsAxisScale(StrEnum):
     LOG = "log"
 
 
+class MetricsDashboardVariableSource(StrEnum):
+    CUSTOM = "custom"
+    PROMQL = "promql"
+    SQL = "sql"
+    TEXTBOX = "textbox"
+
+
 class MetricsDisplayType(StrEnum):
     LINE = "line"
     AREA = "area"

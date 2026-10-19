@@ -50,13 +50,11 @@ class TestScheduleMaterializationV2Guard(BaseTest):
     def test_skips_v1_and_nulls_frequency_when_dag_on_v2(self):
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths") as setup_paths,
             mock.patch(f"{NODE_MAT}.sync_connect") as sync_connect,
             mock.patch(f"{MODEL}.capture_exception") as capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
             self.sq.schedule_materialization()
-        setup_paths.assert_not_called()
         # reporting on the healthy path would bury the one signal that matters
         capture.assert_not_called()
         # a frequency-only call carries no enable intent, so it must not start a one-off run

@@ -9,7 +9,7 @@ from itertools import batched
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
-from requests.exceptions import RequestException
+from requests.exceptions import ConnectTimeout, RequestException, Timeout
 
 from posthog.dataclasses import frozen
 
@@ -75,6 +75,17 @@ TRINO_TLS_CERTIFICATE_ERROR = (
     "Check the certificate or turn off certificate verification."
 )
 TRINO_CONNECTION_ERROR = "PostHog could not connect to Trino."
+TRINO_CONNECT_TIMEOUT_ERROR = (
+    "Connection to Trino timed out. Check the host and port, and that PostHog's egress IP addresses are "
+    "allowed through your firewall."
+)
+TRINO_READ_TIMEOUT_ERROR = (
+    "Trino didn't answer in time. Check that your Trino cluster isn't overloaded, then try again."
+)
+TRINO_DISCOVERY_TIMEOUT_ERROR = (
+    "Trino took too long to list your tables. If you left the schema blank, enter one so PostHog lists "
+    "fewer tables, then try again."
+)
 TRINO_TABLE_NOT_FOUND_ERROR = (
     "Trino could not find this table, or this user can no longer see its columns. "
     "Check that the table still exists and that the user can read it, then resync."
@@ -86,6 +97,11 @@ TRINO_COLUMN_NOT_FOUND_ERROR = (
     "A column this table syncs no longer exists in Trino. Refresh the schemas so PostHog picks up the new "
     "columns, then resync."
 )
+# The Trino coordinator's own fixed wording when it gives up on a worker node after repeatedly
+# failing to reach it mid-query. The coordinator already retried internally before raising this, so
+# by the time it reaches us the worker has likely crashed or is overloaded — a vendor-side blip a
+# fresh query normally clears, not a PostHog or customer problem.
+TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
@@ -97,6 +113,9 @@ TRINO_KNOWN_ERROR_MESSAGES = (
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_TLS_CERTIFICATE_ERROR,
     TRINO_CONNECTION_ERROR,
+    TRINO_CONNECT_TIMEOUT_ERROR,
+    TRINO_READ_TIMEOUT_ERROR,
+    TRINO_DISCOVERY_TIMEOUT_ERROR,
 )
 # The subset of those failures that a retry of an import sync cannot fix. A broken connection, an
 # unreachable access control service and a TLS failure can all clear on their own, so a sync retries them.
@@ -150,6 +169,17 @@ class TrinoConfigurationError(ValueError):
     """A connection setting Trino cannot be reached with, found before PostHog opens the connection."""
 
 
+def _timeout_in_chain(error: BaseException) -> Timeout | None:
+    # The driver re-raises a requests timeout as `TrinoConnectionError` inside its `except` block,
+    # so only `__context__` still carries the original.
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, Timeout):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
 @contextmanager
 def trino_failures_as_discovery_error() -> Iterator[None]:
     """Word a failed trip to Trino for the person who connects the source.
@@ -161,6 +191,10 @@ def trino_failures_as_discovery_error() -> Iterator[None]:
     try:
         yield
     except (Error, HttpError, RequestException, TrinoConfigurationError) as exc:
+        # Listing every schema in a large catalog is the slow part of discovery, so a schema narrows it.
+        timeout = _timeout_in_chain(exc)
+        if timeout is not None and not isinstance(timeout, ConnectTimeout):
+            raise TrinoSchemaDiscoveryError(TRINO_DISCOVERY_TIMEOUT_ERROR) from exc
         raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
 
 
@@ -169,6 +203,12 @@ def trino_error_to_message(error: Exception) -> str:
     lowered = message.lower()
     if message == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR:
         return message
+    # The raw requests text names the host, so it never reaches the user.
+    timeout = _timeout_in_chain(error)
+    if isinstance(timeout, ConnectTimeout):
+        return TRINO_CONNECT_TIMEOUT_ERROR
+    if timeout is not None:
+        return TRINO_READ_TIMEOUT_ERROR
     # Match the driver's HTTP 401 form ("error 401: ..."), not a bare "401": a Trino query error's
     # text carries a query ID whose time part can hold "401" and would derail this classification.
     if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:
