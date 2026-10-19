@@ -485,6 +485,18 @@ class GitHubSandboxCredential:
                 cause=e,
             )
         except ReauthorizationRequired as e:
+            # On a Slack run the failure belongs to the current actor, not to the run. The next
+            # message can come from an actor who has access, and the per-message rebind then
+            # applies their token. An orphaned kind stays excluded until the sandbox goes, so
+            # skip this refresh and keep the loop alive to refresh that token later.
+            if is_slack_interaction_state(ctx.state):
+                logger.info(
+                    "github_refresh_skipped_actor_without_access",
+                    extra={"run_id": ctx.run_id, "actor": permitted_session_user_id},
+                )
+                return CredentialRefreshOutcome(
+                    self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+                )
             raise CredentialUnavailableError(
                 "GitHub user integration for this run requires reauthorization",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},

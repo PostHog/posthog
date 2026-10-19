@@ -261,6 +261,39 @@ class TestGitHubSandboxCredential:
         sandbox.execute.assert_not_called()
         sandbox.write_file.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "state,stays_alive",
+        [
+            ({"interaction_origin": "slack", "slack_actor_user_id": 2}, True),
+            ({}, False),
+        ],
+    )
+    def test_actor_without_github_access_keeps_the_loop_alive_only_on_slack(self, state, stays_alive):
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        sandbox = MagicMock()
+        sandbox.id = "sb-actor-without-access"
+        task = MagicMock()
+        task.github_integration_id = 123
+        task.created_by_id = 2
+        task.created_by.id = 2
+
+        with (
+            patch(f"{MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.BOT),
+            patch(f"{MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{MODULE}.get_sandbox_github_token", side_effect=ReauthorizationRequired("no access")),
+        ):
+            if stays_alive:
+                outcome = GitHubSandboxCredential().refresh(sandbox, _context(state=state), task)
+                assert outcome.refreshed is False
+                assert outcome.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+            else:
+                with pytest.raises(CredentialUnavailableError):
+                    GitHubSandboxCredential().refresh(sandbox, _context(state=state), task)
+
 
 class TestBuildSandboxCredentials:
     def test_includes_github_when_credentials_present(self):
