@@ -2301,14 +2301,17 @@ Note: Chameleon's published OpenAPI at developers.chameleon.io/api-reference/ope
 
 ## Chargebee — gaps
 
-Today (10): `CreditUnits`, `Customers`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `Subscriptions`, `Transactions`
+Today (13): `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `Subscriptions`, `Transactions`
 
 Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
 - [x] `GET /meters` — usage-based billing meters: how usage of each metered feature is measured (medium)
 - [x] `GET /credit_units` — credit unit definitions that credit-based billing grants and consumes (medium)
+- [x] `GET /disputes` — chargebacks and inquiries raised against transactions (medium)
+- [x] `GET /payment_schedules` — installment schedules that split an invoice's amount due (medium)
+- [x] `GET /einvoices` — e-invoice records and provider status for each invoice or credit note (low)
 
-Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. The credit ledger is listable through `GET /ledger_operations`.
+Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. `GET /ledger_operations` lists the credit ledger, but every request needs a `subscription_id[is]` filter, so it is not a site-wide list endpoint and would need one request series per subscription.
 
 ## Chargedesk — gaps
 
