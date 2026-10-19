@@ -3043,6 +3043,8 @@ class TaskRun(models.Model):
         so a concurrent terminal write cannot make two writers each report the transition.
         """
         with transaction.atomic():
+            # Match start_task_run's lock order: saving the run also bumps its task's activity.
+            Task.objects.select_for_update().get(pk=self.task_id)
             stored_status = (
                 TaskRun.objects.select_for_update().filter(pk=self.pk).values_list("status", flat=True).first()
             )

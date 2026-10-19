@@ -4,7 +4,9 @@ from datetime import timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 import posthoganalytics
 from parameterized import parameterized
@@ -383,6 +385,18 @@ class TestTaskRunMetrics(TestCase):
                     client._terminalize_unstarted_task_run(str(run.id), "start failed")
 
         assert _sample_value("posthog_tasks_task_run_terminal_total", labels) == before + 1
+
+    def test_terminal_save_locks_task_before_run(self) -> None:
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.status = TaskRun.Status.COMPLETED
+
+        with CaptureQueriesContext(connection) as queries:
+            assert run._save_terminal_status(["status"])
+
+        locks = [query["sql"] for query in queries if "FOR UPDATE" in query["sql"]]
+        assert len(locks) == 2
+        assert f'FROM "{Task._meta.db_table}"' in locks[0]
+        assert f'FROM "{TaskRun._meta.db_table}"' in locks[1]
 
     @parameterized.expand([("mark_failed",), ("mark_completed",)])
     def test_finalizer_on_a_stale_instance_does_not_count_a_run_another_writer_ended(self, writer: str) -> None:
