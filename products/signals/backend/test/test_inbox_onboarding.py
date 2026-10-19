@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from requests import Timeout
 from temporalio.common import WorkflowIDReusePolicy
@@ -22,12 +23,17 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.models import (
+    SignalScoutConfig,
+    SignalScoutSuggestionSet,
+    SignalSourceConfig,
+    SignalTeamConfig,
+)
 from products.signals.backend.onboarding_activation import InboxOnboardingActivation
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
-from products.signals.backend.tasks import reconcile_inbox_onboarding
+from products.signals.backend.tasks import launch_inbox_onboarding_job, reconcile_inbox_onboarding
 
 
 class TestInboxOnboarding(APIBaseTest):
@@ -529,6 +535,41 @@ class TestInboxOnboarding(APIBaseTest):
         config.refresh_from_db()
         assert config.onboarding["draft"][field] == original
 
+    @parameterized.expand(
+        [
+            (False, -60, -30, "started"),
+            (False, 1, 2, "failed"),
+            (False, 1, -1, "started"),
+            (True, 1, 2, "failed"),
+        ]
+    )
+    def test_activation_state_reports_only_current_recommendation_failure(
+        self, child_project: bool, requested_offset: int, finished_offset: int, expected_status: str
+    ) -> None:
+        team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team) if child_project else self.team
+        )
+        activated_at = timezone.now()
+        config, _ = SignalTeamConfig.objects.get_or_create(team=team)
+        config.onboarding = {
+            "variant": "test-github",
+            "completed_at": activated_at.isoformat(),
+            "jobs": {"scout": "started", "recommendations": "started"},
+        }
+        config.save()
+        SignalScoutSuggestionSet.objects.create(
+            team=self.team,
+            status=SignalScoutSuggestionSet.Status.FAILED,
+            generated_at=activated_at - timedelta(days=1),
+            last_requested_at=activated_at + timedelta(seconds=requested_offset),
+            last_completed_at=activated_at + timedelta(seconds=finished_offset),
+        )
+        response = self.client.get(f"/api/projects/{team.id}/signals/onboarding/")
+        assert response.status_code == 200, response.content
+        assert response.json()["jobs"] == {"scout": "started", "recommendations": expected_status}
+        config.refresh_from_db()
+        assert config.onboarding["jobs"]["recommendations"] == "started"
+
     def test_background_polling_honors_github_retry_hint(self) -> None:
         config = SignalTeamConfig.objects.get(team=self.team)
         config.onboarding = {"variant": "control", "exposed_at": timezone.now().isoformat()}
@@ -545,8 +586,8 @@ class TestInboxOnboarding(APIBaseTest):
 
 
 class TestInboxOnboardingActivation(BaseTest):
-    @parameterized.expand([("scout",), ("recommendations",)])
-    def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(self, job: str) -> None:
+    @parameterized.expand([("scout", 0), ("scout", 5), ("recommendations", 0), ("recommendations", 5)])
+    def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(self, job: str, retry_count: int) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         config = SignalTeamConfig.objects.create(
@@ -563,11 +604,23 @@ class TestInboxOnboardingActivation(BaseTest):
         client.start_workflow = AsyncMock()
         with (
             patch("products.signals.backend.onboarding_activation.sync_connect", return_value=client),
+            patch("products.signals.backend.temporal.agentic.scout_suggestions.stamp_requested"),
             patch(
                 "posthoganalytics.get_feature_flag_payload",
                 return_value={"enabled": True, "guaranteed_team_ids": [self.team.id]},
             ),
         ):
+            client.start_workflow.side_effect = RuntimeError("Temporarily unavailable")
+            launch_inbox_onboarding_job.push_request(retries=retry_count)
+            try:
+                with patch.object(launch_inbox_onboarding_job, "retry", side_effect=Retry()), self.assertRaises(Retry):
+                    launch_inbox_onboarding_job.run(self.team.id, job)
+            finally:
+                launch_inbox_onboarding_job.pop_request()
+            config.refresh_from_db()
+            assert config.onboarding is not None
+            assert config.onboarding["jobs"][job] == ("failed" if retry_count == 5 else "pending")
+            client.start_workflow.reset_mock(side_effect=True)
             activation = InboxOnboardingActivation(self.team.id)
             activation.run(job)
             activation.run(job)

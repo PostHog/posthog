@@ -76,6 +76,20 @@ describe('Inbox activation progress', () => {
         expect(stateReads).toBe(settledReads)
     })
 
+    it('stops polling a failed recommendation generation without showing the previous batch', async () => {
+        await settle()
+        state = { ...state, jobs: { scout: 'started', recommendations: 'failed' } }
+        await jest.advanceTimersByTimeAsync(10_000)
+        await settle()
+        expect(logic.values.savedState?.jobs?.recommendations).toBe('failed')
+        expect(logic.values.suggestions).toEqual([])
+        const readsAfterFailure = stateReads
+        await jest.advanceTimersByTimeAsync(20_000)
+        await settle()
+        expect(stateReads).toBe(readsAfterFailure)
+        expect(logic.values.pollingExpired).toBe(false)
+    })
+
     it('polls beyond fifteen minutes and reads once more at the workflow deadline', async () => {
         await settle()
         jest.setSystemTime(ACTIVATED_AT + 20 * 60_000)

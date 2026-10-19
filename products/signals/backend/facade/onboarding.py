@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
@@ -17,6 +18,7 @@ from products.replay_vision.backend.facade.api import signal_emitting_scanner_id
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalScoutConfig,
+    SignalScoutSuggestionSet,
     SignalSourceConfig,
     SignalTeamConfig,
     signal_source_product_choices,
@@ -61,11 +63,23 @@ class InboxOnboarding:
         state = config.onboarding or {}
         if any((state.get("draft") or {}).get(key) for key in ("suggestions", "activation_scouts")):
             self.authorize_scouts(False)
+        jobs = dict(state.get("jobs", {}))
+        if (
+            jobs.get("recommendations") == "started"
+            and state.get("completed_at")
+            and SignalScoutSuggestionSet.objects.filter(
+                team_id=self.team.parent_team_id or self.team_id,
+                status=SignalScoutSuggestionSet.Status.FAILED,
+                last_requested_at__gte=state["completed_at"],
+                last_completed_at__gte=F("last_requested_at"),
+            ).exists()
+        ):
+            jobs["recommendations"] = "failed"
         return {
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
             "variant": state.get("variant"),
-            **({"jobs": state["jobs"]} if "jobs" in state else {}),
+            **({"jobs": jobs} if "jobs" in state else {}),
         }
 
     def state(self) -> dict[str, Any]:

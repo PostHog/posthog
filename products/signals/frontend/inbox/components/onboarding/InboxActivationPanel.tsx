@@ -115,7 +115,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     <span>
                         {pollingExpired
                             ? 'Recommendations are not available yet. '
-                            : 'Recommendations could not start. '}
+                            : 'Recommendations could not be prepared. '}
                     </span>
                     <Link to={urls.inbox('scouts')}>Explore scouts</Link> to choose what to investigate.
                 </p>

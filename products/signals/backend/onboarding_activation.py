@@ -48,7 +48,7 @@ class InboxOnboardingActivation:
         )
         return True
 
-    def run(self, job: str) -> None:
+    def run(self, job: str, *, final_attempt: bool = True) -> None:
         if job not in ("scout", "recommendations"):
             raise ValueError("Unknown onboarding job")
         config = SignalTeamConfig.objects.select_related("team__parent_team", "team__organization").get(
@@ -70,6 +70,6 @@ class InboxOnboardingActivation:
                 else self._start_recommendations(team, state.get("activated_by"))
             )
         except Exception:
-            self._record_status(job, "failed")
+            self._record_status(job, "failed" if final_attempt else "pending")
             raise
         self._record_status(job, "started" if started else "skipped")
