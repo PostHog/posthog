@@ -1,8 +1,4 @@
-import {
-    redactMetricVariableRequest,
-    redactMetricVariableUrl,
-    redactMetricVariableUrls,
-} from './metricVariableUrlRedaction'
+import { redactMetricVariableUrl, redactMetricVariableUrls } from './metricVariableUrlRedaction'
 
 const filters = encodeURIComponent(
     JSON.stringify({ metricVariables: [{ name: 'env', query: "SELECT 'private_value'", current: { values: ['a'] } }] })
@@ -47,20 +43,21 @@ describe('redactMetricVariableUrl', () => {
         expect(JSON.stringify(event)).not.toContain('private_value')
     })
 
-    it('redacts a request URL deep inside a replay snapshot', () => {
-        const url = `https://us.posthog.com/api/environments/1/insights/?filters_override=${filters}`
-        const request = { name: url, entryType: 'resource', initiatorType: 'fetch' }
-        const snapshot = { type: 6, data: { plugin: 'rrweb/network@1', payload: { requests: [request] } } }
+    it('redacts a URL deep inside a replay snapshot', () => {
+        const href = `/insights/abc?filters_override=${filters}`
+        const link = { type: 2, tagName: 'a', attributes: { href }, childNodes: [] }
+        const page = { type: 0, childNodes: [{ type: 2, childNodes: [{ type: 2, childNodes: [link] }] }] }
+        const snapshot = { type: 2, data: { node: page } }
 
         const event = redactMetricVariableUrls({
             event: '$snapshot',
-            properties: { $snapshot_data: [snapshot], $session_id: 's' },
+            properties: { $snapshot_data: [snapshot] },
         } as any)
 
         expect(JSON.stringify(event)).not.toContain('private_value')
-        expect(event!.properties.$snapshot_data[0].data.payload.requests[0].name).toBe(
-            'https://us.posthog.com/api/environments/1/insights/'
-        )
+        expect(
+            event!.properties.$snapshot_data[0].data.node.childNodes[0].childNodes[0].childNodes[0].attributes.href
+        ).toBe('/insights/abc')
     })
 
     it('leaves an event without metric variables as the same objects', () => {
@@ -69,56 +66,22 @@ describe('redactMetricVariableUrl', () => {
         expect(redactMetricVariableUrls({ event: '$snapshot', properties } as any)!.properties).toBe(properties)
     })
 
-    it.each([
-        ['a tile refresh URL', { name: `/api/insights/?filters_override=${filters}` }, { name: '/api/insights/' }],
-        [
-            'a dashboard save body',
+    it('leaves the requests that carry metric variable data out of a replay snapshot', () => {
+        const kept = { name: '/api/environments/1/insights/', requestBody: '{"name":"Signups"}' }
+        const requests = [
+            kept,
+            { name: `/api/environments/1/insights/?filters_override=${filters}` },
+            { name: '/api/environments/1/metrics/variable_options/', requestBody: '{"query":"SELECT 1"}' },
             { name: '/api/dashboards/1', requestBody: JSON.stringify({ filters: { metricVariables: [] } }) },
-            { name: '/api/dashboards/1', requestBody: null },
-        ],
-        [
-            'an options request',
-            {
-                name: '/api/environments/1/metrics/variable_options/',
-                requestBody: '{"query":"x"}',
-                responseBody: '{"results":["a"]}',
-            },
-            { name: '/api/environments/1/metrics/variable_options/', requestBody: null, responseBody: null },
-        ],
-        [
-            'a login password',
-            { name: '/api/login', requestBody: '{"email":"a@example.com","password":"hunter2"}' },
-            { requestBody: '[SessionRecording] Request body redacted as might contain: password' },
-        ],
-        [
-            'a password change',
-            {
-                name: '/api/users/@me/',
-                requestBody: '{"current_password":"a","password":"b"}',
-                responseBody: '{"id":1}',
-            },
-            {
-                requestBody: '[SessionRecording] Request body redacted as might contain: password',
-                responseBody: '{"id":1}',
-            },
-        ],
-        [
-            'a token in a response',
-            { name: '/api/personal_api_keys/', responseBody: '{"value":"phx_fake","token":"x"}' },
-            { responseBody: '[SessionRecording] Response body redacted as might contain: token' },
-        ],
-        [
-            'a card number',
-            { name: '/api/billing', requestBody: '{"card":"4111 1111 1111 1111"}' },
-            { requestBody: '[SessionRecording] Request body redacted' },
-        ],
-        [
-            'a plain body',
-            { name: '/api/insights/', requestBody: '{"name":"Signups"}', responseBody: '{"results":[1,2]}' },
-            { requestBody: '{"name":"Signups"}', responseBody: '{"results":[1,2]}' },
-        ],
-    ])('masks %s in replay network capture', (_name, request, expected) => {
-        expect(redactMetricVariableRequest(request as any)).toEqual(expect.objectContaining(expected))
+        ]
+        const snapshot = { type: 6, data: { plugin: 'rrweb/network@1', payload: { requests } } }
+
+        const event = redactMetricVariableUrls({
+            event: '$snapshot',
+            properties: { $snapshot_data: [snapshot] },
+        } as any)
+
+        expect(event!.properties.$snapshot_data[0].data.payload.requests).toEqual([kept])
     })
 
     it('leaves a URL without metric variables as it is', () => {
