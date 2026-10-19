@@ -138,7 +138,7 @@ from products.feature_flags.backend.facade.config import (
     require_v1_config,
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
-from products.feature_flags.backend.facade.references import InvalidIds, references
+from products.feature_flags.backend.facade.references import InvalidIds, referenced_cohort_ids, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -1344,11 +1344,10 @@ def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> di
     """
     cohort_ids: set[int] = set()
     for flag in flags:
-        config = decode_config(flag.get_filters())
-        # Only v1 groups are annotated. A document no reader can parse must not fail the page.
-        if not isinstance(config, ConfigV1):
-            continue
-        cohort_ids.update(references(config).cohort_ids)
+        filters = flag.get_filters()
+        # Only v1 groups are annotated.
+        if detect_config_format(filters).kind == "v1":
+            cohort_ids.update(referenced_cohort_ids(filters))
     if not cohort_ids:
         return {}
     return {
@@ -3045,21 +3044,18 @@ class FeatureFlagSerializer(
         flag_status, _ = checker.get_status()
         return flag_status.name
 
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        filters = representation.get("filters", {})
+    def _annotate_condition_cohorts(self, instance: FeatureFlag, filters: dict[str, Any]) -> None:
+        # _load_condition_cohorts reads only v1 documents. An unsupported document can still hold
+        # `groups`. Annotating it would mark its live cohorts as deleted.
+        if detect_config_format(filters).kind != "v1":
+            return
 
         # FeatureFlagListSerializer loads the cohorts of a whole page. Retrieve and writes serialize one flag.
         cohorts = self.context.get(CONDITION_COHORTS_CONTEXT_KEY)
         if cohorts is None:
             cohorts = _load_condition_cohorts([instance], self.context["project_id"])
 
-        # _load_condition_cohorts reads only v1 documents. An unsupported document can still hold
-        # `groups`. Annotating it would mark its live cohorts as deleted.
-        cohort_props = (
-            self._get_cohort_properties_from_filters(filters) if detect_config_format(filters).kind == "v1" else []
-        )
-        for cohort_prop in cohort_props:
+        for cohort_prop in self._get_cohort_properties_from_filters(filters):
             cohort_id = _condition_cohort_id(cohort_prop.get("value"))
             cohort = cohorts.get(cohort_id) if cohort_id is not None else None
             cohort_prop["cohort_name"] = cohort.name if cohort else None
@@ -3070,6 +3066,12 @@ class FeatureFlagSerializer(
                 cohort_prop["cohort_deleted"] = True
             else:
                 cohort_prop.pop("cohort_deleted", None)
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        filters = representation.get("filters", {})
+
+        self._annotate_condition_cohorts(instance, filters)
 
         # Resolve group key display names for $group_key filters. Check both
         # the flag-level and per-condition-set aggregation_group_type_index to

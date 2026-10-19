@@ -24,13 +24,16 @@ export function FeatureFlagDeletedCohortBanner(): JSX.Element | null {
     const deleted = single ? `Cohort ${cohorts[0]} was deleted.` : `Cohorts ${humanList(cohorts)} were deleted.`
     const fix = `restore ${theCohorts} or update the release conditions to remove ${them}`
     // The flag API refuses to restore, unarchive or enable a flag while a condition targets a deleted cohort.
-    const consequence = featureFlag.deleted
-        ? `You can't restore the flag while it targets ${them}. Restore ${theCohorts} first.`
-        : featureFlag.archived
-          ? `You can't unarchive the flag until you ${fix}.`
-          : featureFlag.active
-            ? `The flag fails to evaluate for anyone who reaches a release condition that targets ${them}. ${capitalizeFirstLetter(fix)}.`
-            : `You can't enable the flag until you ${fix}.`
+    let consequence: string
+    if (featureFlag.deleted) {
+        consequence = `You can't restore the flag while it targets ${them}. Restore ${theCohorts} first.`
+    } else if (featureFlag.archived) {
+        consequence = `You can't unarchive the flag until you ${fix}.`
+    } else if (featureFlag.active) {
+        consequence = `The flag fails to evaluate for anyone who reaches a release condition that targets ${them}. ${capitalizeFirstLetter(fix)}.`
+    } else {
+        consequence = `You can't enable the flag until you ${fix}.`
+    }
 
     return (
         <LemonBanner type="warning">

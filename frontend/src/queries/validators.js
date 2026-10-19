@@ -1905,7 +1905,7 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
                                                 data4 === 'in' ||
                                                 data4 === 'not_in' ||
                                                 data4 === 'is_cleaned_path_exact' ||
-                                                data3 === 'is_cleaned_path_not_exact' ||
+                                                data4 === 'is_cleaned_path_not_exact' ||
                                                 data4 === 'flag_evaluates_to' ||
                                                 data4 === 'semver_eq' ||
                                                 data4 === 'semver_neq' ||
