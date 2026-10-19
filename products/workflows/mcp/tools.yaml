@@ -64,10 +64,11 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
-            first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
-            people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
-            Provide an actions array with exactly one type='trigger' (config.type:
+            Create a workflow. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
+            is available, so the user knows what blocks sending. It is created as a draft and does NOT run until
+            enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit
+            approval — from then on it runs on real people, and further content edits stage as a draft you must publish
+            (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
             connected by edges. A webhook or manual trigger also needs config.template_id set to the literal
