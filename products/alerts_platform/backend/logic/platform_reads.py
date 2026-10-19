@@ -11,6 +11,7 @@ from uuid import UUID
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 
 from products.alerts_platform.backend.facade.contracts import (
+    Grouping,
     InstanceCheckState,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
@@ -64,6 +65,10 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         next_check_at=configuration.next_check_at,
         consecutive_failures=configuration.consecutive_failures,
         legacy_configuration_id=configuration.legacy_configuration_id,
+        grouping=Grouping.from_stored(configuration.grouping),
+        snooze_until=configuration.snooze_until,
+        check_status=configuration.check_status,
+        owner=configuration.owner,
         created_at=configuration.created_at,
         updated_at=configuration.updated_at,
         alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
