@@ -56,7 +56,7 @@ import { DashboardCustomizeSubMenu } from './DashboardCustomizeSubMenu'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
-import { dashboardTemplateForExport } from './dashboardUtils'
+import { dashboardTemplateForExport, withMetricVariableSelections } from './dashboardUtils'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -215,7 +215,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                     tile.insight.short_id,
                                     dashboard.id,
                                     currentDashboardVariables,
-                                    effectiveEditBarFilters,
+                                    withMetricVariableSelections(effectiveEditBarFilters),
                                     tile?.filters_overrides
                                 )
                                 newInternalTab(url)

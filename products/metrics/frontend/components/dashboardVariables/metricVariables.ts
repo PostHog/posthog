@@ -22,39 +22,64 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
-/** Follows the backend: a `#` comment holds no references, and a regex-escaped `$` in a regex matcher is a literal. */
-export function promqlReferencedNames(query: string | null | undefined): string[] {
+/** Follows the backend: a `#` comment holds no references, a regex-escaped `$` in a regex is a literal, and
+ * `replacements: false` leaves out the replacement argument of label_replace, where `$name` can be a regex group. */
+export function promqlReferencedNames(
+    query: string | null | undefined,
+    { replacements = true }: { replacements?: boolean } = {}
+): string[] {
     const text = query ?? ''
     // The quote of the string that holds each position, or '#' inside a comment.
     const contexts: (string | null)[] = []
-    // The positions inside the string of a regex matcher, such as `=~"..."`.
+    // The positions inside a regex string, such as `=~"..."` or the regex argument of label_replace.
     const inRegex: boolean[] = []
+    const inReplacement: boolean[] = []
+    // The open brackets, each with the function name before a parenthesis and the argument index.
+    const groups: { bracket: string; name: string; argument: number }[] = []
     let quote: string | null = null
     let regex = false
+    let replacement = false
     for (let index = 0; index < text.length; index++) {
         const char = text[index]
         contexts[index] = quote
         inRegex[index] = regex
+        inReplacement[index] = replacement
         if (quote === '#') {
             quote = char === '\n' || char === '\r' ? null : quote
         } else if (quote) {
             if (char === '\\' && quote !== '`') {
                 contexts[index + 1] = quote
                 inRegex[index + 1] = regex
+                inReplacement[index + 1] = replacement
                 index++
             } else if (char === quote) {
                 quote = null
             }
+        } else if (char === '(' || char === '{') {
+            const name = char === '(' ? (/([A-Za-z0-9_:]*)\s*$/.exec(text.slice(0, index))?.[1] ?? '') : ''
+            groups.push({ bracket: char, name: name.toLowerCase(), argument: 0 })
+        } else if (char === ')' || char === '}') {
+            if (groups.at(-1)?.bracket === (char === ')' ? '(' : '{')) {
+                groups.pop()
+            }
+        } else if (char === ',') {
+            const group = groups.at(-1)
+            if (group) {
+                group.argument++
+            }
         } else if (char === '#' || char === '"' || char === "'" || char === '`') {
             quote = char
             contexts[index] = char === '#' ? '#' : null
-            regex = char !== '#' && /[=!]~\s*$/.test(text.slice(0, index))
+            const call = groups.at(-1)
+            const labelReplace = call?.bracket === '(' && call.name === 'label_replace'
+            regex = char !== '#' && (/[=!]~\s*$/.test(text.slice(0, index)) || (labelReplace && call.argument === 4))
+            replacement = char !== '#' && labelReplace && call.argument === 2
         }
     }
     const names = new Set<string>()
     for (const match of text.matchAll(REFERENCE)) {
         const context = contexts[match.index] ?? null
-        if (context === '#') {
+        if (context === '#' || (!replacements && context && inReplacement[match.index])) {
             continue
         }
         if (context && inRegex[match.index]) {
@@ -120,9 +145,14 @@ export function variableParents(variable: MetricsDashboardVariable, variables: M
         return []
     }
     const names = new Set(variables.map((other) => other.name))
-    const referenced =
-        variable.source === 'sql' ? sqlReferencedNames(variable.query) : promqlReferencedNames(variable.query)
-    return referenced.filter((name) => names.has(name))
+    if (variable.source === 'sql') {
+        return sqlReferencedNames(variable.query).filter((name) => names.has(name))
+    }
+    // The query of a variable gets no value for the variable itself, so in a replacement `$name` stays a regex group.
+    const own = promqlReferencedNames(variable.query, { replacements: false }).includes(variable.name)
+    return promqlReferencedNames(variable.query).filter(
+        (name) => names.has(name) && (name !== variable.name || own)
+    )
 }
 
 export function orderVariables(variables: MetricsDashboardVariable[]): { order: string[]; cycle: string[] } {
@@ -144,14 +174,20 @@ export function orderVariables(variables: MetricsDashboardVariable[]): { order: 
 }
 
 export function dependentsOf(variables: MetricsDashboardVariable[], names: string[]): string[] {
+    // Each query is read once, so a long chain of variables does not read the same queries again for each step.
+    const children = new Map<string, string[]>()
+    for (const variable of variables) {
+        for (const parent of variableParents(variable, variables)) {
+            children.set(parent, [...(children.get(parent) ?? []), variable.name])
+        }
+    }
     const found = new Set<string>()
     const queue = [...names]
     while (queue.length) {
-        const name = queue.shift()!
-        for (const variable of variables) {
-            if (!found.has(variable.name) && variableParents(variable, variables).includes(name)) {
-                found.add(variable.name)
-                queue.push(variable.name)
+        for (const child of children.get(queue.shift()!) ?? []) {
+            if (!found.has(child)) {
+                found.add(child)
+                queue.push(child)
             }
         }
     }

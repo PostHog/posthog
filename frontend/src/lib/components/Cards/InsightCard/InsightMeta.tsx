@@ -40,7 +40,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
+import { getEffectiveDateOverride, withMetricVariableSelections } from 'scenes/dashboard/dashboardUtils'
 import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -471,7 +471,13 @@ export function InsightMeta({
     // A card showing another project's insight must link into that project, not the current one.
     const inInsightProject = (path: string): string => (projectId ? urls.project(projectId, path) : path)
     const insightViewUrl = inInsightProject(
-        urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride, tileFiltersOverride)
+        urls.insightView(
+            short_id,
+            dashboardId,
+            variablesOverride,
+            filtersOverride && withMetricVariableSelections(filtersOverride),
+            tileFiltersOverride
+        )
     )
     const copyInsightLink = (): void => {
         void copyToClipboard(
