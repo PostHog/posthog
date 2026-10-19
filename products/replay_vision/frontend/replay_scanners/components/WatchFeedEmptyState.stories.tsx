@@ -22,6 +22,7 @@ export default meta
 
 type Story = StoryObj<typeof WatchFeedEmptyState>
 
+export const ReplayOff: Story = { args: { reason: 'replay-off' } }
 export const NoScanners: Story = { args: { reason: 'no-scanners' } }
 export const AllDisabled: Story = { args: { reason: 'all-disabled' } }
 export const QuotaExhausted: Story = { args: { reason: 'quota-exhausted' } }
