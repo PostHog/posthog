@@ -59,6 +59,19 @@ pub async fn open_table(uri: &str, storage_options: HashMap<String, String>) -> 
     Ok(table)
 }
 
+/// `deltalake.DeltaTable.is_deltatable`'s check. It loads nothing, so a table with a damaged
+/// log still counts as present.
+pub async fn table_exists(uri: &str, storage_options: HashMap<String, String>) -> Result<bool> {
+    let Ok(url) = deltalake::ensure_table_uri(uri) else {
+        return Ok(false);
+    };
+    let Ok(builder) = DeltaTableBuilder::from_url(url) else {
+        return Ok(false);
+    };
+    let table = builder.with_storage_options(storage_options).build()?;
+    Ok(table.verify_deltatable_existence().await?)
+}
+
 /// [`open_table`] that also hands back the checkpoint cache the table's stores serve
 /// from, still holding the checkpoint bytes read by this load. The caller clears it once
 /// it is done and can clear it again after each later load through the same table.
