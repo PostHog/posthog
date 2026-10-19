@@ -1,10 +1,15 @@
+from datetime import UTC, datetime
+
 from unittest.mock import patch
 
 from django.db.models.signals import post_save
-from django.test import TestCase
+from django.test import TestCase, override_settings
+
+from parameterized import parameterized
 
 from posthog.models.user import User
 
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import handle_hog_flow_batch_job_created
@@ -55,6 +60,107 @@ class TestHogFlowBatchJob(TestCase):
         assert batch_job.variables == [{"key": "event_name", "value": "$pageview"}]
         assert str(batch_job) == f"HogFlow batch run {batch_job.id}"
         mock_create_invocation.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("single_realtime_cohort", "realtime", None, True),
+            ("realtime_cohort_with_another_condition", "realtime", "with_property", False),
+            # Postgres membership can't exclude test accounts, so that audience keeps the Django query.
+            ("realtime_cohort_with_test_account_filter", "realtime", "test_accounts", False),
+            ("non_realtime_cohort", "not_realtime", None, False),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_hog_flow_batch_job_dispatch_names_a_realtime_cohort_audience(
+        self, _name, cohort_kind, shape, expect_realtime, mock_create_invocation
+    ):
+        behavioral = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    }
+                ],
+            }
+        }
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="c",
+            filters=behavioral,
+            cohort_type=CohortType.REALTIME if cohort_kind == "realtime" else None,
+            last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        properties: list[dict] = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        if shape == "with_property":
+            properties.append({"key": "plan", "type": "person", "value": "pro", "operator": "exact"})
+
+        filters: dict = {"properties": properties}
+        if shape == "test_accounts":
+            filters["filter_test_accounts"] = True
+
+        HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, filters=filters)
+
+        expected = {"id": cohort.pk, "team_id": self.team.pk} if expect_realtime else None
+        assert mock_create_invocation.call_args.kwargs["realtime_cohort"] == expected
+
+    @parameterized.expand(
+        [
+            # An edit after the save clears the cohort's readiness; its membership is partial until it recalculates.
+            ("stamps_cleared", False, "all"),
+            # The stamps stay set, but the pipeline stops updating the membership.
+            ("team_left_the_realtime_allowlist", True, "none"),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_hog_flow_batch_job_fails_when_its_realtime_cohort_is_no_longer_ready(
+        self, _name, backfilled, allowlist, mock_create_invocation
+    ):
+        backfill_stamp = datetime(2026, 1, 1, tzinfo=UTC) if backfilled else None
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="c",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_events_at=backfill_stamp,
+            last_backfill_person_properties_at=backfill_stamp,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+            job = HogFlowBatchJob.objects.create(
+                team=self.team,
+                hog_flow=self.hog_flow,
+                filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
+            )
+
+        mock_create_invocation.assert_not_called()
+        job.refresh_from_db()
+        assert job.status == HogFlowBatchJob.State.FAILED
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
