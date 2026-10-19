@@ -34,14 +34,13 @@
  * evaluator supports both shapes. The merge keeps them where the stored flag already has them.
  *
  * An incoming person-aggregated set can change the filters of its source and keep the filters of
- * another person-aggregated set with the same keys. When the two stored sets hold different group
- * properties, the incoming set restores a person-aggregated type only from a source filter with the
- * same operator and value. It looks up no other stored set. The group properties differ when the
- * two sets hold a key on different group types, or when only one of them holds the key as a group
- * property. A swap of the two sets and an in-place edit that copies the other set's filters send
- * the same payload. The two edits need different group types. A group property that such a set
- * leaves untyped makes the API reject the write. A typed group property that either of the two
- * stored sets holds does not move the incoming set to group aggregation.
+ * another person-aggregated set with the same keys. A swap of the two sets and an in-place edit
+ * that copies the other set's filters send the same payload. The two edits can need different
+ * types, so the set restores a type only when typing the property from either stored set gives the
+ * same type and group_type_index. It looks up no other stored set. A property that the two stored
+ * sets type differently stays untyped, which makes the API reject the write. A typed group
+ * property that either of the two stored sets holds does not move the incoming set to group
+ * aggregation.
  *
  * `aggregation_group_type_index: null` means person aggregation. Only a missing key is
  * filled from the existing flag.
@@ -309,12 +308,6 @@ function holdsGroupProperty(existingSet: ExistingSet | undefined, prop: FlagProp
     )
 }
 
-function holdsSameGroupProperties(a: ExistingSet, b: ExistingSet): boolean {
-    const covers = (x: ExistingSet, y: ExistingSet): boolean =>
-        [...x.propsByKey.values()].flat().every((prop) => prop.type !== 'group' || holdsGroupProperty(y, prop))
-    return covers(a, b) && covers(b, a)
-}
-
 function explicitGroupPropertyIndex(
     group: FlagConditionGroup,
     personSets: (ExistingSet | undefined)[]
@@ -373,7 +366,7 @@ function typeSetProperties(
     crossSetPropsByKey: Map<string, FlagProperty[]>,
     setGroupTypeIndex: number | undefined,
     sourceAggregatesOnPersons: boolean,
-    keepsOtherPersonSet: boolean
+    matchedPropsByKey: Map<string, FlagProperty[]> | undefined
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
@@ -385,13 +378,22 @@ function typeSetProperties(
                 return prop
             }
             const candidates = typeCandidatesByKey?.get(prop.key)
-            return mergeProperty(
-                prop,
-                keepsOtherPersonSet ? candidates?.filter((candidate) => matchesFilter(candidate, prop)) : candidates,
-                keepsOtherPersonSet ? undefined : crossSetPropsByKey.get(prop.key),
-                setGroupTypeIndex,
-                sourceAggregatesOnPersons && !keepsOtherPersonSet
-            )
+            if (!matchedPropsByKey) {
+                return mergeProperty(
+                    prop,
+                    candidates,
+                    crossSetPropsByKey.get(prop.key),
+                    setGroupTypeIndex,
+                    sourceAggregatesOnPersons
+                )
+            }
+            // The set either moved from the matched set or copies its filters in place. Each reading
+            // types the property from a different person set. Only a type that both readings give is safe.
+            const fromSource = mergeProperty(prop, candidates, undefined, setGroupTypeIndex, true)
+            const fromMatched = mergeProperty(prop, matchedPropsByKey.get(prop.key), undefined, setGroupTypeIndex, true)
+            return fromSource.type === fromMatched.type && fromSource.group_type_index === fromMatched.group_type_index
+                ? fromSource
+                : prop
         })
     }
 
@@ -483,12 +485,7 @@ export function preserveGroupTargetingFilters(
             if (!personSource || !isRecord(group) || keepsFilters(group, personSource)) {
                 return undefined
             }
-            return sameKeySets(personSource).find(
-                (other) =>
-                    other.aggregation === null &&
-                    !holdsSameGroupProperties(other, personSource) &&
-                    keepsFilters(group, other)
-            )
+            return sameKeySets(personSource).find((other) => other.aggregation === null && keepsFilters(group, other))
         })
 
         const resolvedGroups = result.groups.map((group, index) =>
@@ -533,7 +530,7 @@ export function preserveGroupTargetingFilters(
                     effectiveFlagGroupIndex
                 ),
                 !!personSources[index],
-                !!matchedPersonSets[index]
+                matchedPersonSets[index]?.propsByKey
             )
         })
     }

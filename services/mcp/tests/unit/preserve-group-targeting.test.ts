@@ -767,6 +767,61 @@ describe('preserveGroupTargetingFilters', () => {
         }
     )
 
+    it.each([
+        {
+            name: 'a person property differs in value between the sets',
+            stored: [
+                [
+                    { ...onGroupType0, key: 'plan', value: 'enterprise' },
+                    { type: 'person', key: 'country', value: 'US' },
+                ],
+                [
+                    { ...onGroupType1, key: 'plan', value: 'pro' },
+                    { type: 'person', key: 'country', value: 'CA' },
+                ],
+            ],
+            restored: [{}, { type: 'person' }],
+        },
+        {
+            name: 'each set holds the key as a group property and as a person property',
+            stored: [
+                [
+                    { ...onGroupType0, key: 'plan', value: 'enterprise' },
+                    { type: 'person', key: 'plan', value: 'pro' },
+                ],
+                [
+                    { ...onGroupType1, key: 'plan', value: 'pro' },
+                    { type: 'person', key: 'plan', value: 'free' },
+                ],
+            ],
+            restored: [{}, {}],
+        },
+    ])(
+        'types only what two person-aggregated sets agree on when they trade places and $name',
+        ({ stored, restored }) => {
+            const existing = {
+                groups: stored.map((properties) => ({
+                    properties: properties.map((property) => ({ operator: 'exact', ...property })),
+                    rollout_percentage: 100,
+                })),
+            }
+            const swapped = [...stored].reverse()
+
+            const merged = preserveGroupTargetingFilters(existing, {
+                groups: swapped.map((properties) => ({
+                    properties: properties.map(({ key, value }) => ({ key, operator: 'exact', value })),
+                    rollout_percentage: 100,
+                })),
+            })
+
+            expect(merged?.groups?.map((group) => group.properties)).toEqual(
+                swapped.map((properties) =>
+                    properties.map(({ key, value }, index) => ({ key, operator: 'exact', value, ...restored[index] }))
+                )
+            )
+        }
+    )
+
     it('passes through multivariate and payloads without restoring from existing', () => {
         const existing = {
             aggregation_group_type_index: 0,
