@@ -188,6 +188,34 @@ describe('hogFlowEditorLogic', () => {
         expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
     })
 
+    it('duplicates a linear step below itself', () => {
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+        })
+
+        logic.actions.duplicateNodeBelow(delay.id)
+
+        const duplicatedAction = logic.values.workflow.actions.find(
+            (action) => action.id !== delay.id && action.type === delay.type
+        )
+        expect(duplicatedAction).toMatchObject({ name: delay.name, config: delay.config })
+        expect(logic.values.workflow.edges).toEqual([
+            edge(TRIGGER_NODE_ID, delay.id, 'continue'),
+            edge(delay.id, duplicatedAction!.id, 'continue'),
+            edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
+        ])
+    })
+
     it('keeps edits made while "Save as team default" was saving', () => {
         const email = {
             id: 'email',
