@@ -121,18 +121,25 @@ def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str
     return ResolvedClientAssertion(client_assertion=assertion, client_id=resolved_client_id)
 
 
+def _unverified_claims(assertion: str) -> dict:
+    """Read the claims without verifying them, only to locate a client or to log diagnostics.
+
+    Never trusted for authentication.
+    """
+    try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        return jwt.decode(assertion, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return {}
+
+
 def _unverified_subject(assertion: str) -> str:
     """Read ``sub`` without verifying, only to locate which client to verify against.
 
     Never trusted for authentication: the claim is re-checked against the resolved
     application's client_id after the signature verifies.
     """
-    try:
-        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
-        claims = jwt.decode(assertion, options={"verify_signature": False})
-    except jwt.PyJWTError:
-        return ""
-    subject = claims.get("sub") or ""
+    subject = _unverified_claims(assertion).get("sub") or ""
     return subject if isinstance(subject, str) else ""
 
 
@@ -142,9 +149,17 @@ def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
 
     RFC 7523 section 3 lets a client address either the issuer or the endpoint it is calling,
     so both are accepted. Callers pass the paths their own endpoint answers on.
+
+    A client that discovered the OAuth proxy addresses the proxy's issuer, and the proxy
+    forwards the assertion unchanged, so the issuers in ID_JAG_ALLOWED_AUDIENCES count too.
     """
-    site_url = settings.SITE_URL.rstrip("/")
-    return [site_url, *(f"{site_url}{path}" for path in token_endpoint_paths)]
+    issuers = [
+        settings.SITE_URL.rstrip("/"),
+        *(issuer.rstrip("/") for issuer in settings.ID_JAG_ALLOWED_AUDIENCES if issuer),
+    ]
+    return [
+        audience for issuer in issuers for audience in (issuer, *(f"{issuer}{path}" for path in token_endpoint_paths))
+    ]
 
 
 AGENTIC_TOKEN_ENDPOINT_PATH = "/api/agentic/oauth/token"
@@ -309,7 +324,13 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     except jwt.PyJWTError as e:
         # The reason is logged rather than returned: which check failed is useful to us and
         # not something an unauthenticated caller needs.
-        logger.warning("client_assertion_rejected", app_id=str(app.id), error=str(e), error_type=type(e).__name__)
+        logger.warning(
+            "client_assertion_rejected",
+            app_id=str(app.id),
+            error=str(e),
+            error_type=type(e).__name__,
+            unverified_audience=_unverified_claims(assertion).get("aud"),
+        )
         raise ClientAssertionError("Client assertion is invalid") from e
 
     # RFC 7523 section 3: for client authentication both iss and sub are the client_id.
