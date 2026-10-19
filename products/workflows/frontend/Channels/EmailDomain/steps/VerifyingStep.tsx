@@ -155,12 +155,9 @@ export function VerifyingStep(): JSX.Element {
                             problem confirming them.
                         </span>
                     ) : (
-                        <span>
-                            The email provider could not find these settings:{' '}
-                            {missingRecords.map((record) => RECORD_KIND_LABEL[record.kind]).join(', ') ||
-                                'some of them'}
-                            . Check them at your DNS host.
-                        </span>
+                        <span>{`The email provider could not find these settings: ${
+                            missingRecords.map((record) => RECORD_KIND_LABEL[record.kind]).join(', ') || 'some of them'
+                        }. Check them at your DNS host.`}</span>
                     )}
                     {!pollingStopped && <span> We keep checking.</span>}
                 </LemonBanner>
