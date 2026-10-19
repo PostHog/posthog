@@ -40,6 +40,10 @@ class QuoResumeConfig:
     page_token: str
     # The dated version the cursor was issued under. None is the v1 wire, which pages with incompatible cursors.
     api_version: str | None = None
+    # Contact notes only: the contact whose notes were last yielded, and its next notes page.
+    # A None notes cursor means that contact is done.
+    contact_id: str | None = None
+    notes_cursor: str | None = None
 
 
 def _to_iso(value: Any) -> Optional[str]:
@@ -106,29 +110,20 @@ def _build_dated_params(
     return params
 
 
-def _paginate(
-    session: Session,
-    path: str,
-    params: dict[str, Any],
-    cursor_param: str = "pageToken",
-    cursor_path: str = "nextPageToken",
-    skip_not_found: bool = False,
-) -> Iterator[list[dict[str, Any]]]:
-    """Yield pages of `data` rows, following the body cursor until it runs out."""
+def _paginate(session: Session, path: str, params: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+    """Yield pages of `data` rows, following the `nextPageToken` cursor until it runs out."""
     page_token: Optional[str] = None
     while True:
         page_params = dict(params)
         if page_token is not None:
-            page_params[cursor_param] = page_token
+            page_params["pageToken"] = page_token
         response = session.get(f"{QUO_BASE_URL}{path}", params=page_params)
-        if skip_not_found and response.status_code == 404:
-            return
         response.raise_for_status()
         body = response.json()
         rows = body.get("data") or []
         if rows:
             yield rows
-        page_token = body.get(cursor_path)
+        page_token = body.get("nextPageToken")
         if not page_token:
             return
 
@@ -172,8 +167,8 @@ def _contact_notes_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan contact notes out over the dated contacts list.
 
-    The resume cursor is the contacts page in progress, staged before any of its notes are yielded,
-    so a resumed run reads at most one page of contacts again and merge dedupes the repeated notes.
+    Each staged cursor points just past the notes page it is staged with. Full refresh appends a
+    resumed run's rows without a merge, so a resumed run must not read a written note again.
     """
     session = make_tracked_session(
         headers={**_auth_headers(api_key), QUO_API_VERSION_HEADER: QUO_API_VERSION_2026_03_30},
@@ -182,10 +177,12 @@ def _contact_notes_rows(
     contacts = QUO_2026_03_30_ENDPOINTS["contacts"]
 
     contacts_cursor: Optional[str] = None
+    resume: Optional[QuoResumeConfig] = None
     if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.api_version == QUO_API_VERSION_2026_03_30:
-            contacts_cursor = resume.page_token
+        saved = resumable_source_manager.load_state()
+        if saved is not None and saved.api_version == QUO_API_VERSION_2026_03_30:
+            resume = saved
+            contacts_cursor = saved.page_token or None
 
     while True:
         params: dict[str, Any] = {"limit": contacts.page_size}
@@ -194,30 +191,50 @@ def _contact_notes_rows(
         response = session.get(f"{QUO_BASE_URL}{contacts.path}", params=params, timeout=default_request_timeout())
         response.raise_for_status()
         body = response.json()
-        if contacts_cursor is not None:
-            resumable_source_manager.save_state(
-                QuoResumeConfig(page_token=contacts_cursor, api_version=QUO_API_VERSION_2026_03_30)
-            )
         resumable_source_manager.safe_point()
 
-        for contact in body.get("data") or []:
-            contact_id = contact.get("id")
-            if not contact_id:
-                continue
-            yielded = False
-            # A contact deleted after the contacts page was read answers 404; its notes are gone too.
-            for notes in _paginate(
-                session,
-                config.path.replace("{contactId}", quote(contact_id, safe="")),
-                {"limit": config.page_size},
-                cursor_param="after",
-                cursor_path="nextCursor",
-                skip_not_found=True,
-            ):
-                yield [{**note, "contactId": contact_id} for note in notes]
-                yielded = True
-            if not yielded:
-                resumable_source_manager.safe_point()
+        contact_ids = [contact["id"] for contact in body.get("data") or [] if contact.get("id")]
+        start = 0
+        notes_cursor: Optional[str] = None
+        # A resume contact missing from the page was deleted, so the page is read from its start.
+        if resume is not None and resume.contact_id in contact_ids:
+            start = contact_ids.index(resume.contact_id)
+            notes_cursor = resume.notes_cursor
+            if notes_cursor is None:
+                start += 1
+        resume = None
+
+        for contact_id in contact_ids[start:]:
+            path = config.path.replace("{contactId}", quote(contact_id, safe=""))
+            while True:
+                notes_params: dict[str, Any] = {"limit": config.page_size}
+                if notes_cursor is not None:
+                    notes_params["after"] = notes_cursor
+                notes_response = session.get(
+                    f"{QUO_BASE_URL}{path}", params=notes_params, timeout=default_request_timeout()
+                )
+                # A contact deleted after the contacts page was read answers 404; its notes are gone too.
+                if notes_response.status_code == 404:
+                    break
+                notes_response.raise_for_status()
+                notes_body = notes_response.json()
+                notes = notes_body.get("data") or []
+                notes_cursor = notes_body.get("nextCursor") or None
+                if notes:
+                    resumable_source_manager.save_state(
+                        QuoResumeConfig(
+                            page_token=contacts_cursor or "",
+                            api_version=QUO_API_VERSION_2026_03_30,
+                            contact_id=contact_id,
+                            notes_cursor=notes_cursor,
+                        )
+                    )
+                    yield [{**note, "contactId": contact_id} for note in notes]
+                else:
+                    resumable_source_manager.safe_point()
+                if notes_cursor is None:
+                    break
+            notes_cursor = None
 
         contacts_cursor = body.get("nextCursor")
         if not contacts_cursor:
