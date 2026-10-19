@@ -13,7 +13,6 @@ pub(super) struct Settled {
     pub(super) offsets: Vec<Offset>,
 }
 
-/// Scripted results, returned in order; an empty script returns the default.
 struct Script<T>(Mutex<VecDeque<T>>);
 
 impl<T> Default for Script<T> {

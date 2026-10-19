@@ -257,12 +257,13 @@ pub struct Config {
     pub consumer_commit_interval_ms: u64,
 
     /// Uncommitted events at which a partition's fetch pauses. `0` (default)
-    /// sets no event limit.
+    /// sets no event limit. Not read at `poll` granularity.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_EVENTS", default = "0")]
     pub consumer_partition_budget_events: u64,
 
     /// Uncommitted key-plus-value-plus-header bytes at which a partition's
-    /// fetch pauses. `0` (default) sets no byte limit.
+    /// fetch pauses. `0` (default) sets no byte limit. Not read at `poll`
+    /// granularity.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_BYTES", default = "0")]
     pub consumer_partition_budget_bytes: u64,
 
