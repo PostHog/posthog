@@ -27,7 +27,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.authz import filter_dashboard_queryset, filter_resource_queryset
+from posthog.authz import filter_resource_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -48,7 +48,11 @@ from posthog.products import is_product_module
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    UserAccessControl,
+    model_to_resource,
+)
 from products.authz.backend.facade import api as authz
 from products.authz.backend.facade.enums import ResourceType
 
@@ -392,10 +396,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if is_service_auth(self.request):
             return queryset
 
-        if self.scope_object == "dashboard":
-            return filter_dashboard_queryset(self.request.user, queryset)
-        if self.scope_object == "insight":
-            return filter_resource_queryset(self.request.user, queryset, ResourceType.INSIGHT)
+        resource = model_to_resource(queryset.model)
+        if resource in ACCESS_CONTROL_RESOURCES:
+            return filter_resource_queryset(self.request.user, queryset, ResourceType(resource))
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"

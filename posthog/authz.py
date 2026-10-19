@@ -1,9 +1,11 @@
 from typing import TYPE_CHECKING, TypeVar, cast
 
+from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 
 from posthog.models import Team, User
+from posthog.models.access_filter import object_ids_to_q
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
@@ -112,9 +114,10 @@ def filter_resource_queryset(
             resource=Resource(type=resource_type, project_id=team_id),
             action=Action.VIEW,
             subject=subject,
+            creator_exempt=hasattr(queryset.model, "created_by"),
         )
         if result.complete:
-            allowed |= Q(team_id=team_id, pk__in=result.ids)
+            allowed |= Q(team_id=team_id) & object_ids_to_q(result, id_field="pk", subject_user_id=user.pk)
     return queryset.filter(allowed)
 
 
@@ -137,6 +140,13 @@ def check_resource_category_access(
         return True
     if require_category:
         return False
+    if action == Action.VIEW:
+        model_name = {
+            ResourceType.DASHBOARD: "dashboards.Dashboard",
+            ResourceType.INSIGHT: "product_analytics.Insight",
+        }[resource_type]
+        model = apps.get_model(model_name)
+        return filter_resource_queryset(user, model.objects.filter(team_id=team.pk), resource_type).exists()
     result = api.list_objects(resource=resource, action=action, subject=subject)
     return result.complete and bool(result.ids)
 

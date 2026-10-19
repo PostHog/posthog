@@ -197,8 +197,8 @@ def list_objects(
     *,
     consistency: Consistency = "HIGHER_CONSISTENCY",
 ) -> ObjectIds:
-    if action == Action.QUERY:
-        return _query_resource_filter(resource, subject, context, limit, consistency=consistency)
+    if action in (Action.VIEW, Action.QUERY):
+        return _read_object_filter(resource, action, subject, context, limit, consistency=consistency)
     validate_context(context)
     if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
         raise ValueError("List resources requires a supported resource type")
@@ -257,8 +257,9 @@ def list_objects(
 MAX_IDS = 1000
 
 
-def _query_resource_filter(
+def _read_object_filter(
     resource: Resource,
+    action: Action,
     subject: Subject | None,
     context: Context | None,
     limit: int | None,
@@ -281,7 +282,13 @@ def _query_resource_filter(
     org_id = organization_id(resource)
     type_name = resource.type.value
     prefix = f"{type_name}:{org_id}/{resource.project_id}/"
-    relation = action_relation(f"{prefix}0", Action.VIEW)
+    # Querying dashboard/insight system rows uses their view permission; warehouse data has can_query.
+    permission = (
+        Action.VIEW
+        if action == Action.QUERY and resource.type in (ResourceType.DASHBOARD, ResourceType.INSIGHT)
+        else action
+    )
+    relation = action_relation(f"{prefix}0", permission)
     category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
     capped = ObjectIds(ids=frozenset(), complete=False)
@@ -296,8 +303,8 @@ def _query_resource_filter(
     with pooled_openfga_client() as client:
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
-        reader = _Reader(client, user, type_name, prefix, cap, consistency)
-        if reader.allowed(category_key, "can_view"):
+        reader = _Reader(client, user, type_name, prefix, cap, consistency, resource.project_id)
+        if permission == Action.VIEW and reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
                 return capped
@@ -317,10 +324,18 @@ class _Reader:
     """The three OpenFGA calls a resource list is made of, for one user and one object type."""
 
     def __init__(
-        self, client: OpenFgaClient, user: str, type_name: str, prefix: str, cap: int, consistency: Consistency
+        self,
+        client: OpenFgaClient,
+        user: str,
+        type_name: str,
+        prefix: str,
+        cap: int,
+        consistency: Consistency,
+        project_id: int,
     ) -> None:
         self.client = client
         self.user = user
+        self.project_id = project_id
         self.type_name = type_name
         self.prefix = prefix
         self.cap = cap
@@ -346,8 +361,21 @@ class _Reader:
                 denied.add(id)
         return frozenset(denied)
 
+    def active_ids(self, ids: set[str]) -> frozenset[str]:
+        if not ids:
+            return frozenset()
+        if self.type_name == ResourceType.DASHBOARD:
+            return active_authorization_dashboard_ids(self.project_id, ids)
+        if self.type_name == ResourceType.INSIGHT:
+            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
+                active_authorization_insight_ids,
+            )
+
+            return active_authorization_insight_ids(self.project_id, ids)
+        return frozenset(ids)
+
     def list_ids(self, relation: str) -> frozenset[str] | None:
-        """Ids of this project's objects that hold `relation` for the user, or None past the cap."""
+        """Active IDs holding `relation` in this project, or None past the cap."""
         ids: set[str] = set()
         request = ClientListObjectsRequest(user=self.user, relation=relation, type=self.type_name)
         stream = self.client.streamed_list_objects(request, self.options)
@@ -355,11 +383,14 @@ class _Reader:
             for result in stream:
                 if result.object.startswith(self.prefix):
                     ids.add(result.object.removeprefix(self.prefix))
+                    # Sync retains deleted objects; only active IDs consume the result cap.
                     if len(ids) > self.cap:
-                        return None
+                        ids = set(self.active_ids(ids))
+                        if len(ids) > self.cap:
+                            return None
+            return self.active_ids(ids)
         finally:
             stream.close()
-        return frozenset(ids)
 
 
 def query_relation(

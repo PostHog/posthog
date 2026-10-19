@@ -1927,7 +1927,6 @@
             "metadata": {
                 "relations": {
                     "can_create": {},
-                    "can_list": {},
                     "can_manage_access": {},
                     "can_view": {},
                     "editor": {},
@@ -1957,11 +1956,6 @@
                 "can_create": {
                     "computedUserset": {
                         "relation": "editor"
-                    }
-                },
-                "can_list": {
-                    "computedUserset": {
-                        "relation": "viewer"
                     }
                 },
                 "can_manage_access": {

@@ -68,7 +68,7 @@ They're primarily used by the MCP `execute-sql` tool for retrieval.
 
 Each access-controlled system table declares an `access_scope` (e.g. `system.dashboards` → `"dashboard"`, `system.error_tracking_issues` → `"error_tracking"`).
 
-At schema build time, `_compute_system_table_access_decision()` asks the authz SDK for the rows the subject may query in each scope.
+At schema build time, `_compute_system_table_access_decision()` requests `list_objects(action=Action.QUERY)` for each scope.
 It removes tables with no authorized rows, incomplete decisions, or restrictions that cannot be applied because the table has no access-control ID column.
 `Database._apply_system_table_access()` applies those decisions.
 

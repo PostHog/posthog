@@ -101,7 +101,6 @@ class Command(BaseCommand):
                 Action.DELETE.value,
                 Action.SHARE.value,
                 Action.MANAGE_ACCESS.value,
-                Action.LIST.value,
                 Action.CREATE.value,
             ),
             default=Action.VIEW.value,

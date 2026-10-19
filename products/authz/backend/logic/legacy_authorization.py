@@ -21,7 +21,7 @@ from . import authorization, request_context
 
 
 def dashboard_level(action: Action) -> AccessControlLevelResource:
-    if action in (Action.VIEW, Action.LIST):
+    if action == Action.VIEW:
         return "viewer"
     if action in (Action.EDIT, Action.DELETE, Action.SHARE, Action.CREATE):
         return "editor"
@@ -169,7 +169,7 @@ class LegacyAuthorization:
                     return ObjectIds(ids=frozenset(), complete=False)
         return ObjectIds(ids=frozenset(ids), complete=True)
 
-    def query_resource_filter(
+    def read_object_filter(
         self,
         resource: Resource,
         subject: Subject | None,
@@ -253,6 +253,6 @@ def list_objects(
 ) -> ObjectIds:
     authorization.validate_context(context)
     engine = evaluator()
-    if action == Action.QUERY:
-        return engine.query_resource_filter(resource, subject, limit, creator_exempt, user_access_control)
+    if action in (Action.VIEW, Action.QUERY):
+        return engine.read_object_filter(resource, subject, limit, creator_exempt, user_access_control)
     return engine.list_objects(resource, action, subject, limit)
