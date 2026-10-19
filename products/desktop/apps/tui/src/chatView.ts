@@ -16,6 +16,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { ANIMATION_MS } from "./animation";
 import { faint } from "./faint";
 import { inverseCells } from "./highlight";
 import { savedImage } from "./images";
@@ -57,7 +58,7 @@ const SHIMMER_PAUSE = 8;
 // share one end code, and in a faint pane ending the bold also ended the faint, so the text after it flashed bright.
 export function shimmer(text: string, now = Date.now()): string {
   const chars = [...text];
-  const head = Math.floor(now / 80) % (chars.length + SHIMMER_PAUSE);
+  const head = Math.floor(now / ANIMATION_MS) % (chars.length + SHIMMER_PAUSE);
   const start = Math.max(0, head - SHIMMER_WIDTH + 1);
   const end = Math.min(chars.length, head + 1);
   const part = (from: number, to: number): string =>

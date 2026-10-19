@@ -3,6 +3,7 @@ import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
+import { ANIMATION_MS } from "../animation";
 import type { Billing } from "../billing";
 import { chatgptPlan } from "../chatgpt";
 import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
@@ -342,7 +343,10 @@ export function Pane({
     ? `${notice.tone}:${notice.text}:${notice.detail ?? ""}`
     : "";
   // Keeps a working notice's shimmer moving.
-  useAnimation({ interval: 80, isActive: notice?.tone === "working" });
+  useAnimation({
+    interval: ANIMATION_MS,
+    isActive: notice?.tone === "working",
+  });
   const hasOlder = view.windowStart > 0;
   // Set before this render draws the chat, so a frame never shows the previous transcript.
   const shown = useRef<{
