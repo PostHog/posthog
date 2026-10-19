@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -235,6 +236,13 @@ export function MetricsTab(): JSX.Element {
                     onChange={(search) => setFilters({ search })}
                 />
                 <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <span>Created by:</span>
+                        <MemberSelect
+                            value={filters.createdBy}
+                            onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                        />
+                    </div>
                     <LemonSegmentedButton
                         value={filters.status}
                         onChange={(status) => setFilters({ status })}
