@@ -97,6 +97,11 @@ TRINO_COLUMN_NOT_FOUND_ERROR = (
     "A column this table syncs no longer exists in Trino. Refresh the schemas so PostHog picks up the new "
     "columns, then resync."
 )
+# The Trino coordinator's own fixed wording when it gives up on a worker node after repeatedly
+# failing to reach it mid-query. The coordinator already retried internally before raising this, so
+# by the time it reaches us the worker has likely crashed or is overloaded — a vendor-side blip a
+# fresh query normally clears, not a PostHog or customer problem.
+TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
