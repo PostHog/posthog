@@ -5,9 +5,9 @@ import { dayjs } from 'lib/dayjs'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
-    HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
+    SendCalendarBatchJobApi,
+    SendCalendarFlowApi,
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -21,19 +21,11 @@ import {
     scheduleToText,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
-import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
-import type { HogFlowAction } from '../Workflows/hogflows/types'
 
 export type CalendarView = 'month' | 'week'
 export type CalendarTypeFilter = 'all' | 'broadcasts' | 'workflows'
 export type CalendarSendKind = 'broadcast' | 'workflow'
 export type CalendarSendState = 'planned' | 'paused' | 'sending' | 'sent' | 'failed'
-
-export interface ScheduledEmailFlow {
-    flow: HogFlowMinimalApi
-    schedules: HogFlowScheduleApi[]
-    batchJobs: HogFlowBatchJobApi[]
-}
 
 export interface CalendarSend {
     key: string
@@ -50,7 +42,8 @@ export interface CalendarSend {
     schedule: HogFlowScheduleApi | null
     userAccessLevel: string | null
     audience: SendAudience
-    category: SendCategory
+    /** The message category of the email, which decides who can opt out of it. */
+    categoryId: string | null
 }
 
 /** Who the sends of a flow go to. */
@@ -65,12 +58,6 @@ export interface SendAudience {
     address: string | null
 }
 
-/** The message category of the email, which decides if people who opted out still get it. */
-export interface SendCategory {
-    id: string | null
-    type: 'marketing' | 'transactional' | null
-}
-
 /** From the start of the first day to the start of the day after the last day, in the project time zone. */
 export interface CalendarRange {
     start: dayjs.Dayjs
@@ -81,46 +68,32 @@ export interface CalendarRange {
 // Stop at a number that the grid can still show.
 const MAX_SENDS_PER_SCHEDULE = 200
 
-type EmailAction = Extract<HogFlowAction, { type: 'function_email' }>
-
-function emailAction(flow: Pick<HogFlowMinimalApi, 'actions'>): EmailAction | null {
-    const actions = Array.isArray(flow.actions) ? (flow.actions as (HogFlowAction | null)[]) : []
-    return actions.find((action): action is EmailAction => action?.type === 'function_email') ?? null
-}
-
-export function isScheduledEmailFlow(flow: Pick<HogFlowMinimalApi, 'status' | 'trigger' | 'actions'>): boolean {
-    const triggerType = (flow.trigger as { type?: string } | null)?.type ?? ''
-    return flow.status === 'active' && SCHEDULED_TRIGGER_TYPES.includes(triggerType) && !!emailAction(flow)
-}
-
-export function sendAudience(flow: Pick<HogFlowMinimalApi, 'trigger' | 'actions'>): SendAudience {
-    const trigger = flow.trigger as {
-        type?: string
-        filters?: { properties?: AnyPropertyFilter[]; audience_type?: string }
-    } | null
-    if (trigger?.type !== 'batch') {
-        const email = emailAction(flow)?.config.inputs.email?.value as { to?: { email?: string } } | undefined
-        return { cohortIds: [], filters: [], accounts: false, address: email?.to?.email || null }
+export function sendAudience(
+    flow: Pick<SendCalendarFlowApi, 'trigger_type' | 'audience_properties' | 'audience_type' | 'email_to'>
+): SendAudience {
+    if (flow.trigger_type !== 'batch') {
+        return { cohortIds: [], filters: [], accounts: false, address: flow.email_to || null }
     }
-    const properties = trigger.filters?.properties ?? []
-    // An excluded cohort is not a recipient list, so it stays a filter with its operator.
+    return audienceFromProperties(
+        flow.audience_properties as unknown as AnyPropertyFilter[],
+        flow.audience_type === 'accounts'
+    )
+}
+
+export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
+    // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
     const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
         filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
         filters: properties.filter((filter) => !isCohortInclusion(filter)),
-        accounts: trigger.filters?.audience_type === 'accounts',
+        accounts,
         address: null,
     }
 }
 
-export function sendCategory(flow: Pick<HogFlowMinimalApi, 'actions'>): SendCategory {
-    const config = emailAction(flow)?.config
-    return { id: config?.message_category_id ?? null, type: config?.message_category_type ?? null }
-}
-
 export function matchesTypeFilter(
-    flow: Pick<HogFlowMinimalApi, 'origin_product'>,
+    flow: Pick<SendCalendarFlowApi, 'origin_product'>,
     filter: CalendarTypeFilter
 ): boolean {
     if (filter === 'all') {
@@ -164,7 +137,8 @@ export function describeRepeat(schedule: Pick<HogFlowScheduleApi, 'rrule' | 'sta
 /** The send times of a schedule inside a range, as real moments. */
 export function scheduleSendTimes(
     schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at' | 'timezone'>,
-    range: CalendarRange
+    range: CalendarRange,
+    maxSends: number = MAX_SENDS_PER_SCHEDULE
 ): dayjs.Dayjs[] {
     const timezone = schedule.timezone || 'UTC'
     // RRule expands dates in "fake UTC": the UTC fields hold the wall-clock time in the schedule time
@@ -178,7 +152,7 @@ export function scheduleSendTimes(
     try {
         const rule = new RRule({ ...RRule.parseString(schedule.rrule), dtstart: toFakeUtc(dayjs(schedule.starts_at)) })
         return rule
-            .between(toFakeUtc(range.start), toFakeUtc(range.end), true, (_, index) => index < MAX_SENDS_PER_SCHEDULE)
+            .between(toFakeUtc(range.start), toFakeUtc(range.end), true, (_, index) => index < maxSends)
             .map((date) => fakeUtcToReal(date, timezone))
             .filter((time) => !time.isBefore(range.start) && time.isBefore(range.end))
     } catch {
@@ -187,9 +161,10 @@ export function scheduleSendTimes(
 }
 
 export function calendarSendsForFlow(
-    { flow, schedules, batchJobs }: ScheduledEmailFlow,
+    flow: SendCalendarFlowApi,
     range: CalendarRange,
-    now: dayjs.Dayjs
+    now: dayjs.Dayjs,
+    maxSendsPerSchedule: number = MAX_SENDS_PER_SCHEDULE
 ): CalendarSend[] {
     const base = {
         flowId: flow.id,
@@ -198,20 +173,20 @@ export function calendarSendsForFlow(
         createdBy: flow.created_by ?? null,
         userAccessLevel: flow.user_access_level ?? null,
         audience: sendAudience(flow),
-        category: sendCategory(flow),
+        categoryId: flow.message_category_id,
     }
     const sends: CalendarSend[] = []
     // A schedule shows only the sends still to come. An occurrence in the past is not proof that a send
     // went out, so past sends come from the batch jobs instead.
     const future: CalendarRange = { start: now.isAfter(range.start) ? now : range.start, end: range.end }
     if (future.start.isBefore(future.end)) {
-        for (const schedule of schedules) {
+        for (const schedule of flow.schedules) {
             if (schedule.status === 'completed') {
                 continue
             }
             const repeat = describeRepeat(schedule)
             const isRecurring = !isOneTimeSchedule(schedule.rrule)
-            for (const at of scheduleSendTimes(schedule, future)) {
+            for (const at of scheduleSendTimes(schedule, future, maxSendsPerSchedule)) {
                 sends.push({
                     ...base,
                     key: `${schedule.id}:${at.valueOf()}`,
@@ -224,7 +199,7 @@ export function calendarSendsForFlow(
             }
         }
     }
-    for (const job of batchJobs) {
+    for (const job of flow.batch_jobs) {
         const at = dayjs(job.created_at)
         if (at.isBefore(range.start) || !at.isBefore(range.end)) {
             continue
@@ -242,7 +217,7 @@ export function calendarSendsForFlow(
     return sends
 }
 
-function batchJobState(status: HogFlowBatchJobApi['status']): CalendarSendState {
+function batchJobState(status: SendCalendarBatchJobApi['status']): CalendarSendState {
     if (status === 'completed') {
         return 'sent'
     }
@@ -385,4 +360,34 @@ export function groupSendsByDay(sends: CalendarSend[], timezone: string): Record
         ;(byDay[day] ??= []).push(send)
     }
     return byDay
+}
+
+/** Splits a range into consecutive pieces of at most `maxDays`, for an endpoint that limits the range it takes. */
+export function splitRange(range: CalendarRange, maxDays: number): CalendarRange[] {
+    const pieces: CalendarRange[] = []
+    let start = range.start
+    while (start.isBefore(range.end)) {
+        const end = start.add(maxDays, 'day').isBefore(range.end) ? start.add(maxDays, 'day') : range.end
+        pieces.push({ start, end })
+        start = end
+    }
+    return pieces
+}
+
+/** Joins the flows of several range loads. A flow shows up in each piece, with only the runs of that piece. */
+export function mergeCalendarFlows(loads: SendCalendarFlowApi[][]): SendCalendarFlowApi[] {
+    const byId = new Map<string, SendCalendarFlowApi>()
+    for (const flow of loads.flat()) {
+        const known = byId.get(flow.id)
+        if (!known) {
+            byId.set(flow.id, flow)
+            continue
+        }
+        const runIds = new Set(known.batch_jobs.map((run) => run.id))
+        byId.set(flow.id, {
+            ...known,
+            batch_jobs: [...known.batch_jobs, ...flow.batch_jobs.filter((run) => !runIds.has(run.id))],
+        })
+    }
+    return [...byId.values()]
 }

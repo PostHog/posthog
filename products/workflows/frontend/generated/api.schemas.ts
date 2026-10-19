@@ -1107,6 +1107,17 @@ export interface HogFlowBatchJobCancelResponseApi {
     done: boolean
 }
 
+export interface HogFlowConvertedToBroadcastApi {
+    /** Id of the workflow that is now a broadcast. */
+    readonly id: string
+    /** The product that now owns the workflow. Always `broadcasts`.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi
+}
+
 /**
  * * `update_action` - update_action
  * * `add_action` - add_action
@@ -1798,6 +1809,29 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface BroadcastConversionCandidateApi {
+    /** Workflow id. */
+    readonly id: string
+    /** Workflow name. Empty when unnamed. */
+    readonly name: string
+    /** Workflow status.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    readonly status: HogFlowStateEnumApi
+}
+
+/**
+ * Workflows that only send one email to a batch audience and can move to broadcasts.
+ */
+export interface BroadcastConversionCandidatesApi {
+    /** True when more workflows can move than `results` lists. */
+    readonly has_more: boolean
+    /** The most recently updated candidates, at most 100. */
+    readonly results: readonly BroadcastConversionCandidateApi[]
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */
@@ -2052,6 +2086,70 @@ export interface TeamEmailReputationResponseApi {
     readonly email_sending_suspension_reason: string
     /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
     readonly sending_allowance: EmailSendingAllowanceApi | null
+}
+
+export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown }
+
+export interface SendCalendarBatchJobApi {
+    /** ID of the batch run. */
+    readonly id: string
+    /** Status of the batch run.
+     *
+     * * `waiting` - Waiting
+     * * `queued` - Queued
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `failed` - Failed */
+    readonly status: HogFlowBatchJobStateEnumApi
+    /** When the batch run started. */
+    readonly created_at: string
+}
+
+export interface SendCalendarFlowApi {
+    /** ID of the workflow. */
+    readonly id: string
+    /**
+     * Name of the workflow.
+     * @nullable
+     */
+    readonly name: string | null
+    /** The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi | null
+    /** User who created the workflow. */
+    readonly created_by: UserBasicApi | null
+    /**
+     * The reader's access level on the workflow.
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** The trigger type: batch or schedule. */
+    readonly trigger_type: string
+    /** The property filters of a batch trigger's audience. Empty for a schedule trigger. */
+    readonly audience_properties: readonly SendCalendarFlowApiAudiencePropertiesItem[]
+    /**
+     * persons or accounts for a batch trigger's audience. Null when the trigger does not set it.
+     * @nullable
+     */
+    readonly audience_type: string | null
+    /**
+     * The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.
+     * @nullable
+     */
+    readonly email_to: string | null
+    /**
+     * ID of the message category of the first email step.
+     * @nullable
+     */
+    readonly message_category_id: string | null
+    /** The schedules that still have sends to come. */
+    readonly schedules: readonly HogFlowScheduleApi[]
+    /** The batch runs that started inside the requested range. */
+    readonly batch_jobs: readonly SendCalendarBatchJobApi[]
 }
 
 /**
@@ -2387,6 +2485,65 @@ export interface PeopleImportApi {
     dropped_duplicate_email: number
     /** Rows dropped for holding more than 4KB of data. */
     dropped_too_large: number
+}
+
+/**
+ * * `channel` - Channel
+ * * `domain` - Domain
+ * * `opt-outs` - Opt-outs
+ * * `sending-rules` - Sending rules
+ * * `email-template` - Email template
+ * * `first-workflow` - First workflow
+ */
+export type SetupStepKeyEnumApi = (typeof SetupStepKeyEnumApi)[keyof typeof SetupStepKeyEnumApi]
+
+export const SetupStepKeyEnumApi = {
+    Channel: 'channel',
+    Domain: 'domain',
+    OptOuts: 'opt-outs',
+    SendingRules: 'sending-rules',
+    EmailTemplate: 'email-template',
+    FirstWorkflow: 'first-workflow',
+} as const
+
+export interface WorkflowSetupStepApi {
+    /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    key: SetupStepKeyEnumApi
+    /** Whether the project has done this step. */
+    done: boolean
+    /** The step's name, as the app shows it. */
+    title: string
+    /** What the person does to finish the step. */
+    next_step: string
+    /** Link to the place in the app where the person does this step. */
+    app_url: string
+}
+
+export interface WorkflowSetupStatusApi {
+    /** Every messaging setup step, in order. */
+    steps: WorkflowSetupStepApi[]
+    /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
+    ready_to_send_email: boolean
+    /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
+    email_sending_paused: boolean
+    /** The first step that is not done, or null when every step is done.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    next_open_step: SetupStepKeyEnumApi | null
+    /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
+    data_suggestions_available: boolean
 }
 
 export type HogFlowTemplatesListParams = {
@@ -2899,4 +3056,15 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
+}
+
+export type HogFlowsSendCalendarRetrieveParams = {
+    /**
+     * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
+     */
+    end: string
+    /**
+     * Start of the shown range, inclusive, as an ISO 8601 datetime.
+     */
+    start: string
 }

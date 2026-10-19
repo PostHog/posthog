@@ -1556,6 +1556,8 @@ export interface YAxisSettings {
 export interface ChartSettings {
     xAxis?: ChartAxis
     xAxisLabel?: string
+    xAxisDateFormat?: string
+    xAxisTickRotation?: number
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
@@ -1573,6 +1575,11 @@ export interface ChartSettings {
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
+    valueLabelPosition?: 'end' | 'center'
+    valueLabelBackground?: boolean
+    valueLabelFontSize?: number
+    valueLabelRotation?: number
+    barGap?: number
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
     showPieTotal?: boolean
@@ -2005,6 +2012,7 @@ export interface ResultCustomizationByPosition extends ResultCustomizationBase {
 }
 
 export interface ResultCustomizationByValue extends ResultCustomizationBase {
+    customColor?: string
     assignmentBy: ResultCustomizationBy.Value
 }
 
@@ -4887,6 +4895,48 @@ export interface MetricsQueryFilter {
     scope?: MetricsAttributeScope
 }
 
+/** Where a metrics dashboard variable gets its options. */
+export type MetricsDashboardVariableSource = 'custom' | 'promql' | 'sql' | 'textbox'
+
+export interface MetricsDashboardVariableSelection {
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+    all?: boolean
+}
+
+/** The value of one variable in a metrics query, set from the dashboard that shows the query. */
+export interface MetricsVariableValue {
+    values: string[]
+    /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the
+     * filter, and SQL gets every option of the variable. */
+    all?: boolean
+    allValue?: string | null
+    /** The definition of a variable set to All, so that a SQL query can load its options. */
+    definition?: MetricsDashboardVariable | null
+}
+
+/** A Grafana-style dashboard variable. Metrics tiles refer to it as `$name`, `${name}` or `${name:format}`. */
+export interface MetricsDashboardVariable {
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    source: MetricsDashboardVariableSource
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables.
+     * PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`,
+     * `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    multi?: boolean | null
+    includeAll?: boolean | null
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelection | null
+}
+
 export interface MetricsQueryGroupBy {
     key: string
     scope?: MetricsAttributeScope
@@ -4948,6 +4998,8 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
     interval?: string
     /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
     unit?: string
+    /** Values of the dashboard variables that the filters refer to as `$name`. */
+    variables?: Record<string, MetricsVariableValue>
 }
 
 export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
@@ -5049,6 +5101,8 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
     display?: MetricsDisplaySettings
+    /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+    variables?: Record<string, MetricsVariableValue>
 }
 
 export interface SessionEventsItem {
@@ -6832,6 +6886,8 @@ export interface DashboardFilter {
     compareFilter?: CompareFilter | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilter[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariable[] | null
 }
 
 export interface TileFilters {

@@ -5,6 +5,7 @@ import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
+import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
@@ -118,7 +119,9 @@ export function loadPostHogJS(): void {
             metrics: { network: true, serviceName: 'posthog-app' },
             // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
             // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
+            before_send: isEmbeddedPageFrame()
+                ? [redactMetricVariableUrls, stampEmbeddedPageFrame]
+                : redactMetricVariableUrls,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

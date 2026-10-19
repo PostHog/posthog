@@ -51,6 +51,7 @@ from posthog.api.app_metrics2 import (
 )
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
@@ -158,6 +159,11 @@ from products.workflows.backend.facade.blast_radius import (
     is_account_audience,
     parse_account_audience_filters,
 )
+from products.workflows.backend.facade.broadcast_conversion import (
+    BROADCAST_CONVERSION_CANDIDATE_LIMIT,
+    convert_workflow_to_broadcast,
+    list_broadcast_conversion_candidates,
+)
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
     EmailDesignRenderFailed,
@@ -254,6 +260,7 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
 )
+from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
     suggestions_scout_refusal,
@@ -2231,6 +2238,73 @@ class HogFlowScheduleSerializer(serializers.Serializer):
         return data
 
 
+class SendCalendarQuerySerializer(serializers.Serializer):
+    start = serializers.DateTimeField(help_text="Start of the shown range, inclusive, as an ISO 8601 datetime.")
+    end = serializers.DateTimeField(
+        help_text=(
+            f"End of the shown range, exclusive, as an ISO 8601 datetime. At most {SEND_CALENDAR_MAX_RANGE_DAYS} "
+            "days after start."
+        )
+    )
+
+    def validate(self, data: dict) -> dict:
+        if data["end"] <= data["start"]:
+            raise serializers.ValidationError({"end": "End must be after start."})
+        if data["end"] - data["start"] > timedelta(days=SEND_CALENDAR_MAX_RANGE_DAYS):
+            raise serializers.ValidationError(
+                {"end": f"The range can be at most {SEND_CALENDAR_MAX_RANGE_DAYS} days long."}
+            )
+        return data
+
+
+class SendCalendarBatchJobSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the batch run.")
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJobState.choices, read_only=True, help_text="Status of the batch run."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the batch run started.")
+
+
+class SendCalendarFlowSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the workflow.")
+    name = serializers.CharField(read_only=True, allow_null=True, help_text="Name of the workflow.")
+    origin_product = serializers.ChoiceField(
+        choices=HogFlowOriginProduct.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.",
+    )
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the workflow.")
+    user_access_level = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The reader's access level on the workflow."
+    )
+    trigger_type = serializers.CharField(read_only=True, help_text="The trigger type: batch or schedule.")
+    audience_properties = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text="The property filters of a batch trigger's audience. Empty for a schedule trigger.",
+    )
+    audience_type = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="persons or accounts for a batch trigger's audience. Null when the trigger does not set it.",
+    )
+    email_to = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.",
+    )
+    message_category_id = serializers.CharField(
+        read_only=True, allow_null=True, help_text="ID of the message category of the first email step."
+    )
+    schedules = HogFlowScheduleSerializer(
+        many=True, read_only=True, help_text="The schedules that still have sends to come."
+    )
+    batch_jobs = SendCalendarBatchJobSerializer(
+        many=True, read_only=True, help_text="The batch runs that started inside the requested range."
+    )
+
+
 class HogFlowRunRequestSerializer(serializers.Serializer):
     variables = serializers.DictField(
         child=serializers.JSONField(allow_null=True, help_text="Override value for one workflow variable."),
@@ -2650,6 +2724,34 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
             "When sending was last resumed. Detector windows start after this, so resuming does not "
             "immediately re-trip on older feedback. Null if never paused."
         ),
+    )
+
+
+class BroadcastConversionCandidateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Workflow id.")
+    name = serializers.CharField(read_only=True, allow_blank=True, help_text="Workflow name. Empty when unnamed.")
+    status = serializers.ChoiceField(choices=HogFlowState.choices, read_only=True, help_text="Workflow status.")
+
+
+class BroadcastConversionCandidatesSerializer(serializers.Serializer):
+    """Workflows that only send one email to a batch audience and can move to broadcasts."""
+
+    has_more = serializers.BooleanField(
+        read_only=True, help_text="True when more workflows can move than `results` lists."
+    )
+    results = BroadcastConversionCandidateSerializer(
+        many=True,
+        read_only=True,
+        help_text=f"The most recently updated candidates, at most {BROADCAST_CONVERSION_CANDIDATE_LIMIT}.",
+    )
+
+
+class HogFlowConvertedToBroadcastSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Id of the workflow that is now a broadcast.")
+    origin_product = serializers.ChoiceField(
+        choices=HogFlowOriginProduct.choices,
+        read_only=True,
+        help_text="The product that now owns the workflow. Always `broadcasts`.",
     )
 
 
@@ -4421,6 +4523,7 @@ class HogFlowViewSet(
         "metrics_global",
         "team_reputation",
         "email_sending_suspension",
+        "broadcast_conversion_candidates",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -4429,6 +4532,7 @@ class HogFlowViewSet(
         "proposal_detail",
         "proposal_outcome",
         "in_flight",
+        "send_calendar",
     ]
     scope_object_write_actions = [
         "create",
@@ -4448,6 +4552,7 @@ class HogFlowViewSet(
         "discard_draft",
         "restore_revision",
         "resume_email_sending",
+        "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
     ]
@@ -4708,6 +4813,27 @@ class HogFlowViewSet(
         paginator.offset = offset
         paginator.count = page.count
         return paginator.get_paginated_response(self.get_serializer(page.results, many=True).data)
+
+    @validated_request(
+        query_serializer=SendCalendarQuerySerializer,
+        responses={200: OpenApiResponse(response=SendCalendarFlowSerializer(many=True))},
+        summary="List the scheduled sends for the send calendar",
+        description=(
+            "Active batch and schedule workflows with an email step that is not transactional, and that have "
+            "a schedule with sends to come or a batch run inside the range. Each carries only the fields a "
+            "calendar card shows. Read a single workflow for its full configuration."
+        ),
+    )
+    @action(detail=False, methods=["GET"], url_path="send_calendar", pagination_class=None, filter_backends=[])
+    def send_calendar(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        flows = list_send_calendar_flows(
+            team_id=self.team_id,
+            start=request.validated_query_data["start"],
+            end=request.validated_query_data["end"],
+            # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+            user_access_control=None if is_service_auth(request) else self.user_access_control,
+        )
+        return Response(SendCalendarFlowSerializer(flows, many=True).data)
 
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
@@ -6460,6 +6586,61 @@ class HogFlowViewSet(
                     "email_sending_paused_reason": "",
                     "email_sending_resumed_at": resumed_at,
                 }
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_broadcast_conversion_candidates_retrieve",
+        responses={200: BroadcastConversionCandidatesSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        pagination_class=None,
+        filter_backends=[],
+        url_path="broadcast_conversion_candidates",
+    )
+    def broadcast_conversion_candidates(self, request: Request, **kwargs) -> Response:
+        """
+        List the workflows that could become broadcasts: one email to a batch audience, with nothing the
+        broadcast editor would drop. Only workflows the caller may edit are listed.
+        """
+        # One past the cap tells whether more exist without loading them all.
+        candidates = list_broadcast_conversion_candidates(
+            team_id=self.team_id,
+            user_access_control=None if is_service_auth(request) else self.user_access_control,
+            limit=BROADCAST_CONVERSION_CANDIDATE_LIMIT + 1,
+        )
+        return Response(
+            BroadcastConversionCandidatesSerializer(
+                {
+                    "has_more": len(candidates) > BROADCAST_CONVERSION_CANDIDATE_LIMIT,
+                    "results": candidates[:BROADCAST_CONVERSION_CANDIDATE_LIMIT],
+                }
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_convert_to_broadcast",
+        request=None,
+        responses={200: HogFlowConvertedToBroadcastSerializer},
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None, filter_backends=[], url_path="convert_to_broadcast")
+    def convert_to_broadcast(self, request: Request, **kwargs) -> Response:
+        """
+        Move a workflow to broadcasts. It keeps its id, runs and metrics, leaves the workflows list and opens
+        in the broadcast editor. This cannot be undone.
+        """
+        hog_flow = self._workflow_ref()
+        if not convert_workflow_to_broadcast(
+            team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, actor=self._activity_actor()
+        ):
+            raise exceptions.ValidationError(
+                {"detail": "Only a workflow that sends one email to a batch audience can become a broadcast."}
+            )
+        return Response(
+            HogFlowConvertedToBroadcastSerializer(
+                {"id": hog_flow.id, "origin_product": HogFlowOriginProduct.BROADCASTS}
             ).data
         )
 

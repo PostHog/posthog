@@ -22,3 +22,26 @@ export function rankingLiftBarPercent(lift: number): number {
     const position = (Math.log10(lift) + 1) / 2
     return Math.min(1, Math.max(0, position)) * 100
 }
+
+export type RankingStrength = 'very_likely' | 'likely' | 'average' | 'unlikely'
+
+export const RANKING_STRENGTH_LABELS: Record<RankingStrength, string> = {
+    very_likely: 'Very likely',
+    likely: 'Likely',
+    average: 'About average',
+    unlikely: 'Unlikely',
+}
+
+/** A lift as a word. The bands sit at equal distances from 1x on the bar's log scale. */
+export function rankingStrength(lift: number): RankingStrength {
+    if (lift >= 2) {
+        return 'very_likely'
+    }
+    if (lift >= 1.25) {
+        return 'likely'
+    }
+    if (lift > 0.8) {
+        return 'average'
+    }
+    return 'unlikely'
+}

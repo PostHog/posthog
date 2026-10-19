@@ -214,6 +214,7 @@ from posthog.schema_enums import (
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
     MetricsAxisScale as MetricsAxisScale,
+    MetricsDashboardVariableSource as MetricsDashboardVariableSource,
     MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
@@ -328,6 +329,7 @@ from posthog.schema_enums import (
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
+    ValueLabelPosition as ValueLabelPosition,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -2704,6 +2706,17 @@ class MetricsAlertConfig(BaseModel):
     type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
 
 
+class MetricsDashboardVariableSelection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = None
+    values: list[str] = Field(
+        ...,
+        description=("The selected values. Empty when `all` is true: All stands for every option of the variable."),
+    )
+
+
 class MetricsQueryFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3150,6 +3163,7 @@ class ResultCustomizationByValue(BaseModel):
     )
     assignmentBy: Literal["value"] = "value"
     color: DataColorToken | None = None
+    customColor: str | None = None
     hidden: bool | None = None
 
 
@@ -7011,6 +7025,44 @@ class MetricPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class MetricsDashboardVariable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allValue: str | None = Field(
+        default=None,
+        description="The text that All puts in a PromQL query. `.*` when it is empty.",
+    )
+    current: MetricsDashboardVariableSelection | None = None
+    customValues: list[str] | None = Field(default=None, description="The options when `source` is `custom`.")
+    includeAll: bool | None = None
+    label: str | None = Field(
+        default=None,
+        description=("Shown in the dashboard filter bar. The name is shown when it is empty."),
+    )
+    multi: bool | None = None
+    name: str = Field(
+        ...,
+        description="Letters, digits and underscores. Tiles refer to it as `$name`.",
+    )
+    query: str | None = Field(
+        default=None,
+        description=(
+            "The options query when `source` is `promql` or `sql`. It can refer to"
+            " other variables. PromQL supports `label_values(label)`,"
+            " `label_values(selector, label)`, `label_names()`, `metrics(regex)` and"
+            " `query_result(expr)`. SQL returns the options in its first column."
+        ),
+    )
+    regex: str | None = Field(
+        default=None,
+        description=(
+            "RE2 pattern that options must match. When it has a capture group, the option is the first group."
+        ),
+    )
+    source: MetricsDashboardVariableSource
+
+
 class MetricsDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7077,6 +7129,26 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
+
+
+class MetricsVariableValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = Field(
+        default=None,
+        description=(
+            "True when the variable is set to All. PromQL gets `allValue` or `.*`,"
+            " builder filters drop the filter, and SQL gets every option of the"
+            " variable."
+        ),
+    )
+    allValue: str | None = None
+    definition: MetricsDashboardVariable | None = Field(
+        default=None,
+        description=("The definition of a variable set to All, so that a SQL query can load its options."),
+    )
+    values: list[str]
 
 
 class MultiQuestionFormField(BaseModel):
@@ -16851,6 +16923,7 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
     chartStyle: ChartStyle | None = Field(
         default=None,
@@ -16886,8 +16959,14 @@ class ChartSettings(BaseModel):
     showXAxisTicks: bool | None = None
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
+    valueLabelBackground: bool | None = None
+    valueLabelFontSize: float | None = None
+    valueLabelPosition: ValueLabelPosition | None = None
+    valueLabelRotation: float | None = None
     xAxis: ChartAxis | None = None
+    xAxisDateFormat: str | None = None
     xAxisLabel: str | None = None
+    xAxisTickRotation: float | None = None
     yAxis: list[ChartAxis] | None = None
     yAxisAtZero: bool | None = Field(
         default=None,
@@ -27624,6 +27703,10 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
     )
+    metricVariables: list[MetricsDashboardVariable] | None = Field(
+        default=None,
+        description=("Variables that metrics tiles refer to as `$name`. Other tiles ignore them."),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
@@ -29332,6 +29415,10 @@ class MetricsHistogramQuery(BaseModel):
         default=None,
         description=('UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only.'),
     )
+    variables: dict[str, MetricsVariableValue] | None = Field(
+        default=None,
+        description=("Values of the dashboard variables that the filters refer to as `$name`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -29380,6 +29467,10 @@ class MetricsQuery(BaseModel):
         ),
     )
     tags: QueryLogTags | None = None
+    variables: dict[str, MetricsVariableValue] | None = Field(
+        default=None,
+        description=("Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

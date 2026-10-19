@@ -92,6 +92,32 @@ export interface HighlightValueFormatApi {
     decimal_places: number | null
 }
 
+/**
+ * * `routine` - You open this often
+ * * `dashboard` - On a dashboard you open often
+ * * `key_metric` - Project key metric
+ */
+export type HighlightMetricReasonEnumApi =
+    (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
+
+export const HighlightMetricReasonEnumApi = {
+    Routine: 'routine',
+    Dashboard: 'dashboard',
+    KeyMetric: 'key_metric',
+} as const
+
+export interface HighlightMoverApi {
+    /** Name of one series of the insight, for example a breakdown value. */
+    label: string
+    /** Value of the series for the last complete period. */
+    value: number
+    /**
+     * Change of the series against the period before, in percent. Null when the period before is 0.
+     * @nullable
+     */
+    change_pct: number | null
+}
+
 export interface HighlightMetricApi {
     /** Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>. */
     key: string
@@ -127,6 +153,34 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
+    /** Why the pulse shows the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.
+     *
+     * * `routine` - You open this often
+     * * `dashboard` - On a dashboard you open often
+     * * `key_metric` - Project key metric */
+    reason: HighlightMetricReasonEnumApi | null
+    /**
+     * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
+     * @nullable
+     */
+    dashboard_name: string | null
+    /**
+     * On how many of the last 14 days the person opened the insight, or the dashboard of the tile. Null for a key metric.
+     * @nullable
+     */
+    opened_days: number | null
+    /**
+     * The last day the person opened the insight, or the dashboard of the tile, in the project's timezone. Null for a key metric.
+     * @nullable
+     */
+    last_opened: string | null
+    /**
+     * Value for the period before the last complete one, the base of `change_pct`. Null when unknown.
+     * @nullable
+     */
+    previous_value: number | null
+    /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
+    movers: HighlightMoverApi[]
 }
 
 /**
