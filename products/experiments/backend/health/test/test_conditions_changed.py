@@ -35,6 +35,7 @@ PRO_OR_TEAM_PINNED = {
     "variant": "test",
 }
 TEAM = {"properties": [{"key": "plan", "value": ["team"], "operator": "exact", "type": "person"}]}
+EU = {"properties": [{"key": "$geoip_continent_code", "value": ["EU"], "operator": "exact", "type": "person"}]}
 EU_CONTROL = {
     "properties": [{"key": "$geoip_continent_code", "value": ["EU"], "operator": "exact", "type": "person"}],
     "variant": "control",
@@ -47,6 +48,7 @@ def _context(
     exposed_between: bool | None = None,
     not_checked: FlagHistoryNotCheckedReason | None = None,
     people_by_set: dict[int, int] | None = None,
+    now: list[dict[str, Any]] | None = None,
 ) -> HealthContext:
     changes = [
         ConditionsChange(
@@ -58,12 +60,13 @@ def _context(
     ]
     return replace(
         RUNNING_CONTEXT,
-        flag=parse_flag_state(active=True, deleted=False, groups=conditions[-1], variants=EVEN),
+        flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=EVEN),
         flag_history=flag_history(
             changes,
             launched_at=LAUNCHED_AT,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
+            release_conditions=None if now is None else parse_release_conditions(now),
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
@@ -192,6 +195,27 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'{OVERRIDE_MOVED} Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" '
                 "with the override in place (300 of about 1,650). Reset the experiment, or move its start date to "
                 f"{SECOND_CHANGE}.",
+            ),
+            (
+                "override_removed_before_a_reorder_that_is_no_change",
+                _context(
+                    [PRO_PINNED, EU, EVERYONE],
+                    [PRO, EU, EVERYONE],
+                    now=[EU, PRO, EVERYONE],
+                    people_by_set={1: 30, 2: 300, 3: 2670},
+                ),
+                ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 2 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
+                f'{TRAFFIC_SINCE}, Set 2 matched about 18.2% of the users who would get "test" with the override in '
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "override_removed_with_its_filters_edited",
+                _context([PRO_PINNED, EVERYONE], [TEAM, EVERYONE], people_by_set={2: 3000}),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
+                f"can't measure how many users the override matched. Reset the experiment, or move its start date to "
+                f"{FIRST_CHANGE}.",
             ),
             (
                 "override_removed_and_set_back",

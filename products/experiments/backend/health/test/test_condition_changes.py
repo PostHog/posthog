@@ -137,7 +137,7 @@ class TestConditionChanges(TestCase):
             before_aggregation=flag_aggregation,
             after_aggregation=flag_aggregation,
         )
-        effect = conditions_net_effect([change] if change else [])
+        effect = conditions_net_effect([change] if change else [], current=None)
 
         self.assertEqual(effect.shape if effect else None, expected)
 
@@ -146,7 +146,8 @@ class TestConditionChanges(TestCase):
             [
                 _change([_condition(PRO, variant="test")], [_condition()]),
                 _change([_condition()], [_condition(PRO, variant="test")], minutes=17),
-            ]
+            ],
+            current=None,
         )
 
         assert effect is not None

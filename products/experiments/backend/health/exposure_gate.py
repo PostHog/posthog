@@ -57,6 +57,7 @@ from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     conditions_change_from_activity,
     conditions_net_effect,
+    parse_release_conditions,
 )
 from products.experiments.backend.health.context import (
     BucketingChange,
@@ -325,6 +326,9 @@ def _load_flag_history(
         counted_since=None,
         exposed_before_first=False,
         exposed_between={},
+        release_conditions=parse_release_conditions(
+            flag.conditions, flag_aggregation=flag.aggregation_group_type_index
+        ),
     )
     times = _change_times(changes)
     if not times:
@@ -449,7 +453,7 @@ def _exposed_between_set_backs(
         exposed_between[ExperimentHealthFlagChangeKind.BUCKETING] = _exposed_between(
             gate, timeline, start=bucketing.first.changed_at, end=bucketing.last.changed_at
         )
-    conditions = conditions_net_effect(history.counted(ConditionsChange))
+    conditions = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     if conditions and conditions.shape == ConditionsChangeShape.REVERTED:
         exposed_between[ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS] = _exposed_between(
             gate, timeline, start=conditions.first.changed_at, end=conditions.last.changed_at

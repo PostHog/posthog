@@ -17,7 +17,8 @@ set. An override that is gone leaves no state to report, so the release-conditio
 
 import json
 import itertools
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections import deque
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
@@ -29,6 +30,7 @@ from products.experiments.backend.health.split_changes import EXPOSURE_FREEZE_JO
 from products.feature_flags.backend.facade.filters import condition_aggregation
 
 ReleaseConditions = tuple[ReleaseCondition, ...]
+_MAX_LOOK_ALIKES = 100
 _FOLLOWS_FLAG_AGGREGATION = "flag"
 
 
@@ -42,7 +44,7 @@ class ConditionsChangeShape(StrEnum):
 @frozen
 class AddedOverride:
     variant: str
-    # The number of its condition after the last change, from 1, as the page and the flag service number them.
+    # The number of its condition in the flag now, from 1, as the page and the flag service number them.
     condition_number: int
     set_at: datetime
 
@@ -50,13 +52,22 @@ class AddedOverride:
 @frozen
 class RemovedOverride:
     variant: str
-    # The number of its condition after the last change. None when the condition is gone too.
+    # The number of its condition in the flag now. None when the condition is gone too.
     condition_number: int | None
+    # Whether its condition matches now what it matched while the override was in place, so the users it serves
+    # now are the users the override served.
+    same_audience: bool
     # None when the override was in place before the first change.
     set_at: datetime | None
     # The first change of the override when it was set back, otherwise the change that removed it.
     removed_at: datetime
     restored_at: datetime | None
+
+
+@frozen
+class EditedOverride:
+    variant: str
+    condition_number: int
 
 
 @frozen
@@ -79,9 +90,9 @@ class ConditionsNetEffect:
     # Whether the conditions that no override change touches match other people after the last change.
     audience_changed: bool
     reordered: bool
-    # The numbers of the conditions after the last change that kept their override while their criteria changed.
-    # The people who match them differently move between the override's variant and a random one.
-    edited_override_numbers: tuple[int, ...]
+    # The conditions that kept their override while their criteria changed. The people who match them differently
+    # move between the override's variant and a random one.
+    edited_overrides: tuple[EditedOverride, ...]
 
 
 def conditions_change_from_activity(
@@ -123,50 +134,74 @@ def _pair_conditions(before: ReleaseConditions, after: ReleaseConditions) -> dic
     criteria, then a look-alike at the same position, then the only look-alike left.
     """
     pairs: dict[int, int] = {}
+    paired: set[int] = set()
 
-    def unpaired_before(index: int) -> bool:
-        return index not in pairs.values()
+    def pair(after_index: int, before_index: int) -> None:
+        pairs[after_index] = before_index
+        paired.add(before_index)
 
-    def pair_first(same: Callable[[ReleaseCondition, ReleaseCondition], bool]) -> None:
+    def pair_first_with_same(key: Callable[[ReleaseCondition], Hashable]) -> None:
+        waiting: dict[Hashable, deque[int]] = {}
+        for index, old in enumerate(before):
+            if index not in paired:
+                waiting.setdefault(key(old), deque()).append(index)
         for after_index, condition in enumerate(after):
-            if after_index in pairs:
-                continue
-            before_index = next(
-                (index for index, old in enumerate(before) if unpaired_before(index) and same(old, condition)), None
-            )
-            if before_index is not None:
-                pairs[after_index] = before_index
+            candidates = waiting.get(key(condition))
+            if after_index not in pairs and candidates:
+                pair(after_index, candidates.popleft())
 
-    pair_first(lambda old, new: old == new)
-    pair_first(lambda old, new: old.criteria == new.criteria)
-    for after_index, condition in enumerate(after):
+    pair_first_with_same(lambda condition: condition)
+    pair_first_with_same(lambda condition: condition.criteria)
+    unpaired_after = [index for index in range(len(after)) if index not in pairs]
+    unpaired_before = [index for index in range(len(before)) if index not in paired]
+    # Look-alikes are compared each with each. A save that edits more conditions than this pairs no more of them,
+    # so they count as removed and added, which bounds the work for a flag with very many conditions.
+    if len(unpaired_after) > _MAX_LOOK_ALIKES or len(unpaired_before) > _MAX_LOOK_ALIKES:
+        return pairs
+    for after_index in unpaired_after:
         if (
-            after_index not in pairs
-            and after_index < len(before)
-            and unpaired_before(after_index)
-            and _looks_alike(before[after_index], condition)
+            after_index < len(before)
+            and after_index not in paired
+            and _looks_alike(before[after_index], after[after_index])
         ):
-            pairs[after_index] = after_index
+            pair(after_index, after_index)
     # A condition that was edited and moved in one save has no partner at its position. It pairs with the one
     # condition left that it looks like. With several, no pair is safe, so they count as removed and added.
-    for after_index, condition in enumerate(after):
+    for after_index in unpaired_after:
         if after_index in pairs:
             continue
         candidates = [
-            index for index, old in enumerate(before) if unpaired_before(index) and _looks_alike(old, condition)
+            index
+            for index in unpaired_before
+            if index not in paired and _looks_alike(before[index], after[after_index])
         ]
         if len(candidates) == 1:
-            pairs[after_index] = candidates[0]
+            pair(after_index, candidates[0])
     return pairs
 
 
-def conditions_net_effect(changes: Sequence[ConditionsChange]) -> ConditionsNetEffect | None:
+def conditions_net_effect(
+    changes: Sequence[ConditionsChange], *, current: ReleaseConditions | None
+) -> ConditionsNetEffect | None:
+    """
+    `current` are the flag's conditions now, which the condition numbers follow. A save that changes nothing this
+    module reads, such as the order of conditions without an override, is no change, so it can come after the
+    last change and renumber the conditions. None numbers them as after the last change.
+    """
     if not changes:
         return None
     first = changes[0]
     last = changes[-1]
     followed = _rejoin(_follow(changes), first.before, last.after)
-    overrides, touched = _override_changes(followed, first.before, last.after)
+    now = last.after if current is None else current
+    now_ids = (
+        followed.end_ids
+        if current is None
+        else _carry_ids(last.after, followed.end_ids, current, itertools.count(_next_id(followed)))
+    )
+    numbers = {condition_id: number for number, condition_id in enumerate(now_ids, start=1)}
+    criteria_now = {condition_id: condition.criteria for condition_id, condition in zip(now_ids, now)}
+    overrides, touched = _override_changes(followed, first.before, last.after, numbers, criteria_now)
     start_index = {condition_id: index for index, condition_id in enumerate(followed.start_ids)}
     net_pairs = {
         index: start_index[condition_id]
@@ -184,13 +219,18 @@ def conditions_net_effect(changes: Sequence[ConditionsChange]) -> ConditionsNetE
         audience_changed=_criteria_without(first.before, followed.start_ids, touched)
         != _criteria_without(last.after, followed.end_ids, touched),
         reordered=_reordered(first.before, last.after, net_pairs),
-        edited_override_numbers=tuple(
-            end_index + 1
+        edited_overrides=tuple(
+            EditedOverride(variant=variant, condition_number=numbers[condition_id])
             for end_index, start_index in sorted(net_pairs.items())
-            if followed.end_ids[end_index] not in touched
-            and last.after[end_index].variant is not None
-            and last.after[end_index].rollout > 0
-            and last.after[end_index].criteria != first.before[start_index].criteria
+            for condition_id, old, new in [
+                (followed.end_ids[end_index], first.before[start_index], last.after[end_index])
+            ]
+            for variant in [new.variant]
+            if variant is not None
+            and condition_id not in touched
+            and condition_id in numbers
+            and new.rollout > 0
+            and new.criteria != old.criteria
         ),
     )
 
@@ -201,6 +241,7 @@ class _VariantChange:
     changed_at: datetime
     before: str | None
     after: str | None
+    before_criteria: str | None
 
 
 @frozen
@@ -232,6 +273,7 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
                         changed_at=change.changed_at,
                         before=_variant(old),
                         after=_variant(new),
+                        before_criteria=old.criteria if old is not None else None,
                     )
                 )
         conditions, ids = change.after, after_ids
@@ -258,6 +300,11 @@ def _rejoin(followed: _Followed, start: ReleaseConditions, end: ReleaseCondition
     )
 
 
+def _next_id(followed: _Followed) -> int:
+    ids = [*followed.start_ids, *followed.end_ids, *(change.condition_id for change in followed.variant_changes)]
+    return max(ids, default=-1) + 1
+
+
 def _carry_ids(
     before: ReleaseConditions, ids: tuple[int, ...], after: ReleaseConditions, new_ids: Iterator[int]
 ) -> tuple[int, ...]:
@@ -266,29 +313,32 @@ def _carry_ids(
 
 
 def _override_changes(
-    followed: _Followed, start: ReleaseConditions, end: ReleaseConditions
+    followed: _Followed,
+    start: ReleaseConditions,
+    end: ReleaseConditions,
+    numbers: Mapping[int, int],
+    criteria_now: Mapping[int, str],
 ) -> tuple[OverrideChanges, set[int]]:
     """The override changes, and the ids of the conditions they touch."""
     start_variants = {condition_id: condition.variant for condition_id, condition in zip(followed.start_ids, start)}
     end_variants = {condition_id: condition.variant for condition_id, condition in zip(followed.end_ids, end)}
-    end_numbers = {condition_id: number for number, condition_id in enumerate(followed.end_ids, start=1)}
     added: list[AddedOverride] = []
     removed: list[RemovedOverride] = []
     for condition_id in dict.fromkeys(change.condition_id for change in followed.variant_changes):
         changes = [change for change in followed.variant_changes if change.condition_id == condition_id]
         start_variant = start_variants.get(condition_id)
         end_variant = end_variants.get(condition_id)
+        number = numbers.get(condition_id)
         if end_variant is not None and end_variant != start_variant:
             set_at = _last_set(changes, end_variant)
-            if set_at is not None:
-                added.append(
-                    AddedOverride(variant=end_variant, condition_number=end_numbers[condition_id], set_at=set_at)
-                )
+            if set_at is not None and number is not None:
+                added.append(AddedOverride(variant=end_variant, condition_number=number, set_at=set_at))
         elif end_variant is not None:
             removed.append(
                 RemovedOverride(
                     variant=end_variant,
-                    condition_number=end_numbers[condition_id],
+                    condition_number=number,
+                    same_audience=changes[0].before_criteria == criteria_now.get(condition_id),
                     set_at=None,
                     removed_at=changes[0].changed_at,
                     restored_at=changes[-1].changed_at,
@@ -301,7 +351,8 @@ def _override_changes(
             removed.append(
                 RemovedOverride(
                     variant=removal.before,
-                    condition_number=end_numbers.get(condition_id),
+                    condition_number=number,
+                    same_audience=removal.before_criteria == criteria_now.get(condition_id),
                     set_at=_last_set(changes[: changes.index(removal)], removal.before),
                     removed_at=removal.changed_at,
                     restored_at=None,
@@ -340,16 +391,29 @@ def _moves_people(before: ReleaseCondition | None, after: ReleaseCondition | Non
 
 
 def _reordered(before: ReleaseConditions, after: ReleaseConditions, pairs: Mapping[int, int]) -> bool:
-    # A person who matches two conditions gets the variant of the first one, the override or the hash's.
-    serving = [
-        (after_index, before_index)
-        for after_index, before_index in sorted(pairs.items())
-        if before[before_index].rollout > 0 and after[after_index].rollout > 0
-    ]
-    return any(
-        first_before > second_before and after[first_after].variant != after[second_after].variant
-        for (first_after, first_before), (second_after, second_before) in itertools.combinations(serving, 2)
-    )
+    # A person who matches two conditions gets the variant of the first one, the override or the hash's. Walking
+    # the conditions in their new order, a condition moved ahead of one with another variant when that one sat
+    # later before the change. Keeping the latest position and the latest of any other variant finds it in one pass.
+    latest: tuple[int, str | None] | None = None
+    latest_of_other_variant = -1
+    for after_index, before_index in sorted(pairs.items()):
+        if before[before_index].rollout <= 0 or after[after_index].rollout <= 0:
+            continue
+        variant = after[after_index].variant
+        if latest is not None:
+            latest_position, latest_variant = latest
+            if (latest_position if latest_variant != variant else latest_of_other_variant) > before_index:
+                return True
+            if variant == latest_variant:
+                latest = (max(latest_position, before_index), variant)
+            elif before_index > latest_position:
+                latest_of_other_variant = latest_position
+                latest = (before_index, variant)
+            else:
+                latest_of_other_variant = max(latest_of_other_variant, before_index)
+        else:
+            latest = (before_index, variant)
+    return False
 
 
 def _criteria_without(conditions: ReleaseConditions, ids: tuple[int, ...], touched: set[int]) -> list[str]:

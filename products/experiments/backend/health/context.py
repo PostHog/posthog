@@ -93,6 +93,9 @@ class FlagHistory:
     # Whether anyone was exposed between the first and the last counted change of a kind. Asked only when the last
     # sets back what the first changed, so a kind that was not asked is absent. None when unknown.
     exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None]
+    # The flag's release conditions now. A save that no kind counts can renumber them after the last change, and
+    # the findings and the traffic number the conditions as they are now.
+    release_conditions: tuple[ReleaseCondition, ...]
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)

@@ -63,7 +63,7 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
         return None
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history)
-    effect = conditions_net_effect(history.counted(ConditionsChange))
+    effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     if effect is None:
         return None
     # Conditions set back with nobody exposed in between left no trace in the results.
@@ -124,15 +124,15 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
 
 
 def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
-    numbers = effect.edited_override_numbers
-    if not numbers:
+    edited = effect.edited_overrides
+    if not edited:
         return []
-    if len(numbers) == 1:
-        variant = effect.to_conditions[numbers[0] - 1].variant
+    if len(edited) == 1:
         return [
-            f'Set {numbers[0]} has the variant override "{variant}", so users who now match it or no longer match '
-            "it may also have switched variants."
+            f'Set {edited[0].condition_number} has the variant override "{edited[0].variant}", so users who now match '
+            "it or no longer match it may also have switched variants."
         ]
+    numbers = [override.condition_number for override in edited]
     names = ", ".join(str(number) for number in numbers[:-1]) + f" and {numbers[-1]}"
     return [
         f"Sets {names} have variant overrides, so users who now match them or no longer match them may also have "
@@ -147,14 +147,14 @@ def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     flag = ctx.flag
     if not isinstance(history, FlagHistory) or flag is None or flag.deleted or not ctx.is_running or ctx.archived:
         return None
-    effect = conditions_net_effect(history.counted(ConditionsChange))
+    effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     if effect is None:
         return None
     removed = _analyzed(ctx, effect)
     pinned = tuple(
         ReachableCondition(number=override.condition_number, pinned_variant=override.variant)
         for override in removed
-        if override.condition_number is not None
+        if override.condition_number is not None and override.same_audience
     )
     if not pinned:
         return None
@@ -292,7 +292,7 @@ def _finding(
 
 
 def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | None:
-    effect = conditions_net_effect(changes_not_checked(history, ConditionsChange))
+    effect = conditions_net_effect(changes_not_checked(history, ConditionsChange), current=None)
     if effect is None:
         return None
     return not_checked_finding(

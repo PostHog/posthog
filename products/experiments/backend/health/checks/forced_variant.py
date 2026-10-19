@@ -150,7 +150,11 @@ def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLa
     """The overrides of these conditions that were set after launch while people were already exposed. The
     release-condition check leaves them to this finding, so that one override gets one row."""
     history = ctx.flag_history
-    effect = conditions_net_effect(history.counted(ConditionsChange)) if isinstance(history, FlagHistory) else None
+    effect = (
+        conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
+        if isinstance(history, FlagHistory)
+        else None
+    )
     added = [] if effect is None else [o for o in effect.overrides.added if o.condition_number in numbers]
     if history is None or not added:
         return _SetAfterLaunch(sentence="", evidence={}, covers_all=False)

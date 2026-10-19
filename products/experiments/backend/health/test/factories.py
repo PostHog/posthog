@@ -4,11 +4,13 @@ from typing import TypedDict
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.health.context import (
+    ConditionsChange,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     HealthContext,
+    ReleaseCondition,
 )
 
 # Tests set what their check reads with `dataclasses.replace`, so a new field of the context changes only this file.
@@ -47,6 +49,7 @@ def flag_history(
     exposed_before_first: bool | None = True,
     exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None] | None = None,
     not_checked: FlagHistoryNotCheckedReason | None = None,
+    release_conditions: tuple[ReleaseCondition, ...] | None = None,
 ) -> FlagHistory | FlagHistoryNotChecked:
     # Every change counts from the first, as when someone was exposed before it.
     if not_checked is not None:
@@ -60,4 +63,7 @@ def flag_history(
         counted_since=changes[0].changed_at if changes else None,
         exposed_before_first=exposed_before_first,
         exposed_between=exposed_between or {},
+        release_conditions=release_conditions
+        if release_conditions is not None
+        else next((change.after for change in reversed(changes) if isinstance(change, ConditionsChange)), ()),
     )
