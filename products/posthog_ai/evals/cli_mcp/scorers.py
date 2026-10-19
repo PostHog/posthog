@@ -42,6 +42,11 @@ from __future__ import annotations
 
 import re
 
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
+
 from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
 from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -1105,8 +1110,11 @@ INLINE_VIEW_NOTE = "already sees this result as an interactive view"
 # A Markdown link alone in its paragraph, which PostHog Desktop draws as a full-size chart card.
 # The URL runs to the closing parenthesis because SQL in ``open_query`` keeps unencoded ``(`` and ``)``.
 _CHART_LINK_RE = re.compile(r'^\[[^\]]+\]\((https?://\S+?)(?:\s+"[^"]*")?\)$')
-# Block-display object tags, the other chart syntax in ``products/desktop/packages/ui/src/utils/remarkObjectTags.ts``.
-_CHART_TAG_RE = re.compile(r'<(insight|hogql)\b[^>]*\bdisplay="block"', re.IGNORECASE)
+# A block-display object tag alone in its paragraph, the other chart syntax in
+# ``products/desktop/packages/ui/src/utils/remarkObjectTags.ts``. A tag inside a sentence renders as a chip.
+_CHART_TAG_RE = re.compile(r"^<(insight|hogql)\b([^>]*?)/?>(.*?)(?:</\1>)?$", re.IGNORECASE | re.DOTALL)
+_TAG_ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
+_CODE_FENCE_RE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
 # Desktop chart cards resolve a saved insight by short ID; an unsaved ``/insights/new#q=`` link is not a chart.
 _SAVED_INSIGHT_URL_RE = re.compile(r"/insights/(?!new\b)[A-Za-z0-9]+")
 
@@ -1137,29 +1145,75 @@ def assistant_text(output: dict | None) -> str:
     return "\n\n".join(text for text in texts if text)
 
 
+def _chart_tag_kind(paragraph: str) -> str | None:
+    match = _CHART_TAG_RE.match(paragraph)
+    if match is None:
+        return None
+    tag, attrs, body = match.group(1).lower(), dict(_TAG_ATTR_RE.findall(match.group(2))), match.group(3).strip()
+    if attrs.get("display") != "block":
+        return None
+    if tag == "insight":
+        return "insight" if attrs.get("id") else None
+    return "sql" if body else None
+
+
 def chart_references(text: str) -> list[str]:
-    """Kinds of the full-size charts in ``text``: ``insight`` (a typed query) or ``sql``, in order."""
+    """Kinds of the full-size charts in ``text``: ``insight`` (a typed query) or ``sql``, in order.
+
+    Only a paragraph that holds nothing but a chart link or a block tag counts, and code blocks are
+    skipped, because Desktop draws nothing else as a chart card.
+    """
     kinds: list[str] = []
-    for paragraph in re.split(r"\n\s*\n", text):
-        match = _CHART_LINK_RE.match(paragraph.strip())
+    for paragraph in re.split(r"\n\s*\n", _CODE_FENCE_RE.sub("", text)):
+        paragraph = paragraph.strip()
+        match = _CHART_LINK_RE.match(paragraph)
         if match is None:
+            tag_kind = _chart_tag_kind(paragraph)
+            if tag_kind is not None:
+                kinds.append(tag_kind)
             continue
         url = match.group(1)
         if _SAVED_INSIGHT_URL_RE.search(url):
             kinds.append("insight")
         elif "/sql?" in url and "open_query=" in url:
             kinds.append("sql")
-    kinds.extend("insight" if tag.lower() == "insight" else "sql" for tag in _CHART_TAG_RE.findall(text))
     return kinds
+
+
+# Inputs the exec wrapper accepts that are not part of the query, so a render that leaves them out still matches.
+_NON_QUERY_INPUT_KEYS = frozenset({"output_format"})
+
+
+def _query_input(call: ToolCall) -> dict:
+    return {key: value for key, value in call.input.items() if key not in _NON_QUERY_INPUT_KEYS}
+
+
+def _render_matches_query(render: ToolCall, calls: list[ToolCall]) -> bool:
+    """True when a ``render-ui`` call passes the input of a successful call to the same query tool.
+
+    ``render-ui`` succeeds for any input because it only emits a render directive, and the chart then
+    fetches its own data. An empty or invented input therefore shows an error, not a chart.
+    """
+    tool_name = _rendered_tool_name(render)
+    tool_input = render.input.get("tool_input")
+    if not isinstance(tool_input, dict) or not tool_input:
+        return False
+    rendered = {key: value for key, value in tool_input.items() if key not in _NON_QUERY_INPUT_KEYS}
+    return any(
+        not call.is_error and call.name == tool_name and _query_input(call) == rendered
+        for call in calls
+        if call.position < render.position
+    )
 
 
 def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> list[str]:
     """How the user saw a chart: ``render-ui``, ``inline`` (the client's UI app), ``insight``, or ``sql``."""
     paths: list[str] = []
+    calls = parser.get_tool_calls()
     for call in _render_ui_calls(parser):
-        if not call.is_error and _rendered_tool_name(call) in tools:
+        if not call.is_error and _rendered_tool_name(call) in tools and _render_matches_query(call, calls):
             paths.append("render-ui")
-    for call in parser.get_tool_calls():
+    for call in calls:
         if not call.is_error and call.name in tools and INLINE_VIEW_NOTE in call.output:
             paths.append("inline")
     paths.extend(chart_references(assistant_text(output)))
@@ -1289,21 +1343,35 @@ class NoMarkdownDataTable(Scorer):
         )
 
 
-_SQL_SOURCE_RE = re.compile(r"\b(?:from|join)\s+([A-Za-z_][\w.]*)", re.IGNORECASE)
-_CTE_NAME_RE = re.compile(r"(?:\bwith|,)\s*([A-Za-z_]\w*)\s+as\s*\(", re.IGNORECASE)
+class _TableSources(TraversingVisitor):
+    def __init__(self) -> None:
+        self.tables: list[str] = []
+        self.ctes: set[str] = set()
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.ctes.update(name.lower() for name in node.ctes or {})
+        super().visit_select_query(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field):
+            self.tables.append(".".join(str(part) for part in node.table.chain).lower())
+        super().visit_join_expr(node)
 
 
 def is_catalog_sql(call: ToolCall) -> bool:
     """True when an ``execute-sql`` call reads only PostHog entity tables (``system.*``).
 
     Catalog lookups, such as checking for a saved insight or an action, are justified SQL
-    under the routing rules, so they never count as an analytics query.
+    under the routing rules, so they never count as an analytics query. A query that the
+    HogQL parser cannot read counts as analytics SQL.
     """
-    if is_schema_discovery_call(call):
-        return True
     query = call.input.get("query")
     if not isinstance(query, str):
         return False
-    ctes = {name.lower() for name in _CTE_NAME_RE.findall(query)}
-    sources = [source for source in _SQL_SOURCE_RE.findall(query) if source.lower() not in ctes]
-    return bool(sources) and all(source.lower().startswith("system.") for source in sources)
+    try:
+        sources = _TableSources()
+        sources.visit(parse_select(query))
+    except BaseHogQLError:
+        return False
+    tables = [table for table in sources.tables if table not in sources.ctes]
+    return bool(tables) and all(table.startswith("system.") for table in tables)

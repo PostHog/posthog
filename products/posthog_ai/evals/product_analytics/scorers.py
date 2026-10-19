@@ -17,7 +17,7 @@ import re
 import json
 from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, TypedDict
 
 from pydantic import BaseModel
 
@@ -736,6 +736,22 @@ _ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
 }
 
 
+class InsightShapeSpec(TypedDict, total=False):
+    """The keys ``InsightShape`` reads from ``expected["insight_shape"]``."""
+
+    tool: str | list[str]
+    display: str | list[str]
+    compare: bool
+    funnel_viz: str | list[str]
+    breakdown: str | None
+    events: list[str | int]
+    event_sequence: list[str | int]
+    math: list[str]
+    formula: bool
+    filter_test_accounts: bool
+    filtered_on: list[str]
+
+
 class InsightShape(Scorer):
     """Binary: did the agent's answer query have the expected skeleton?
 
@@ -759,6 +775,7 @@ class InsightShape(Scorer):
       math counts as ``total``.
     - ``formula``: whether a trends query combines its series with a formula.
     - ``filter_test_accounts``: whether the query excludes internal and test accounts.
+    - ``filtered_on``: property keys of which at least one must appear in a query or series filter.
 
     The keys after ``tool`` describe a series query, so they are checked only when
     the chosen tool is ``query-trends`` or ``query-funnel``. Property filters and date
@@ -804,6 +821,7 @@ class InsightShape(Scorer):
             "math": _actual_math(query),
             "formula": _actual_formula(query, tool_name),
             "filter_test_accounts": query.get("filterTestAccounts") is True,
+            "filtered_on": sorted(_filtered_properties(query)),
         }
         actual["events"] = sorted(actual["event_sequence"], key=str)
         checked = shape if tool_name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
@@ -848,6 +866,8 @@ def _shape_field_matches(key: str, expected_value: Any, actual: dict[str, Any]) 
         return actual[key] in {str(item) for item in accepted}
     if key in ("compare", "breakdown", "formula", "filter_test_accounts"):
         return actual[key] == expected_value
+    if key == "filtered_on":
+        return isinstance(expected_value, list) and bool(set(expected_value) & set(actual["filtered_on"]))
     if key == "math":
         return isinstance(expected_value, list) and set(expected_value) <= set(actual["math"])
     if key == "events":
@@ -906,7 +926,31 @@ def _series_nodes(query: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _actual_math(query: dict[str, Any]) -> list[str]:
-    return sorted({str(node.get("math") or "total") for node in _series_nodes(query)})
+    # A GroupNode's own math applies to the whole group; the engine ignores the math of its inner nodes.
+    series = [node for node in query.get("series") or [] if isinstance(node, dict)]
+    return sorted({str(node.get("math") or "total") for node in series})
+
+
+def _filtered_properties(query: dict[str, Any]) -> set[str]:
+    """Property keys used in the query's own filters or in any series filter."""
+    keys: set[str] = set()
+
+    def collect(filters: Any) -> None:
+        if isinstance(filters, dict):
+            if isinstance(filters.get("key"), str):
+                keys.add(filters["key"])
+            collect(filters.get("values"))
+        elif isinstance(filters, list):
+            for item in filters:
+                collect(item)
+
+    collect(query.get("properties"))
+    for node in query.get("series") or []:
+        if isinstance(node, dict):
+            collect(node.get("properties"))
+    for node in _series_nodes(query):
+        collect(node.get("properties"))
+    return keys
 
 
 def _actual_formula(query: dict[str, Any], tool_name: str) -> bool | None:

@@ -64,6 +64,20 @@ def _scorecard_call(maths: list[str | None], formula: bool = False, test_account
     return ("mcp__posthog__query-trends", query, "ok")
 
 
+_NODES = [{"kind": "EventsNode", "event": "uploaded_file"}, {"kind": "EventsNode", "event": "downloaded_file"}]
+_DAU_NODES = [{**node, "math": "dau"} for node in _NODES]
+
+
+def _filtered_call(series_key: str | None = None, query_key: str | None = None) -> tuple:
+    node: dict = {"kind": "EventsNode", "event": "uploaded_file"}
+    if series_key:
+        node["properties"] = [{"key": series_key, "operator": "is_set", "type": "event"}]
+    query: dict = {"series": [node]}
+    if query_key:
+        query["properties"] = {"type": "AND", "values": [{"key": query_key, "value": "/pricing/", "type": "event"}]}
+    return ("mcp__posthog__query-trends", query, "ok")
+
+
 def _sql_call(status: str = "completed") -> tuple:
     return ("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1", status)
 
@@ -226,6 +240,21 @@ PAGEVIEWS_BY_BROWSER = {
         ([_scorecard_call(["dau", None])], {"formula": True}, 0.0, ["formula"]),
         ([_scorecard_call(["dau"], test_accounts=True)], {"filter_test_accounts": True}, 1.0, []),
         ([_scorecard_call(["dau"])], {"filter_test_accounts": True}, 0.0, ["filter_test_accounts"]),
+        (
+            [("mcp__posthog__query-trends", {"series": [{"kind": "GroupNode", "math": "dau", "nodes": _NODES}]}, "ok")],
+            {"math": ["dau"]},
+            1.0,
+            [],
+        ),
+        (
+            [("mcp__posthog__query-trends", {"series": [{"kind": "GroupNode", "nodes": _DAU_NODES}]}, "ok")],
+            {"math": ["dau"]},
+            0.0,
+            ["math"],
+        ),
+        ([_filtered_call(series_key="file_name")], {"filtered_on": ["file_name"]}, 1.0, []),
+        ([_filtered_call(query_key="$pathname")], {"filtered_on": ["$pathname", "$current_url"]}, 1.0, []),
+        ([_filtered_call()], {"filtered_on": ["file_name"]}, 0.0, ["filtered_on"]),
     ],
 )
 def test_insight_shape_checks_only_the_expected_keys(calls, shape, score, mismatched) -> None:
@@ -262,6 +291,12 @@ _SQL_LINK = "[Uploads](https://us.example.com/project/1/sql?open_query=SELECT%20
         ([_SQL], "There were 20 uploads and 846 downloads.", 0.0),
         ([_CATALOG, _TYPED], "No saved insight exists. There were 21 uploads.", 1.0),
         ([_CATALOG], "Insight 42 already tracks weekly logins.", None),
+        ([_result("execute-sql", "n\n846", {"query": "SELECT count() FROM system.insights, events"})], "846", 0.0),
+        (
+            [_result("execute-sql", "n\n846", {"query": "SELECT count() FROM `events` JOIN system.insights i ON 1"})],
+            "846",
+            0.0,
+        ),
         ([_TYPED, _SQL], "Uploads rose by a third.", None),
     ],
 )

@@ -28,7 +28,7 @@ the two runs paired by case:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Unpack
 
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -40,13 +40,16 @@ from products.posthog_ai.evals.product_analytics.scorers import (
     TYPED_QUERY_TOOLS,
     AnswerFromTypedQuery,
     InsightShape,
+    InsightShapeSpec,
 )
 
 from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
 
 
-def _case(name: str, prompt: str, *, first_tool: str | None = None, **shape: Any) -> SandboxedEvalCase:
-    expected: dict[str, Any] = {}
+def _case(
+    name: str, prompt: str, *, first_tool: str | None = None, **shape: Unpack[InsightShapeSpec]
+) -> SandboxedEvalCase:
+    expected: dict[str, object] = {}
     if first_tool is None:
         expected["answer_from_typed_query"] = {}
     else:
@@ -71,6 +74,7 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "How many uploaded_file events were there in the last 30 days, and how many of them had a file_name?",
             tool="query-trends",
             events=["uploaded_file", "uploaded_file"],
+            filtered_on=["file_name"],
         ),
         _case(
             "unique_signups_yesterday",
@@ -126,6 +130,7 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             events=["$pageview", "$pageview"],
             math=["unique_session"],
             formula=True,
+            filtered_on=["$pathname", "$current_url"],
         ),
         _case(
             "dashboard_tile_signup_funnel",

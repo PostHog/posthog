@@ -259,8 +259,9 @@ _INSIGHT_CHART = f"[Weekly signups]({_BASE}/insights/9pQx3)"
 _UNSAVED_INSIGHT_LINK = f"[Weekly signups]({_BASE}/insights/new#q=%7B%7D)"
 
 
-def _render(tool_name: str, status: str = "completed") -> tuple:
-    return ("mcp__posthog__render-ui", {"tool_name": tool_name, "tool_input": {}}, "Rendering", status)
+def _render(tool_name: str, status: str = "completed", tool_input: dict | None = None) -> tuple:
+    rendered = {"series": []} if tool_input is None else tool_input
+    return ("mcp__posthog__render-ui", {"tool_name": tool_name, "tool_input": rendered}, "Rendering", status)
 
 
 def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
@@ -281,6 +282,30 @@ def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
         ("unsaved_insight_link", [_TRENDS_RESULT], f"Signups rose.\n\n{_UNSAVED_INSIGHT_LINK}", 0.0, None),
         ("failed_render", [_TRENDS_RESULT, _render("query-trends", status="failed")], "Signups rose.", 0.0, None),
         ("rendered_other_tool", [_TRENDS_RESULT, _render("experiment-list")], "Signups rose.", 0.0, None),
+        (
+            "render_with_empty_input",
+            [_TRENDS_RESULT, _render("query-trends", tool_input={})],
+            "Signups rose.",
+            0.0,
+            None,
+        ),
+        (
+            "render_with_other_input",
+            [_TRENDS_RESULT, _render("query-trends", tool_input={"series": [{"event": "x"}]})],
+            "Signups rose.",
+            0.0,
+            None,
+        ),
+        ("block_tag_alone", [_TRENDS_RESULT], 'Signups rose.\n\n<insight id="9pQx3" display="block"/>', 1.0, 1.0),
+        ("block_tag_in_sentence", [_TRENDS_RESULT], 'See <insight id="9pQx3" display="block"/> here.', 0.0, None),
+        ("block_tag_without_id", [_TRENDS_RESULT], 'Signups rose.\n\n<insight display="block"/>', 0.0, None),
+        (
+            "block_tag_in_code_fence",
+            [_TRENDS_RESULT],
+            'Use this tag:\n\n```\n<insight id="9pQx3" display="block"/>\n```',
+            0.0,
+            None,
+        ),
     ]
 )
 def test_chart_scorers_grade_each_chart_path(
