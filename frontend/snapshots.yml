@@ -2265,9 +2265,9 @@ snapshots:
     components-product-empty-state--customer-analytics-needs-setup--light:
         hash: v1.k794b7964.fa61c54b7afafafc561cf63b356ede4240a59226e52bf264af60a9f995a8ba05.v0O5AftMBtOXo-0Lb40m7D6k34TSuqfaaELwittN64Q
     components-product-empty-state--dashboards-needs-setup--dark:
-        hash: v1.k794b7964.0d81a78fc94ca80ec1f9bf6329a16c234c4c72a039d2ee160b9feaac5da61f9e.eFOaPGqac95WMbuOygWH9sVaf4v_nDSCWit4L8eZTss
+        hash: v1.k794b7964.f0e8e8c822f664ec1421efff215c362f0ee4272da7b32aad4afac0c7be160f29.ID2ccq_RUpKaIIaY-cfiXXAezHAcizs1WHee0UCQI1E
     components-product-empty-state--dashboards-needs-setup--light:
-        hash: v1.k794b7964.e6686e3e9f18f74ba1fe828ddbfce5ffcb0a4dfd3037a8e2b7c40890ff18a554.-iWogQVWNr18kVUSrEwHCHQ83uMsvfSQBIGkqdGJOcA
+        hash: v1.k794b7964.d295695549b8f4c4d8b034614d02cf277db135062f26d18aff8d04565f04c5d2.SKV0X6XXEr8ocRPim88dSlvhS3QJa2gv6BhWp6l7bfc
     components-product-empty-state--data-catalog-needs-setup--dark:
         hash: v1.k794b7964.89143617da8fddca7be233da4e08e18b1ad690fb668a6d7383b3bc7fab8001a8.YMC16rnqLDMO7K6GaqMHnZlupfPoMcOTfa4wAWPX2DM
     components-product-empty-state--data-catalog-needs-setup--light:
@@ -11605,7 +11605,7 @@ snapshots:
     scenes-app-inbox-scene--legacy-with-value-summary--dark:
         hash: v1.k794b7964.20ee6fce51c55f6dd8ee42bdb43e5be2e99f8a7eabaeb8a966b65975b3ce114b.PPjKVc4DfAnR46COWDLiAmarWSC0W4hpvQsMYoUstQg
     scenes-app-inbox-scene--legacy-with-value-summary--light:
-        hash: v1.k794b7964.79b21e415077df293fc84013ce5e2447e42471fd9ee7a94470f5839c7f20590b.hiRFOOwNM3Vn_kdsSBDhaQtW7W2Vxzh1GF4Lu-sEbLA
+        hash: v1.k794b7964.d8d15e15cede9f53d5f083bcf4bcc4ff41403343ab24b54ae130dc07838e20a5.NEALxdVKKZ83yetshYNurWLn6lUVCR5BO2EkGO1awg8
     scenes-app-inbox-scene--report-with-many-evidence-items--dark:
         hash: v1.k794b7964.cdf433915e692e878772c4299885f968c99c039e535ce00eedde96142225dc8a.3jz4_ynFjRQTKIFVz6-5ofn0AVAdDN3pilwzZWHmrKo
     scenes-app-inbox-scene--report-with-many-evidence-items--light:
