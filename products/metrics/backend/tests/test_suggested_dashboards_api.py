@@ -246,7 +246,18 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
             attribute_variable(name="job", label="Job", attribute="job"),
         ]
 
-    def test_approving_ignores_a_preview_variable_that_does_not_parse(self) -> None:
+    @parameterized.expand(
+        [
+            ("does_not_parse", {"name": "instance", "source": "invented"}),
+            (
+                "lists_values_of_the_preview_project",
+                {"name": "instance", "source": "custom", "customValues": ["web-1", "web-2"], "includeAll": True},
+            ),
+        ]
+    )
+    def test_approving_ignores_a_preview_variable_that_cannot_be_shared(
+        self, _name: str, preview_variable: dict[str, Any]
+    ) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         template = _template("generated-queue", "pending_review", "queue_depth", source="generated")
@@ -259,7 +270,7 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
 
         preview = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/preview/")
         dashboard = Dashboard.objects.get(id=preview.json()["dashboard_id"])
-        dashboard.filters = {**dashboard.filters, "metricVariables": [{"name": "instance", "source": "invented"}]}
+        dashboard.filters = {**dashboard.filters, "metricVariables": [preview_variable]}
         dashboard.save(update_fields=["filters"])
         approved = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/approve/")
 

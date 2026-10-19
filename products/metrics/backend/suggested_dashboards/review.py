@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
-from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -133,8 +133,9 @@ def _restore_unbuilt(
 def _shared_variables(edited: Sequence[Any], original: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """The variables of the preview, safe to give to every project, then the template's variables that it lacks.
 
-    A definition that does not parse is left out, so the template keeps its own. A selection that the reviewer
-    changed can name a host or a service of the preview's project, so it becomes All.
+    A definition that does not parse is left out, so the template keeps its own. So is a custom list, because its
+    values come from the preview's project, not from the project that opens the dashboard. A selection that the
+    reviewer changed can name a host or a service of the preview's project, so it becomes All.
     """
     previous = {str(variable.get("name")): variable.get("current") for variable in original}
     shared: list[dict[str, Any]] = []
@@ -142,6 +143,8 @@ def _shared_variables(edited: Sequence[Any], original: Sequence[dict[str, Any]])
         try:
             variable = MetricsDashboardVariable.model_validate(item)
         except ValidationError:
+            continue
+        if variable.source == MetricsDashboardVariableSource.CUSTOM or variable.customValues:
             continue
         current = variable.current.model_dump(mode="json", exclude_none=True) if variable.current else None
         if current != previous.get(variable.name):

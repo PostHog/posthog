@@ -42,9 +42,9 @@ from products.metrics.backend.suggested_dashboards.spec import TemplatePanel
 from products.metrics.backend.variables import filter_referenced_names, referenced_names, sql_referenced_names
 
 MAX_TEXT_LENGTH = 4000
-# The service is a column of the attribute table, not an attribute key. Metrics queries accept both names.
+# The service is a column, not an attribute key. Metrics queries accept both names.
 SERVICE_ATTRIBUTES = frozenset({"service_name", "service.name"})
-# The attribute table stores hourly buckets, so the bucket that holds the start of the range counts too.
+# The name and attribute tables store hourly buckets, so the bucket that holds the start of the range counts too.
 OPTIONS_RANGE = "time_bucket >= toStartOfHour($__from) AND time_bucket < $__to"
 _OTEL_TYPES = frozenset(member.value for member in MetricsOtelType)
 
@@ -154,7 +154,8 @@ def attribute_variable(
     With no selected value, the variable selects All, so its filters match everything until the user picks a value.
     """
     if attribute in SERVICE_ATTRIBUTES:
-        query = f"SELECT DISTINCT service_name FROM posthog.metric_attributes WHERE {OPTIONS_RANGE}"
+        # The name table has far fewer rows than the attribute table, and holds every service too.
+        query = f"SELECT DISTINCT service_name FROM posthog.metric_names WHERE {OPTIONS_RANGE}"
     else:
         key = attribute.replace("\\", "\\\\").replace("'", "\\'")
         query = (
