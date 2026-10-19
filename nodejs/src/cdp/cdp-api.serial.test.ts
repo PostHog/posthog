@@ -1271,6 +1271,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1331,6 +1332,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1383,6 +1385,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1443,6 +1446,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1507,6 +1511,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1681,6 +1686,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1775,6 +1781,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: mockRescheduleParkedJobs,
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({
@@ -1951,6 +1958,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: mockResumeParkedSteps,
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 
@@ -2188,6 +2196,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 
@@ -2324,6 +2333,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 
