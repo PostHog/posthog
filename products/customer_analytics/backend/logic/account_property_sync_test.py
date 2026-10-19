@@ -337,11 +337,14 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert self._completion_markers(fake, view.binding) == {f"sources/tracked/{view.tier_source.id}.done"}
         assert len(self._staged_files(fake, view.binding)) == 1
 
-    def test_segment_completion_closes_leftover_runs_and_cleans_up_after_both_segments(self) -> None:
+    @parameterized.expand([("disabled", "is_enabled", False), ("column_removed", "source_column", None)])
+    def test_segment_completion_closes_leftover_runs_and_cleans_up_after_both_segments(
+        self, _case: str, field: str, value: object
+    ) -> None:
         fake = _FakeS3()
         view = self._create_view_with_two_sources(fake)
-        view.tier_source.is_enabled = False
-        view.tier_source.save(update_fields=["is_enabled"])
+        setattr(view.tier_source, field, value)
+        view.tier_source.save(update_fields=[field])
         for segment in AccountPropertySyncSegment:
             self._run_source(fake, view.binding, str(view.plan_source.id), segment=segment)
 
@@ -356,21 +359,33 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert self._run_states(view.tier_source) == {"tracked": _COMPLETED_NO_ROWS, "ignored": _COMPLETED_NO_ROWS}
         assert self._staged_files(fake, view.binding) == []
 
-    def test_segment_completion_refuses_a_segment_with_a_failed_source(self) -> None:
+    @parameterized.expand([("not_dispatched",), ("retryable_failure",), ("final_attempt",), ("missing_run",)])
+    def test_segment_completion_refuses_a_segment_with_an_incomplete_source(self, case: str) -> None:
         fake = _FakeS3()
         view = self._create_view_with_two_sources(fake)
+        for source in (view.plan_source, view.tier_source):
+            self._run_source(fake, view.binding, str(source.id), segment=AccountPropertySyncSegment.IGNORED)
+        self._complete_segment(fake, view.binding, AccountPropertySyncSegment.IGNORED)
         self._run_source(fake, view.binding, str(view.tier_source.id))
-        with (
-            patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=OSError("S3 unavailable")),
-            pytest.raises(OSError),
-        ):
-            self._run_source(fake, view.binding, str(view.plan_source.id), final_attempt=True)
+        if case in {"retryable_failure", "final_attempt"}:
+            with (
+                patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=OSError("S3 unavailable")),
+                pytest.raises(OSError),
+            ):
+                self._run_source(fake, view.binding, str(view.plan_source.id), final_attempt=case == "final_attempt")
+        elif case == "missing_run":
+            CustomPropertySyncRun.objects.for_team(self.team.id).filter(
+                source=view.plan_source, job_id="job-1", segment="tracked"
+            ).delete()
+        source_runs_before = self._run_states(view.plan_source)
 
         with pytest.raises(AccountPropertySyncSegmentIncompleteError):
             self._complete_segment(fake, view.binding, AccountPropertySyncSegment.TRACKED)
 
-        assert "tracked.done" not in self._completion_markers(fake, view.binding)
-        assert self._run_states(view.plan_source)["tracked"].status == "failed"
+        markers = self._completion_markers(fake, view.binding)
+        assert "ignored.done" in markers
+        assert "tracked.done" not in markers
+        assert self._run_states(view.plan_source) == source_runs_before
         assert self._run_states(view.tier_source)["tracked"] == _COMPLETED_ONE_ROW
         assert len(self._staged_files(fake, view.binding)) == 1
 

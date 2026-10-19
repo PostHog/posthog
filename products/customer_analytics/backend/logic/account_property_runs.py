@@ -234,20 +234,33 @@ def finalize_account_property_sync_runs(
 
 def complete_account_property_sync_segment_runs(context: AccountPropertySyncRunContext, segment: SyncSegment) -> None:
     with transaction.atomic():
-        failed_runs = (
+        runs = list(
             CustomPropertySyncRun.objects.for_team(context.team_id)
             .select_for_update()
             .filter(
                 job_id=context.job_id,
                 saved_query_id=context.saved_query_id,
                 segment=segment.value,
-                status=SyncStatus.FAILED.value,
             )
         )
-        # A failed property keeps its staged rows retryable, so the segment must stay open.
-        if failed_runs.exists():
+        eligible_source_ids = set(
+            CustomPropertySource.objects.for_team(context.team_id)
+            .filter(
+                saved_query_id=context.saved_query_id,
+                is_enabled=True,
+                definition__target_type=TargetType.ACCOUNT.value,
+                source_column__isnull=False,
+            )
+            .values_list("id", flat=True)
+        )
+        # Staged rows must remain available until every eligible source completes.
+        if eligible_source_ids - {run.source_id for run in runs} or any(
+            run.status == SyncStatus.FAILED.value
+            or (run.source_id in eligible_source_ids and run.status != SyncStatus.COMPLETED.value)
+            for run in runs
+        ):
             raise AccountPropertySyncSegmentIncompleteError(
-                f"Account-property segment {segment.value} has failed source runs"
+                f"Account-property segment {segment.value} has unfinished or failed source runs"
             )
         finalize_account_property_sync_runs(
             context,
