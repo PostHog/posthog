@@ -137,6 +137,7 @@ export interface analyticsListLogicValues {
     user: UserType | null // userLogic
     creators: string[]
     currentFeed: AnalyticsFeed
+    currentUserUuid: string | null
     failedTypes: AnalyticsFeed['failedTypes']
     feed: AnalyticsFeed
     feedQuery: AnalyticsFeedQuery
@@ -270,8 +271,14 @@ export interface analyticsListLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         mode: (filters: AnalyticsListFilters) => AnalyticsListMode
         filtersActive: (filters: AnalyticsListFilters) => boolean
-        creators: (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope) => string[]
-        feedQuery: (filters: AnalyticsListFilters, feedSearch: string, creators: string[]) => AnalyticsFeedQuery
+        currentUserUuid: (user: UserType | null) => string | null
+        creators: (filters: AnalyticsListFilters, currentUserUuid: string | null, scope: AnalyticsListScope) => string[]
+        feedQuery: (
+            filters: AnalyticsListFilters,
+            feedSearch: string,
+            creators: string[],
+            currentUserUuid: string | null
+        ) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
             currentTeamId: number | null,
@@ -455,17 +462,25 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (filters: AnalyticsListFilters): boolean => analyticsListFiltersActive(filters),
         ],
         // My work narrows to the person; View all narrows to whoever they picked.
+        // The user record is replaced on every reload; its uuid is not, so the feed query only changes when the person does.
+        currentUserUuid: [(s) => [s.user], (user: UserType | null): string | null => user?.uuid ?? null],
         creators: [
-            (s) => [s.filters, s.user, s.scope],
-            (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope): string[] =>
-                scope === 'mine' ? (user?.uuid ? [user.uuid] : []) : filters.createdBy,
+            (s) => [s.filters, s.currentUserUuid, s.scope],
+            (filters: AnalyticsListFilters, currentUserUuid: string | null, scope: AnalyticsListScope): string[] =>
+                scope === 'mine' ? (currentUserUuid ? [currentUserUuid] : []) : filters.createdBy,
         ],
         feedQuery: [
-            (s) => [s.filters, s.feedSearch, s.creators],
-            (filters: AnalyticsListFilters, feedSearch: string, creators: string[]): AnalyticsFeedQuery => ({
+            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid],
+            (
+                filters: AnalyticsListFilters,
+                feedSearch: string,
+                creators: string[],
+                currentUserUuid: string | null
+            ): AnalyticsFeedQuery => ({
                 type: filters.type,
                 search: feedSearch.trim(),
                 createdBy: creators,
+                createdByMe: !!currentUserUuid && creators.length === 1 && creators[0] === currentUserUuid,
                 tags: filters.tags,
             }),
         ],
