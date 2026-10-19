@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
@@ -29,7 +30,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/frontend/CrossProjectDashboardsList'
 import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
 import { DashboardsByProduct } from 'products/dashboards/frontend/DashboardsByProduct'
-import { DashboardsTabs } from 'products/dashboards/frontend/DashboardsTabs'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsSceneMenuBar } from './DashboardsSceneMenuBar'
@@ -45,6 +45,7 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { setCurrentTab } = useActions(dashboardsLogic)
     const { currentTab } = useValues(dashboardsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const byProductFlag = featureFlags[FEATURE_FLAGS.DASHBOARDS_BY_PRODUCT]
@@ -54,6 +55,17 @@ export function Dashboards(): JSX.Element {
     const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
+    const enabledTabs: LemonTab<DashboardsTab>[] = [
+        {
+            key: DashboardsTab.All,
+            label: 'All',
+        },
+        { key: DashboardsTab.Yours, label: 'Mine' },
+        ...(crossProjectEnabled ? [{ key: DashboardsTab.CrossProject, label: 'Cross-project' }] : []),
+        ...(byProductEnabled
+            ? [{ key: DashboardsTab.ByProduct, label: 'By product', 'data-attr': 'dashboard-by-product-tab' }]
+            : []),
+    ]
 
     return (
         <SceneContent>
@@ -122,7 +134,14 @@ export function Dashboards(): JSX.Element {
                     )
                 }
             />
-            <DashboardsTabs />
+            <LemonTabs
+                onChange={(newKey) => {
+                    setCurrentTab(newKey)
+                }}
+                activeKey={currentTab === DashboardsTab.ByProduct && !byProductEnabled ? DashboardsTab.All : currentTab}
+                tabs={enabledTabs}
+                sceneInset
+            />
 
             {byProductTabOpen && <DashboardsByProduct />}
             {crossProjectTabOpen && <CrossProjectDashboardsList />}

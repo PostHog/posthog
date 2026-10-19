@@ -3,12 +3,9 @@ import { IconDashboard } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { Scene } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { DashboardsTabs } from '../DashboardsTabs'
 import { DashboardsPreview } from './DashboardsPreview'
 import { DashboardsPrimaryAction } from './DashboardsPrimaryAction'
 import { dashboardsSetupLogic } from './dashboardsSetupLogic'
@@ -17,14 +14,6 @@ const HedgehogChart = pngHoggie(chartPng)
 
 export const dashboardsEmptyState: SceneProductEmptyState = {
     statusLogic: dashboardsSetupLogic,
-    scenes: [
-        {
-            scene: Scene.Dashboards,
-            tabs: [undefined, DashboardsTab.All, DashboardsTab.Yours, DashboardsTab.Pinned],
-            tabSource: 'search',
-        },
-    ],
-    SceneNav: DashboardsTabs,
     config: {
         productKey: ProductKey.DASHBOARDS,
         productName: 'Dashboards',
