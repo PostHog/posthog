@@ -245,6 +245,29 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
+    it('keeps the graph when the editor rejects a list view the workflow cannot fit', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
+            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
+        })
+        const withUnreachableStep = {
+            ...NEW_WORKFLOW,
+            id: SAVED_ID,
+            actions: [...NEW_WORKFLOW.actions, delayStep('orphan', { delay_duration: '10m' })],
+        }
+        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: withUnreachableStep } })
+        const props = { id: SAVED_ID }
+        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
+        const visit = await openEditor(props)
+
+        hogFlowEditorLogic(props).actions.switchEditorLayout('simple')
+        visit.unmount()
+
+        expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'graph' })])
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({ editor_layout: 'graph', layout_switch_count: 0 }),
+        ])
+    })
+
     it('reports which kinds of steps the workflow holds and where it branches', async () => {
         const branched = {
             ...NEW_WORKFLOW,
