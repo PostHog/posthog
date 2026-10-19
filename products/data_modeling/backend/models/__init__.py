@@ -1,5 +1,5 @@
 from .dag import DAG, DEFAULT_DAG_NAME
-from .data_modeling_job import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
+from .data_modeling_job import DataModelingJob, DataModelingJobEngine, DataModelingJobRunMode, DataModelingJobStatus
 from .datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from .datawarehouse_saved_query import DataWarehouseSavedQuery
 from .datawarehouse_saved_query_column_annotation import DataWarehouseSavedQueryColumnAnnotation
@@ -19,6 +19,7 @@ __all__ = [
     "DataModelingEdgeQuerySet",
     "DataModelingJob",
     "DataModelingJobEngine",
+    "DataModelingJobRunMode",
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
     "DataWarehouseSavedQuery",
