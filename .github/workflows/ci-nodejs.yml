@@ -199,8 +199,8 @@ jobs:
                   RUST_REBUILD_ALL: ${{ steps.rust-affected.outputs.rebuild-all }}
                   RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
                   RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
-                  # The Kafka parity e2e spawns identity and the publisher through the harness.
-                  RUST_PERSONHOG_E2E_CRATES: '["personhog-identity", "personhog-test-harness"]'
+                  # The Kafka parity e2e spawns identity, the publisher and the parity monitor through the harness.
+                  RUST_PERSONHOG_E2E_CRATES: '["personhog-identity", "personhog-test-harness", "personhog-parity-monitor"]'
               run: |
                   # `schedule` alongside `push`: the paths filter is skipped on both, so
                   # NODEJS_CHANGED is empty there. Without this the hourly run would decide

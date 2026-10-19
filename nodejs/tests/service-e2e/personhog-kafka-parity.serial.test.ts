@@ -489,8 +489,15 @@ describe('personhog kafka parity (e2e)', () => {
     })
 
     it('the parity monitor settled every entry of both feeds as agreement', async () => {
-        // Nothing produces any more, so the monitor's watermarks walk with
-        // the clock and every pending entry settles within the grace.
+        // A key settles at least once, so agreement below the fold's size
+        // means the monitor read a different topic than the fold did. The
+        // counts are polled with the pending gauges: a reader still behind
+        // the last rows reports nothing pending before they arrive.
+        const node = await feedState(nodeTopics)
+        const personhog = await feedState(personhogTopics)
+        const sharedMerges = Object.entries(node.survivors).filter(
+            ([person, survivor]) => survivor !== person && person in personhog.survivors
+        ).length
         let samples!: MetricSample[]
         await pollUntil(async () => {
             const response = await stack!.request(`${monitorUrl}/metrics`, { method: 'GET' })
@@ -498,23 +505,15 @@ describe('personhog kafka parity (e2e)', () => {
             samples = parsePrometheus(response.body)
             expect(metric(samples, 'personhog_parity_pending_entries', { kind: 'mappings' })).toBe(0)
             expect(metric(samples, 'personhog_parity_pending_entries', { kind: 'merges' })).toBe(0)
+            expect(
+                metric(samples, 'personhog_parity_settled_mappings_total', { outcome: 'agree' })
+            ).toBeGreaterThanOrEqual(Object.keys(node.mappings).length)
+            expect(
+                metric(samples, 'personhog_parity_settled_merges_total', { outcome: 'agree' })
+            ).toBeGreaterThanOrEqual(sharedMerges)
         }, MONITOR_SETTLE_TIMEOUT_MS)
 
         expect(monitorDisagreements(samples)).toEqual([])
-
-        // A key settles at least once, so agreement below the fold's size
-        // means the monitor read a different topic than the fold did.
-        const node = await feedState(nodeTopics)
-        const personhog = await feedState(personhogTopics)
-        expect(metric(samples, 'personhog_parity_settled_mappings_total', { outcome: 'agree' })).toBeGreaterThanOrEqual(
-            Object.keys(node.mappings).length
-        )
-        const sharedMerges = Object.entries(node.survivors).filter(
-            ([person, survivor]) => survivor !== person && person in personhog.survivors
-        ).length
-        expect(metric(samples, 'personhog_parity_settled_merges_total', { outcome: 'agree' })).toBeGreaterThanOrEqual(
-            sharedMerges
-        )
     })
 })
 
