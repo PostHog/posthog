@@ -87,7 +87,7 @@ fn production_config(config: &Config) -> ChangelogConfig {
         topic: generation_topic(config.live.epoch),
         partitions: config.live.partitions as u32,
         epoch: config.live.epoch as u64,
-        gated_groups: Vec::new(),
+        writer_group: String::new(),
         draining: config
             .draining
             .map(|g| ProductionGeneration {
