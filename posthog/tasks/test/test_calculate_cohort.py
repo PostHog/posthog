@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Optional
 
 import time_machine
@@ -32,6 +33,7 @@ from posthog.tasks.calculate_cohort import (
     STATIC_POPULATION_MAX_RETRIES,
     calculate_cohort_ch,
     calculate_cohort_from_list,
+    collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
@@ -2248,3 +2250,32 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+
+
+class TestCollectCohortQueryStats(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("retries_remain", 0, Retry),
+            ("retries_exhausted", 3, None),
+        ]
+    )
+    def test_missing_stats_are_not_logged_as_a_failure(
+        self, _name: str, retries: int, expected_exception: type[Exception] | None
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="cohort")
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
+        )
+        task = collect_cohort_query_stats
+        task.push_request(retries=retries, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch("posthog.tasks.calculate_cohort.get_clickhouse_query_stats", return_value=None),
+                patch("posthog.tasks.calculate_cohort.logger") as mock_logger,
+                self.assertRaises(expected_exception) if expected_exception else nullcontext(),
+            ):
+                task.run("cohort_calc:abc", cohort.pk, timezone.now().isoformat(), str(history.id), "SELECT 1")
+        finally:
+            task.pop_request()
+
+        mock_logger.exception.assert_not_called()

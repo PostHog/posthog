@@ -838,8 +838,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openaq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/openfda.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/openrouter/openrouter.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/openrouter/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/opinion_stage.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py
@@ -889,7 +887,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/persona.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/personio/personio.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pexels/pexels.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pexels/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pganalyze/settings.py
@@ -1169,8 +1166,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/unstructured.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/uppromote.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/upstash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/settings.py
