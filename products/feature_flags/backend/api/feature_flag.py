@@ -1208,19 +1208,19 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     return cohort
 
 
-def _condition_cohort_properties(filters: Any) -> Iterator[dict[str, Any]]:
-    """Yield the cohort properties in the release conditions of a v1 document, and none for other formats."""
-    # Only config version 1 can reference a cohort, even when a document in another config version holds `groups`.
-    if detect_config_format(filters).kind != "v1" or not isinstance(filters, Mapping):
-        return
-    for located in _iter_flag_filter_properties(filters.get("groups")):
+def _cohort_properties(groups: Any) -> Iterator[dict[str, Any]]:
+    """Yield the cohort properties in a v1 document's release condition groups."""
+    for located in _iter_flag_filter_properties(groups):
         if located.prop.get("type") == PropertyFilterType.COHORT:
             yield located.prop
 
 
 def validate_stored_cohort_references(flag: FeatureFlag) -> None:
     """Raise if a stored release condition targets a cohort the flag cannot evaluate."""
-    for prop in _condition_cohort_properties(flag.filters):
+    # Only config version 1 can reference a cohort.
+    if detect_config_format(flag.filters).kind != "v1":
+        return
+    for prop in _cohort_properties(flag.conditions):
         _validate_cohort_reference(prop.get("value"), flag.team.project_id)
 
 
@@ -1371,7 +1371,9 @@ def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> di
     """
     cohort_ids: set[int] = set()
     for flag in flags:
-        for cohort_prop in _condition_cohort_properties(flag.get_filters()):
+        if detect_config_format(flag.filters).kind != "v1":
+            continue
+        for cohort_prop in _cohort_properties(flag.conditions):
             cohort_id = _condition_cohort_id(cohort_prop.get("value"))
             if cohort_id is not None:
                 cohort_ids.add(cohort_id)
@@ -3057,7 +3059,11 @@ class FeatureFlagSerializer(
         return flag_status.name
 
     def _annotate_condition_cohorts(self, instance: FeatureFlag, filters: dict[str, Any]) -> None:
-        cohort_props = list(_condition_cohort_properties(filters))
+        # A document in another config version can still hold `groups`. Annotating it would mark its live
+        # cohorts as deleted.
+        if detect_config_format(filters).kind != "v1":
+            return
+        cohort_props = list(_cohort_properties((filters or {}).get("groups")))
         if not cohort_props:
             return
 
