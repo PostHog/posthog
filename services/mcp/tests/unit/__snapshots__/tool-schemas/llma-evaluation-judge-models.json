@@ -17,8 +17,7 @@
                 "openai_compatible",
                 "openrouter",
                 "system_one",
-                "together_ai",
-                "zeabur"
+                "together_ai"
             ],
             "type": "string"
         }

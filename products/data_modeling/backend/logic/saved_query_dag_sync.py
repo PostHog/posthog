@@ -12,8 +12,6 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
-from posthog.dataclasses import frozen
-
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
@@ -810,80 +808,3 @@ def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
     until that sweep and only goes dark afterwards.
     """
     return _promote_view_nodes(Node.objects.filter(dag=dag))
-
-
-def stale_managed_view_copies() -> QuerySet[Node]:
-    """Nodes of managed views outside the managed DAG, for views the managed DAG already holds."""
-    managed_saved_query_ids = Node.objects.filter(
-        dag__name=REVENUE_ANALYTICS_DAG_NAME, saved_query__isnull=False
-    ).values("saved_query_id")
-    return Node.objects.filter(
-        saved_query__managed_viewset__isnull=False, saved_query_id__in=managed_saved_query_ids
-    ).exclude(dag__name=REVENUE_ANALYTICS_DAG_NAME)
-
-
-@frozen
-class _Reader:
-    node_id: UUID
-    saved_query_id: UUID
-
-
-def _user_readers_of(copies: QuerySet[Node]) -> list[_Reader]:
-    rows = (
-        Node.objects.filter(
-            incoming_edges__source__in=copies,
-            saved_query__isnull=False,
-            saved_query__managed_viewset__isnull=True,
-            saved_query__deleted=False,
-        )
-        .values_list("id", "saved_query_id")
-        .distinct()
-    )
-    return [_Reader(node_id=node_id, saved_query_id=saved_query_id) for node_id, saved_query_id in rows]
-
-
-def _repoint_reader(team_id: int, reader: _Reader, database: Database) -> None:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-    try:
-        with transaction.atomic():
-            saved_query = DataWarehouseSavedQuery.objects.select_for_update(no_key=True).get(
-                team_id=team_id, id=reader.saved_query_id
-            )
-            node = Node.objects.select_related("dag").filter(team_id=team_id, id=reader.node_id).first()
-            if node is None:
-                return
-            sync_saved_query_to_dag(saved_query, dag=node.dag, reconcile=False, database=database)
-    except Exception:
-        logger.exception("Could not repoint a reader of a stale managed view copy", node_id=str(reader.node_id))
-
-
-def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> None:
-    materializing = DataModelingJob.objects.filter(
-        team_id=team_id, status=DataModelingJobStatus.RUNNING, saved_query_id__isnull=False
-    ).values("saved_query_id")
-    unread = copies.filter(dag=dag, outgoing_edges__isnull=True).exclude(saved_query_id__in=materializing)
-    deleted_any = False
-    with transaction.atomic():
-        lock_dag(team_id, dag.id)
-        lock_dag_placements(team_id, dag.id)
-        while unread.exists():
-            delete_nodes(team_id, unread)
-            deleted_any = True
-    if deleted_any:
-        maybe_reconcile_dag(dag)
-
-
-def retire_stale_managed_view_copies(team_id: int, copy_ids: Iterable[UUID]) -> None:
-    copies = stale_managed_view_copies().filter(team_id=team_id, id__in=list(copy_ids))
-    readers = _user_readers_of(copies)
-    if readers:
-        database = Database.create_for(
-            team_id=team_id,
-            bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
-        )
-        for reader in readers:
-            _repoint_reader(team_id, reader, database)
-    for dag in DAG.objects.filter(team_id=team_id, id__in=copies.values("dag_id")).order_by("id"):
-        _delete_unread_copies(team_id, dag, copies)

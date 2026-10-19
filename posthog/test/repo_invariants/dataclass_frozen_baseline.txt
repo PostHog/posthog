@@ -334,7 +334,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bunny/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buttondown/buttondown.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buttondown/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/buzzsprout/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cal_com/cal_com.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cal_com/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/calendly/calendly.py
@@ -1420,7 +1419,6 @@
 3 products/batch_exports/backend/temporal/pipeline/internal_stage.py
 3 products/conversations/backend/temporal/zendesk_import/workflows.py
 3 products/data_modeling/backend/logic/gitsync/config_parser.py
-3 products/data_modeling/backend/management/commands/consolidate_dags.py
 3 products/data_warehouse/backend/logic/external_data_source/webhooks.py
 3 products/experiments/stats/shared/statistics.py
 3 products/marketing_analytics/backend/services/data_source_health.py
@@ -1435,7 +1433,7 @@
 3 products/tasks/backend/temporal/build_image/activities.py
 3 products/tasks/backend/temporal/process_task/activities/send_permission_response_to_sandbox.py
 3 products/warehouse_sources/backend/temporal/data_imports/cdc/activities.py
-3 products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/settings.py
+2 products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/settings.py
 3 products/warehouse_sources/backend/temporal/data_imports/sources/stripe/stripe.py
 3 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/acquire_v3_lock.py
 3 products/web_analytics/backend/hogql_queries/external/summary_query_runner.py

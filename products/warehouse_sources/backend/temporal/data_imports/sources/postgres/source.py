@@ -1405,6 +1405,13 @@ class PostgresSource(
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # Sibling of the jsonb_each case above: a view's own definition deletes a key/path from a
+            # jsonb column with the `#-` operator (or `jsonb_delete_path()`) and the column is a scalar
+            # jsonb value (not an object or array) for at least one row — Postgres can only delete a
+            # path from inside an object or array. We only ever run `SELECT ... FROM <relation>`; the
+            # expression lives in the customer's view definition, so it's deterministic against the
+            # source data and retrying re-evaluates the same view into the same row.
+            "cannot delete path in scalar": "A view you're syncing deletes a key or path from a JSON value with the #- operator (or jsonb_delete_path()), and that value is a scalar for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only delete the path when jsonb_typeof(col) is 'object' or 'array'), or remove that view from the sync.",
             # A selected relation's own definition calls date_trunc()/extract() with a unit
             # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
             # `date_trunc('week', some_interval_column)`, since week truncation is only defined
