@@ -20,7 +20,12 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type, string_parses_as_number
+from posthog.hogql.type_system import (
+    FLOAT_RUNTIME_TYPE,
+    convert_literal_to_runtime_type,
+    normalized_runtime_type,
+    parse_sql_runtime_type,
+)
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
@@ -589,7 +594,9 @@ class PropertySwapper(CloningVisitor):
     def _has_non_numeric_text(expr: ast.Expr) -> bool:
         values = expr.exprs if isinstance(expr, ast.Tuple | ast.Array) else [expr]
         texts = [value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)]
-        return 0 < len(texts) == len(values) and not all(string_parses_as_number(text) for text in texts)
+        return 0 < len(texts) == len(values) and not all(
+            convert_literal_to_runtime_type(text, FLOAT_RUNTIME_TYPE) is not None for text in texts
+        )
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.

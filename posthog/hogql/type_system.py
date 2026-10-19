@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import re
+import math
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from enum import StrEnum
 from functools import lru_cache
 from typing import TYPE_CHECKING, Literal, Optional, cast
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
@@ -904,12 +907,67 @@ def comparison_compatibility(
     return ComparisonCompatibility.INCOMPATIBLE
 
 
-def string_parses_as_number(value: str) -> bool:
+def _convert_integer_literal(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    return None
+
+
+def _convert_float_literal(value: object) -> float | None:
+    if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+        return None
+    result = float(value)
+    return result if math.isfinite(result) else None
+
+
+def _convert_boolean_literal(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str) and value.lower() in {"true", "false"}:
+        return value.lower() == "true"
+    return None
+
+
+def _convert_uuid_literal(value: object) -> UUID | None:
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str):
+        return UUID(value)
+    return None
+
+
+def _convert_date_literal(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    return None
+
+
+_LITERAL_RUNTIME_TYPE_CONVERTERS: dict[str, Callable[[object], object | None]] = {
+    "integer": _convert_integer_literal,
+    "float": _convert_float_literal,
+    "boolean": _convert_boolean_literal,
+    "uuid": _convert_uuid_literal,
+    "date": _convert_date_literal,
+}
+
+
+def convert_literal_to_runtime_type(value: object, target_type: RuntimeType) -> object | None:
+    converter = _LITERAL_RUNTIME_TYPE_CONVERTERS.get(target_type.family)
+    if converter is None:
+        return None
+
     try:
-        float(value)
-    except ValueError:
-        return False
-    return True
+        return converter(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 @dataclass(frozen=True, slots=True)
