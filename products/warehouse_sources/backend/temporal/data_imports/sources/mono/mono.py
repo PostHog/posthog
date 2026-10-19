@@ -166,7 +166,7 @@ def mono_source(
     elif endpoint in DATE_FILTERS and start_day is not None:
         date_format = DATE_FILTERS[endpoint][2]
         start, end = start_day.strftime(date_format), datetime.now(UTC).strftime(date_format)
-    if start is not None and end is not None:
+    if start is not None and end is not None and endpoint in DATE_FILTERS:
         start_param, end_param, _ = DATE_FILTERS[endpoint]
         params = {start_param: start, end_param: end}
     if endpoint == "transactions":
