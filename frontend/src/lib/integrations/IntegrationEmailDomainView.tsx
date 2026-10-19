@@ -1,15 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconGear, IconLetter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
@@ -51,17 +47,7 @@ export function IntegrationEmailDomainView({
         // pinned: analytics event name
         posthog.capture('workflows default email sender set', { had_default: defaultSenderId !== null })
     }
-    const { featureFlags } = useValues(featureFlagLogic)
     const { domain, integrations } = integration
-    const configure = (sender: IntegrationType): void => {
-        if (featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]) {
-            // pinned: analytics event name
-            posthog.capture('email domain setup started', { entry: 'configure' })
-            router.actions.push(urls.workflowsEmailDomain(sender.id))
-            return
-        }
-        openSetupModal(sender, sender.kind as ChannelType)
-    }
     const verified = integrations.every(isVerified)
     const verificationRequired = integrations.some(isVerificationRequired)
     const [isExpanded, setIsExpanded] = useState(false)
@@ -133,7 +119,9 @@ export function IntegrationEmailDomainView({
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => configure(integration)}
+                                onClick={() => {
+                                    openSetupModal(integration, integration.kind as ChannelType)
+                                }}
                                 icon={<IconGear />}
                             >
                                 Configure

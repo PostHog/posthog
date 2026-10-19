@@ -24,10 +24,12 @@ import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './em
 
 export type EmailSetupModalProps = EmailSetupModalLogicProps & { entry?: EmailDomainSetupModalProps['entry'] }
 
-export const EmailSetupModal = ({ entry = 'channels', ...props }: EmailSetupModalProps): JSX.Element => {
+export const EmailSetupModal = ({ entry, ...props }: EmailSetupModalProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]) {
-        return <EmailDomainSetupModal {...props} entry={entry} />
+    // A verified sender keeps the settings form, which edits what the wizard does not: reply-to and the bounce subdomain.
+    const editsVerifiedSender = props.integration?.config?.verified === true
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] && !editsVerifiedSender) {
+        return <EmailDomainSetupModal {...props} entry={entry ?? (props.integration ? 'configure' : 'channels')} />
     }
     return <LegacyEmailSetupModal {...props} />
 }
