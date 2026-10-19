@@ -39,6 +39,8 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
+Staff can also queue a run without a shell. In Django admin, open AEO prompts (`/admin/aeo/aeoprompt/`), select prompts and pick "Run AEO citation checks now". It queues one run per selected team. It skips teams that fail the same allowlist and flag gate, and allows one run per team per hour.
+
 ### Import over the API
 
 `/api/projects/<id>/aeo_prompts/` lists the prompt set, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
