@@ -32,6 +32,9 @@ pub struct Config {
     /// Covers the timestamp skew between a merge event and the rows it moved.
     #[envconfig(default = "2000")]
     pub parity_mapping_lag_ms: u64,
+    /// Defaults to the grace. Zero turns the warmup off, for a fixture
+    /// whose readers start before any traffic.
+    pub parity_warmup_seconds: Option<u64>,
     /// An entry costs about half a kilobyte.
     #[envconfig(default = "1000000")]
     pub parity_max_entries: usize,
@@ -108,6 +111,13 @@ impl Config {
         Duration::from_millis(self.parity_mapping_lag_ms)
     }
 
+    pub fn warmup(&self) -> Duration {
+        Duration::from_secs(
+            self.parity_warmup_seconds
+                .unwrap_or(self.parity_grace_seconds),
+        )
+    }
+
     pub fn sweep_interval(&self) -> Duration {
         Duration::from_millis(self.parity_sweep_interval_ms.max(100))
     }
@@ -121,19 +131,38 @@ impl Config {
 mod tests {
     use super::*;
 
-    fn config(teams: &str) -> Config {
-        Config::init_from_hashmap(&std::collections::HashMap::from([
+    fn config(vars: &[(&str, &str)]) -> Config {
+        let mut env = std::collections::HashMap::from([
             ("PERSONHOG_DISTINCT_ID_TOPIC".to_string(), "a".to_string()),
             ("PERSONHOG_MERGE_EVENTS_TOPIC".to_string(), "b".to_string()),
-            ("PARITY_TEAMS".to_string(), teams.to_string()),
-        ]))
-        .expect("config")
+        ]);
+        env.extend(vars.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        Config::init_from_hashmap(&env).expect("config")
     }
 
     #[test]
     fn team_filter_parses_or_refuses() {
-        assert_eq!(config("").teams(), Ok(None));
-        assert_eq!(config(" 2, 15 ").teams(), Ok(Some(HashSet::from([2, 15]))));
-        assert!(config("2,all").teams().is_err());
+        assert_eq!(config(&[("PARITY_TEAMS", "")]).teams(), Ok(None));
+        assert_eq!(
+            config(&[("PARITY_TEAMS", " 2, 15 ")]).teams(),
+            Ok(Some(HashSet::from([2, 15])))
+        );
+        assert!(config(&[("PARITY_TEAMS", "2,all")]).teams().is_err());
+    }
+
+    #[test]
+    fn the_warmup_follows_the_grace_unless_set() {
+        assert_eq!(
+            config(&[("PARITY_GRACE_SECONDS", "7")]).warmup(),
+            Duration::from_secs(7)
+        );
+        assert_eq!(
+            config(&[
+                ("PARITY_GRACE_SECONDS", "7"),
+                ("PARITY_WARMUP_SECONDS", "0")
+            ])
+            .warmup(),
+            Duration::ZERO
+        );
     }
 }

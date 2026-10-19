@@ -415,12 +415,14 @@ impl Join {
             .get(&old)
             .map_or([None, None], |entry| entry.partitions);
         if let [Some(node), Some(personhog)] = partitions {
-            let agreement = if node == personhog {
-                PartitionAgreement::Same
-            } else {
-                PartitionAgreement::Different
-            };
-            *report.merge_partitions.entry(agreement).or_default() += 1;
+            if self.merge_topics_comparable() {
+                let agreement = if node == personhog {
+                    PartitionAgreement::Same
+                } else {
+                    PartitionAgreement::Different
+                };
+                *report.merge_partitions.entry(agreement).or_default() += 1;
+            }
         }
         if outcome != SurvivorOutcome::Agree {
             self.samples.push(json!({
@@ -435,6 +437,19 @@ impl Join {
         }
         *report.merge_outcomes.entry(outcome).or_default() += 1;
         self.evict_merge(old);
+    }
+
+    /// Partition numbers only compare across topics with the same count.
+    fn merge_topics_comparable(&self) -> bool {
+        let counts = [Side::Node, Side::Personhog].map(|side| {
+            self.progress
+                .get(&Topic {
+                    side,
+                    kind: Kind::MergeEvents,
+                })
+                .and_then(|topic| topic.partition_count)
+        });
+        matches!(counts, [Some(node), Some(personhog)] if node == personhog)
     }
 
     fn evict_mapping(&mut self, key: &DistinctIdKey) {
@@ -566,6 +581,18 @@ mod tests {
         row_of_team(TEAM, side, partition, timestamp_ms, distinct_id, person, 0)
     }
 
+    fn assigned(join: &mut Join, kind: Kind, counts: [u32; 2], at: Instant) {
+        for (side, partitions) in [Side::Node, Side::Personhog].into_iter().zip(counts) {
+            join.observe(
+                Event::Assigned {
+                    topic: topic(side, kind),
+                    partitions,
+                },
+                at,
+            );
+        }
+    }
+
     fn merge(side: Side, partition: i32, timestamp_ms: i64, old: u128, new: u128) -> Event {
         Event::Arrival {
             topic: topic(side, Kind::MergeEvents),
@@ -607,6 +634,7 @@ mod tests {
     fn entries_settle_behind_the_slower_feed_after_the_grace() {
         let t0 = Instant::now();
         let mut join = join(usize::MAX, None);
+        assigned(&mut join, Kind::MergeEvents, [8, 8], t0);
         join.observe(row(Side::Node, 0, 1_000, "d", 1), t0);
         join.observe(row(Side::Node, 0, 2_000, "only", 2), t0);
         join.observe(row(Side::Node, 0, 70_000, "ahead", 3), t0);
@@ -644,6 +672,25 @@ mod tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0]["distinct_id"], "only");
         assert_eq!(samples[0]["outcome"], "node_only");
+    }
+
+    // Topics with different counts place the same key on different
+    // partition numbers; only the per-feed placement check applies there.
+    #[test]
+    fn merge_partitions_compare_only_across_equal_counts() {
+        let t0 = Instant::now();
+        let mut join = join(usize::MAX, None);
+        assigned(&mut join, Kind::MergeEvents, [1, 4], t0);
+        join.observe(merge(Side::Node, 0, 1_000, 7, 8), t0);
+        join.observe(merge(Side::Personhog, 3, 1_000, 7, 8), t0);
+        both(&mut join, 0, 70_000, "w", 9, t0);
+
+        let report = join.settle(t0);
+        assert_eq!(
+            report.merge_outcomes,
+            BTreeMap::from([(SurvivorOutcome::Agree, 1)])
+        );
+        assert_eq!(report.merge_partitions, BTreeMap::new());
     }
 
     // A lull on both feeds walks the watermark forward.

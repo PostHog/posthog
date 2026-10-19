@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         max_entries: config.parity_max_entries,
         teams: config.teams().map_err(anyhow::Error::msg)?,
         mapping_lag: config.mapping_lag(),
-        warmup: config.grace(),
+        warmup: config.warmup(),
     };
     info!(
         grace_seconds = config.parity_grace_seconds,
