@@ -8,6 +8,7 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -15,7 +16,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     FunnelsQuery,
@@ -240,6 +241,8 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     // Leaving the insight cancels the run, queued or running, so it does not hold the chart queue.
                     // A hidden tab keeps it, because a person comes back to the result.
                     const abortController = new AbortController()
+                    const clientQueryId = uuid()
+                    let sent = false
                     cache.dataChecksAbortController = abortController
                     cache.disposables.add(() => () => abortController.abort(), 'dataChecksRun', {
                         pauseOnPageHidden: false,
@@ -252,10 +255,14 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                             fn: async () => {
                                 // A stalled request would block every later run, which waits for this one to end.
                                 const timeout = setTimeout(() => abortController.abort(), DATA_CHECKS_TIMEOUT_MS)
+                                sent = true
                                 try {
                                     return await insightsDataChecksCreate(
                                         String(getCurrentTeamId()),
-                                        { query } as unknown as InsightDataChecksRequestApi,
+                                        {
+                                            query,
+                                            client_query_id: clientQueryId,
+                                        } as unknown as InsightDataChecksRequestApi,
                                         undefined,
                                         { signal: abortController.signal }
                                     )
@@ -266,6 +273,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                         })
                         return { ok: true, result }
                     } catch (error) {
+                        // An aborted request does not stop the queries the server runs for it, and they hold its slots.
+                        if (sent && abortController.signal.aborted) {
+                            void cancelQueryOnServer(getCurrentTeamId(), clientQueryId)
+                        }
                         if (abortController.signal.reason === YIELDED_TO_CHART) {
                             return null
                         }

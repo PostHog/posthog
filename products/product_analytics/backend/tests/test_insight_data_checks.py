@@ -14,8 +14,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.models import PersonalAPIKey, PropertyDefinition
 from posthog.models.organization import OrganizationMembership
@@ -933,4 +934,21 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/insights/data_checks/", body, format="json")
 
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_tags_the_check_queries_with_the_client_query_id_so_the_client_can_cancel_them(self) -> None:
+        tagged: list[str | None] = []
+
+        def cancelled(*args: Any, **kwargs: Any) -> None:
+            tagged.append(get_query_tag_value("client_query_id"))
+            raise CHQueryErrorQueryWasCancelled("Query was cancelled", code=394, code_name="query_was_cancelled")
+
+        with patch(f"{CHECKS_MODULE}.execute_hogql_query", side_effect=cancelled):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/data_checks/",
+                {"query": self._query(), "client_query_id": "checks-run-1"},
+                format="json",
+            )
+
+        assert tagged == ["checks-run-1"]
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content

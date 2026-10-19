@@ -199,7 +199,7 @@ const notebookConcurrencyController = new ConcurrencyController(4)
 // The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
 let notebookLoadOrder = 0
 
-async function cancelQueryOnServer(teamId: number | null, queryId: string): Promise<void> {
+export async function cancelQueryOnServer(teamId: number | null, queryId: string): Promise<void> {
     try {
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.delete(`api/projects/${teamId}/query/${queryId}/`)

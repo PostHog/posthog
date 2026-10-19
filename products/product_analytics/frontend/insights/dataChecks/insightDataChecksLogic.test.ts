@@ -25,6 +25,7 @@ describe('insightDataChecksLogic', () => {
     let logic: ReturnType<typeof insightDataChecksLogic.build>
     let vizData: ReturnType<typeof insightVizDataLogic.build>
     const dataChecks = jest.fn()
+    const cancelledQueryIds: string[] = []
     let sentSources: Record<string, unknown>[]
 
     const answer =
@@ -46,6 +47,7 @@ describe('insightDataChecksLogic', () => {
     beforeEach(() => {
         dataChecks.mockReset()
         sentSources = []
+        cancelledQueryIds.length = 0
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend': [],
@@ -54,6 +56,12 @@ describe('insightDataChecksLogic', () => {
             post: {
                 '/api/environments/:team_id/query/:kind': { results: [] },
                 '/api/projects/:team_id/insights/data_checks/': dataChecks,
+            },
+            delete: {
+                '/api/projects/:team_id/query/:id/': ({ params }) => {
+                    cancelledQueryIds.push(params.id as string)
+                    return [200, {}]
+                },
             },
         })
         initKeaTests()
@@ -240,12 +248,14 @@ describe('insightDataChecksLogic', () => {
 
     it('gives the chart queue back when the chart starts to load during a check, then checks again', async () => {
         let signal: AbortSignal | undefined
+        let clientQueryId: string | undefined
         let markSent: () => void = () => {}
         const sent = new Promise<void>((resolve) => {
             markSent = resolve
         })
         dataChecks.mockImplementationOnce(async ({ request }: { request: Request }) => {
             signal = request.signal
+            clientQueryId = ((await request.json()) as { client_query_id: string }).client_query_id
             markSent()
             return await new Promise(() => {})
         })
@@ -256,6 +266,7 @@ describe('insightDataChecksLogic', () => {
         await expectLogic(logic, () => vizData.actions.loadData()).toFinishAllListeners()
 
         expect(signal?.aborted).toBe(true)
+        expect(cancelledQueryIds).toEqual([clientQueryId])
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
     })
