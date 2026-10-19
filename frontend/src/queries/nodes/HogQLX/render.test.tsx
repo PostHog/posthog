@@ -1,3 +1,5 @@
+import { render } from '@testing-library/react'
+
 import { parseHogQLX, renderHogQLX } from '~/queries/nodes/HogQLX/render'
 
 describe('HogQLX', () => {
@@ -61,6 +63,15 @@ describe('HogQLX', () => {
     })
 
     describe('render', () => {
+        it.each(['Claude', 'Unknown mark'])('renders a query label with %s mark', (mark) => {
+            const { container } = render(
+                renderHogQLX(['__hx_tag', 'BrandMarkLabel', 'label', 'Claude Code', 'mark', mark])
+            )
+
+            expect(container.textContent).toContain('Claude Code')
+            expect(container.querySelector('svg')).not.toBeNull()
+        })
+
         it('should render Sparkline', () => {
             const value = {
                 __hx_tag: 'Sparkline',

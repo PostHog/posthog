@@ -4,7 +4,7 @@ import { IconBrain, IconLaptop, IconLogomark, IconQuestion } from '@posthog/icon
 
 import { cn } from 'lib/utils/css-classes'
 
-import { BRAND_MARKS, type BrandMarkName, type IconMarkName } from '../brandMarks'
+import { BRAND_MARKS, type IconMarkName } from '../brandMarks'
 
 // The outline icons are filled shapes, not strokes, so a stroke in the fill color thickens their lines
 // to sit closer to the solid brand marks around them.
@@ -24,7 +24,7 @@ const ICON_MARKS: Record<
     'Unidentified client': { Icon: IconQuestion },
 }
 
-function isIconMark(name: BrandMarkName): name is IconMarkName {
+function isIconMark(name: string): name is IconMarkName {
     return name in ICON_MARKS
 }
 
@@ -36,17 +36,17 @@ export function BrandMark({
     label,
     className = 'size-4',
 }: {
-    name: BrandMarkName
+    name: string
     label?: string
     className?: string
 }): JSX.Element {
     const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
     let mark: JSX.Element
-    if (isIconMark(name)) {
-        const { Icon, className: iconClassName, outline } = ICON_MARKS[name]
+    if (isIconMark(name) || !(name in BRAND_MARKS)) {
+        const { Icon, className: iconClassName, outline } = ICON_MARKS[isIconMark(name) ? name : 'Other harnesses']
         mark = <Icon className={cn('shrink-0', iconClassName, className)} {...a11y} {...outline} />
     } else {
-        const shape = BRAND_MARKS[name]
+        const shape = BRAND_MARKS[name as keyof typeof BRAND_MARKS]
         mark = (
             <svg
                 {...a11y}
