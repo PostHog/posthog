@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -93,5 +94,18 @@ describe('analyticsListLogic', () => {
             ['analytics collection opened', false],
             ['views list loaded', 'folder'],
         ])
+    })
+
+    it('keeps My work on one query when the user record reloads, so the list does not render again', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsMine())
+        await expectLogic(logic).toFinishAllListeners()
+        const query = logic.values.feedQuery
+
+        userLogic.actions.loadUserSuccess({ ...userLogic.values.user! })
+
+        expect(query.createdByMe).toBe(true)
+        expect(logic.values.feedQuery).toBe(query)
     })
 })

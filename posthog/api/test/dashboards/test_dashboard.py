@@ -3,13 +3,7 @@ import datetime
 from collections.abc import Callable
 
 import time_machine
-from posthog.test.base import (
-    APIBaseTest,
-    FuzzyInt,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-    snapshot_postgres_queries_context,
-)
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -46,7 +40,6 @@ from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.models.tagged_item_registry import content_type_for
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -110,24 +103,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-    def _fill_content_type_cache(self) -> None:
-        # Django caches ContentType lookups for the whole process.
-        content_type_for(Dashboard)
-        content_type_for(Insight)
-
+    @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
-        self._fill_content_type_cache()
-        with snapshot_postgres_queries_context(self):
-            dashboard_names = ["a dashboard", "b dashboard"]
-            for dashboard_name in dashboard_names:
-                self.dashboard_api.create_dashboard({"name": dashboard_name})
+        dashboard_names = ["a dashboard", "b dashboard"]
+        for dashboard_name in dashboard_names:
+            self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-            with self.assertNumQueries(13):
-                response_data = self.dashboard_api.list_dashboards()
-            self.assertEqual(
-                [dashboard["name"] for dashboard in response_data["results"]],
-                dashboard_names,
-            )
+        with self.assertNumQueries(13):
+            response_data = self.dashboard_api.list_dashboards()
+        self.assertEqual(
+            [dashboard["name"] for dashboard in response_data["results"]],
+            dashboard_names,
+        )
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_non_web_retrieve_fires_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
@@ -671,29 +658,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Set equality asserts the match is exact — every other dashboard (nested, other folder, root/named) is excluded
         assert result_ids == {ids[expected_key]}
 
+    @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
-        self._fill_content_type_cache()
-        with snapshot_postgres_queries_context(self):
-            dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
 
-            with patch("products.dashboards.backend.access.record_dashboard_access") as mock_record_access:
-                response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+        with patch("products.dashboards.backend.access.record_dashboard_access") as mock_record_access:
+            response_data = self.dashboard_api.get_dashboard(dashboard.pk)
 
-            mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
+        mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
 
-            self.assertEqual(response_data["name"], "private dashboard")
-            self.assertEqual(response_data["description"], "")
-            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-            self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
-            self.assertEqual(response_data["creation_mode"], "default")
-            self.assertEqual(
-                response_data["restriction_level"],
-                Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-            )
-            self.assertEqual(
-                response_data["effective_privilege_level"],
-                Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-            )
+        self.assertEqual(response_data["name"], "private dashboard")
+        self.assertEqual(response_data["description"], "")
+        self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+        self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
+        self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(
+            response_data["restriction_level"],
+            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
+        )
+        self.assertEqual(
+            response_data["effective_privilege_level"],
+            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
 
     def test_create_basic_dashboard(self):
         # the front end sends an empty description even if not allowed to add one

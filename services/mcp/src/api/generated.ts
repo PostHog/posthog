@@ -7584,6 +7584,8 @@ export namespace Schemas {
     export interface HogQLQueryResponse {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -8417,6 +8419,8 @@ export namespace Schemas {
     export interface Response3 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -14969,7 +14973,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -15040,7 +15043,6 @@ export namespace Schemas {
       CreateEarlyAccessFeature: 'create_early_access_feature',
       UpdateFeatureStage: 'update_feature_stage',
       UsePosthogAi: 'use_posthog_ai',
-      UsePosthogCode: 'use_posthog_code',
       UsePosthogMcp: 'use_posthog_mcp',
       UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
@@ -18154,22 +18156,11 @@ export namespace Schemas {
          */
       threshold_value?: string | null;
       /**
-         * Minimum current value before the alert can fire.
-         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-         */
-      minimum_value?: string;
-      /**
          * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
          * @minimum 1
          * @maximum 90
          */
       baseline_window_days?: number;
-      /**
-         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-         * @minimum 0
-         * @maximum 72
-         */
-      evaluation_delay_hours?: number;
       /** Current lifecycle state of this alert.
        *
        * * `not_firing` - Not firing
@@ -18178,12 +18169,6 @@ export namespace Schemas {
        * * `snoozed` - Snoozed
        * * `broken` - Broken */
       readonly state: BillingAlertConfigurationStateEnum;
-      /**
-         * Minimum hours between repeated firing notifications.
-         * @minimum 0
-         * @maximum 720
-         */
-      cooldown_hours?: number;
       /**
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
@@ -79984,22 +79969,11 @@ export namespace Schemas {
          */
       threshold_value?: string | null;
       /**
-         * Minimum current value before the alert can fire.
-         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-         */
-      minimum_value?: string;
-      /**
          * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
          * @minimum 1
          * @maximum 90
          */
       baseline_window_days?: number;
-      /**
-         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-         * @minimum 0
-         * @maximum 72
-         */
-      evaluation_delay_hours?: number;
       /** Current lifecycle state of this alert.
        *
        * * `not_firing` - Not firing
@@ -80008,12 +79982,6 @@ export namespace Schemas {
        * * `snoozed` - Snoozed
        * * `broken` - Broken */
       readonly state?: BillingAlertConfigurationStateEnum;
-      /**
-         * Minimum hours between repeated firing notifications.
-         * @minimum 0
-         * @maximum 720
-         */
-      cooldown_hours?: number;
       /**
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
@@ -93483,6 +93451,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative8 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -94313,6 +94283,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative40 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
