@@ -74,7 +74,7 @@ describe('PlayerFrame', () => {
             })
             expect(captureSpy).toHaveBeenCalledWith(
                 'replay player frame load retried',
-                expect.objectContaining({ attempt: 1 })
+                expect.objectContaining({ attempt: 1, restarts: 0 })
             )
 
             // The retry replaces the frame, because a frame stuck on about:blank can ignore a new src.
@@ -222,6 +222,7 @@ describe('PlayerFrame', () => {
     it('loads a new frame and mounts the player when the viewer retries from the error state', () => {
         const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
         try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
             const { container } = render(
                 <Provider>
                     <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
@@ -238,6 +239,10 @@ describe('PlayerFrame', () => {
 
             fireEvent.click(container.querySelector('[data-attr="replay-overlay-retry-player-frame"]')!)
 
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load restarted',
+                expect.objectContaining({ restarts: 1, browserOnline: true })
+            )
             expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.ERROR)
             expect(currentFrame(container)).not.toBe(failedFrame)
             const frameDocument = currentFrame(container).contentDocument!
@@ -246,6 +251,30 @@ describe('PlayerFrame', () => {
             frameDocument.close()
             fireEvent.load(currentFrame(container))
             expect(logic.values.rootFrame).toBe(frameDocument.getElementById('player-frame-content'))
+        } finally {
+            onLine.mockRestore()
+        }
+    })
+
+    // The failure count starts again after a restart, so only the restart count tells these reports apart
+    // from the first round of automatic retries.
+    it('reports the restart count with a frame failure after the viewer retries', () => {
+        const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const container = renderPlayerFrame().parentElement!
+            const logic = sessionRecordingPlayerLogic(logicProps)
+            fireEvent.load(currentFrame(container))
+            expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+            onLine.mockReturnValue(true)
+
+            act(() => logic.actions.restartPlayerFrameLoad())
+            fireEvent.load(currentFrame(container))
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 1, restarts: 1 })
+            )
         } finally {
             onLine.mockRestore()
         }

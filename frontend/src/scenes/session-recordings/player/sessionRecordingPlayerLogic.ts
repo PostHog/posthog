@@ -846,6 +846,7 @@ export interface sessionRecordingPlayerLogicValues {
     playerError: string | null
     playerFrameDocumentFailed: boolean
     playerFrameLoadFailures: number
+    playerFrameLoadRestarts: number
     playerFrameLoadRetries: number
     playerFrameLoadStopped: boolean
     playerSpeed: number
@@ -1863,6 +1864,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             0,
             { playerFrameDocumentLoadFailed: (failures) => failures + 1, restartPlayerFrameLoad: () => 0 },
         ],
+        // The failure count starts again on a restart, so the reports carry this to tell a viewer's retry apart.
+        playerFrameLoadRestarts: [0, { restartPlayerFrameLoad: (restarts) => restarts + 1 }],
         // PlayerFrame keys the frame on this and adds it to the frame's src, so each retry loads a new frame element.
         playerFrameLoadRetries: [
             0,
@@ -2719,6 +2722,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const report = {
                 sessionRecordingId: props.sessionRecordingId,
                 attempt: values.playerFrameLoadFailures,
+                restarts: values.playerFrameLoadRestarts,
                 ...getPlayerFrameLoadDiagnostics(iframe),
             }
             // A load retried while offline fails again, and a connection can stay away for the rest of the
@@ -2744,6 +2748,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // show, so a frame that failed in a hidden tab would never get its retry.
                 { pauseOnPageHidden: false }
             )
+        },
+        restartPlayerFrameLoad: () => {
+            posthog.capture('replay player frame load restarted', {
+                sessionRecordingId: props.sessionRecordingId,
+                restarts: values.playerFrameLoadRestarts,
+                browserOnline: navigator.onLine,
+            })
         },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
