@@ -726,9 +726,24 @@ describe('preserveGroupTargetingFilters', () => {
             values: ['pro', 'enterprise', 'free'],
             restored: [{}, {}, { type: 'person' }],
         },
+        {
+            name: 'a group property and a person property on one key trade places',
+            stored: [
+                { ...onGroupType0, value: 'enterprise' },
+                { type: 'person', value: 'free' },
+            ],
+            values: ['free', 'enterprise'],
+            restored: [{}, { type: 'person' }],
+        },
+        {
+            name: 'the agent types both properties after the sets trade places',
+            values: ['pro', 'enterprise'],
+            typed: [onGroupType1, onGroupType0],
+            restored: [onGroupType1, onGroupType0],
+        },
     ])(
         'merges a group property that two person-aggregated sets hold when $name',
-        ({ stored = planOnTwoGroupTypes, values, restored }) => {
+        ({ stored = planOnTwoGroupTypes, values, typed = [], restored }) => {
             const existing = {
                 groups: stored.map((property) => ({
                     properties: [{ key: 'plan', operator: 'exact', ...property }],
@@ -737,14 +752,17 @@ describe('preserveGroupTargetingFilters', () => {
             }
 
             const merged = preserveGroupTargetingFilters(existing, {
-                groups: values.map((value) => ({
-                    properties: [{ key: 'plan', operator: 'exact', value }],
+                groups: values.map((value, index) => ({
+                    properties: [{ key: 'plan', operator: 'exact', value, ...typed[index] }],
                     rollout_percentage: 100,
                 })),
             })
 
             expect(merged?.groups?.map((group) => group.properties)).toEqual(
                 values.map((value, index) => [{ key: 'plan', operator: 'exact', value, ...restored[index] }])
+            )
+            expect(merged?.groups?.map((group) => group.aggregation_group_type_index ?? null)).toEqual(
+                values.map(() => null)
             )
         }
     )
