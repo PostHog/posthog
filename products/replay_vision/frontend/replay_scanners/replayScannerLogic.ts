@@ -76,6 +76,7 @@ import {
     buildExperimentTargeting,
     experimentScannerConfig,
     experimentScannerName,
+    experimentScannerQuery,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     ScannerExperimentScope,
@@ -2396,11 +2397,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...(draftQuery
                         ? {
                               query: context
-                                  ? {
-                                        ...draftQuery,
-                                        filter_test_accounts:
-                                            context.experiment.exposure_criteria?.filterTestAccounts ?? false,
-                                    }
+                                  ? { ...draftQuery, ...experimentScannerQuery(context.experiment) }
                                   : draftQuery,
                           }
                         : {}),
