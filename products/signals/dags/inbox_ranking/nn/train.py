@@ -19,6 +19,7 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.network import MultiHeadNetwork, export_onnx
@@ -36,6 +37,7 @@ def _fit(
         with_context=inputs.context is not None,
         kinds=len(VECTOR_KINDS),
         config=config,
+        report_features=inputs.reports.shape[1] - EMBEDDING_DIMENSIONS,
     )
     network.fit(inputs, labels, rows)
     return network

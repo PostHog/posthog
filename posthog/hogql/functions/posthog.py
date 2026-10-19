@@ -6,6 +6,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recordingButton": HogQLFunctionMeta("recordingButton", 1, 2),
+    "withIcon": HogQLFunctionMeta("withIcon", 2, 2),
     "explainCSPReport": HogQLFunctionMeta("explainCSPReport", 1, 1),
     # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization.
     # The regex strictly validates X.Y.Z with no leading zeros (matching the Rust `semver` crate

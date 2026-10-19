@@ -310,6 +310,45 @@ export const SelfDrivingOnboarding: Story = {
     ],
 }
 
+export const FocusedOnboarding: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    decorators: [
+        ...(Array.isArray(SelfDrivingOnboarding.decorators) ? SelfDrivingOnboarding.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'test-ui' },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'test-ui' },
+            },
+        }),
+    ],
+}
+
+export const FocusedOnboardingComplete: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    decorators: [
+        ...(Array.isArray(Empty.decorators) ? Empty.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: {
+                        step: 'github',
+                        sources: [],
+                        scanner_ids: [],
+                        suggestions: [],
+
+                        automatic_implementation: false,
+                        implementation_priority: 'P1',
+                    },
+                    completed_at: '2026-06-11T10:00:00Z',
+                    variant: 'test-ui',
+                },
+            },
+        }),
+    ],
+}
+
 // First-ever visit while the set-up verdict is still loading (config + count requests hang, no
 // cached verdict) → the neutral skeleton, with no tab bar and no welcome page. Guards the
 // regression where the normal tabbed inbox rendered first and was then swapped for the takeover.

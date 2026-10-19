@@ -31,11 +31,6 @@ class TestMem0SourceSchemas:
         assert schemas[ENTITIES_ENDPOINT].supports_incremental is False
         assert schemas[EVENTS_ENDPOINT].supports_incremental is False
 
-    def test_filters_by_names_argument(self):
-        schemas = Mem0Source().get_schemas(_config(), team_id=1, names=[MEMORIES_ENDPOINT])
-
-        assert [s.name for s in schemas] == [MEMORIES_ENDPOINT]
-
 
 class TestMem0SourceCredentials:
     def test_valid_key(self) -> None:

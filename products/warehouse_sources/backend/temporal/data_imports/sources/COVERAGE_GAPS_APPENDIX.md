@@ -286,17 +286,17 @@ Note: Parsed collection GET operations from the official OpenAPI spec, including
 
 ## Ahrefs — **thin**
 
-Today (7): `backlinks`, `domain_rating_history`, `metrics_history`, `projects`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`
+Today (14): `backlinks`, `brand_radar_web_pages`, `domain_rating_history`, `domain_rating_top_domains`, `link_intersect_refdomains`, `link_intersect_refpages`, `metrics_history`, `organic_keywords`, `projects`, `rank_tracker_overview`, `referring_domains`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`
 
 Diffed against: <https://docs.ahrefs.com/openapi.json>
 
 - [x] `Projects (GET /v3/management/projects)` — provides project metadata for joining audit project IDs to target websites (high)
-- [ ] `Organic keywords (GET /v3/site-explorer/organic-keywords)` — tracks search positions, traffic, and keyword value for SEO reports (high)
+- [x] `Organic keywords (GET /v3/site-explorer/organic-keywords)` — tracks search positions, traffic, and keyword value for SEO reports (high)
 - [x] `Backlinks (GET /v3/site-explorer/all-backlinks)` — supports link acquisition, loss, and link quality analysis (high)
 - [x] `Metrics history (GET /v3/site-explorer/metrics-history)` — measures organic traffic and traffic value trends over time (high)
 - [x] `Domain Rating history (GET /v3/site-explorer/domain-rating-history)` — tracks the vendor's core authority metric alongside audit health (high)
-- [ ] `Rank Tracker overview (GET /v3/rank-tracker/overview)` — measures tracked keyword rankings and visibility by project (high)
-- [ ] `Referring domains (GET /v3/site-explorer/refdomains)` — measures unique linking domains and their authority (medium)
+- [x] `Rank Tracker overview (GET /v3/rank-tracker/overview)` — measures tracked keyword rankings and visibility by project (high)
+- [x] `Referring domains (GET /v3/site-explorer/refdomains)` — measures unique linking domains and their authority (medium)
 - [ ] `Top pages (GET /v3/site-explorer/top-pages)` — identifies pages that drive organic traffic and revenue opportunities (medium)
 - [ ] `Brand Radar mentions history (GET /v3/brand-radar/mentions-history)` — measures brand visibility trends across AI search platforms (medium)
 - [x] `Link intersect referring domains (POST /v3/competitive-analysis/link-intersect-refdomains)` — finds domains that link to competitors, for link building (medium)
@@ -747,11 +747,11 @@ Today (7): `advertiser_report`, `max_ad_revenue`, `max_ad_unit_revenue`, `max_co
 
 Diffed against: <https://support.applovin.com/en/growth/promoting-your-apps/api/axon-campaign-management-api>
 
-- [ ] `User-Level Ad Revenue (GET /max/userAdRevenueReport)` — connects user and impression revenue to product activity for attribution and lifetime value analysis (high)
-- [ ] `Campaigns (GET /manage/v1/campaign/list)` — resolves campaign_id_external through hashed_id and adds campaign status, targeting, and budgets (high)
-- [ ] `Creative sets (GET /manage/v1/creative_set/list)` — describes creative content and targeting for campaign performance analysis (medium)
+- [x] `User-Level Ad Revenue (GET /max/userAdRevenueReport)` — connects user and impression revenue to product activity for attribution and lifetime value analysis (high)
+- [x] `Campaigns (GET /manage/v1/campaign/list)` — resolves campaign_id_external through hashed_id and adds campaign status, targeting, and budgets (high)
+- [x] `Creative sets (GET /manage/v1/creative_set/list)` — describes creative content and targeting for campaign performance analysis (medium)
 - [ ] `Assets (GET /manage/v1/asset/list)` — identifies the images, videos, and playable assets used in creative sets (medium)
-- [ ] `Campaign operation logs (GET /manage/v1/operation_logs/campaign)` — explains performance changes after campaign edits, pauses, and budget changes (medium)
+- [x] `Campaign operation logs (GET /manage/v1/operation_logs/campaign)` — explains performance changes after campaign edits, pauses, and budget changes (medium)
 
 Note: Compared collection GET operations in the official Campaign Management API reference with the reporting endpoint map. Also checked https://support.applovin.com/en/max/reporting-apis/user-level-ad-revenue-api for user and impression revenue exports. Campaign reads need a separate key; revenue exports need application and date requests, followed by CSV downloads. Excluded uploads, writes, and report column choices.
 
@@ -977,14 +977,14 @@ Note: This is a webhook-ingestion source (the directory contains webhook_templat
 
 ## Auth0 — gaps
 
-Today (9): `actions`, `clients`, `connections`, `log_streams`, `logs`, `organizations`, `resource_servers`, `roles`, `users`
+Today (13): `actions`, `clients`, `connections`, `log_streams`, `logs`, `organization_member_roles`, `organization_members`, `organizations`, `resource_servers`, `roles`, `user_roles`, `user_sessions`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/auth0/node-auth0/master/reference.md>
 
-- [ ] `Organization members (GET /api/v2/organizations/{id}/members)` — connects existing users and organizations for customer membership and account adoption analysis (high)
-- [ ] `User roles (GET /api/v2/users/{id}/roles)` — connects existing users to role IDs for access and user segment analysis (high)
-- [ ] `Organization member roles (GET /api/v2/organizations/{id}/members/{user_id}/roles)` — shows which roles each user holds within each customer organization (high)
-- [ ] `User sessions (GET /api/v2/users/{user_id}/sessions)` — measures active sessions and connects authentication activity to devices and application clients (high)
+- [x] `Organization members (GET /api/v2/organizations/{id}/members)` — connects existing users and organizations for customer membership and account adoption analysis (high)
+- [x] `User roles (GET /api/v2/users/{id}/roles)` — connects existing users to role IDs for access and user segment analysis (high)
+- [x] `Organization member roles (GET /api/v2/organizations/{id}/members/{user_id}/roles)` — shows which roles each user holds within each customer organization (high)
+- [x] `User sessions (GET /api/v2/users/{user_id}/sessions)` — measures active sessions and connects authentication activity to devices and application clients (high)
 - [ ] `User permissions (GET /api/v2/users/{id}/permissions)` — tracks direct permission assignments and their resource servers for access analysis (medium)
 - [ ] `Role permissions (GET /api/v2/roles/{id}/permissions)` — explains the permissions granted by each existing role (medium)
 - [ ] `Organization invitations (GET /api/v2/organizations/{id}/invitations)` — measures pending and expired invitations during customer organization onboarding (medium)
@@ -1110,14 +1110,14 @@ Note: Compared every Describe and List operation in the official botocore servic
 
 ## AWS CloudTrail — gaps
 
-Today (4): `event_data_stores`, `events`, `insight_events`, `trails`
+Today (7): `event_data_stores`, `events`, `insight_events`, `insights_data`, `insights_metric_data`, `lake_queries`, `trails`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/cloudtrail/2013-11-01/service-2.json>
 
-- [ ] `CloudTrail Lake event query results (StartQuery and GetQueryResults, POST /)` — exposes stored data events and older activity unavailable through the 90-day management event lookup (high)
-- [ ] `Insights metric data (ListInsightsMetricData, POST /)` — measures API call and error rates over time around detected anomalies (high)
-- [ ] `Data-event Insights (ListInsightsData, POST /)` — adds anomalies generated from data events, beyond the management Insights available through LookupEvents (high)
-- [ ] `Lake query history (ListQueries and DescribeQuery, POST /)` — tracks query status, runtime, and data scanned for analysis of Lake usage and cost (medium)
+- ~~`CloudTrail Lake event query results (StartQuery and GetQueryResults, POST /)`~~ — skipped: `StartQuery` runs a SQL scan that AWS bills to the customer by data scanned, so a scheduled sync would add a charge on every run, and it needs a SQL statement per event store rather than a list to page
+- [x] `Insights metric data (ListInsightsMetricData, POST /)` — measures API call and error rates over time around detected anomalies (high). Added as `insights_metric_data`: one hourly series for each activity that raised an Insights event in the past 90 days.
+- [x] `Data-event Insights (ListInsightsData, POST /)` — adds anomalies generated from data events, beyond the management Insights available through LookupEvents (high). Added as `insights_data` (fan-out over trails with Insights selectors).
+- [x] `Lake query history (ListQueries and DescribeQuery, POST /)` — tracks query status, runtime, and data scanned for analysis of Lake usage and cost (medium). Added as `lake_queries` (fan-out over event stores, one `DescribeQuery` per query).
 
 Note: Parsed all read operations and response shapes in the official botocore service model. Existing insight_events use LookupEvents; data-event Insights and metric series use separate operations. Lake exports need query submission, polling, and result pagination; Lake closed to new customers on May 31, 2026. Excluded trail health, selectors, delivery configuration, keys, and import plumbing.
 
@@ -1203,10 +1203,10 @@ Today (3): `detectors`, `findings`, `members`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/guardduty/2017-11-28/service-2.json>
 
-- [ ] `Runtime Monitoring coverage (ListCoverage, POST /detector/{DetectorId}/coverage)` — identifies protected and unprotected resources, which threat findings alone cannot reveal (high)
-- [ ] `Detector malware scans (DescribeMalwareScans, POST /detector/{DetectorId}/malware-scans)` — tracks EC2 malware scan outcomes, failures, duration, and scanned data volume, including scans without findings (medium)
+- [x] `Runtime Monitoring coverage (ListCoverage, POST /detector/{DetectorId}/coverage)` — identifies protected and unprotected resources, which threat findings alone cannot reveal (high)
+- [x] `Detector malware scans (DescribeMalwareScans, POST /detector/{DetectorId}/malware-scans)` — tracks EC2 malware scan outcomes, failures, duration, and scanned data volume, including scans without findings (medium)
 - [ ] `Malware scans (ListMalwareScans, POST /malware-scan)` — tracks scan status and results through the separate resource-oriented malware scan API (medium)
-- [ ] `Usage statistics (GetUsageStatistics, POST /detector/{DetectorId}/usage/statistics)` — reports detector usage and estimated costs by account, resource, or data source (medium)
+- [x] `Usage statistics (GetUsageStatistics, POST /detector/{DetectorId}/usage/statistics)` — reports detector usage and estimated costs by account, resource, or data source (medium)
 - [ ] `Investigations (ListInvestigations, POST /detector/{DetectorId}/investigation/list)` — tracks investigation status and links related threat findings into cases (low)
 
 Note: Compared the official botocore operation model with the static endpoint map and detector traversal code. Findings already call GetFindings; detector malware history and the separate malware-scan API remain absent. Scan details require GetMalwareScan hydration; investigations require GetInvestigation hydration and are a regional preview. Detector resources require traversal; filters, threat lists, publishing destinations, and other setup endpoints were excluded.
@@ -2127,10 +2127,10 @@ Diffed against: <https://stoplight.io/api/v1/projects/cHJqOjY4NTM/table-of-conte
 - [x] `List Routing Form Submissions (/routing_form_submissions)` — submissions for the routing_forms we already sync, including questions/answers, tracking, and which event type they routed to (high)
 - [x] `List Contacts (/contacts)` — the person lookup table Calendly resolves invitee emails against (high)
 - [x] `List Event Type Hosts (/event_type_memberships)` — membership table joining the event_types we sync to their hosting users (high)
-- [ ] `List Group Relationships (/group_relationships)` — lookup joining the groups we already sync to users and event types (medium)
-- [ ] `List activity log entries (/activity_log_entries)` — state/transition history for org and user changes; the audit trail for who changed what (medium)
-- [ ] `List Recaps and Get Transcript (Notetaker)` — meeting recaps and transcripts tied to scheduled events, for content analysis of calls (medium)
-- [ ] `List outgoing communications (/outgoing_communications)` — SMS and email sent per event — reminder/notification delivery data (medium)
+- [x] `List Group Relationships (/group_relationships)` — lookup joining the groups we already sync to users and event types (medium)
+- [x] `List activity log entries (/activity_log_entries)` — state/transition history for org and user changes; the audit trail for who changed what (medium)
+- [x] `List Recaps and Get Transcript (Notetaker)` — meeting recaps and transcripts tied to scheduled events, for content analysis of calls (medium)
+- [x] `List outgoing communications (/outgoing_communications)` — SMS and email sent per event — reminder/notification delivery data (medium)
 - [ ] `List User Availability Schedules (/user_availability_schedules)` — availability rules per user, needed to compute utilization against bookable hours (medium)
 - [ ] `Get Invitee No Show (/invitee_no_shows)` — no-show records; a headline meeting-quality metric (also surfaced on the invitee object) (medium)
 - [ ] `List Organization Invitations (/organizations/{uuid}/invitations)` — seat onboarding funnel — who was invited, when, and whether they accepted (low)
@@ -2642,8 +2642,8 @@ Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc
 - [x] `Dataset versions (ListDatasetVersions, GET /v2/users/{user_id}/apps/{app_id}/datasets/{dataset_id}/versions)` — track dataset snapshots and connect evaluation outcomes with training data changes (medium)
 - [x] `Workflow versions (ListWorkflowVersions, GET /v2/users/{user_id}/apps/{app_id}/workflows/{workflow_id}/versions)` — compare workflow revisions and their model dependencies over time (medium)
 - [x] `Concept relations (ListConceptRelations, GET /v2/users/{user_id}/apps/{app_id}/concepts/{concept_id}/relations)` — analyze concept hierarchies and aggregate labels through parent relationships (medium)
-- [ ] `Tasks (ListTasks, GET /v2/users/{user_id}/apps/{app_id}/tasks)` — measure labeling work, task progress, and annotation workload (medium)
-- [ ] `Collaborators (ListCollaborators, GET /v2/users/{user_id}/apps/{app_id}/collaborators)` — analyze app memberships and collaborator access (medium)
+- [x] `Tasks (ListTasks, GET /v2/users/{user_id}/apps/{app_id}/tasks)` — measure labeling work, task progress, and annotation workload (medium)
+- [x] `Collaborators (ListCollaborators, GET /v2/users/{user_id}/apps/{app_id}/collaborators)` — analyze app memberships and collaborator access (medium)
 
 Note: Vendor Swagger and documentation hosts failed DNS resolution, so the official Python SDK provided the reference. Decoded its service descriptor to read list operations and HTTP GET bindings, then checked the official Go SDK descriptions. Placeholder names are simplified from descriptor field names; nested collections require parent IDs, and models currently include only their latest version. Deprecated evaluation routes, authentication, uploads, and prediction writes are excluded.
 
@@ -3589,10 +3589,10 @@ Diffed against: <https://raw.githubusercontent.com/dbt-labs/dbt-cloud-openapi-sp
 - [x] `GET /api/v2/accounts/{account_id}/runs/?include_related=["run_steps"] (and /api/v2/accounts/{account_id}/steps/{id}/)` — per-step timings, commands and status inside the runs we already sync — where run duration actually goes (high)
 - [x] `GET /api/v2/accounts/{account_id}/runs/{run_id}/artifacts/ and /artifacts/{remainder}` — run_results.json and manifest.json per run, giving model-level execution results and node metadata (high)
 - [x] `GET /api/v3/accounts/{account_id}/audit-logs/` — who changed jobs, environments and permissions, with timestamps (medium)
-- [ ] `GET /api/v2/accounts/{account_id}/repositories/ and /api/v3/accounts/{account_id}/projects/{project_id}/repositories/` — lookup resolving the repository and branch behind each project we already sync (medium)
-- [ ] `GET /api/v3/accounts/{account_id}/connections/ and /api/v3/accounts/{account_id}/projects/{project_id}/connections/` — lookup resolving the warehouse connection each environment points at (medium)
-- [ ] `GET /api/v3/accounts/{account_id}/groups/ and /api/v3/accounts/{account_id}/group-permissions/{group_id}/` — group membership and permission assignment for the users we already sync (medium)
-- [ ] `GET /api/v2/accounts/{account_id}/licenses/ and /api/v3/accounts/{account_id}/license-maps/` — seat type per user for license utilization reporting (low)
+- [x] `GET /api/v2/accounts/{account_id}/repositories/ and /api/v3/accounts/{account_id}/projects/{project_id}/repositories/` — lookup resolving the repository and branch behind each project we already sync (medium) — added as `repositories` from the v3 per-project route (fan-out over `projects`); the account-level v2 route is deprecated
+- [x] `GET /api/v3/accounts/{account_id}/connections/ and /api/v3/accounts/{account_id}/projects/{project_id}/connections/` — lookup resolving the warehouse connection each environment points at (medium) — added as `connections` from the account-level route, which already covers every project's connections
+- [x] `GET /api/v3/accounts/{account_id}/groups/ and /api/v3/accounts/{account_id}/group-permissions/{group_id}/` — group membership and permission assignment for the users we already sync (medium) — added as `groups`, which carries each group's `group_permissions` inline; `group-permissions/{group_id}/` is POST-only (assigns permissions), so it is not a table
+- [x] `GET /api/v2/accounts/{account_id}/licenses/ and /api/v3/accounts/{account_id}/license-maps/` — seat type per user for license utilization reporting (low) — added as `license_allocations`, one row per license type with seat totals and usage; per-user seat types are already in the `licenses` column of `users`. `license-maps` skipped: it is SSO-group-to-license configuration
 
 Note: Diffed against the vendor's own OpenAPI specs (openapi-v2.yaml, openapi-v3.yaml in dbt-labs/dbt-cloud-openapi-spec — the files the docs site renders through Stoplight). The Admin API is well covered; the real gap is the separate Discovery API, whose object list (Models, Tests, Sources, Snapshots, Seeds, Exposures, Tags, Packages, Owners, Model historical runs, Lineage, Job) I read from the schema navigation on https://docs.getdbt.com/docs/dbt-cloud-apis/discovery-schema-environment-applied-models. Excluded as config: environment variables, notifications, service tokens, IP restrictions, SCIM, OAuth configurations, webhooks, credentials, extended attributes.
 
@@ -7899,9 +7899,9 @@ Today (13): `audit_logs`, `billable_metrics`, `contracts`, `customers`, `invoice
 
 Diffed against: <https://docs.metronome.com/openapi.json>
 
-- [ ] `Rate schedules (POST /v1/contract-pricing/rate-cards/getRateSchedule; POST /v1/contracts/getContractRateSchedule)` — resolve rate card IDs into prices and customer overrides to explain billed amounts (high)
-- [ ] `List balances (POST /v1/contracts/customerBalances/list)` — measure remaining commitments and credits, including balances and transaction ledgers across contracts (high)
-- [ ] `List invoice breakdowns (GET /v1/customers/{customer_id}/invoices/breakdowns)` — reconcile daily or hourly billed costs with usage, beyond invoice totals and unpriced usage aggregates (high)
+- [x] `Rate schedules (POST /v1/contract-pricing/rate-cards/getRateSchedule; POST /v1/contracts/getContractRateSchedule)` — resolve rate card IDs into prices and customer overrides to explain billed amounts (high)
+- [x] `List balances (POST /v1/contracts/customerBalances/list)` — measure remaining commitments and credits, including balances and transaction ledgers across contracts (high)
+- [x] `List invoice breakdowns (GET /v1/customers/{customer_id}/invoices/breakdowns)` — reconcile daily or hourly billed costs with usage, beyond invoice totals and unpriced usage aggregates (high)
 - [ ] `List historical balances (POST /v1/contracts/historicalBalances/list)` — analyze retired commitments, credit consumption, and historical ledger transactions (medium)
 - [ ] `Get subscription quantity history (POST /v1/contracts/getSubscriptionQuantityHistory)` — measure changes in recurring quantities and prices for seat-based revenue analysis (medium)
 - [ ] `Get subscription seats history (POST /v1/contracts/getSubscriptionSeatsHistory)` — track seat assignments and quantities over time for each subscription (medium)
@@ -8185,10 +8185,10 @@ Today (3): `accounts`, `customers`, `transactions`
 
 Diffed against: <https://docs.mono.co/llms.txt>
 
-- [ ] `Bank Coverage (GET /v3/institutions)` — join institution IDs on synced accounts to the complete bank coverage and supported product catalogue (high)
-- [ ] `Fetch all Payments (GET /v2/payments/transactions)` — analyze payment collection revenue, failures, fees, and refunds separately from linked bank transactions (high)
-- [ ] `Get all Mandates (GET /v3/payments/mandates)` — track direct debit authorizations, their states, and customer relationships for recurring collection analysis (high)
-- [ ] `Retrieve All Debits (GET /v3/payments/mandates/debits)` — measure successful and failed mandate collections, collected amounts, and debit fees (high)
+- [x] `Bank Coverage (GET /v3/institutions)` — join institution IDs on synced accounts to the complete bank coverage and supported product catalogue (high)
+- [x] `Fetch all Payments (GET /v2/payments/transactions)` — analyze payment collection revenue, failures, fees, and refunds separately from linked bank transactions (high)
+- [x] `Get all Mandates (GET /v3/payments/mandates)` — track direct debit authorizations, their states, and customer relationships for recurring collection analysis (high)
+- [x] `Retrieve All Debits (GET /v3/payments/mandates/debits)` — measure successful and failed mandate collections, collected amounts, and debit fees (high)
 - [ ] `Payout (GET /v2/payments/payouts)` — reconcile payment collections with settlement amounts and payout status (high)
 - [ ] `Payout Transactions (GET /v2/payments/payout/{payout}/transactions)` — match individual collections to settlements and explain payout totals (high)
 - [ ] `Disbursements and distributions (GET /v3/payments/disburse/disbursements; GET /v3/payments/disburse/disbursements/{batch_id}/distributions)` — analyze outgoing payment batches and recipient distributions, including payment status and amounts (high)
@@ -9062,6 +9062,16 @@ Diffed against: <https://packagist.org/apidoc>
 No material gaps found.
 
 Note: Packagist's public API is small and read-only. The source takes a user-supplied package/vendor list and already covers every per-package read endpoint: packages/{vendor}/{package}.json, the p2 metadata, stats.json, and /api/security-advisories. The only unexposed read endpoints are registry-wide rather than per-package: /explore/popular.json (top packages by weekly downloads), /statistics.json (global download total), /search.json, and /metadata/changes.json (a sync change feed, not warehouse data). None of these justify a table for a user tracking their own packages.
+
+## Paddle — gaps
+
+Today (8): `adjustments`, `customers`, `discounts`, `explore_metrics`, `prices`, `products`, `subscriptions`, `transactions`
+
+Diffed against: <https://developer.paddle.com/api-reference/metrics/run-explore-metrics-query>
+
+- [x] `Explore metrics (POST /metrics/explore, catalog from GET /metrics/explore/entities)` — daily revenue, transactions, refunds, chargebacks, and checkout conversion, plus monthly MRR and MRR growth, computed by Paddle (high)
+
+Note: Added from the Explore metrics changelog (API version 1, 2026-08-27). The table holds account totals with no breakdown dimension. Querying it needs the `metrics.read` permission.
 
 ## PagerDuty — gaps
 
@@ -11573,8 +11583,8 @@ Today (9): `Accounts`, `Activities`, `Campaigns`, `Cases`, `Contacts`, `Document
 
 Diffed against: <https://support.reallysimplesystems.com/api-v4/>
 
-- [ ] `campaignstages` — lookup table resolving the stage a campaign or campaign member sits in (high)
-- [ ] `campaigndetails` — the per-campaign membership/detail rows linking contacts to campaigns (high)
+- [x] `campaignstages` — lookup table resolving the stage a campaign or campaign member sits in (high)
+- [x] `campaigndetails` — the per-campaign membership/detail rows linking contacts to campaigns (high)
 
 Note: The v4 API documents exactly 11 CRUD objects; PostHog exposes 9 of them, so coverage is nearly complete. The two missing ones are both marketing-tool objects. Also available but not table-shaped: GET /datadictionary/{object} and GET /lookup/{object}/{field} for dropdown values.
 
@@ -12762,9 +12772,9 @@ Today (4): `destinations`, `jobs`, `sources`, `workflows`
 
 Diffed against: <https://docs.unstructured.io/llms.txt>
 
-- [ ] `job failed files (GET /jobs/{id}/failed-files)` — per-file failure reasons — the only place processing errors are enumerated; jobs alone give just a status (high)
-- [ ] `job details (GET /jobs/{id}/details)` — per-node processing counts and timings inside a job, the grain needed for throughput and cost analysis (high)
-- [ ] `notifications (GET /notifications)` — workspace event stream (job started/failed/completed) with timestamps, an analytical log the jobs table does not reproduce (medium)
+- [x] `job failed files (GET /jobs/{id}/failed-files)` — per-file failure reasons — the only place processing errors are enumerated; jobs alone give just a status (high)
+- [x] `job details (GET /jobs/{id}/details)` — per-node processing counts and timings inside a job, the grain needed for throughput and cost analysis (high)
+- [x] `notifications (GET /notifications)` — workspace event stream (job started/failed/completed) with timestamps, an analytical log the jobs table does not reproduce (medium)
 - [ ] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
 - [ ] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
 

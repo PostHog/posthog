@@ -210,6 +210,43 @@ export interface AddSourcesResponseApi {
 }
 
 /**
+ * * `Passed` - Passed
+ * * `Failed` - Failed
+ * * `Skipped` - Skipped
+ */
+export type DestinationConnectionTestStepStatusEnumApi =
+    (typeof DestinationConnectionTestStepStatusEnumApi)[keyof typeof DestinationConnectionTestStepStatusEnumApi]
+
+export const DestinationConnectionTestStepStatusEnumApi = {
+    Passed: 'Passed',
+    Failed: 'Failed',
+    Skipped: 'Skipped',
+} as const
+
+export interface DestinationConnectionTestStepApi {
+    /** What this step checks. */
+    name: string
+    /** A longer explanation of what this step checks. */
+    description: string
+    /** The result of the step. Null when the step did not run because an earlier step failed.
+     *
+     * * `Passed` - Passed
+     * * `Failed` - Failed
+     * * `Skipped` - Skipped */
+    status: DestinationConnectionTestStepStatusEnumApi | null
+    /**
+     * Why the step failed or was skipped. Null when the step passed or did not run.
+     * @nullable
+     */
+    message: string | null
+}
+
+export interface DestinationConnectionTestResponseApi {
+    /** The steps of the connection test, in order. The test stops at the first failed step. */
+    steps: DestinationConnectionTestStepApi[]
+}
+
+/**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
  * * `append` - append
@@ -866,6 +903,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Plaid` - Plaid
  * * `SurveyMonkey` - SurveyMonkey
  * * `Eventbrite` - Eventbrite
+ * * `Everflow` - Everflow
  * * `RingCentral` - RingCentral
  * * `Twilio` - Twilio
  * * `Freshsales` - Freshsales
@@ -2063,6 +2101,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `SimonData` - SimonData
  * * `CommissionJunction` - CommissionJunction
  * * `Liveblocks` - Liveblocks
+ * * `Livestorm` - Livestorm
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
  * * `Zenchef` - Zenchef
@@ -2264,6 +2303,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plaid: 'Plaid',
     SurveyMonkey: 'SurveyMonkey',
     Eventbrite: 'Eventbrite',
+    Everflow: 'Everflow',
     RingCentral: 'RingCentral',
     Twilio: 'Twilio',
     Freshsales: 'Freshsales',
@@ -3461,6 +3501,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SimonData: 'SimonData',
     CommissionJunction: 'CommissionJunction',
     Liveblocks: 'Liveblocks',
+    Livestorm: 'Livestorm',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
     Zenchef: 'Zenchef',
@@ -3804,6 +3845,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -5001,6 +5043,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -5709,6 +5752,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -6906,6 +6950,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -7187,6 +7232,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -8384,6 +8430,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -8589,6 +8636,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -9786,6 +9834,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -10045,6 +10094,7 @@ export interface SourcePreviewRequestApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -11242,6 +11292,7 @@ export interface SourcePreviewRequestApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -11482,6 +11533,7 @@ export interface SourceSetupApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -12679,6 +12731,7 @@ export interface SourceSetupApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -12926,6 +12979,7 @@ export interface SourceCredentialCreateApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -14123,6 +14177,7 @@ export interface SourceCredentialCreateApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef

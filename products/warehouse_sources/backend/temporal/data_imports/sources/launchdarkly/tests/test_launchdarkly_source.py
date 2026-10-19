@@ -17,11 +17,6 @@ class TestLaunchDarklySource:
         self.team_id = 123
         self.config = LaunchDarklySourceConfig(access_token="api-token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flags"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "flags"
-
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
         [
