@@ -1208,14 +1208,20 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     return cohort
 
 
+def _condition_cohort_properties(filters: Any) -> Iterator[dict[str, Any]]:
+    """Yield the cohort properties in the release conditions of a v1 document, and none for other formats."""
+    # Only config version 1 can reference a cohort, even when a document in another config version holds `groups`.
+    if detect_config_format(filters).kind != "v1" or not isinstance(filters, Mapping):
+        return
+    for located in _iter_flag_filter_properties(filters.get("groups")):
+        if located.prop.get("type") == PropertyFilterType.COHORT:
+            yield located.prop
+
+
 def validate_stored_cohort_references(flag: FeatureFlag) -> None:
     """Raise if a stored release condition targets a cohort the flag cannot evaluate."""
-    # Only config version 1 can reference a cohort.
-    if detect_config_format(flag.filters).kind != "v1":
-        return
-    for located in _iter_flag_filter_properties(flag.conditions):
-        if located.prop.get("type") == "cohort":
-            _validate_cohort_reference(located.prop.get("value"), flag.team.project_id)
+    for prop in _condition_cohort_properties(flag.filters):
+        _validate_cohort_reference(prop.get("value"), flag.team.project_id)
 
 
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
@@ -1334,16 +1340,6 @@ CONDITION_COHORTS_CONTEXT_KEY = "feature_flag_condition_cohorts"
 class _ConditionCohort:
     name: str | None
     deleted: bool
-
-
-def _condition_cohort_properties(filters: Any) -> Iterator[dict[str, Any]]:
-    """Yield the cohort properties in the release conditions of a v1 document, and none for other formats."""
-    # A document in another config version can still hold `groups`. Annotating it would mark its live cohorts as deleted.
-    if detect_config_format(filters).kind != "v1" or not isinstance(filters, Mapping):
-        return
-    for located in _iter_flag_filter_properties(filters.get("groups")):
-        if located.prop.get("type") == PropertyFilterType.COHORT:
-            yield located.prop
 
 
 def _condition_cohort_id(value: Any) -> int | None:

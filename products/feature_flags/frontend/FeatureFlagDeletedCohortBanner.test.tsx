@@ -32,14 +32,22 @@ function cohortProperty(value: number | string, overrides: Record<string, unknow
     } as AnyPropertyFilter
 }
 
-function buildFlag(overrides: Partial<FeatureFlagType> = {}): FeatureFlagType {
+function buildFlag(
+    overrides: Partial<FeatureFlagType> = {},
+    cohortOverrides: Record<string, unknown> = {}
+): FeatureFlagType {
     return {
         ...NEW_FLAG,
         id: FLAG_ID,
         key: 'test-flag',
         can_edit: true,
         filters: {
-            groups: [{ properties: [cohortProperty(5, { cohort_deleted: true })], rollout_percentage: 100 }],
+            groups: [
+                {
+                    properties: [cohortProperty(5, { cohort_deleted: true, ...cohortOverrides })],
+                    rollout_percentage: 100,
+                },
+            ],
         },
         ...overrides,
     }
@@ -118,34 +126,14 @@ describe('FeatureFlagDeletedCohortBanner', () => {
         },
         {
             state: 'a flag whose deleted cohort has no name',
-            flag: buildFlag({
-                active: true,
-                filters: {
-                    groups: [
-                        {
-                            properties: [cohortProperty(7, { cohort_name: '', cohort_deleted: true })],
-                            rollout_percentage: 100,
-                        },
-                    ],
-                },
-            }),
-            says: /^Cohort ID 7 was deleted\. .* Restore the cohort or update the release conditions to remove it\.$/,
+            flag: buildFlag({ active: true }, { cohort_name: '' }),
+            says: /^Cohort ID 5 was deleted\. .* Restore the cohort or update the release conditions to remove it\.$/,
             showsEdit: true,
         },
         {
             state: 'a flag whose cohort no longer exists',
-            flag: buildFlag({
-                active: true,
-                filters: {
-                    groups: [
-                        {
-                            properties: [cohortProperty(7, { cohort_name: undefined, cohort_deleted: true })],
-                            rollout_percentage: 100,
-                        },
-                    ],
-                },
-            }),
-            says: /^Cohort ID 7 was deleted\. The flag fails to evaluate for anyone who reaches a release condition that targets it\. Update the release conditions to remove it\.$/,
+            flag: buildFlag({ active: true }, { cohort_name: undefined }),
+            says: /^Cohort ID 5 was deleted\. The flag fails to evaluate for anyone who reaches a release condition that targets it\. Update the release conditions to remove it\.$/,
             showsEdit: true,
         },
     ])('gives the next step for $state', async ({ flag, says, showsEdit }) => {

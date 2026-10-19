@@ -173,9 +173,12 @@ function reportFeatureFlagScheduleSuccess(): void {
 
 // A flag opened from the list arrives through refreshFeatureFlag, not loadFeatureFlag.
 // Clicking Edit loads the flag again. The cache entry limits the event to one capture per mount.
-function reportFlagWithDeletedCohortLoaded(featureFlag: FeatureFlagType, cache: Record<string, any>): void {
+function reportFlagWithDeletedCohortLoaded(featureFlag: FeatureFlagType | null, cache: Record<string, any>): void {
+    if (!featureFlag?.id || cache.hasCapturedDeletedCohortLoad) {
+        return
+    }
     const filters = deletedCohortFilters(featureFlag.filters)
-    if (!featureFlag.id || filters.length === 0 || cache.hasCapturedDeletedCohortLoad) {
+    if (filters.length === 0) {
         return
     }
     cache.hasCapturedDeletedCohortLoad = true
@@ -4559,9 +4562,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
-            if (featureFlag) {
-                reportFlagWithDeletedCohortLoaded(featureFlag, cache)
-            }
+            reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 
             // Auto-apply template from URL param on first load
