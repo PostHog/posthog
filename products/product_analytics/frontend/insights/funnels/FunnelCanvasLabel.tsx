@@ -51,7 +51,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   <>
                       <span className="flex items-center text-secondary">
                           <Tooltip
-                              title={`Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.${hasPartialBreakdownSelection ? ' This uses all breakdown values, because the median for only the selected values is not available.' : ''}`}
+                              title={`Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.${hasPartialBreakdownSelection ? ' This median includes all breakdown values.' : ''}`}
                           >
                               <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
