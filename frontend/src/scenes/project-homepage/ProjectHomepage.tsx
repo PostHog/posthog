@@ -3,7 +3,7 @@ import './ProjectHomepage.scss'
 import { useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,7 +22,7 @@ export function ProjectHomepage(): JSX.Element {
     const { todayHomeEnabled } = useValues(projectHomepageLogic)
     return (
         <div className="flex-1 min-h-0">
-            <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+            <Suspense fallback={<SpinnerOverlay sceneLevel />}>
                 {todayHomeEnabled ? <TodayHome /> : <AiFirstHomepage />}
             </Suspense>
         </div>

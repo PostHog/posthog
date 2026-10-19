@@ -338,7 +338,7 @@ class TestOnboarding:
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):
-        from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
+        from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
         run_posthog_slack_inbox_onboarding(self.integration.id)
 
@@ -347,7 +347,7 @@ class TestOnboarding:
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_noop_for_missing_integration(self, mock_run):
-        from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
+        from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
         run_posthog_slack_inbox_onboarding(99999999)
 

@@ -195,12 +195,19 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
     if (!liveRun) {
         return <span className="text-secondary">Starting the first training run…</span>
     }
+    const trend = liveRun.trend.map((point) => ({
+        date: String(point.iteration_number),
+        value: point.best_holdout_score,
+    }))
     return (
         <div className="flex flex-col gap-1">
-            <Headline
-                value={liveRun.best_holdout_score != null ? liveRun.best_holdout_score.toFixed(2) : 'No score yet'}
-                label={`Best test AUC so far · experiment ${liveRun.experiment_count} of ${liveRun.iteration_budget}`}
-            />
+            <div className="flex items-center justify-between gap-2">
+                <Headline
+                    value={liveRun.best_holdout_score != null ? liveRun.best_holdout_score.toFixed(2) : 'No score yet'}
+                    label={`Best test AUC so far · experiment ${liveRun.experiment_count} of ${liveRun.iteration_budget}`}
+                />
+                <TrendChart points={trend} color={TEST_DATA_COLOR} title="Best test AUC per experiment of this run" />
+            </div>
             <LemonProgress percent={(liveRun.experiment_count / liveRun.iteration_budget) * 100} />
             {liveRun.latest_agent_description && (
                 <span className="text-xs text-secondary truncate" title={liveRun.latest_agent_description}>

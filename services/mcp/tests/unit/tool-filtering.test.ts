@@ -429,7 +429,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should expose managed warehouse Trino monitoring only with its read scope and feature flag', async () => {
         const trinoTools = ['managed-warehouse-trino-monitoring-get', 'managed-warehouse-trino-metric-history-get']
-        const enabledOptions = { featureFlags: { 'data-warehouse-scene-trino': true } }
+        const enabledOptions = { featureFlags: { 'managed-warehouse-trino-query': true } }
 
         const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
         const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
@@ -452,20 +452,12 @@ describe('Tool Filtering - API Scopes', () => {
         ['notebooks-widget-status', ['notebook:read']],
         ['notebooks-widget-cancel', ['notebook:write']],
     ] satisfies [string, string[]][])(
-        'exposes %s only with notebook widgets enabled and the required scopes',
+        'exposes %s with the required scopes without feature flags',
         async (toolName, scopes) => {
             const context = createMockContext(scopes)
-            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabledOptions = { aiConsentGiven: true }
             const enabled = await getToolsFromContext(context, enabledOptions)
             expect(enabled.map((tool) => tool.name)).toContain(toolName)
-
-            for (const flagValue of [false, undefined]) {
-                const disabled = await getToolsFromContext(context, {
-                    ...enabledOptions,
-                    featureFlags: { 'notebook-generated-widgets': flagValue },
-                })
-                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
-            }
 
             for (const missingScope of scopes) {
                 const denied = await getToolsFromContext(
@@ -1046,6 +1038,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).not.toContain('notebooks-set-variables')
         expect(off).not.toContain('notebooks-run')
         expect(off).not.toContain('notebooks-run-status')
+        expect(off).not.toContain('notebooks-run-cell')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -1056,13 +1049,13 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-set-variables')
         expect(on).toContain('notebooks-run')
         expect(on).toContain('notebooks-run-status')
+        expect(on).toContain('notebooks-run-cell')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
         expect(on).toContain('notebooks-configure-compute')
         expect(on).not.toContain('notebooks-create')
         expect(on).not.toContain('notebooks-retrieve')
-        expect(on).not.toContain('notebooks-run-cell')
 
         // notebook-edit keeps its collaboration gate but retires under the cell tools.
         const collabOnly = getToolsForFeatures({
@@ -1082,12 +1075,14 @@ describe('Tool Filtering - Feature Flags', () => {
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
+            'inbox-report-actions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
-            'data-warehouse-scene-trino',
+            'managed-warehouse-trino-query',
+            'llm-analytics-tags',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1104,9 +1099,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
-                'notebook-generated-widgets',
                 'revamped-py-notebooks',
-                'notebook-generated-widgets',
                 'tasks',
                 'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
@@ -1131,9 +1124,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
-                'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
+                'workflows-data-suggestions',
+                'workflows-mcp-onboarding',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

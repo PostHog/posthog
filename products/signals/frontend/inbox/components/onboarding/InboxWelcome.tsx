@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
-import { InboxMcpBanner } from '../InboxMcpBanner'
+import { InboxWelcomeLayout } from './InboxWelcomeLayout'
 import { LoopDiagram } from './LoopDiagram'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
@@ -112,7 +111,6 @@ function GithubFirstCta(): JSX.Element {
     )
 }
 
-/** The escape hatch: skip the setup agent and turn sources and scouts on by hand. */
 function ManualSetupAction(): JSX.Element {
     const { requestManualSetup } = useActions(inboxOnboardingLogic)
 
@@ -128,8 +126,7 @@ function ManualSetupAction(): JSX.Element {
                 Set up manually
             </LemonButton>
             <p className="m-0 max-w-prose text-[13px] text-tertiary">
-                Turn on sources and scouts yourself in Configuration. You still need to connect GitHub for pull
-                requests.
+                Choose your signals and scouts, then review and activate Self-Driving.
             </p>
         </div>
     )
@@ -150,44 +147,24 @@ export function InboxWelcome(): JSX.Element {
     }, [])
 
     return (
-        <div className="InboxWelcome flex min-h-full flex-col justify-center py-10">
-            <div className="mx-auto mb-8 w-full max-w-4xl px-6">
-                <InboxMcpBanner />
-            </div>
-            <div className="px-6 pb-12">
-                <div className="mx-auto flex max-w-[720px] flex-col items-center text-center">
-                    <div className="mb-7">
-                        <Logomark jumpOnClick size="xl" />
-                    </div>
-                    <h1 className="mb-4 text-2xl font-bold leading-[1.1] tracking-[-0.02em] sm:text-[32px]">
-                        Ship fixes while you sleep
-                    </h1>
-                    <p className="mb-9 max-w-[560px] text-[15px] leading-[1.55] text-secondary">
-                        PostHog watches your session replays, errors, and Slack. When it finds something worth fixing,
-                        it writes the pull request. You review and merge.
+        <InboxWelcomeLayout
+            title="Ship fixes while you sleep"
+            description="PostHog watches your session replays, errors, and Slack. When it finds something worth fixing, it writes the pull request. You review and merge."
+            illustration={<LoopDiagram />}
+            footer="Your first 3 PRs each month are free, then $15 per PR. Reports are always free."
+        >
+            {githubFirst ? (
+                <GithubFirstCta />
+            ) : (
+                <>
+                    <CommandCta />
+                    <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
+                        Run it in your repo. That's the whole setup: it connects GitHub and picks the signal sources and
+                        scouts to watch. PRs start landing in this inbox.
                     </p>
-                    {githubFirst ? (
-                        <GithubFirstCta />
-                    ) : (
-                        <>
-                            <CommandCta />
-                            <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
-                                Run it in your repo. That's the whole setup: it connects GitHub and picks the signal
-                                sources and scouts to watch. PRs start landing in this inbox.
-                            </p>
-                        </>
-                    )}
-                    <ManualSetupAction />
-                </div>
-            </div>
-            <div className="px-6 md:px-12">
-                <div className="mx-auto max-w-[1060px]">
-                    <LoopDiagram />
-                    <p className="mt-6 text-center text-xs text-tertiary">
-                        Your first 3 PRs each month are free, then $15 per PR. Reports are always free.
-                    </p>
-                </div>
-            </div>
-        </div>
+                </>
+            )}
+            <ManualSetupAction />
+        </InboxWelcomeLayout>
     )
 }

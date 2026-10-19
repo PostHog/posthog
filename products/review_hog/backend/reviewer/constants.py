@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, ReportedPriority
 from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_PIPELINE,
@@ -72,13 +73,6 @@ DEFAULT_REVIEW_ARM = ReviewArm(
     initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
 )
 
-
-# REVIEW MODE
-# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
-# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
-# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
-REVIEW_MODE_FULL = "full"
-REVIEW_MODE_FLASH = "flash"
 
 # REVIEW DESIGN
 # The design a Flash turn runs on by default. Full turns always run on the pipeline. The
@@ -170,6 +164,16 @@ FLASH_MAX_FINDINGS_CEILING = 10
 FLASH_MUST_FIX_CAP_MULTIPLIER = 2
 # A finding on a line next to a change is often about that change.
 FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
+
+
+# The first review keeps more of what it finds. A finding the cap cuts is recorded only as a dropped finding, so
+# a later turn finds it again and posts it on its own, one push at a time.
+FLASH_FIRST_REVIEW_CAP_MULTIPLIER = 2
+# Turns up to this run review the whole pull request. Run 1 does this with the larger cap above. Each later
+# automatic turn only comments on what its push changed, plus must-fix anywhere, so a fix push draws findings
+# about the fix and not new opinions on code that earlier turns already covered. A review someone requests
+# (comment, label, or UI) is not limited this way and reviews the whole pull request.
+FLASH_WHOLE_PR_TURNS = 1
 
 
 def flash_max_findings(lens_part_count: int) -> int:

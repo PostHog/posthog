@@ -122,6 +122,53 @@ class TestFanout:
         assert [row["id"] for row in result.rows] == ["msg_2"]
         assert result.paths[1:] == ["/conversations/cnv_2/messages"]
 
+    @parameterized.expand(
+        [
+            ("conversation_followers", "cnv", "conversation_id", "/conversations/{}/followers", None),
+            ("teammate_group_teammates", "cir", "teammate_group_id", "/teammate_groups/{}/teammates", None),
+            ("teammate_group_teams", "cir", "teammate_group_id", "/teammate_groups/{}/teams", None),
+            ("teammate_group_inboxes", "cir", "teammate_group_id", "/teammate_groups/{}/inboxes", None),
+            ("contact_list_contacts", "grp", "contact_list_id", "/contact_lists/{}/contacts", "100"),
+        ]
+    )
+    def test_membership_rows_carry_parent_id(
+        self, endpoint: str, parent_prefix: str, parent_column: str, child_path: str, limit: str | None
+    ) -> None:
+        # The same member sits under many parents, so each row must carry its parent id to keep
+        # the composite primary key unique.
+        parent_1, parent_2 = f"{parent_prefix}_1", f"{parent_prefix}_2"
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"id": parent_1}, {"id": parent_2}]),
+                _page([{"id": "member_1"}]),
+                _page([{"id": "member_1"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        primary_keys = result.response.primary_keys
+        assert primary_keys is not None
+        assert result.paths[1:] == [child_path.format(parent_1), child_path.format(parent_2)]
+        assert result.params("limit")[1:] == [limit, limit]
+        keys = [tuple(row[key] for key in primary_keys) for row in result.rows]
+        assert keys == [(parent_1, "member_1"), (parent_2, "member_1")]
+
+    def test_contact_list_contacts_follows_next_page_within_list(self) -> None:
+        next_url = "https://api2.frontapp.com/contact_lists/grp_1/contacts?page_token=p2&limit=100"
+        result = _driver().run(
+            "contact_list_contacts",
+            [
+                _page([{"id": "grp_1"}]),
+                _page([{"id": "crd_1"}], next_url),
+                _page([{"id": "crd_2"}]),
+            ],
+        )
+
+        assert [(row["contact_list_id"], row["id"]) for row in result.rows] == [("grp_1", "crd_1"), ("grp_1", "crd_2")]
+        assert result.urls[2] == next_url
+
 
 class TestFrontSourceResponse:
     @parameterized.expand(

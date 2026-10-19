@@ -3,7 +3,11 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
-import { useLocalStorage } from 'lib/hooks/useLocalStorage'
+import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { useKeyboardNavigation } from 'lib/lemon-ui/LemonMenu/useKeyboardNavigation'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -26,10 +30,12 @@ import {
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
+import { agentPromptButtonLogic } from './agentPromptButtonLogic'
 
 export interface AgentPromptAction {
     /** Stable key used for localStorage persistence */
@@ -38,6 +44,8 @@ export interface AgentPromptAction {
     icon?: React.ReactElement
     /** Returns the prompt text for this action */
     buildPrompt: () => string
+    /** Content that is not an agent prompt, like a raw stack trace, so it goes out without the PostHog MCP instructions. */
+    raw?: boolean
 }
 
 export type AgentPromptDestination =
@@ -54,22 +62,19 @@ export type AgentPromptDestination =
 /** Quill button sizes, minus the icon-only variants (the dropdown trigger derives those automatically). */
 type AgentPromptButtonSize = Exclude<NonNullable<QuillButtonProps['size']>, 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg'>
 
+const ICON_SIZE: Record<AgentPromptButtonSize, QuillButtonProps['size']> = {
+    default: 'icon',
+    xs: 'icon-xs',
+    sm: 'icon-sm',
+    lg: 'icon-lg',
+    row: 'icon',
+    inline: 'icon-xs',
+}
+
 export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
-    /**
-     * Namespace for the localStorage key that persists the remembered combo.
-     * Pass a unique value per call-site to give that surface its own memory.
-     * When omitted, defaults to a key derived from the sorted action keys, so
-     * surfaces with the same action set share state and surfaces with different
-     * actions stay isolated.
-     */
-    storageKey?: string
-    /** Content selected when nothing is stored yet. Falls back to the first action. */
-    defaultActionKey?: string
-    /** Destination selected when nothing is stored yet. Falls back to the first agent. */
-    defaultAgentKey?: AgentPromptDestination
-    agentKeys?: AgentPromptDestination[]
-    agentSelectionMode?: 'select' | 'run'
+    /** Agent always shown on the main button, in place of the one the user last picked. */
+    pinnedAgentKey?: AgentPromptDestination
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
@@ -77,6 +82,8 @@ export interface AgentPromptButtonProps {
     onOpenChange?: (open: boolean) => void
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
+    /** `lemon` renders a LemonButton with a side menu, to sit beside other Lemon buttons. `size` and `variant` apply to `quill` only. */
+    appearance?: 'quill' | 'lemon'
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
     defaultOpen?: boolean
     /** Fired whenever a combo runs (agent deeplink opened or clipboard copied). Useful for analytics. */
@@ -84,11 +91,6 @@ export interface AgentPromptButtonProps {
     /** GitHub `owner/repo` slug passed to agents that can open a specific repository (e.g. Claude Code, Codex). */
     repository?: string
     'data-attr'?: string
-}
-
-interface RememberedCombo {
-    actionKey: string
-    agentKey: string | null
 }
 
 interface AgentDef {
@@ -268,63 +270,72 @@ const AGENTS: AgentDef[] = [
     },
 ]
 
+export function buildAgentPrompt(
+    action: AgentPromptAction,
+    agentKey: AgentPromptDestination,
+    projectId: number | null,
+    isCloudOrDev: boolean
+): string {
+    const prompt = action.buildPrompt()
+    // PostHog AI reads PostHog data directly, so it has no use for the MCP server.
+    // Self-hosted instances have no PostHog MCP server to connect to.
+    if (action.raw || agentKey === 'posthog-ai' || !isCloudOrDev) {
+        return prompt
+    }
+    const project = projectId ? ` in PostHog project ${projectId}` : ''
+    return `${prompt.trimEnd()}\n\nIf working with PostHog data would help with this task, use the PostHog MCP server${project}. If the server is not connected, ask me to install it by running \`${MCP_INSTALL_COMMAND}\` in a terminal.`
+}
+
 export function AgentPromptButton({
     actions,
-    storageKey,
-    defaultActionKey,
-    defaultAgentKey,
-    agentKeys,
-    agentSelectionMode = 'select',
+    pinnedAgentKey,
     labelMode = 'action',
     menuClassName,
     onOpenChange,
     size = 'default',
     variant = 'default',
+    appearance = 'quill',
     defaultOpen = false,
     onRun,
     repository,
     'data-attr': dataAttr,
 }: AgentPromptButtonProps): JSX.Element | null {
-    const resolvedStorageKey =
-        storageKey ??
-        `agent-prompt-button:${actions
-            .map((a) => a.key)
-            .sort()
-            .join(',')}`
-    const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${resolvedStorageKey}:combo`, null)
+    const actionSetKey = actions
+        .map((a) => a.key)
+        .sort()
+        .join(',')
+    const { rememberedAgentKey, rememberedActionKeys } = useValues(agentPromptButtonLogic)
+    const { rememberAgent, rememberAction } = useActions(agentPromptButtonLogic)
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    const availableAgents = AGENTS.filter(
-        (agent) => (!agentKeys || agentKeys.includes(agent.key)) && !(todayRailEnabled && agent.key === 'posthog-ai')
+    const { currentProjectId } = useValues(projectLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
+    // The Lemon menu renders its overlay directly, so it wires LemonMenu's arrow-key focus handling itself.
+    const lemonKeyboard = useKeyboardNavigation<HTMLButtonElement>(
+        (actions.length > 1 ? actions.length : 0) + availableAgents.length
     )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
     }
 
-    const activeAction =
-        (remembered ? actions.find((a) => a.key === remembered.actionKey) : null) ??
-        actions.find((a) => a.key === defaultActionKey) ??
-        actions[0]
-    const defaultAgent = availableAgents.find((a) => a.key === defaultAgentKey) ?? availableAgents[0]
+    const activeAction = actions.find((a) => a.key === rememberedActionKeys[actionSetKey]) ?? actions[0]
     const activeAgent =
-        agentSelectionMode === 'run'
-            ? defaultAgent
-            : ((remembered?.agentKey ? availableAgents.find((a) => a.key === remembered.agentKey) : null) ??
-              defaultAgent)
+        availableAgents.find((a) => a.key === (pinnedAgentKey ?? rememberedAgentKey)) ?? availableAgents[0]
     const buttonLabel =
         labelMode === 'destination' && activeAgent.key !== 'clipboard'
             ? `Open in ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
 
     const selectAction = (actionKey: string): void => {
-        setRemembered({ actionKey, agentKey: remembered?.agentKey ?? null })
+        rememberAction(actionSetKey, actionKey)
     }
 
-    const runCombo = (actionKey: string, agentKey: string): void => {
+    const runCombo = (actionKey: string, agentKey: AgentPromptDestination): void => {
         const action = actions.find((a) => a.key === actionKey) ?? actions[0]
-        const prompt = action.buildPrompt()
+        const prompt = buildAgentPrompt(action, agentKey, currentProjectId, !!isCloudOrDev)
         onRun?.({ actionKey, agentKey })
         const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {
@@ -333,19 +344,71 @@ export function AgentPromptButton({
         agent.open(prompt, { askSidePanelMax, actionLabel: action.label, repository })
     }
 
-    const selectAgent = (agentKey: string): void => {
-        const actionKey = remembered?.actionKey ?? actions[0].key
-        if (agentSelectionMode === 'run') {
-            runCombo(actionKey, agentKey)
-            setOpen(false)
-            return
-        }
-        setRemembered({ actionKey, agentKey })
+    const selectAgent = (agentKey: AgentPromptDestination): void => {
+        rememberAgent(agentKey)
+        runCombo(activeAction.key, agentKey)
         setOpen(false)
     }
 
     const handleMainClick = (): void => {
         runCombo(activeAction.key, activeAgent.key)
+    }
+
+    if (appearance === 'lemon') {
+        return (
+            // Focus and key events bubble up from the side action, which takes no handlers of its own.
+            // React also bubbles them up from the portaled menu, so only events from inside this subtree count.
+            <div
+                className="contents"
+                onFocus={(e) => e.currentTarget.contains(e.target) && lemonKeyboard.onTriggerFocus(e)}
+                onKeyDown={(e) => e.currentTarget.contains(e.target as Node) && lemonKeyboard.onTriggerKeyDown(e)}
+            >
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
+                    onClick={handleMainClick}
+                    data-attr={dataAttr}
+                    title={`Run: ${buttonLabel}`}
+                    sideAction={{
+                        'aria-label': actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent',
+                        dropdown: {
+                            placement: 'bottom-end',
+                            onVisibilityChange: onOpenChange,
+                            overlay: (
+                                <LemonMenuOverlay
+                                    itemsRef={lemonKeyboard.itemsRef}
+                                    onKeyDown={lemonKeyboard.onItemsKeyDown}
+                                    items={[
+                                        actions.length > 1 && {
+                                            title: 'Content',
+                                            items: actions.map((action) => ({
+                                                label: action.label,
+                                                icon: action.icon,
+                                                active: action.key === activeAction.key,
+                                                onClick: () => selectAction(action.key),
+                                            })),
+                                        },
+                                        {
+                                            title: 'Open in',
+                                            items: availableAgents.map((agent) => ({
+                                                label: agent.name,
+                                                icon: (
+                                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                                ),
+                                                onClick: () => selectAgent(agent.key),
+                                            })),
+                                        },
+                                    ]}
+                                />
+                            ),
+                        },
+                    }}
+                >
+                    <span className="truncate max-w-64">{buttonLabel}</span>
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
@@ -372,11 +435,9 @@ export function AgentPromptButton({
                 <DropdownMenuTrigger asChild>
                     <QuillButton
                         variant={variant}
-                        size={size === 'default' ? 'icon' : `icon-${size}`}
+                        size={ICON_SIZE[size]}
                         className="border-0"
-                        aria-label={
-                            agentSelectionMode === 'run' ? 'Open prompt in an agent' : 'Choose prompt and destination'
-                        }
+                        aria-label={actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent'}
                     >
                         <IconChevronDown className="size-4 text-current" />
                     </QuillButton>
@@ -408,33 +469,17 @@ export function AgentPromptButton({
                         <DropdownMenuSeparator className="mx-0" />
                     </>
                 )}
-                <DropdownMenuLabel>{agentSelectionMode === 'run' ? 'Open in' : 'Destination'}</DropdownMenuLabel>
-                {agentSelectionMode === 'run' ? (
-                    <DropdownMenuGroup>
-                        {availableAgents
-                            .filter((agent) => agent.key !== activeAgent.key)
-                            .map((agent) => (
-                                <DropdownMenuItem key={agent.key} asChild onSelect={() => selectAgent(agent.key)}>
-                                    <ButtonPrimitive menuItem className="gap-1.5">
-                                        <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
-                                        <span className="truncate flex-1">{agent.name}</span>
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ))}
-                    </DropdownMenuGroup>
-                ) : (
-                    <DropdownMenuRadioGroup value={activeAgent.key} onValueChange={selectAgent}>
-                        {availableAgents.map((agent) => (
-                            <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
-                                <ButtonPrimitive menuItem className="gap-1.5">
-                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
-                                    <span className="truncate flex-1">{agent.name}</span>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
-                        ))}
-                    </DropdownMenuRadioGroup>
-                )}
+                <DropdownMenuLabel>Open in</DropdownMenuLabel>
+                <DropdownMenuGroup>
+                    {availableAgents.map((agent) => (
+                        <DropdownMenuItem key={agent.key} asChild onSelect={() => selectAgent(agent.key)}>
+                            <ButtonPrimitive menuItem className="gap-1.5">
+                                <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                <span className="truncate flex-1">{agent.name}</span>
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

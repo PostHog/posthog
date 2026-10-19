@@ -41,6 +41,7 @@ import {
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -195,6 +196,8 @@ describe('engineeringAnalyticsLogic', () => {
     let extraUnmounts: (() => void)[] = []
 
     beforeEach(() => {
+        // The last repository used persists, so one test's pick must not steer the next test's forward.
+        localStorage.clear()
         initKeaTests()
         ApiConfig.setCurrentProjectId(1)
         jest.clearAllMocks()
@@ -368,7 +371,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
-    it('lists one option per (source, repo) pair and scopes to the picked repo', async () => {
+    it('lists one option per (source, repo) pair and switches to the picked repo', async () => {
         // The option value encodes (source, repo) so a multi-repo source's repos stay distinct;
         // two distinct sources and one source syncing two repos produce the same option shape.
         mockSources.mockResolvedValue([
@@ -378,28 +381,65 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
+        const scope = repoScopeLogic()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(true)
-        expect(logic.values.sourceOptions).toEqual([
+        expect(scope.values.hasMultipleSources).toBe(true)
+        expect(scope.values.sourceOptions).toEqual([
             { value: 'src-multi::posthog/posthog', label: 'posthog/posthog' },
             { value: 'src-multi::posthog/posthog.com', label: 'posthog/posthog.com' },
             { value: 'src-other::posthog/posthog.js', label: 'posthog/posthog.js' },
         ])
 
-        logic.actions.setScope('src-multi', 'posthog/posthog.com')
+        // One source syncs that repository, so the path alone names it and no `?source` rides along.
+        scope.actions.switchRepo('src-multi::posthog/posthog.com')
         await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
-        expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-multi', repo: 'posthog/posthog.com' })
+        expect(routedPath()).toBe(urls.engineeringAnalytics('posthog/posthog.com'))
+        expect(router.values.searchParams).toEqual({})
+        expect(scope.values.selectedScope).toBe('src-multi::posthog/posthog.com')
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: 'posthog/posthog.com' })
+    })
+
+    it.each([
+        [
+            'another source of the repository on screen keeps the page and sets ?source',
+            'src-mirror::PostHog/PostHog',
+            urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42),
+            { source: 'src-mirror' },
+        ],
+        [
+            'a legacy source with no repository opens the repo-less list tab with ?source',
+            'src-legacy::',
+            urls.engineeringAnalyticsPullRequestList(),
+            { source: 'src-legacy' },
+        ],
+    ])('switching repository: %s', async (_label, pick, pathname, searchParams) => {
+        mockSources.mockResolvedValue([
+            { id: 'src-main', repo: 'posthog/posthog', prefix: 'main', synced: true },
+            { id: 'src-mirror', repo: 'PostHog/PostHog', prefix: 'mirror', synced: true },
+            { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true },
+        ])
+        router.actions.push(urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42))
+        const scope = repoScopeLogic()
+        scope.mount()
+        extraUnmounts.push(() => scope.unmount())
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+
+        scope.actions.switchRepo(pick)
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(scope.values.selectedScope).toBe(pick)
     })
 
     it('hides the picker when the team has a single source', async () => {
         mockSources.mockResolvedValue([SOURCES[0]])
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        const scope = repoScopeLogic()
+        scope.mount()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(false)
+        expect(scope.values.hasMultipleSources).toBe(false)
     })
 
     it('defaults to no source, then scopes every endpoint to the picked one and reloads', async () => {
@@ -463,30 +503,61 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['workflows', () => urls.engineeringAnalyticsWorkflows()],
-        ['tests', () => urls.engineeringAnalyticsTests()],
-        ['teams', () => urls.engineeringAnalyticsTeams()],
-        ['authors', () => urls.engineeringAnalyticsAuthors()],
-        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay')],
-        ['deploys', () => urls.engineeringAnalyticsDeploys()],
-    ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
+        ['workflows', () => urls.engineeringAnalyticsWorkflows('posthog/posthog.com')],
+        ['tests', () => urls.engineeringAnalyticsTests('posthog/posthog.com')],
+        ['teams', () => urls.engineeringAnalyticsTeams('posthog/posthog.com')],
+        ['authors', () => urls.engineeringAnalyticsAuthors('posthog/posthog.com')],
+        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay', 'posthog/posthog.com')],
+        ['deploys', () => urls.engineeringAnalyticsDeploys('posthog/posthog.com')],
+    ])('the %s route takes the repository from its path and the source from ?source', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
 
-        router.actions.push(url(), { source: 'src-newer', repo: 'posthog/posthog.com' })
+        router.actions.push(url(), { source: 'src-newer' })
         await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
     })
 
     it('requests the hub once on a scoped direct load', async () => {
-        router.actions.push(urls.engineeringAnalyticsTeam('team-replay'), { source: 'src-newer' })
+        router.actions.push(urls.engineeringAnalyticsTeam('team-replay', 'posthog/posthog.com'), {
+            source: 'src-newer',
+        })
         logic = engineeringAnalyticsLogic()
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
         expect(mockCiCards).toHaveBeenCalledTimes(1)
-        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer', repo: 'posthog/posthog.com' })
+    })
+
+    it.each([
+        ['the repository it names', { repo: 'posthog/posthog.com' }, 'posthog/posthog.com'],
+        ['the first synced repository of the source it names', { source: 'src-newer' }, 'posthog/posthog.com'],
+        ['the default repository when it names none', {}, 'posthog/posthog'],
+    ])('an old repo-less link forwards to %s, then loads once', async (_label, searchParams, repo) => {
+        mockSources.mockResolvedValue(SOURCES)
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), { ...searchParams, date_from: '-30d' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList(repo))
+        expect(router.values.searchParams).not.toHaveProperty('repo')
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ repo })
+    })
+
+    it('an old repo-less link to a legacy source stays repo-less and reads that source', async () => {
+        mockSources.mockResolvedValue([...SOURCES, { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true }])
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), { source: 'src-legacy' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['noRepoToForward', 'loadCardsSuccess'])
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-legacy' })
     })
 
     const openPullRequestList = async (
@@ -494,10 +565,11 @@ describe('engineeringAnalyticsLogic', () => {
         sources: GitHubSourceApi[] = SOURCES
     ): Promise<jest.SpyInstance> => {
         mockSources.mockResolvedValue(sources)
-        router.actions.push(urls.engineeringAnalyticsPullRequestList(), searchParams)
+        const { repo, ...rest } = searchParams
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(repo), rest)
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        await expectLogic(repoScopeLogic).toDispatchActions(['loadGithubSourcesSuccess'])
         return jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
     }
     const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
@@ -530,7 +602,7 @@ describe('engineeringAnalyticsLogic', () => {
             PICKED,
             '#42',
             urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
-            PICKED,
+            { source: 'src-older', date_from: '-30d' },
             'number',
         ],
     ])('the pull request jump opens %s once', async (_label, opened, text, pathname, searchParams, inputKind) => {

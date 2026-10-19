@@ -30,6 +30,7 @@ from posthog.temporal.data_modeling.metrics import (
     get_dag_duration_metric,
     get_dag_finished_metric,
     get_dag_node_count_metric,
+    get_trino_shadow_start_metric,
 )
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
@@ -628,13 +629,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
             )
+            get_trino_shadow_start_metric("started").add(1)
         except WorkflowAlreadyStartedError:
+            # A shadow that hangs until its timeout emits no DAG metric, so a rising skip rate is its only signal.
+            get_trino_shadow_start_metric("skipped_still_running").add(1)
             temporalio.workflow.logger.info(
                 "Previous Trino shadow run is still running, skipping", extra=inputs.properties_to_log
             )
         except Exception as e:
             if _is_cancellation(e):
                 raise
+            get_trino_shadow_start_metric("error").add(1)
             capture_exception(e)
             temporalio.workflow.logger.warning(
                 "Could not start the Trino shadow run", extra={"error": str(e), **inputs.properties_to_log}

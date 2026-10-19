@@ -56,7 +56,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -93,11 +92,11 @@ import {
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import {
     FeatureFlagConfigFormat,
-    STALE_ROW_VERSION_RELOADED_MESSAGE,
     featureFlagConfigFormat,
+    featureFlagDeleteOptions,
     isRulesV2EditableConfig,
-    isStaleRowVersionError,
     isV1FeatureFlagConfig,
+    reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
@@ -401,6 +400,15 @@ export type VariantError = {
     key: string | undefined
 }
 
+/** Another flag in the project that uses the key typed in the form. */
+export interface FeatureFlagKeyConflict {
+    key: string
+    existingFlagId: number
+    existingFlagKey: string
+    /** False when the keys differ only by letter case. The backend rejects only exact matches. */
+    exact: boolean
+}
+
 export interface DependentFlag {
     id: number
     key: string
@@ -502,17 +510,23 @@ export function validateFeatureFlagKey(key: string): string | undefined {
             : undefined
 }
 
+// Mirrors RESERVED_NEW_VARIANT_KEYS in products/feature_flags/backend/reserved_variant_keys.py.
+const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null']
+
 /** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
  * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume
- * directly (e.g. model IDs like "provider/model-1.2"), and the API has always accepted them. */
-export function validateFeatureFlagVariantKey(key: string): string | undefined {
+ * directly (e.g. model IDs like "provider/model-1.2"), and the API has always accepted them.
+ * `savedKeys` are the saved flag's variant keys. A reserved key passes when the saved flag already has it. */
+export function validateFeatureFlagVariantKey(key: string, savedKeys: readonly string[] = []): string | undefined {
     return !key
         ? 'Please set a key'
         : key.length > 400
           ? 'Key must be 400 characters or less.'
           : !key.match?.(/^[a-zA-Z0-9_\-./]+$/)
             ? 'Only letters, numbers, hyphens (-), underscores (_), dots (.) & slashes (/) are allowed.'
-            : undefined
+            : RESERVED_NEW_VARIANT_KEYS.includes(key) && !savedKeys.includes(key)
+              ? `The key "${key}" is reserved. Choose another key.`
+              : undefined
 }
 
 function getVariantRolloutSum(variants: MultivariateFlagVariant[] = []): number {
@@ -861,16 +875,6 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
-// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
-function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
-    if (!isStaleRowVersionError(token, error)) {
-        return false
-    }
-    lemonToast.error(error?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
-    reload()
-    return true
-}
-
 // A v2 write must carry the row version the previous write returned, so inline saves go out one at a time.
 function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>): Promise<T> {
     const request = (cache.inlineSaveQueue ?? Promise.resolve()).catch(() => null).then(send)
@@ -966,6 +970,7 @@ export interface featureFlagLogicValues {
     copySchedule: boolean
     cronExpression: string | null
     cronPreview: string | null
+    currentKeyConflict: FeatureFlagKeyConflict | null
     customPairDisableCron: string
     customPairDisableCronPreview: string | null
     customPairEnableCron: string
@@ -1104,6 +1109,8 @@ export interface featureFlagLogicValues {
     isFeatureFlagValid: boolean
     isFormDirty: boolean
     isRecurring: boolean
+    keyConflict: FeatureFlagKeyConflict | null
+    keyConflictLoading: boolean
     multivariateEnabled: boolean
     newCohort: CohortType | null
     newCohortLoading: boolean
@@ -1133,6 +1140,7 @@ export interface featureFlagLogicValues {
         version?: number
     }
     rulesV2DraftDirty: boolean
+    savedVariantKeys: string[]
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
@@ -1198,6 +1206,31 @@ export interface featureFlagLogicActions {
     }
     applyUrlTemplate: (templateId: string) => {
         templateId: string
+    }
+    checkKeyConflict: (key: string) => string
+    checkKeyConflictFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    checkKeyConflictSuccess: (
+        keyConflict: {
+            exact: boolean
+            existingFlagId: number
+            existingFlagKey: string
+            key: string
+        } | null,
+        payload?: string
+    ) => {
+        keyConflict: {
+            exact: boolean
+            existingFlagId: number
+            existingFlagKey: string
+            key: string
+        } | null
+        payload?: string
     }
     copyFlag: () => any
     copyFlagFailure: (
@@ -2199,6 +2232,10 @@ export interface featureFlagLogicMeta {
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
+        currentKeyConflict: (
+            keyConflict: FeatureFlagKeyConflict | null,
+            featureFlag: FeatureFlagType
+        ) => FeatureFlagKeyConflict | null
         hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
         tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
         advancedPanelOpen: (
@@ -2220,7 +2257,8 @@ export interface featureFlagLogicMeta {
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
-        variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
+        savedVariantKeys: (originalFeatureFlag: FeatureFlagType | null) => string[]
+        variantErrors: (variants: MultivariateFlagVariant[], savedVariantKeys: string[]) => VariantError[]
         repeatsValue: (
             isRecurring: boolean,
             cronExpression: string | null,
@@ -2425,7 +2463,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         multivariate: {
                             variants: filters?.multivariate?.variants?.map(
                                 ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                    key: validateFeatureFlagVariantKey(variantKey),
+                                    key: validateFeatureFlagVariantKey(variantKey, values.savedVariantKeys),
                                     // One string on the array key (the usual form) can't say which
                                     // panels to expand, so the set-level error fans out per index.
                                     rollout_percentage: rolloutSumError,
@@ -3459,7 +3497,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
                         const restoredFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
-                            { deleted: false }
+                            { deleted: false, ...rowVersionToken(featureFlag) }
                         )
                         // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
                         deleteFromTree('feature_flag', String(featureFlag.id))
@@ -3546,7 +3584,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-last_modified_at&limit=5`
                         )
-                        return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
+                        return response.results
                     }
                     return []
                 },
@@ -3752,6 +3790,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return null
             },
         },
+        keyConflict: [
+            null as FeatureFlagKeyConflict | null,
+            {
+                checkKeyConflict: async (key: string, breakpoint) => {
+                    await breakpoint(300)
+                    const { currentProjectId, featureFlag, originalFeatureFlag } = values
+                    if (
+                        !currentProjectId ||
+                        validateFeatureFlagKey(key) ||
+                        (featureFlag.id && key === originalFeatureFlag?.key)
+                    ) {
+                        return null
+                    }
+                    // A failed lookup must not block the form. The save-time check stays as the fallback.
+                    const response = await featureFlagsList(String(currentProjectId), { key }).catch(() => null)
+                    breakpoint()
+                    // The list filter is case-insensitive, so it also returns keys that differ only by case.
+                    const others = (response?.results ?? []).filter((flag) => flag.id !== featureFlag.id)
+                    const match =
+                        others.find((flag) => flag.key === key) ??
+                        others.find((flag) => flag.key.toLowerCase() === key.toLowerCase())
+                    return match
+                        ? { key, existingFlagId: match.id, existingFlagKey: match.key, exact: match.key === key }
+                        : null
+                },
+            },
+        ],
         dependentFlags: [
             [] as DependentFlag[],
             {
@@ -3785,6 +3850,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     }),
     listeners(({ actions, values, props, sharedListeners, cache }) => ({
+        setFeatureFlagValue: ({ name, value }) => {
+            // The form `Field` dispatches the name as a path array (`['key']`), while direct calls pass a string.
+            const field = Array.isArray(name) ? name.join('.') : name
+            if (field === 'key') {
+                actions.checkKeyConflict(value)
+            }
+        },
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
             const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
 
@@ -4384,6 +4456,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { id: featureFlag.id },
                 label: featureFlag.key,
+                // Read the row version now: an inline save may have moved it on since the dialog opened.
+                ...featureFlagDeleteOptions(values.featureFlag, actions.refreshFeatureFlag),
                 callback: (undo) => {
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))
@@ -5081,6 +5155,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return getRecordingFilterForFlagVariant(flagKey, null, featureFlag.has_enriched_analytics)
             },
         ],
+        currentKeyConflict: [
+            (s) => [s.keyConflict, s.featureFlag],
+            (keyConflict: FeatureFlagKeyConflict | null, featureFlag: FeatureFlagType): FeatureFlagKeyConflict | null =>
+                keyConflict && keyConflict.key === featureFlag.key ? keyConflict : null,
+        ],
         hasEarlyAccessFeatures: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
@@ -5193,11 +5272,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
             },
         ],
+        savedVariantKeys: [
+            (s) => [s.originalFeatureFlag],
+            (originalFeatureFlag: FeatureFlagType | null): string[] =>
+                originalFeatureFlag?.id
+                    ? (originalFeatureFlag.filters.multivariate?.variants ?? []).map(({ key }) => key)
+                    : [],
+        ],
         variantErrors: [
-            (s) => [s.variants],
-            (variants: MultivariateFlagVariant[]) => {
+            (s) => [s.variants, s.savedVariantKeys],
+            (variants: MultivariateFlagVariant[], savedVariantKeys: string[]) => {
                 const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
-                    key: validateFeatureFlagVariantKey(variantKey),
+                    key: validateFeatureFlagVariantKey(variantKey, savedVariantKeys),
                 }))
                 return errors
             },

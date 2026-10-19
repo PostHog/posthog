@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.companycam
 from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
     CompanycamSourceConfig,
@@ -35,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeConfig]):
+    codebase_detection = detect(env=("^COMPANYCAM_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -68,7 +72,7 @@ class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

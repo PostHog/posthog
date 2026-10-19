@@ -155,13 +155,21 @@ WHERE p.uuid IS NULL OR l.uuid IS NULL OR {_PERSON_ROW_DIFFERS}
 LIMIT %(limit)s
 """
 
+# These sides join a child table to persons before the full outer join.
+# MATERIALIZED stops the planner from serving the sample LIMIT through
+# index-ordered merge joins: inlined, it merges the child table with persons
+# on team_id alone and checks person_id as a join filter, so every row is
+# compared against every person of its team. The count queries reference
+# each side twice and are materialized either way. The person sides stay
+# inline because their full outer join reads both (team_id, uuid) indexes
+# in order with no intermediate join.
 _DISTINCT_ID_SIDES = """
-WITH legacy AS (
+WITH legacy AS MATERIALIZED (
     SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM posthog_persondistinctid d
     JOIN posthog_person p ON p.id = d.person_id AND p.team_id = d.team_id
     WHERE NOT d.is_deleted AND NOT p.is_deleted
-), personhog AS (
+), personhog AS MATERIALIZED (
     SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM personhog_persondistinctid_tmp d
     JOIN personhog_person_tmp p ON p.team_id = d.team_id AND p.id = d.person_id
@@ -196,13 +204,14 @@ WHERE p.person_uuid IS NULL OR l.person_uuid IS NULL OR l.person_uuid <> p.perso
 LIMIT %(limit)s
 """
 
+# MATERIALIZED for the same reason as _DISTINCT_ID_SIDES.
 _HASH_KEY_SIDES = """
-WITH legacy AS (
+WITH legacy AS MATERIALIZED (
     SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
     FROM posthog_featureflaghashkeyoverride h
     JOIN posthog_person p ON p.id = h.person_id AND p.team_id = h.team_id
     WHERE NOT p.is_deleted
-), personhog AS (
+), personhog AS MATERIALIZED (
     SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
     FROM personhog_featureflaghashkeyoverride_tmp h
     JOIN personhog_person_tmp p ON p.team_id = h.team_id AND p.id = h.person_id
@@ -470,6 +479,7 @@ class ShadowLaneStopConfig(dagster.Config):
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
+    # Per deployment: the consumers get the full budget to drain before the processors scale.
     stop_timeout_seconds: int = 600
 
 
@@ -490,10 +500,6 @@ class ShadowDriftConfig(dagster.Config):
 @dagster.op
 def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStopConfig) -> None:
     apps = apps_api()
-    deployments = [config.consumer_deployment, config.processor_deployment]
-    for deployment in deployments:
-        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
-        scale_deployment(apps, config.namespace, deployment, 0)
 
     def is_stopped(deployment: str) -> bool:
         if deployment_pod_count(apps, config.namespace, deployment) > 0:
@@ -501,11 +507,17 @@ def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStop
         context.log.info(f"{deployment} has no pods left")
         return True
 
-    pending = wait_for_deployments(deployments, is_stopped, timeout_seconds=config.stop_timeout_seconds)
-    if pending:
-        raise dagster.Failure(
-            description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
-        )
+    # Consumers first, and processors only once the consumers' pods are gone. A consumer drains its in-flight
+    # batches before it exits, so the processors then hold no un-acked work. A processor scaled down while a
+    # consumer still waits on it gets only its drain window to finish those batches, and fails what is left.
+    for deployment in (config.consumer_deployment, config.processor_deployment):
+        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
+        scale_deployment(apps, config.namespace, deployment, 0)
+        pending = wait_for_deployments([deployment], is_stopped, timeout_seconds=config.stop_timeout_seconds)
+        if pending:
+            raise dagster.Failure(
+                description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
+            )
 
 
 @dagster.op(ins={"lane_stopped": dagster.In(dagster.Nothing)})

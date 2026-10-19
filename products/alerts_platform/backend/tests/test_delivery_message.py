@@ -63,8 +63,11 @@ def _build(
     transition: AnnouncedTransition,
     *,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
 ) -> AlertMessage:
-    return build_message(announcement, transition, team_id=7, incident_action=incident_action)
+    return build_message(
+        announcement, transition, team_id=7, incident_action=incident_action, source_alert_url=source_alert_url
+    )
 
 
 class TestAlertMessage:
@@ -89,6 +92,13 @@ class TestAlertMessage:
 
         assert message.headline == expected_headline
         assert message.alert_url.endswith("/project/7/platform-alerts/cfg-1")
+
+    def test_a_message_links_to_the_alert_page_its_source_names(self) -> None:
+        url = "https://app.example.com/project/7/logs/alerts/legacy-1"
+
+        message = _build(_announcement(), _transition(AlertEventKind.FIRING), source_alert_url=url)
+
+        assert message.alert_url == url
 
     @pytest.mark.parametrize("source", list(SourceKind))
     def test_every_source_kind_has_a_headline(self, source: SourceKind) -> None:

@@ -90,6 +90,7 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
                 "surface": "support",
                 "query_count": len(input.queries),
                 "result_count": len(chunk_ids),
+                "library_scoped": False,
             },
             groups=groups(team=team),
         )

@@ -20,6 +20,7 @@ from .base import _BaseEvalRun
 from .config import BaseEvalCase
 from .engines.types import CaseHooks, ExperimentResult
 from .log_sink import write_case_logs
+from .offline_results import OfflineEvalSuite
 
 if TYPE_CHECKING:
     from .harness.context import EvalContext
@@ -50,6 +51,7 @@ class _OneShotEvalRun(_BaseEvalRun):
         is_public: bool,
         no_send_logs: bool,
         task_fn: OneShotTaskFn,
+        offline_suite: OfflineEvalSuite | None = None,
     ) -> None:
         super().__init__(
             experiment_name=experiment_name,
@@ -58,6 +60,7 @@ class _OneShotEvalRun(_BaseEvalRun):
             ctx=ctx,
             is_public=is_public,
             no_send_logs=no_send_logs,
+            offline_suite=offline_suite,
         )
         self._task_fn = task_fn
 
@@ -67,17 +70,23 @@ class _OneShotEvalRun(_BaseEvalRun):
         case = self.cases_by_name.get(input["name"]) or BaseEvalCase(name=input["name"], prompt=input.get("prompt", ""))
         started = time.monotonic()
         async with self.ctx.one_shot_slots:
+            await self._set_case_phase(hooks, "agent")
             # Budget the task from slot acquisition, so time spent queued on the
             # semaphore can never eat into a case's timeout.
             output = await asyncio.wait_for(
                 self._task_fn(case, self.ctx),
                 timeout=self.ctx.per_case_timeout_seconds,
             )
+        await self._set_case_phase(hooks, "logs")
         output.setdefault("prompt", case.prompt)
-        await self._write_local_logs(case, output, duration=time.monotonic() - started)
+        await self._write_local_logs(
+            case, output, duration=time.monotonic() - started, trial_id=hooks.metadata.get("trial_id")
+        )
         return output
 
-    async def _write_local_logs(self, case: BaseEvalCase, output: dict[str, Any], duration: float) -> None:
+    async def _write_local_logs(
+        self, case: BaseEvalCase, output: dict[str, Any], duration: float, trial_id: str | None = None
+    ) -> None:
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
@@ -87,6 +96,7 @@ class _OneShotEvalRun(_BaseEvalRun):
                 prompt=case.prompt,
                 duration=duration,
                 last_message=str(output.get("last_message", "")),
+                trial_id=trial_id,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", case.name)
@@ -103,6 +113,7 @@ async def OneShotEval(
     ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
+    offline_suite: OfflineEvalSuite | None = None,
 ) -> ExperimentResult:
     """Run a one-shot evaluation suite via Braintrust.
 
@@ -120,6 +131,7 @@ async def OneShotEval(
         is_public=is_public,
         no_send_logs=no_send_logs,
         task_fn=task,
+        offline_suite=offline_suite,
     )
     return await run.run()
 

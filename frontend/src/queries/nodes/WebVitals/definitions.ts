@@ -3,7 +3,11 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/common'
 
-import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
+import { InsightQueryNode, WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
+import type { TrendResult } from '~/types'
+
+/** A web vitals result row. The trends runner gives every row an `order`, which `WebVitalsItem` does not declare. */
+export type WebVitalsRow = WebVitalsItem & Pick<TrendResult, 'order'>
 
 const PERCENTILE_NAME: Record<WebVitalsPercentile, string> = {
     p75: '75%',
@@ -63,13 +67,18 @@ export const EXPERIENCE_PER_BAND: Record<WebVitalsMetricBand, string> = {
 }
 
 export const getMetric = (
-    results: WebVitalsItem[] | undefined,
+    results: WebVitalsRow[] | undefined,
+    querySource: InsightQueryNode | undefined,
     metric: WebVitalsMetric,
     percentile: WebVitalsPercentile
 ): number | undefined => {
-    const data = results
-        ?.filter((result) => result.action.custom_name === metric) // Filter to the right metric
-        .find((result) => result.action.math === percentile)?.data // Get the right percentile // Get the actual data array
+    // The toolbar bundles this file, so it indexes the query series itself instead of importing
+    // `getResultSeries` from `scenes/`. A web vitals query has no formulas, so `order` is always a series index.
+    const series = querySource && 'series' in querySource ? querySource.series : []
+    const data = results?.find((result) => {
+        const node = result.order != null ? series[result.order] : undefined
+        return node?.custom_name === metric && node.math === percentile
+    })?.data
 
     if (!data || data.length === 0) {
         return undefined

@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -14,10 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 class TestEventzillaSourceClass:
     def setup_method(self) -> None:
         self.source = EventzillaSource()
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["events", "attendees"])
-        assert {s.name for s in schemas} == {"events", "attendees"}
 
     @pytest.mark.parametrize("valid,expected", [(True, (True, None)), (False, (False, "Invalid Eventzilla API key"))])
     def test_validate_credentials(self, valid: bool, expected: tuple[bool, str | None]) -> None:
