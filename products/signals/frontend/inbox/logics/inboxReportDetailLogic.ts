@@ -483,7 +483,7 @@ export interface inboxReportDetailLogicActions {
         prComments: readonly PullRequestCommentApi[] | null
         payload?: void
     }
-    loadReportArtefacts: () => any
+    loadReportArtefacts: (_: void) => void
     loadReportArtefactsFailure: (
         error: string,
         errorObject?: any
@@ -493,10 +493,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadReportArtefactsSuccess: (
         reportArtefacts: SignalReportArtefact[],
-        payload?: any
+        payload?: void
     ) => {
         reportArtefacts: SignalReportArtefact[]
-        payload?: any
+        payload?: void
     }
     loadReportChecks: (_: void) => void
     loadReportChecksFailure: (
