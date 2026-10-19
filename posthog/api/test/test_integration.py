@@ -7940,7 +7940,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert refreshed.json()["installations"] == []
 
     @patch("products.cdp.backend.internal_events.produce_internal_event")
-    def test_invalid_credential_discard_is_private_and_retained(self, produce: MagicMock) -> None:
+    def test_invalid_credential_is_flagged_with_a_private_audit_record(self, produce: MagicMock) -> None:
         integration = UserIntegration.objects.create(
             user=self.user,
             kind="github",
@@ -7963,9 +7963,9 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert log.team_id is None
         assert log.organization_id == self.organization.id
         assert log.detail is not None
-        assert log.detail["trigger"]["payload"]["event"] == "credential_deleted"
+        assert log.detail["trigger"]["payload"]["event"] == "credential_reauthorization_required"
         assert 7200 <= log.detail["trigger"]["payload"]["token_age_seconds"] < 7500
-        assert not UserIntegration.objects.filter(pk=integration_id).exists()
+        assert UserIntegration.objects.filter(pk=integration_id).exists()
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
 
