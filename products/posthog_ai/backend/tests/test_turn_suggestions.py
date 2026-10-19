@@ -61,6 +61,7 @@ from products.posthog_ai.backend.turn_suggestions.service import (
     MAX_TRANSCRIPT_LOG_BYTES,
     TURN_SUGGESTION_METHOD,
     TurnSuggestionOutcome,
+    _capture_classified,
     generate_turn_suggestion,
 )
 from products.posthog_ai.backend.turn_suggestions.transcript import (
@@ -248,6 +249,7 @@ def _verdict(offer: OfferKind = OfferKind.SCOUT, intent: TurnIntent = TurnIntent
         show_probability=0.92,
         picked=offer,
         offer_probabilities={offer.value: 0.8},
+        scout_recurrence_probability=0.9,
         draft=_DRAFTS.get(offer),
     )
 
@@ -907,6 +909,7 @@ class TestClassifyTurn(SimpleTestCase):
         )
 
         assert verdict is not None and verdict.draft == draft
+        assert verdict.scout_recurrence_probability == 0.9
         assert draft_scout_mock.call_args.kwargs["mode"] == ScoutMode.WATCH
         assert draft_scout_mock.call_args.kwargs["cadence"] == ScoutCadence.DAILY
         assert card_copy(draft).title == "Get a Slack message when this changes"
@@ -924,6 +927,7 @@ class TestClassifyTurn(SimpleTestCase):
         )
 
         assert verdict is not None and verdict.picked == OfferKind.NONE and verdict.draft is None
+        assert verdict.scout_recurrence_probability == 0.1
         draft_scout_mock.assert_not_called()
         draft_notebook_mock.assert_not_called()
 
@@ -932,6 +936,38 @@ class TestClassifyTurn(SimpleTestCase):
 
         assert verdict is None
         draft_scout_mock.assert_not_called()
+
+
+class TestCaptureClassified(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("accepted_scout", 0.9, True),
+            ("rejected_scout", 0.1, False),
+            ("zero_score", 0.0, False),
+            ("failed_judgment", None, False),
+        ]
+    )
+    def test_records_recurrence_probability(self, _name: str, probability: float | None, emitted: bool) -> None:
+        verdict = (
+            replace(
+                _verdict(offer=OfferKind.SCOUT if emitted else OfferKind.NONE), scout_recurrence_probability=probability
+            )
+            if probability is not None
+            else None
+        )
+        with patch(f"{SERVICE}.ph_scoped_capture") as capture:
+            _capture_classified(
+                MagicMock(team_id=7, task_id="task-1", id="run-1"),
+                MagicMock(distinct_id="user-1"),
+                verdict,
+                emitted=emitted,
+                turn_index=0,
+            )
+
+        event = capture.return_value.__enter__.return_value.call_args.kwargs
+        assert event["event"] == "posthog ai turn suggestion classified"
+        assert event["properties"]["scout_recurrence_probability"] == probability
+        assert event["properties"]["emitted"] is emitted
 
 
 def _gateway_reply(payload: dict) -> MagicMock:

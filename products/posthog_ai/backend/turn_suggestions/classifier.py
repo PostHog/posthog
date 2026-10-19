@@ -160,5 +160,6 @@ def classify_turn(
         show_probability=judgment.show_probability,
         picked=picked,
         offer_probabilities=judgment.offer_probabilities,
+        scout_recurrence_probability=judgment.scout_recurrence_probability,
         draft=draft,
     )
