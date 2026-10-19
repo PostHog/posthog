@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.aut
     maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
@@ -91,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+    DELTA_COMPACT_DURING_REBUILD_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
@@ -112,6 +114,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -125,6 +128,9 @@ logger = structlog.get_logger(__name__)
 # show a table fragmenting over a multi-hundred-batch load, rare enough that the listing it needs
 # stays off the per-batch path.
 FILE_COUNT_LOG_SAMPLE_EVERY = 100
+# The check lists the add-file sizes of the open snapshot, O(files in table), so it skips most batches.
+REBUILD_COMPACT_CHECK_EVERY = 10
+REBUILD_COMPACTION_FLAG = "warehouse-rebuild-run-compaction"
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
@@ -348,6 +354,27 @@ def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: Ex
     feature, and collecting it means listing every file in the table.
     """
     return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+
+
+def _rebuild_compaction_due(
+    export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
+) -> bool:
+    """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
+
+    A rebuild run (first sync, reset, full refresh) loads the table from empty, so a compaction
+    rewrites only files of the same run. A run that adds to an existing table would compact files
+    from before it, which the rollback of an unfinished append run restores.
+    Not for CDC: each CDC run is short and ends with its own post-load pass.
+    Not for partial data loading: it publishes the files of each batch, and a compaction replaces them.
+    """
+    return (
+        (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
+        and export_signal.cdc_write_mode is None
+        and not _partial_data_loading_applies(export_signal, schema)
+        and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
+        and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
+        and is_schema_flag_enabled(schema, REBUILD_COMPACTION_FLAG)
+    )
 
 
 async def _handle_partial_data_loading(
@@ -1078,6 +1105,19 @@ def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
         raise CoalescingDeclined(f"batch schemas do not concatenate: {e}") from e
 
 
+def _compact_during_rebuild(
+    delta_table_ref: DeltaTableRef, verify_ownership: Callable[[], None] | None, timer: BatchStepTimer
+) -> None:
+    if verify_ownership is not None:
+        verify_ownership()
+    report_phase("compact_during_rebuild")
+    with timer.step("compact_during_rebuild"):
+        outcome = async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_rebuild)(
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES
+        )
+    DELTA_COMPACT_DURING_REBUILD_TOTAL.labels(outcome=outcome).inc()
+
+
 def _process_message_reported(
     message: Any,
     export_signal: "ExportSignalMessage",
@@ -1466,6 +1506,8 @@ def _process_message_reported(
             finals = final_run_signals(constituents)
         else:
             finals = [export_signal] if export_signal.is_final_batch else []
+        if not finals and _rebuild_compaction_due(export_signal, schema, members):
+            _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
         for run_signal in finals:
             run_job = job if run_signal.job_id == export_signal.job_id else _load_job(run_signal.job_id)
             run_schema = run_job.schema
