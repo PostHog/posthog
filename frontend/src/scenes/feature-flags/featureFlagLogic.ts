@@ -166,6 +166,7 @@ import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInPr
 
 const BROADCAST_COHORT_POLL_MS = 2000
 const BROADCAST_COHORT_WAIT_MS = 60_000
+const BROADCAST_COHORT_PAGE_SIZE = 20
 // A flag cohort is a snapshot, so reuse it only while it still reflects who has the flag now.
 const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
 // insert_cohort_from_feature_flag stops at a 4-hour soft limit, so a cohort still calculating after that is stuck.
@@ -653,6 +654,52 @@ function dismissBroadcastProgress(cache: Record<string, any>): void {
 
 function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
     return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
+}
+
+// Leaving the flag page unmounts its logic, so the wait and its outcome avoid breakpoints and the logic's values.
+async function waitForFlagCohort(projectId: string, cohortId: number): Promise<CohortApi> {
+    const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
+    let status = await cohortsRetrieve(projectId, cohortId)
+    while (status.is_calculating && Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, BROADCAST_COHORT_POLL_MS))
+        status = await cohortsRetrieve(projectId, status.id)
+    }
+    return status
+}
+
+function showFlagCohortOutcome(cohort: CohortApi, flagId: FeatureFlagLogicProps['id'], flagKey: string): void {
+    if (cohort.errors_calculating > 0) {
+        lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
+        return
+    }
+    if (cohort.is_calculating) {
+        lemonToast.info(
+            'Still finding the people who have this flag. Send the broadcast from the cohort once it is ready.',
+            {
+                button: {
+                    label: 'View cohort',
+                    action: () => router.actions.push(urls.cohort(cohort.id)),
+                },
+            }
+        )
+        return
+    }
+    const broadcastUrl = messageAudienceUrl(
+        {
+            source: FLAG_BROADCAST_SOURCE,
+            properties: cohortAudienceProperties(cohort),
+            broadcastName: `${flagKey} announcement`,
+        },
+        'broadcast'
+    )
+    if (isOnFeatureFlagPage(flagId)) {
+        router.actions.push(broadcastUrl)
+        return
+    }
+    // The wait can outlast the visit, so don't pull someone off the page they moved to.
+    lemonToast.success('The people who have this flag are ready for your broadcast.', {
+        button: { label: 'Open broadcast', action: () => router.actions.push(broadcastUrl) },
+    })
 }
 
 /**
@@ -3189,7 +3236,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
     })),
-    loaders(({ values, props, actions }) => ({
+    loaders(({ values, props, actions, cache }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
@@ -3685,13 +3732,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const user = values.user
                     let cohortId: number | null = null
                     if (user) {
-                        const { results } = await cohortsList(projectId, {
-                            type: 'static',
-                            created_by_id: user.id,
-                            limit: 20,
-                        })
-                        breakpoint()
-                        cohortId = newestReusableFlagCohort(results, flag, user.uuid, Date.now())?.id ?? null
+                        const now = Date.now()
+                        // Newest first, so paging stops once a page reaches cohorts too old to reuse.
+                        for (let offset = 0; cohortId === null; offset += BROADCAST_COHORT_PAGE_SIZE) {
+                            const { results, next } = await cohortsList(projectId, {
+                                type: 'static',
+                                created_by_id: user.id,
+                                limit: BROADCAST_COHORT_PAGE_SIZE,
+                                offset,
+                            })
+                            breakpoint()
+                            cohortId = newestReusableFlagCohort(results, flag, user.uuid, now)?.id ?? null
+                            const oldest = results[results.length - 1]?.created_at
+                            if (!next || !oldest || now - new Date(oldest).getTime() >= FLAG_COHORT_MAX_FILL_MS) {
+                                break
+                            }
+                        }
                     }
                     if (cohortId === null) {
                         const { cohort } = await featureFlagsCreateStaticCohortForFlagCreate(projectId, props.id)
@@ -3699,14 +3755,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         cohortId = cohort.id
                     }
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
-                    const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
-                    let status = await cohortsRetrieve(projectId, cohortId)
-                    breakpoint()
-                    while (status.is_calculating && Date.now() < deadline) {
-                        await breakpoint(BROADCAST_COHORT_POLL_MS)
-                        status = await cohortsRetrieve(projectId, status.id)
-                        breakpoint()
-                    }
+                    const status = await waitForFlagCohort(projectId, cohortId)
+                    dismissBroadcastProgress(cache)
+                    showFlagCohortOutcome(status, props.id, flag.key)
                     return status
                 },
             },
@@ -4611,44 +4662,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         findOrCreateBroadcastCohortFailure: () => {
             dismissBroadcastProgress(cache)
-        },
-        findOrCreateBroadcastCohortSuccess: ({ broadcastCohort }) => {
-            dismissBroadcastProgress(cache)
-            if (!broadcastCohort) {
-                return
-            }
-            if (broadcastCohort.errors_calculating > 0) {
-                lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
-                return
-            }
-            if (broadcastCohort.is_calculating) {
-                lemonToast.info(
-                    'Still finding the people who have this flag. Send the broadcast from the cohort once it is ready.',
-                    {
-                        button: {
-                            label: 'View cohort',
-                            action: () => router.actions.push(urls.cohort(broadcastCohort.id)),
-                        },
-                    }
-                )
-                return
-            }
-            const broadcastUrl = messageAudienceUrl(
-                {
-                    source: FLAG_BROADCAST_SOURCE,
-                    properties: cohortAudienceProperties(broadcastCohort),
-                    broadcastName: `${values.featureFlag.key} announcement`,
-                },
-                'broadcast'
-            )
-            if (isOnFeatureFlagPage(props.id)) {
-                router.actions.push(broadcastUrl)
-                return
-            }
-            // The wait can outlast the visit, so don't pull someone off the page they moved to.
-            lemonToast.success('The people who have this flag are ready for your broadcast.', {
-                button: { label: 'Open broadcast', action: () => router.actions.push(broadcastUrl) },
-            })
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {
