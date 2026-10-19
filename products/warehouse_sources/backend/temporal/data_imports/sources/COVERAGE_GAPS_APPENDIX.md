@@ -2823,10 +2823,10 @@ Today (6): `folders`, `images`, `raw_files`, `transformations`, `upload_presets`
 
 Diffed against: <https://cloudinary.com/documentation/admin_api.md>
 
-- [ ] `Usage (GET /v1_1/{cloud_name}/usage)` — measure bandwidth, storage, transformations, requests, and credits against account limits (high)
-- [ ] `Derived assets (GET /v1_1/{cloud_name}/resources/{asset_id})` — measure storage used by transformed variants and connect each variant to its original asset (medium)
-- [ ] `Last access report resources (GET /v1_1/{cloud_name}/resources/last_access_report/{report_id})` — identify unused media and estimate storage savings from asset retention policies (medium)
-- [ ] `Subfolders (GET /v1_1/{cloud_name}/folders/{folder_path})` — complete the folder hierarchy for asset organization and reporting below the root (medium)
+- [x] `Usage (GET /v1_1/{cloud_name}/usage)` — measure bandwidth, storage, transformations, requests, and credits against account limits (high). Added as `usage`, one row per day for the last 89 days, incremental on `date`.
+- ~~`Derived assets (GET /v1_1/{cloud_name}/resources/{asset_id})`~~ — skipped: derived assets only come from the per-asset detail call, so a sync would cost one Admin API request per asset against an hourly limit of 500 to 2,000 requests
+- [x] `Last access report resources (GET /v1_1/{cloud_name}/resources/last_access_report/{report_id})` — identify unused media and estimate storage savings from asset retention policies (medium). Added as `last_access_report_resources` (fan-out over completed reports from `GET /resources_last_access_reports`).
+- [x] `Subfolders (GET /v1_1/{cloud_name}/folders/{folder_path})` — complete the folder hierarchy for asset organization and reporting below the root (medium). Added as `subfolders` (recursive walk from the root folders).
 
 Note: The official Admin API index, linked reference pages, and Python SDK GET methods were compared with the source settings. Derived assets require requests per asset; subfolders require recursive enumeration. Last access reports need existing report IDs and an enabled Enterprise feature. Configuration and filtered views of existing asset lists were excluded.
 
