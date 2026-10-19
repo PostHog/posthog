@@ -54,23 +54,23 @@ pub async fn seed(
     client: &Client,
     prefix: &str,
     topic: &str,
-    gated_groups: Vec<String>,
+    writer_group: &str,
 ) -> anyhow::Result<ChangelogConfig> {
     let partitions = topic_partition_count(config, topic).await?;
     let created = store(client, prefix)
-        .seed_changelog_config(topic, partitions, gated_groups.clone())
+        .seed_changelog_config(topic, partitions, writer_group)
         .await?;
     if !created {
         bail!("config/changelog is already seeded");
     }
     Ok(ChangelogConfig {
-        gated_groups,
+        writer_group: writer_group.to_string(),
         ..ChangelogConfig::new(topic, partitions)
     })
 }
 
 #[derive(Serialize)]
-pub struct GatedGroupLag {
+pub struct GroupLag {
     pub group: String,
     pub partitions: usize,
     pub lagging_partitions: usize,
@@ -82,41 +82,43 @@ pub struct GatedGroupLag {
 #[derive(Serialize)]
 pub struct ChangelogView {
     pub config: Option<ChangelogConfig>,
-    pub groups: Vec<GatedGroupLag>,
+    pub writer: Option<GroupLag>,
 }
 
 pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Result<ChangelogView> {
     let store = store(client, prefix);
     let changelog = store.get_changelog_config().await?;
-    let mut groups = Vec::new();
-    if let Some(changelog) = &changelog {
-        for group in &changelog.gated_groups {
-            let target = ConsumerTarget {
-                group: group.clone(),
-                topic: changelog.topic.clone(),
-            };
-            groups.push(match scan_group_lag(config, &target).await {
-                Ok(lag) => GatedGroupLag {
-                    group: group.clone(),
-                    partitions: lag.partitions.len(),
-                    lagging_partitions: lag.partitions.iter().filter(|p| p.lag > 0).count(),
-                    total_lag: lag.partitions.iter().map(|p| p.lag).sum(),
-                    max_partition_lag: lag.partitions.iter().map(|p| p.lag).max().unwrap_or(0),
-                    error: None,
-                },
-                Err(e) => GatedGroupLag {
-                    group: group.clone(),
-                    partitions: 0,
-                    lagging_partitions: 0,
-                    total_lag: 0,
-                    max_partition_lag: 0,
-                    error: Some(format!("{e:#}")),
-                },
-            });
-        }
-    }
+    let writer = match &changelog {
+        Some(changelog) => Some(group_lag(config, &changelog.writer_group, &changelog.topic).await),
+        None => None,
+    };
     Ok(ChangelogView {
         config: changelog,
-        groups,
+        writer,
     })
+}
+
+async fn group_lag(config: &Config, group: &str, topic: &str) -> GroupLag {
+    let target = ConsumerTarget {
+        group: group.to_string(),
+        topic: topic.to_string(),
+    };
+    match scan_group_lag(config, &target).await {
+        Ok(lag) => GroupLag {
+            group: group.to_string(),
+            partitions: lag.partitions.len(),
+            lagging_partitions: lag.partitions.iter().filter(|p| p.lag > 0).count(),
+            total_lag: lag.partitions.iter().map(|p| p.lag).sum(),
+            max_partition_lag: lag.partitions.iter().map(|p| p.lag).max().unwrap_or(0),
+            error: None,
+        },
+        Err(e) => GroupLag {
+            group: group.to_string(),
+            partitions: 0,
+            lagging_partitions: 0,
+            total_lag: 0,
+            max_partition_lag: 0,
+            error: Some(format!("{e:#}")),
+        },
+    }
 }

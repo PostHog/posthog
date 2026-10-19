@@ -1218,12 +1218,12 @@ impl PersonhogStore {
         &self,
         topic: &str,
         partitions: u32,
-        gated_groups: Vec<String>,
+        writer_group: &str,
     ) -> Result<bool> {
         count_call("seed_changelog_config");
         let key = self.key(StoreKey::ChangelogConfig);
         let config = ChangelogConfig {
-            gated_groups,
+            writer_group: writer_group.to_string(),
             ..ChangelogConfig::new(topic, partitions)
         };
         let txn = Txn::new()

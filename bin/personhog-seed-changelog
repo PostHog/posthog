@@ -4,7 +4,7 @@ set -e
 
 ETCD_URL="${ETCD_URL:-http://localhost:2379}"
 ETCD_PREFIX="${ETCD_PREFIX:-/personhog/}"
-VALUE='{"topic":"personhog_updates","partitions":4,"epoch":1,"gated_groups":["personhog-writer"],"draining":[]}'
+VALUE='{"topic":"personhog_updates","partitions":4,"epoch":1,"writer_group":"personhog-writer","draining":[]}'
 
 b64() { printf %s "$1" | base64 | tr -d '\n'; }
 KEY=$(b64 "${ETCD_PREFIX}config/changelog")

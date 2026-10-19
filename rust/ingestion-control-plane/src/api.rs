@@ -446,8 +446,8 @@ async fn personhog_changelog(
 #[derive(Deserialize)]
 struct SeedChangelogRequest {
     topic: String,
-    /// Must name the writer's consumer group, whose lag the changelog panel shows.
-    gated_groups: Vec<String>,
+    /// The writer's consumer group, as its `KAFKA_CONSUMER_GROUP` names it.
+    writer_group: String,
 }
 
 async fn personhog_seed_changelog(
@@ -460,19 +460,12 @@ async fn personhog_seed_changelog(
     if topic.is_empty() {
         return Err(ApiError::bad_request("topic must not be empty"));
     }
-    let gated_groups: Vec<String> = request
-        .gated_groups
-        .iter()
-        .map(|group| group.trim().to_string())
-        .filter(|group| !group.is_empty())
-        .collect();
-    if gated_groups.is_empty() {
-        return Err(ApiError::bad_request(
-            "gated_groups must name the writer's consumer group",
-        ));
+    let writer_group = request.writer_group.trim();
+    if writer_group.is_empty() {
+        return Err(ApiError::bad_request("writer_group must not be empty"));
     }
     let client = etcd_client(&state).await?;
-    let seeded = changelog::seed(&state.config, &client, &prefix, topic, gated_groups)
+    let seeded = changelog::seed(&state.config, &client, &prefix, topic, writer_group)
         .await
         .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
     Ok(Json(seeded))

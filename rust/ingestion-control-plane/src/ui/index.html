@@ -1389,23 +1389,23 @@
         renderChangelog(view) {
           if (!view.config) {
             const topicInput = el("input", { type: "text", placeholder: "changelog topic, e.g. personhog_updates_64", style: "width: 360px" });
-            const groupsInput = el("input", { type: "text", placeholder: "writer consumer group, e.g. personhog-writer", style: "width: 280px" });
+            const groupInput = el("input", { type: "text", placeholder: "writer consumer group, e.g. personhog-writer", style: "width: 280px" });
             const error = el("div");
             const button = el("button", {}, "Seed config/changelog");
             button.onclick = async () => {
               const topic = topicInput.value.trim();
-              const gated_groups = groupsInput.value.split(",").map((g) => g.trim()).filter(Boolean);
-              if (!topic || gated_groups.length === 0) {
+              const writer_group = groupInput.value.trim();
+              if (!topic || !writer_group) {
                 error.replaceChildren(el("div", { class: "error-box" }, "Enter the topic and the writer's consumer group."));
                 return;
               }
-              if (!window.confirm(`Seed config/changelog with topic ${topic}, gating ${gated_groups.join(", ")}?\n\nThe partition count is read from the topic's metadata.`)) return;
+              if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata.`)) return;
               button.disabled = true;
               try {
                 await fetchJSON("api/personhog/changelog/seed", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ topic, gated_groups }),
+                  body: JSON.stringify({ topic, writer_group }),
                 });
                 this.refresh();
               } catch (e) {
@@ -1418,7 +1418,7 @@
               el("div", { style: "padding: 6px 14px" },
                 el("div", { class: "muted", style: "padding-bottom: 8px" },
                   "Not seeded."),
-                el("div", { class: "row" }, topicInput, groupsInput, button),
+                el("div", { class: "row" }, topicInput, groupInput, button),
                 error));
             return;
           }
@@ -1428,13 +1428,13 @@
               el("span", { class: "pill accent mono" }, c.topic),
               el("span", { class: "pill muted" }, `${fmtInt(c.partitions)} partitions`),
               el("span", { class: "pill muted" }, `epoch ${fmtInt(c.epoch)}`)),
-            view.groups.length === 0
-              ? el("div", { class: "empty" }, "No gated consumer groups.")
+            !view.writer
+              ? el("div", { class: "empty" }, "No writer group.")
               : el("table", {},
                   el("thead", {}, el("tr", {},
-                    el("th", {}, "gated group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
+                    el("th", {}, "writer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
                     el("th", {}, "worst partition"))),
-                  el("tbody", {}, view.groups.map((g) =>
+                  el("tbody", {}, [view.writer].map((g) =>
                     el("tr", {},
                       el("td", { class: "mono" }, g.group),
                       el("td", { class: "mono" }, g.error ? el("span", { class: "pill bad", title: g.error }, "scan failed") : fmtInt(g.partitions)),

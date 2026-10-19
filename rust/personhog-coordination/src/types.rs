@@ -311,8 +311,8 @@ pub struct ChangelogConfig {
     pub partitions: u32,
     /// Monotonic from 1.
     pub epoch: u64,
-    /// Consumer groups that must drain a generation before it retires; the writer's among them.
-    pub gated_groups: Vec<String>,
+    /// The writer's consumer group; a generation retires only once it has read it to the end.
+    pub writer_group: String,
     /// Generations some consumer may still be reading.
     pub draining: Vec<Generation>,
 }
@@ -331,7 +331,7 @@ impl ChangelogConfig {
             topic: topic.to_string(),
             partitions,
             epoch: 1,
-            gated_groups: Vec::new(),
+            writer_group: String::new(),
             draining: Vec::new(),
         }
     }
