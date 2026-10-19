@@ -11,6 +11,8 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType 
 
 import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/components/SourceReleaseTag'
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
+import { destinationWorkflowSuggestionLogic } from 'products/workflows/frontend/DestinationWorkflowSuggestion/destinationWorkflowSuggestionLogic'
+import { DestinationWorkflowSuggestionModal } from 'products/workflows/frontend/DestinationWorkflowSuggestion/DestinationWorkflowSuggestionModal'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -30,6 +32,20 @@ export function HogFunctionTemplateList({
         hogFunctionTemplateListLogic(props)
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
+    const { shouldSuggestWorkflow } = useValues(destinationWorkflowSuggestionLogic)
+    const { openSuggestion } = useActions(destinationWorkflowSuggestionLogic)
+
+    // Sub-template lists (alerts, survey notifications) already carry their own context, so only the general list
+    // offers a workflow.
+    const onTemplateClick =
+        (template: HogFunctionTemplateType) =>
+        (event: React.MouseEvent<HTMLElement>): void => {
+            const destinationUrl = urlForTemplate(template)
+            if (destinationUrl && !props.subTemplateIds && shouldSuggestWorkflow(template)) {
+                event.preventDefault()
+                openSuggestion(template, destinationUrl)
+            }
+        }
 
     useEffect(() => {
         if (!props.manualTemplatesOnly) {
@@ -97,6 +113,7 @@ export function HogFunctionTemplateList({
                             return (
                                 <LemonTableLink
                                     to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
+                                    onClick={hasAccess ? onTemplateClick(template) : undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -154,6 +171,7 @@ export function HogFunctionTemplateList({
                                     icon={<IconPlusSmall />}
                                     className="whitespace-nowrap"
                                     to={urlForTemplate(template) ?? undefined}
+                                    onClick={onTemplateClick(template)}
                                     disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create
@@ -173,6 +191,7 @@ export function HogFunctionTemplateList({
                     )
                 }
             />
+            <DestinationWorkflowSuggestionModal />
         </div>
     )
 }
