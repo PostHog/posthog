@@ -449,13 +449,6 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         self.assertQueryIsEmpty(customer_query)
 
     def test_sync_views_schedules_after_transaction_commits(self):
-        """schedule_materialization must run AFTER the phase 1 transaction commits,
-        so that row locks on posthog_datawarehousesavedquery are released before
-        synchronous Temporal RPCs and DataWarehouseModelPath updates begin. If
-        schedule_materialization were called from inside the transaction, only the
-        current iteration's saved query would be visible at the call site; after the
-        refactor, all persisted saved queries should be visible at every call site.
-        """
         schemas = self._create_schemas_without_tables()
         for schema in schemas:
             self._create_table_for_schema(schema)
