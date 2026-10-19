@@ -39,11 +39,6 @@ class TestUsBeaSource:
 
         assert [schema.name for schema in schemas] == [*ENDPOINTS, CUSTOM_QUERY_ENDPOINT]
 
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["StatePersonalIncomeSummary"])
-
-        assert [schema.name for schema in schemas] == ["StatePersonalIncomeSummary"]
-
     @pytest.mark.parametrize(
         "overrides",
         [

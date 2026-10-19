@@ -201,6 +201,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     PLAID = "Plaid", "Plaid"
     SURVEYMONKEY = "SurveyMonkey", "SurveyMonkey"
     EVENTBRITE = "Eventbrite", "Eventbrite"
+    EVERFLOW = "Everflow", "Everflow"
     RINGCENTRAL = "RingCentral", "RingCentral"
     TWILIO = "Twilio", "Twilio"
     FRESHSALES = "Freshsales", "Freshsales"
@@ -1398,6 +1399,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SIMONDATA = "SimonData", "SimonData"
     COMMISSIONJUNCTION = "CommissionJunction", "CommissionJunction"
     LIVEBLOCKS = "Liveblocks", "Liveblocks"
+    LIVESTORM = "Livestorm", "Livestorm"
     NATIONBUILDER = "NationBuilder", "NationBuilder"
     TANA = "Tana", "Tana"
     ZENCHEF = "Zenchef", "Zenchef"
@@ -1464,6 +1466,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     CREEM = "Creem", "Creem"
     LEANTIME = "Leantime", "Leantime"
     TESTOMATIO = "Testomatio", "Testomatio"
+    GOOGLEADMOB = "GoogleAdMob", "GoogleAdMob"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
