@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -9,17 +10,17 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,
-    FlagHistory,
-    FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     HealthContext,
     parse_flag_state,
 )
+from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
@@ -44,45 +45,26 @@ def _context(
     variants: list[dict[str, Any]] = EVEN,
     not_checked: FlagHistoryNotCheckedReason | None = None,
 ) -> HealthContext:
-    bucketing = tuple(
+    bucketing = [
         BucketingChange(
             changed_at=first_change_at + timedelta(minutes=17 * index), setting=setting, before=before, after=after
         )
         for index, (setting, before, after) in enumerate(changes)
-    )
-    return HealthContext(
-        is_launched=True,
+    ]
+    return replace(
+        RUNNING_CONTEXT,
         is_running=is_running,
         has_ended=not is_running,
-        is_paused=False,
-        archived=False,
         flag=parse_flag_state(
             active=True, deleted=False, groups=[{"properties": [], "rollout_percentage": 100}], variants=variants
         ),
-        baseline_variant_key=None,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
-        flag_history=FlagHistory(
+        flag_history=flag_history(
+            bucketing,
             launched_at=LAUNCHED_AT,
-            team_timezone="Europe/Berlin",
-            split_changes=(),
-            bucketing_changes=bucketing,
-            counted_since=bucketing[0].changed_at if bucketing else None,
             exposed_before_first=exposed_before_first,
-            split_exposed_between=None,
-            bucketing_exposed_between=exposed_between,
-        )
-        if not_checked is None
-        else FlagHistoryNotChecked(
-            reason=not_checked,
-            launched_at=LAUNCHED_AT,
-            team_timezone="Europe/Berlin",
-            split_changes=(),
-            bucketing_changes=bucketing,
+            exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
+            not_checked=not_checked,
         ),
-        condition_set_traffic=None,
-        excluded_variant_keys=frozenset(),
     )
 
 
