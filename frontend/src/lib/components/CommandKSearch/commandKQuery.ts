@@ -337,7 +337,7 @@ export interface ResolvedQuery {
     backendSearch: string
 }
 
-// The file system search removes the quotes first, and then excludes a word that starts with `-` or `!`.
+// The file system search removes every quote first, and then excludes a word that starts with `-` or `!`.
 const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.startsWith('!')
 
 /**
@@ -354,7 +354,7 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
         const parsed = parseToken(token.raw)
         if (!parsed.filter) {
             freeTokens.push(token.raw)
-            const word = unquote(token.raw)
+            const word = token.raw.replaceAll('"', '')
             if (word && !isExcludedWord(word)) {
                 includedWords.push(word)
             }

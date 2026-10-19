@@ -47,6 +47,13 @@ describe('viewAllFor', () => {
             '/feature_flags?search=checkout%20v2%20beta',
         ],
         [
+            'a list that searches a word quoted midway without its quotes',
+            [chip('feature_flag', 'Feature flag')],
+            'checkout" v2" beta',
+            'View all feature flags',
+            '/feature_flags?search=checkout%20v2%20beta',
+        ],
+        [
             'a list that searches without the excluded words',
             [chip('feature_flag', 'Feature flag')],
             'beta -legacy -"old flow" !draft - "" "-wip" "-"',
