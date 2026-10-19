@@ -11623,13 +11623,14 @@ Note: Square's OpenAPI 3.0 spec has 255 paths; PostHog exposes 5 tables and none
 
 ## Squarespace — gaps
 
-Today (6): `inventory`, `orders`, `products`, `profiles`, `store_pages`, `transactions`
+Today (7): `fulfillment_options`, `inventory`, `orders`, `products`, `profiles`, `store_pages`, `transactions`
 
 Diffed against: <https://developers.squarespace.com/commerce-apis/overview>
 
 - [ ] `GET /v1/contacts (Contacts API)` — the marketing contact record, distinct from commerce profiles; holds newsletter/marketing state we have no source for (high)
 - [ ] `GET /v1/commerce/discounts (Discounts API)` — lookup resolving the promo codes and discount rules applied on the orders we already sync (medium)
 - [ ] `Contacts address book entries (GET under /v1/contacts/{contactId})` — shipping addresses per contact, useful for geographic breakdowns (low)
+- [x] `GET /v1/fulfillments/fulfillment-options (Discounts API)` — lookup of a site's shipping option IDs and carrier services, the targets of free shipping discounts (low)
 - [ ] `POST /v1/analytics/transaction-summaries` — per-contact lifetime order/donation/refund totals, though it requires supplying contactIds so it only works as a follow-on to a contacts sync (low)
 
 Note: Squarespace's public Commerce API is small: Contacts, Analytics, Discounts, Products, Websites (store pages), Inventory, Orders, Transactions, Profiles, WebhookSubscriptions. PostHog covers 6 of the 8 data-bearing ones. Order fulfillments and inventory adjustments exist but are POST-only writes, not readable collections.
