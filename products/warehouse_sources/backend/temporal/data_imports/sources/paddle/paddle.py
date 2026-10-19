@@ -44,7 +44,7 @@ EXPLORE_INTERVALS = ("day", "month")
 PROBE_PATHS = {EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_ENTITIES_PATH}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PaddleResumeConfig:
     # Self-contained next-page URL from Paddle's `meta.pagination.next`. Empty once the sync is done.
     next_url: str = ""

@@ -862,7 +862,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pabbly_subscriptions_billing/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/packagist/packagist.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/packagist/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/paddle/paddle.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pagerduty/pagerduty.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pagerduty/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pandadoc/pandadoc.py
