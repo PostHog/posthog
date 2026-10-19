@@ -226,6 +226,25 @@ describe('workflowEditorVisitLogic', () => {
         }
     )
 
+    it('keeps tracking the layout after the person moves from a fallback tab to the Workflow tab', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
+            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
+        })
+        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
+        const props = { id: SAVED_ID }
+        router.actions.push(urls.workflow(SAVED_ID, 'overview'))
+        const visit = await openEditor(props)
+
+        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
+        hogFlowEditorLogic(props).actions.switchEditorLayout('advanced')
+        router.actions.push(urls.workflow(SAVED_ID, 'metrics'))
+        visit.unmount()
+
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({ editor_layout: 'graph', layout_switch_count: 1 }),
+        ])
+    })
+
     it('reports which kinds of steps the workflow holds and where it branches', async () => {
         const branched = {
             ...NEW_WORKFLOW,

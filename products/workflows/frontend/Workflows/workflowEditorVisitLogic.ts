@@ -3,12 +3,10 @@ import { router } from 'kea-router'
 import posthog, { CaptureOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
-import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
-import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
+import { HogFlowEditorLayout, hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import type { HogFlow, HogFlowActionValidationResult } from './hogflows/types'
 import {
     WorkflowBuilderEdit,
@@ -34,6 +32,11 @@ interface EditorVisit {
 }
 
 type VisibleLayout = 'list' | 'graph'
+
+// Without the list view flag the builder draws the graph, whatever the stored layout says.
+function visibleLayoutOf(editorLayout: HogFlowEditorLayout, featureFlags: FeatureFlagsSet): VisibleLayout {
+    return featureFlags[FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW] && editorLayout === 'simple' ? 'list' : 'graph'
+}
 
 function routeTab(): string | undefined {
     return removeProjectIdIfPresent(router.values.location.pathname).split('/')[3]
@@ -117,11 +120,10 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         ],
     })),
     selectors({
-        // Without the list view flag the builder draws the graph, whatever the stored layout says.
         visibleLayout: [
             (s) => [s.editorLayout, s.featureFlags],
             (editorLayout: HogFlowEditorLayout, featureFlags: FeatureFlagsSet): VisibleLayout =>
-                featureFlags[FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW] && editorLayout === 'simple' ? 'list' : 'graph',
+                visibleLayoutOf(editorLayout, featureFlags),
         ],
     }),
     listeners(({ cache, props, values }) => {
@@ -143,9 +145,15 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
             setWorkflowValues: (_, __, ___, previousState) => recordFormEdit(previousState),
             switchEditorLayout: ({ editorLayout }, _, __, previousState) => {
                 const visit = cache.visit as EditorVisit | null
-                if (visit && hogFlowEditorLogic(props).selectors.editorLayout(previousState) !== editorLayout) {
+                if (!visit) {
+                    return
+                }
+                if (hogFlowEditorLogic(props).selectors.editorLayout(previousState) !== editorLayout) {
                     visit.layoutSwitchCount += 1
                 }
+                // The person is looking at the builder when they use the toggle, so its tab is the builder's now.
+                visit.layout = visibleLayoutOf(editorLayout, values.featureFlags)
+                visit.routeTab = routeTab()
             },
             setEditorLayout: () => {
                 const visit = cache.visit as EditorVisit | null
