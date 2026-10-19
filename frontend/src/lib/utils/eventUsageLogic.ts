@@ -942,6 +942,9 @@ export interface eventUsageLogicActions {
         dashboardId: number
         source: 'header'
     }
+    reportDashboardByProductClicked: (dashboardType: string) => {
+        dashboardType: string
+    }
     reportDashboardEditModeDiscardPrompt: (
         dashboard: DashboardType | null,
         action: 'discarded' | 'kept_editing' | 'shown'
@@ -1023,6 +1026,9 @@ export interface eventUsageLogicActions {
         action: 'moved' | 'resized'
         dashboardId: number
         layoutZoom: number
+    }
+    reportDashboardsByProductViewed: () => {
+        value: true
     }
     reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => {
         type: TaxonomicFilterGroupType
@@ -1853,6 +1859,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ dashboardId, promptType }),
         reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
+        reportDashboardsByProductViewed: true,
+        reportDashboardByProductClicked: (dashboardType: string) => ({ dashboardType }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -2408,6 +2416,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 source: 'web',
             })
+        },
+        reportDashboardsByProductViewed: () => {
+            posthog.capture('dashboards by product viewed', { source: 'web' })
+        },
+        reportDashboardByProductClicked: ({ dashboardType }) => {
+            posthog.capture('dashboard by product clicked', { dashboard_type: dashboardType, source: 'web' })
         },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)

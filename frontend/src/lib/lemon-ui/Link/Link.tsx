@@ -30,6 +30,7 @@ export type LinkPrimitiveProps = Pick<
     disableClientSideRouting?: boolean
     preventClick?: boolean
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
+    onClickCapture?: (event: React.MouseEvent<HTMLElement>) => void
     onAuxClick?: (event: React.MouseEvent<HTMLElement>) => void
     onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void

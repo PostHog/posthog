@@ -29,6 +29,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/frontend/CrossProjectDashboardsList'
 import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
+import { DashboardsByProduct } from 'products/dashboards/frontend/DashboardsByProduct'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsSceneMenuBar } from './DashboardsSceneMenuBar'
@@ -47,6 +48,9 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { currentTab } = useValues(dashboardsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const byProductFlag = featureFlags[FEATURE_FLAGS.DASHBOARDS_BY_PRODUCT]
+    const byProductEnabled = byProductFlag === true || byProductFlag === 'test'
+    const byProductTabOpen = byProductEnabled && currentTab === DashboardsTab.ByProduct
     const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
     const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
     const { showNewDashboardModal } = useActions(newDashboardLogic)
@@ -54,10 +58,13 @@ export function Dashboards(): JSX.Element {
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
-            label: 'All dashboards',
+            label: 'All',
         },
-        { key: DashboardsTab.Yours, label: 'My dashboards' },
-        ...(crossProjectEnabled ? [{ key: DashboardsTab.CrossProject, label: 'Cross-project dashboards' }] : []),
+        { key: DashboardsTab.Yours, label: 'Mine' },
+        ...(crossProjectEnabled ? [{ key: DashboardsTab.CrossProject, label: 'Cross-project' }] : []),
+        ...(byProductEnabled
+            ? [{ key: DashboardsTab.ByProduct, label: 'By product', 'data-attr': 'dashboard-by-product-tab' }]
+            : []),
     ]
 
     return (
@@ -131,12 +138,14 @@ export function Dashboards(): JSX.Element {
                 onChange={(newKey) => {
                     setCurrentTab(newKey)
                 }}
-                activeKey={currentTab}
+                activeKey={currentTab === DashboardsTab.ByProduct && !byProductEnabled ? DashboardsTab.All : currentTab}
                 tabs={enabledTabs}
                 sceneInset
             />
 
-            {crossProjectTabOpen ? <CrossProjectDashboardsList /> : <DashboardsTableContainer />}
+            {byProductTabOpen && <DashboardsByProduct />}
+            {crossProjectTabOpen && <CrossProjectDashboardsList />}
+            {!byProductTabOpen && !crossProjectTabOpen && <DashboardsTableContainer />}
         </SceneContent>
     )
 }

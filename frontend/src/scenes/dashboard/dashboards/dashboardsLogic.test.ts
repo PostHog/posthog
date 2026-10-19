@@ -628,14 +628,17 @@ describe('dashboardsLogic', () => {
         expect(router.values.searchParams['tab']).toBeUndefined()
     })
 
-    it('keeps the cross-project tab selected from the URL', async () => {
-        logic.unmount()
-        router.actions.push(urls.dashboards(), { tab: DashboardsTab.CrossProject })
-        logic = dashboardsLogic({ tabId: '1' })
-        logic.mount()
+    it.each([DashboardsTab.CrossProject, DashboardsTab.ByProduct])(
+        'keeps the %s tab selected from the URL',
+        async (tab) => {
+            logic.unmount()
+            router.actions.push(urls.dashboards(), { tab })
+            logic = dashboardsLogic({ tabId: '1' })
+            logic.mount()
 
-        await expectLogic(logic).toMatchValues({ currentTab: DashboardsTab.CrossProject })
-    })
+            await expectLogic(logic).toMatchValues({ currentTab: tab })
+        }
+    )
 
     it('restores both search and tags from the URL and fetches with the restored tags', async () => {
         let lastRequestUrl: URL | null = null

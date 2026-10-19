@@ -1,0 +1,88 @@
+@media (prefers-reduced-motion: no-preference) {
+    .DashboardByProductPreview {
+        &__line,
+        &__area {
+            transition: d 650ms ease-in-out;
+        }
+
+        &__bar,
+        &__column {
+            transform-box: fill-box;
+            transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        &__bar {
+            transform-origin: left center;
+        }
+
+        &__column {
+            transform-origin: center bottom;
+        }
+    }
+
+    :is(.DashboardsByProduct__card:hover, .DashboardsByProduct__card:focus-visible) .DashboardByProductPreview {
+        &__line--active-users {
+            d: path('M8 95 L46 81 L84 85 L122 68 L160 72 L198 49 L236 54 L272 30');
+        }
+
+        &__area--active-users {
+            d: path('M8 95 L46 81 L84 85 L122 68 L160 72 L198 49 L236 54 L272 30 L272 108 L8 108 Z');
+        }
+
+        &__line--monthly {
+            d: path('M8 62 L46 60 L84 49 L122 45 L160 38 L198 29 L236 31 L272 24');
+        }
+
+        &__line--weekly {
+            d: path('M8 82 L46 76 L84 66 L122 67 L160 56 L198 57 L236 45 L272 40');
+        }
+
+        &__line--daily {
+            d: path('M8 100 L46 91 L84 82 L122 91 L160 77 L198 85 L236 66 L272 70');
+        }
+
+        &__line--tool-calls {
+            d: path('M8 60 L46 56 L84 64 L122 47 L160 36 L198 31 L236 40 L272 34');
+        }
+
+        &__line--tool-errors {
+            d: path('M8 105 L46 103 L84 104 L122 102 L160 99 L198 96 L236 102 L272 100');
+        }
+
+        [data-preview-row='0'] .DashboardByProductPreview__column {
+            transform: scaleY(0.82);
+        }
+
+        [data-preview-row='1'] .DashboardByProductPreview__column {
+            transform: scaleY(1.18);
+        }
+
+        [data-preview-row='2'] .DashboardByProductPreview__column {
+            transform: scaleY(1.28);
+        }
+
+        [data-preview-row='0'] .DashboardByProductPreview__bar {
+            transform: scaleX(0.82);
+
+            &:nth-of-type(2) {
+                transform: scaleX(1.15);
+            }
+        }
+
+        [data-preview-row='1'] .DashboardByProductPreview__bar {
+            transform: scaleX(1.18);
+
+            &:nth-of-type(2) {
+                transform: scaleX(0.8);
+            }
+        }
+
+        [data-preview-row='2'] .DashboardByProductPreview__bar {
+            transform: scaleX(1.28);
+
+            &:nth-of-type(2) {
+                transform: scaleX(1.1);
+            }
+        }
+    }
+}

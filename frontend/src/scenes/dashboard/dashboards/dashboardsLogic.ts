@@ -26,6 +26,7 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { UserType } from '../../../types'
 
 export enum DashboardsTab {
+    ByProduct = 'by-product',
     All = 'all',
     Yours = 'yours',
     Pinned = 'pinned',
@@ -659,7 +660,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const requestedTab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             // Pinned is deliberately absent: it arrives as a filter, not a tab, and is handled
             // by hasFilterParams below. Anything else unrecognized falls back to All.
-            const tabsFromUrl: DashboardsTab[] = [DashboardsTab.Yours, DashboardsTab.CrossProject]
+            const tabsFromUrl: DashboardsTab[] = [
+                DashboardsTab.ByProduct,
+                DashboardsTab.Yours,
+                DashboardsTab.CrossProject,
+            ]
             const tab = tabsFromUrl.includes(requestedTab) ? requestedTab : DashboardsTab.All
             if (values.currentTab !== tab) {
                 actions.setCurrentTab(tab)
