@@ -876,7 +876,10 @@ impl IngestionConsumer {
                             self.settlement.settle_run(tp, generation, run)
                         })
                         .map_err(Failure::Batch)?;
-                        self.commit_due().map_err(Failure::Commit)?;
+                        // A resumed partition can fill a poll, so collect instead of waiting here.
+                        if self.commit_due().map_err(Failure::Commit)? {
+                            return Ok(());
+                        }
                     }
                     None => return Err(Failure::Batch(anyhow::anyhow!(
                         "batcher completion channel closed"
@@ -890,7 +893,9 @@ impl IngestionConsumer {
                 },
                 _ = heartbeat.tick() => {
                     self.handle.report_healthy();
-                    self.commit_due().map_err(Failure::Commit)?;
+                    if self.commit_due().map_err(Failure::Commit)? {
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -966,26 +971,27 @@ impl IngestionConsumer {
         }
     }
 
-    fn commit_due(&self) -> anyhow::Result<()> {
+    /// Returns whether the commit resumed a partition.
+    fn commit_due(&self) -> anyhow::Result<bool> {
         match self.settlement.take_due(Instant::now()) {
             Some(commit) => self.commit(commit),
-            None => Ok(()),
+            None => Ok(false),
         }
     }
 
-    fn commit_all(&self) -> anyhow::Result<()> {
+    fn commit_all(&self) -> anyhow::Result<bool> {
         match self.settlement.take_all() {
             Some(commit) => self.commit(commit),
-            None => Ok(()),
+            None => Ok(false),
         }
     }
 
-    fn commit(&self, commit: Commit) -> anyhow::Result<()> {
+    fn commit(&self, commit: Commit) -> anyhow::Result<bool> {
         self.commit_offsets(&commit.offsets)?;
         for topic_partition in &commit.resume {
             self.resume_partition(topic_partition);
         }
-        Ok(())
+        Ok(!commit.resume.is_empty())
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
