@@ -15,6 +15,7 @@ from posthog.models.utils import UUIDModel
 
 from products.alerts_platform.backend.facade.contracts import Grouping
 from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
@@ -213,5 +214,34 @@ class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["configuration", "grouping_key", "provider", "channel_target", "episode_started_at"],
                 name="platform_alert_thread_one_per_conversation",
+            )
+        ]
+
+
+class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
+    """The path one firing of one group delivers through, fixed by the first delivery about it.
+
+    The path is read from the alert's destinations at send time, and those can change mid-firing.
+    Without this row a firing sent through HogFunctions could resolve natively, and an incident
+    manager would hold the first incident open, because the two paths key incidents differently.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(
+        PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="delivery_paths"
+    )
+
+    grouping_key = models.CharField(max_length=255, default="", db_default="")
+    episode_started_at = models.DateTimeField()
+    path = models.CharField(max_length=16, choices=DeliveryPath.choices)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdeliverypath"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuration", "grouping_key", "episode_started_at"],
+                name="platform_alert_delivery_path_one_per_episode",
             )
         ]

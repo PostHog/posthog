@@ -15,8 +15,11 @@ from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorNoCommonType
 from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1821,6 +1824,28 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "needs at least" in response.json()["detail"]
         assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
+
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("Function 'toStartOfHour' expects 1 argument, found 2"), "toStartOfHour"),
+            ("clickhouse", CHQueryErrorNoCommonType("There is no supertype", code=386), "no supertype"),
+        ]
+    )
+    @mock.patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulate_sql_query_error_returns_validation_error(self, _name, error, message, mock_calculate) -> None:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"})
+        mock_calculate.side_effect = error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": insight.id,
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.json()["detail"]
 
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:

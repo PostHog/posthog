@@ -107,7 +107,7 @@ describe('BI data source tree', () => {
             [{ table: 'orders_raw' }, { table: 'customers' }, { table: 'orders_old' }],
             false
         )
-        expect(results.map((node) => node.name)).toEqual(['Views', 'Raw'])
+        expect(results.map((node) => node.name)).toEqual(['Certified sources', 'Raw', 'Views'])
         expect(searchBIDataSourceTree(results, 'orders').map((node) => node.name)).toEqual(['Raw', 'Views'])
     })
     it.each([

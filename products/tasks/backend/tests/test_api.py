@@ -87,8 +87,11 @@ from products.tasks.backend.logic.services.workflow_dispatch import materialize_
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
+    get_task_run_stream_completed_key,
+    get_task_run_stream_generation,
     get_task_run_stream_key,
     get_task_run_stream_watched_key,
+    reset_task_run_stream,
 )
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -116,7 +119,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskSerializer,
 )
 from products.tasks.backend.presentation.views import api as views_api
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
@@ -11509,7 +11512,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             extra_state={"pending_dispatch": {"user_id": self.user.id, "posthog_mcp_scopes": "read_only"}},
         )
 
-        def complete_stream(run_id: str, use_dedicated: bool) -> bool:
+        def complete_stream(run_id: str, use_dedicated: bool, *, expected_generation: str) -> bool:
+            assert expected_generation == "initial"
             self.assertEqual(len(connection.atomic_blocks), transaction_depth)
             cancelled_run = TaskRun.objects.get(id=run_id)
             assert cancelled_run.status == TaskRun.Status.CANCELLED
@@ -11609,16 +11613,11 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         )
         sandbox = MagicMock()
         sandbox.stop_agent_server.return_value.exit_code = 0
+        assert reset_task_run_stream(str(run.id))
 
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
-                **{"return_value.get_by_id.return_value": sandbox},
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
-                return_value=True,
-            ) as publish_complete,
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox},
         ):
             response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
@@ -11632,7 +11631,13 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
                 call.destroy(),
             ],
         )
-        publish_complete.assert_called_once_with(str(run.id), False)
+        redis = get_tasks_stream_redis_sync()
+        stream_key = get_task_run_stream_key(str(run.id))
+        assert redis.exists(get_task_run_stream_completed_key(stream_key))
+        assert json.loads(redis.xrevrange(stream_key, count=1)[0][1][b"data"]) == {
+            "type": "STREAM_STATUS",
+            "status": "complete",
+        }
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
         self.assertIsNotNone(run.completed_at)
@@ -11674,27 +11679,43 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
 
+    @parameterized.expand([False, True])
+    @override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=True)
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
-    def test_cancel_retry_repairs_stream_after_workflow_gone(self, _mock_signal, _mock_send_cancel, _mock_token):
+    def test_cancel_retry_repairs_stream_after_workflow_gone(
+        self, resume_before_retry, _mock_signal, _mock_send_cancel, _mock_token
+    ):
         task = self.create_task()
         run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
         sandbox = MagicMock()
         sandbox.stop_agent_server.return_value.exit_code = 0
+        assert reset_task_run_stream(str(run.id))
+        generation = get_task_run_stream_generation(str(run.id))
+        TaskRun.update_state_atomic(run.id, updates={"stream_generation": generation})
 
         with (
+            patch(
+                "products.tasks.backend.facade.cancellation.get_task_run_stream_generation",
+                side_effect=ConnectionError("Redis unavailable"),
+            ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
                 **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
-                side_effect=[False, True],
-            ) as publish_complete,
+                return_value=False,
+            ),
         ):
             first_response = self.client.post(self._cancel_url(task, run), {}, format="json")
-            second_response = self.client.post(self._cancel_url(task, run), {}, format="json")
+        run.refresh_from_db()
+        assert run.state["cancel_fallback_stream_generation"] == generation
+        assert run.status == TaskRun.Status.CANCELLED
+        if resume_before_retry:
+            assert reset_task_run_stream(str(run.id))
+        second_response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
         self.assertEqual(first_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
@@ -11707,7 +11728,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
                 call.destroy(),
             ],
         )
-        self.assertEqual(publish_complete.call_count, 2)
+        completed_key = get_task_run_stream_completed_key(get_task_run_stream_key(str(run.id)))
+        self.assertEqual(bool(get_tasks_stream_redis_sync().exists(completed_key)), not resume_before_retry)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
         self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
