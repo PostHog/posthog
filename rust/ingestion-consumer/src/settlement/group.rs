@@ -1,16 +1,20 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
-use super::{Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted};
+use super::{
+    Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted,
+};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
 use crate::partition_budget::BudgetLimits;
 
-pub(crate) struct GroupSettlement<B: Admission = PartitionBudget> {
-    budget: B,
+pub(crate) struct GroupSettlement<A: Accounting = Uncommitted, D: Admission = PartitionBudget> {
+    accounting: A,
+    admission: D,
 }
 
 impl GroupSettlement {
@@ -20,22 +24,40 @@ impl GroupSettlement {
         limits: BudgetLimits,
     ) -> Self {
         Self {
-            budget: PartitionBudget::new(
-                Uncommitted::new(ledger, CommitPacer::every(commit_interval)),
-                limits,
-            ),
+            accounting: Uncommitted::new(ledger, CommitPacer::every(commit_interval)),
+            admission: PartitionBudget::new(limits),
         }
     }
 }
 
-impl<B: Admission + 'static> Settlement for GroupSettlement<B> {
+impl<A: Accounting, D: Admission> GroupSettlement<A, D> {
+    fn commit(&self, offsets: HashMap<TopicPartition, Offset>) -> Commit {
+        let mut resume = Vec::new();
+        for topic_partition in offsets.keys() {
+            let uncommitted = self.accounting.held(topic_partition).charge;
+            if self
+                .admission
+                .handed_out(topic_partition, uncommitted)
+                .is_some()
+            {
+                resume.push(topic_partition.clone());
+            }
+        }
+        Commit { offsets, resume }
+    }
+}
+
+impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettlement<A, D> {
     fn charge(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
     ) -> Result<Option<Pause>, Rejection> {
-        self.budget.charge(topic_partition, generation, charges)
+        let uncommitted = self
+            .accounting
+            .charge(topic_partition, generation, charges)?;
+        Ok(self.admission.charged(topic_partition, uncommitted.charge))
     }
 
     fn settle_run(
@@ -45,7 +67,7 @@ impl<B: Admission + 'static> Settlement for GroupSettlement<B> {
         offsets: &[Offset],
     ) -> anyhow::Result<()> {
         if let Err(rejection) =
-            self.budget
+            self.accounting
                 .settled(topic_partition, generation, offsets.iter().copied())
         {
             report_rejection(
@@ -66,19 +88,20 @@ impl<B: Admission + 'static> Settlement for GroupSettlement<B> {
     }
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
-        self.budget.take_due(now)
+        Some(self.commit(self.accounting.take_due(now)?))
     }
 
     fn take_all(&self) -> Option<Commit> {
-        self.budget.take_all()
+        Some(self.commit(self.accounting.take_all()?))
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.budget.forget_partitions(topic_partitions);
+        self.accounting.forget_partitions(topic_partitions);
+        self.admission.forget_partitions(topic_partitions);
     }
 
     fn paused(&self) -> Vec<TopicPartition> {
-        self.budget.paused()
+        self.admission.paused()
     }
 }
 
@@ -88,31 +111,104 @@ mod tests {
 
     use common_kafka_consumer::{Held, LedgerError};
 
-    use super::super::fakes::{FakeAdmission, Settled};
+    use super::super::fakes::{FakeAccounting, FakeAdmission, Settled};
+    use super::super::Resume;
     use super::*;
 
-    fn p0() -> TopicPartition {
-        TopicPartition::new("events", 0)
+    fn p(partition: i32) -> TopicPartition {
+        TopicPartition::new("events", partition)
     }
 
-    fn settlement() -> GroupSettlement<FakeAdmission> {
+    fn events(events: u64) -> Charge {
+        Charge { events, bytes: 0 }
+    }
+
+    fn uncommitted_events(events: u64) -> Held {
+        Held {
+            offsets: events as usize,
+            charge: Charge { events, bytes: 0 },
+        }
+    }
+
+    fn settlement() -> GroupSettlement<FakeAccounting, FakeAdmission> {
         GroupSettlement {
-            budget: FakeAdmission::default(),
+            accounting: FakeAccounting::default(),
+            admission: FakeAdmission::default(),
         }
     }
 
     #[test]
-    fn a_run_reaches_the_admission_under_its_generation() {
+    fn a_charge_asks_the_admission_with_the_uncommitted_charge() {
+        let settlement = settlement();
+        settlement
+            .accounting
+            .charge_returns(Ok(uncommitted_events(10)));
+        settlement.admission.charged_returns(Some(Pause));
+
+        assert_eq!(settlement.charge(&p(0), 0, &[]), Ok(Some(Pause)));
+        assert_eq!(settlement.admission.charged(), vec![(p(0), events(10))]);
+    }
+
+    #[test]
+    fn a_rejected_charge_asks_the_admission_nothing() {
+        let settlement = settlement();
+        let stale = Rejection::Stale {
+            stamp: 0,
+            generation: 1,
+        };
+        settlement.accounting.charge_returns(Err(stale));
+
+        assert_eq!(settlement.charge(&p(0), 0, &[]), Err(stale));
+        assert!(settlement.admission.charged().is_empty());
+    }
+
+    #[test]
+    fn a_hand_out_asks_the_admission_for_each_partition_with_what_it_still_holds() {
+        let settlement = settlement();
+        settlement
+            .accounting
+            .take_hands_out(HashMap::from([(p(0), Offset(11)), (p(1), Offset(21))]));
+        settlement.accounting.holds(&p(0), uncommitted_events(3));
+        settlement.admission.handed_out_returns(&p(0), Resume);
+
+        let commit = settlement.take_due(Instant::now()).expect("handed out");
+
+        assert_eq!(
+            commit.offsets,
+            HashMap::from([(p(0), Offset(11)), (p(1), Offset(21))])
+        );
+        assert_eq!(commit.resume, vec![p(0)]);
+        let mut asked = settlement.admission.handed_out();
+        asked.sort_by_key(|(topic_partition, _)| topic_partition.partition);
+        assert_eq!(asked, vec![(p(0), events(3)), (p(1), events(0))]);
+    }
+
+    #[test]
+    fn take_all_asks_the_admission_like_take_due() {
+        let settlement = settlement();
+        settlement
+            .accounting
+            .take_hands_out(HashMap::from([(p(0), Offset(11))]));
+        settlement.admission.handed_out_returns(&p(0), Resume);
+
+        assert_eq!(
+            settlement.take_all().expect("handed out").resume,
+            vec![p(0)]
+        );
+    }
+
+    #[test]
+    fn a_run_reaches_the_accounting_under_its_generation() {
         let settlement = settlement();
 
         settlement
-            .settle_run(&p0(), 3, &[Offset(10), Offset(11)])
+            .settle_run(&p(0), 3, &[Offset(10), Offset(11)])
             .unwrap();
 
         assert_eq!(
-            settlement.budget.settled(),
+            settlement.accounting.settled(),
             vec![Settled {
-                topic_partition: p0(),
+                topic_partition: p(0),
                 generation: 3,
                 offsets: vec![Offset(10), Offset(11)],
             }]
@@ -140,10 +236,10 @@ mod tests {
     })]
     fn only_a_violating_run_fails(#[case] run: RejectedRun) {
         let settlement = settlement();
-        settlement.budget.settle_returns(Err(run.rejection));
+        settlement.accounting.settle_returns(Err(run.rejection));
 
         assert_eq!(
-            settlement.settle_run(&p0(), 0, &[Offset(10)]).is_err(),
+            settlement.settle_run(&p(0), 0, &[Offset(10)]).is_err(),
             run.expected_error
         );
     }
@@ -155,7 +251,7 @@ mod tests {
 
         settlement
             .settle_poll(&[ChargedSlice {
-                topic_partition: &p0(),
+                topic_partition: &p(0),
                 generation: 0,
                 span: OffsetSpan {
                     first: 10,
@@ -165,26 +261,25 @@ mod tests {
             }])
             .unwrap();
 
-        assert!(settlement.budget.settled().is_empty());
+        assert!(settlement.accounting.settled().is_empty());
     }
 
     #[test]
-    fn the_admissions_decisions_reach_the_consumer() {
+    fn a_revoke_reaches_both_the_accounting_and_the_admission() {
         let settlement = settlement();
-        settlement.budget.charge_returns(Ok(Some(Pause)));
-        settlement.budget.pauses(&[p0()]);
-        settlement.budget.take_hands_out(Commit {
-            offsets: HashMap::from([(p0(), Offset(11))]),
-            resume: vec![p0()],
-        });
 
-        assert_eq!(settlement.charge(&p0(), 0, &[]), Ok(Some(Pause)));
-        assert_eq!(settlement.paused(), vec![p0()]);
-        let commit = settlement.take_due(Instant::now()).expect("handed out");
-        assert_eq!(commit.offsets, HashMap::from([(p0(), Offset(11))]));
-        assert_eq!(commit.resume, vec![p0()]);
-        settlement.forget_partitions(&[p0()]);
-        assert_eq!(settlement.budget.forgotten(), vec![p0()]);
+        settlement.forget_partitions(&[p(0)]);
+
+        assert_eq!(settlement.accounting.forgotten(), vec![p(0)]);
+        assert_eq!(settlement.admission.forgotten(), vec![p(0)]);
+    }
+
+    #[test]
+    fn the_paused_partitions_come_from_the_admission() {
+        let settlement = settlement();
+        settlement.admission.pauses(&[p(0)]);
+
+        assert_eq!(settlement.paused(), vec![p(0)]);
     }
 }
 

@@ -18,7 +18,6 @@ use crate::order_sentinel::OffsetSpan;
 use crate::partition_budget::BudgetLimits;
 
 use budget::PartitionBudget;
-pub(crate) use budget::{Commit, Pause};
 pub(crate) use group::GroupSettlement;
 pub(crate) use poll::PollSettlement;
 use uncommitted::Uncommitted;
@@ -93,30 +92,37 @@ pub(crate) trait Accounting: Send + Sync {
     fn held(&self, topic_partition: &TopicPartition) -> Held;
 }
 
-/// Pause and resume decisions over the uncommitted charge.
+/// Pause and resume decisions from a partition's uncommitted charge.
 pub(crate) trait Admission: Send + Sync {
-    fn charge(
-        &self,
-        topic_partition: &TopicPartition,
-        generation: u64,
-        charges: &[(Offset, Charge)],
-    ) -> Result<Option<Pause>, Rejection>;
+    /// After a charge that left the partition at `uncommitted`.
+    fn charged(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Pause>;
 
-    /// Marks offsets complete, as `Accounting::settled`; decides nothing.
-    fn settled(
-        &self,
-        topic_partition: &TopicPartition,
-        generation: u64,
-        offsets: impl IntoIterator<Item = Offset>,
-    ) -> Result<Option<Offset>, Rejection>;
-
-    fn take_due(&self, now: Instant) -> Option<Commit>;
-
-    fn take_all(&self) -> Option<Commit>;
+    /// After a hand-out that left the partition at `uncommitted`.
+    fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 
     fn paused(&self) -> Vec<TopicPartition>;
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Pause;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Resume;
+
+pub(crate) struct Commit {
+    pub(crate) offsets: HashMap<TopicPartition, Offset>,
+    pub(crate) resume: Vec<TopicPartition>,
+}
+
+impl Commit {
+    fn without_resumes(offsets: HashMap<TopicPartition, Offset>) -> Self {
+        Self {
+            offsets,
+            resume: Vec::new(),
+        }
+    }
 }
 
 pub(crate) const BUDGET_NEEDS_GROUP: &str =

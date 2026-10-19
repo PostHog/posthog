@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicPartition};
 
-use super::{Accounting, Admission, Commit, Pause};
+use super::{Accounting, Admission, Pause, Resume};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Settled {
@@ -122,33 +122,36 @@ impl Accounting for FakeAccounting {
 
 #[derive(Default)]
 pub(super) struct FakeAdmission {
-    charges: Script<Result<Option<Pause>, Rejection>>,
-    settles: Script<Result<Option<Offset>, Rejection>>,
-    takes: Script<Commit>,
+    pauses: Script<Option<Pause>>,
+    resumes: Mutex<HashMap<TopicPartition, Resume>>,
     paused: Mutex<Vec<TopicPartition>>,
-    settled: Mutex<Vec<Settled>>,
+    charged: Mutex<Vec<(TopicPartition, Charge)>>,
+    handed_out: Mutex<Vec<(TopicPartition, Charge)>>,
     forgotten: Mutex<Vec<TopicPartition>>,
 }
 
 impl FakeAdmission {
-    pub(super) fn charge_returns(&self, result: Result<Option<Pause>, Rejection>) {
-        self.charges.push(result);
+    pub(super) fn charged_returns(&self, decision: Option<Pause>) {
+        self.pauses.push(decision);
     }
 
-    pub(super) fn settle_returns(&self, result: Result<Option<Offset>, Rejection>) {
-        self.settles.push(result);
-    }
-
-    pub(super) fn take_hands_out(&self, commit: Commit) {
-        self.takes.push(commit);
+    pub(super) fn handed_out_returns(&self, topic_partition: &TopicPartition, decision: Resume) {
+        self.resumes
+            .lock()
+            .unwrap()
+            .insert(topic_partition.clone(), decision);
     }
 
     pub(super) fn pauses(&self, topic_partitions: &[TopicPartition]) {
         *self.paused.lock().unwrap() = topic_partitions.to_vec();
     }
 
-    pub(super) fn settled(&self) -> Vec<Settled> {
-        self.settled.lock().unwrap().clone()
+    pub(super) fn charged(&self) -> Vec<(TopicPartition, Charge)> {
+        self.charged.lock().unwrap().clone()
+    }
+
+    pub(super) fn handed_out(&self) -> Vec<(TopicPartition, Charge)> {
+        self.handed_out.lock().unwrap().clone()
     }
 
     pub(super) fn forgotten(&self) -> Vec<TopicPartition> {
@@ -157,35 +160,20 @@ impl FakeAdmission {
 }
 
 impl Admission for FakeAdmission {
-    fn charge(
-        &self,
-        _topic_partition: &TopicPartition,
-        _generation: u64,
-        _charges: &[(Offset, Charge)],
-    ) -> Result<Option<Pause>, Rejection> {
-        self.charges.next().unwrap_or(Ok(None))
+    fn charged(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Pause> {
+        self.charged
+            .lock()
+            .unwrap()
+            .push((topic_partition.clone(), uncommitted));
+        self.pauses.next().flatten()
     }
 
-    fn settled(
-        &self,
-        topic_partition: &TopicPartition,
-        generation: u64,
-        offsets: impl IntoIterator<Item = Offset>,
-    ) -> Result<Option<Offset>, Rejection> {
-        self.settled.lock().unwrap().push(Settled {
-            topic_partition: topic_partition.clone(),
-            generation,
-            offsets: offsets.into_iter().collect(),
-        });
-        self.settles.next().unwrap_or(Ok(None))
-    }
-
-    fn take_due(&self, _now: Instant) -> Option<Commit> {
-        self.takes.next()
-    }
-
-    fn take_all(&self) -> Option<Commit> {
-        self.takes.next()
+    fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume> {
+        self.handed_out
+            .lock()
+            .unwrap()
+            .push((topic_partition.clone(), uncommitted));
+        self.resumes.lock().unwrap().remove(topic_partition)
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
