@@ -141,6 +141,28 @@ describe("ChatView", () => {
     const reading = plain(chat.render(40, 5));
     chat.setTranscript(replies(30), { hasOlder: false });
     expect(plain(chat.render(40, 5))).toEqual(reading);
+
+    // A page that renames every line (a window that starts mid-turn gets new ids from the turn's first entry) still
+    // keeps the place by how much the content grew above it, or the reader is at the top again and pages again.
+    const renamed = new ChatView();
+    renamed.setTranscript(
+      replies(30)
+        .slice(20)
+        .map((line) => ({ ...line, id: `x${line.id}` })),
+      { hasOlder: true },
+    );
+    renamed.render(40, 5);
+    renamed.scrollBy(-1000);
+    renamed.render(40, 5);
+    renamed.setTranscript(
+      replies(30)
+        .slice(10)
+        .map((line) => ({ ...line, id: `y${line.id}` })),
+      { hasOlder: true },
+    );
+    const kept = plain(renamed.render(40, 5));
+    expect(renamed.isAtTop()).toBe(false);
+    expect(kept.join("\n")).toContain("Reply 20");
   });
 
   it("keeps messages tight and puts one blank line between user, tool and agent blocks", () => {

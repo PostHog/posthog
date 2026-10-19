@@ -459,6 +459,30 @@ describe("App flows", () => {
     }
   });
 
+  // A long log of tool noise can show a few lines per window; paging until it filled the pane locked the app.
+  it("pulls one page into a chat shorter than the pane, then waits for a scroll", async () => {
+    const short: RunView = { ...liveView(), windowStart: 5000 };
+    const loadOlder = vi.fn(async () => {});
+    const app = cloudApp({
+      view: short,
+      runs: {
+        watch: (_t: string, _r: string, onView: (view: RunView) => void) => {
+          onView(short);
+          return { stop: () => {}, loadOlder };
+        },
+      },
+    });
+    try {
+      await vi.waitFor(() => expect(app.plain()).toContain("Fix the build"));
+      await vi.waitFor(() => expect(loadOlder).toHaveBeenCalledTimes(1));
+      // The page landed and the chat still fits the pane: no second page until the reader scrolls.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(loadOlder).toHaveBeenCalledTimes(1);
+    } finally {
+      app.close();
+    }
+  });
+
   it("closes a split pane only on a second Ctrl+C, and quits the last pane the same way", async () => {
     const split = splitFocused(openTask(initialLayout(), "c1"), "row");
     const app = cloudApp({ layout: split });
