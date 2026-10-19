@@ -377,21 +377,18 @@ class _Reader:
     def list_ids(self, relation: str) -> frozenset[str] | None:
         """Active IDs holding `relation` in this project, or None past the cap."""
         ids: set[str] = set()
-        pending: set[str] = set()
         request = ClientListObjectsRequest(user=self.user, relation=relation, type=self.type_name)
         stream = self.client.streamed_list_objects(request, self.options)
         try:
             for result in stream:
                 if result.object.startswith(self.prefix):
-                    pending.add(result.object.removeprefix(self.prefix))
+                    ids.add(result.object.removeprefix(self.prefix))
                     # Sync retains deleted objects; only active IDs consume the result cap.
-                    if len(pending) >= min(100, self.cap + 1):
-                        ids.update(self.active_ids(pending))
-                        pending.clear()
+                    if len(ids) > self.cap:
+                        ids = set(self.active_ids(ids))
                         if len(ids) > self.cap:
                             return None
-            ids.update(self.active_ids(pending))
-            return None if len(ids) > self.cap else frozenset(ids)
+            return self.active_ids(ids)
         finally:
             stream.close()
 
