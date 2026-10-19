@@ -1359,6 +1359,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # A filter that names an unknown column (for example a `log` filter with an attribute key)
+        # fails HogQL resolution. That is a user error, so every action returns a 400, not a 500.
+        if isinstance(exc, QueryError | ExposedCHQueryError):
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return super().handle_exception(exc)
+
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
         """Normalize a flat filter array (from MCP) to the nested PropertyGroupFilter structure."""

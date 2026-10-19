@@ -90,6 +90,23 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/count", data={"query": "not-an-object"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("count",), ("impact",), ("patterns",), ("group-by",)])
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_log_filter_on_unknown_column_returns_400(self, endpoint):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/{endpoint}",
+            data={
+                "query": {
+                    "dateRange": _FIXTURE_WINDOW,
+                    "filterGroup": [{"key": "userId", "type": "log", "operator": "exact", "value": "abc"}],
+                    "groupBy": "service_name",
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("userId", response.json()["error"])
+
     @parameterized.expand(
         [
             # Multi-day window — exercises full WHERE clause
