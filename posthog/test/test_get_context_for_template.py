@@ -115,6 +115,11 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
     def test_keeps_every_flag_before_definitions_load(self):
         assert flags_for_app_evaluation_context({"the-flag": True}, None) == {"the-flag": True}
 
+    def test_keeps_no_flags_when_analytics_is_disabled(self):
+        definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
+
+        assert flags_for_app_evaluation_context(None, definitions) is None
+
 
 class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
