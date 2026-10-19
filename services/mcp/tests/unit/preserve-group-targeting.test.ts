@@ -187,6 +187,18 @@ describe('preserveGroupTargetingFilters', () => {
         ],
     }
 
+    const existingPersonSetWithGroupPropertyFlag = {
+        groups: [
+            {
+                properties: [
+                    { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
+                    { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                ],
+                rollout_percentage: 100,
+            },
+        ],
+    }
+
     it('preserves aggregation_group_type_index when omitted on update', () => {
         const incoming = {
             groups: [
@@ -621,20 +633,15 @@ describe('preserveGroupTargetingFilters', () => {
             name: 'the agent echoes the property with its group type and index',
             region: { type: 'group', group_type_index: 1 },
         },
+        {
+            name: 'a changed key leaves the set with no source and the agent echoes the group property',
+            email: { key: 'country' },
+            region: { type: 'group', group_type_index: 1 },
+        },
     ])(
         'keeps a stored group property in a person-aggregated set when $name',
         ({ flag = {}, email = {}, region = {} }) => {
-            const existing = {
-                groups: [
-                    {
-                        properties: [
-                            { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
-                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
-                        ],
-                        rollout_percentage: 100,
-                    },
-                ],
-            }
+            const existing = existingPersonSetWithGroupPropertyFlag
 
             const merged = preserveGroupTargetingFilters(existing, {
                 ...flag,
@@ -689,6 +696,32 @@ describe('preserveGroupTargetingFilters', () => {
 
         expect(merged?.groups?.[0]?.aggregation_group_type_index ?? null).toBeNull()
         expect(merged?.groups?.[0]?.properties?.map((prop) => prop.group_type_index)).toEqual([1, 0])
+    })
+
+    // The oracle needs a stored set at the same index to accept a group property. An appended set has none.
+    it('keeps an appended set on persons when it repeats a group property that a stored set holds', () => {
+        const existing = existingPersonSetWithGroupPropertyFlag
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                ...existing.groups,
+                {
+                    properties: [{ key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'eu' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]?.properties).toEqual(existing.groups[0]?.properties)
+        expect(merged?.groups?.[0]?.aggregation_group_type_index ?? null).toBeNull()
+        expect(merged?.groups?.[1]?.properties?.[0]).toEqual({
+            key: 'region',
+            type: 'group',
+            group_type_index: 1,
+            operator: 'exact',
+            value: 'eu',
+        })
+        expect(merged?.groups?.[1]?.aggregation_group_type_index ?? null).toBeNull()
     })
 
     it('passes through multivariate and payloads without restoring from existing', () => {
@@ -1197,6 +1230,21 @@ describe('preserveGroupTargetingFilters', () => {
                     },
                 ],
             },
+            incoming: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 2, operator: 'exact', value: 'eu' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [[2, 'group', 2]],
+        },
+        {
+            name: 'a person set drops a key and moves its group property to another group type',
+            existing: existingPersonSetWithGroupPropertyFlag,
             incoming: {
                 groups: [
                     {
