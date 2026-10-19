@@ -59,6 +59,7 @@ def _upsert(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
             SOURCE_CONDITION_KEY: {
                 "threshold": alert.threshold.configuration if alert.threshold else None,
                 "comparison": alert.condition,
+                "detector": alert.detector_config,
             },
         },
         check_interval_minutes=check_interval_minutes,

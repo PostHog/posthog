@@ -310,7 +310,7 @@ A group with no instance whose check decides nothing is left out, so a quiet ser
 
 Insight groups by breakdown value, with `keys` set to `["breakdown"]`.
 `check_alert_per_series` judges every series on its own, where production's `check_alert_for_insight` stops at the first series that breaches, and the adapter runs each value through the shared machine against its own instance.
-Only threshold alerts can group; a detector scores its series together.
+Only threshold alerts can group; a detector scores its series together, so a detector alert is judged as one instance whatever its copy's grouping says.
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
@@ -508,7 +508,7 @@ Insight alerts are copied the same way:
 python manage.py backfill_platform_insight_alert_configurations
 ```
 
-It copies threshold alerts on a 15-minute or slower cadence only, and skips detector alerts and the real-time cadence.
+It copies threshold and statistical detector alerts on a 15-minute or slower cadence only, and skips AI detector alerts and the real-time cadence.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
