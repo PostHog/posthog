@@ -56,10 +56,14 @@ const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
  * The kea loaders and `shouldReportApiFailure` already excuse this failure, but a promise that no
  * caller handles reaches error tracking through autocapture and skips those checks.
  */
-export const dropScopeNotFoundExceptions: BeforeSendFn = (event) =>
-    event?.event === '$exception' && isScopeNotFoundMessage(event.properties?.$exception_list?.[0]?.value)
-        ? null
-        : event
+export const dropScopeNotFoundExceptions: BeforeSendFn = (event) => {
+    if (event?.event !== '$exception') {
+        return event
+    }
+    // posthog-js appends each wrapped `cause`, so the dead-scope error is not always the first entry.
+    const exceptions: { value?: unknown }[] = event.properties?.$exception_list ?? []
+    return exceptions.some((exception) => isScopeNotFoundMessage(exception?.value)) ? null : event
+}
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
