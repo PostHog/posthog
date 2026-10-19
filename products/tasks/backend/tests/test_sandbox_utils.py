@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -224,28 +226,57 @@ def test_repo_less_report_run_follows_the_integration_the_create_path_attached(
 
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize(
-    "error, expected_error",
+    "error, cause, expected_error",
     [
-        (ReauthorizationRequired("relink GitHub"), CredentialUnavailableError),
-        (CredentialUnavailableError("missing repository", {"repositories": ["acme/repo"]}), CredentialUnavailableError),
-        (GitHubRateLimitError("limited", retry_after=30), GitHubRateLimitedError),
-        (requests.ConnectionError("reset"), ProcessTaskTransientError),
-        (GitHubIntegrationError("bad gateway", status_code=502), ProcessTaskTransientError),
-        (GitHubIntegrationError("not accessible", status_code=422), GitHubAuthenticationError),
+        (ReauthorizationRequired("relink GitHub"), None, CredentialUnavailableError),
+        (
+            CredentialUnavailableError("missing repository", {"repositories": ["acme/repo"]}),
+            None,
+            CredentialUnavailableError,
+        ),
+        (GitHubRateLimitError("limited", retry_after=30), None, GitHubRateLimitedError),
+        (requests.ConnectionError("reset"), None, ProcessTaskTransientError),
+        (GitHubIntegrationError("network error"), requests.ConnectionError("reset"), ProcessTaskTransientError),
+        (GitHubIntegrationError("bad gateway", status_code=502), None, ProcessTaskTransientError),
+        (
+            GitHubIntegrationError("token refresh failed"),
+            GitHubIntegrationError("service unavailable", status_code=503),
+            ProcessTaskTransientError,
+        ),
+        (
+            GitHubIntegrationError("token refresh failed"),
+            GitHubRateLimitError("limited", retry_after=30),
+            GitHubRateLimitedError,
+        ),
+        (
+            GitHubIntegrationError("token refresh failed"),
+            GitHubIntegrationError("unauthorized", status_code=401),
+            GitHubAuthenticationError,
+        ),
+        (GitHubIntegrationError("not accessible", status_code=422), None, GitHubAuthenticationError),
     ],
     ids=[
         "reauthorization",
         "unavailable_credential",
         "rate_limited",
         "connection_error",
+        "wrapped_connection_error",
         "server_error",
+        "wrapped_server_error",
+        "wrapped_rate_limit",
+        "wrapped_authentication_error",
         "rejected_mint",
     ],
 )
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
 async def test_github_token_failure_maps_to_run_error(
-    mock_full: MagicMock, _mock_log: MagicMock, error: Exception, expected_error: type[Exception], resume: bool
+    mock_full: MagicMock,
+    _mock_log: MagicMock,
+    error: Exception,
+    cause: Exception | None,
+    expected_error: type[Exception],
+    resume: bool,
 ) -> None:
     # ReauthorizationRequired is a user-actionable "re-link your GitHub account" signal, not a
     # system fault. Provisioning must surface it as CredentialUnavailableError (fatal, non-retryable,
@@ -257,6 +288,7 @@ async def test_github_token_failure_maps_to_run_error(
         inject_fresh_tokens_on_resume,
     )
 
+    error.__cause__ = cause
     mock_full.side_effect = error
     ctx = TaskProcessingContext(
         task_id="t",
@@ -285,6 +317,8 @@ async def test_github_token_failure_maps_to_run_error(
     assert type(raised.value) is expected_error
     if isinstance(error, CredentialUnavailableError):
         assert raised.value is error
+    if isinstance(raised.value, GitHubRateLimitedError):
+        assert raised.value.next_retry_delay == timedelta(seconds=30)
 
 
 @pytest.mark.parametrize(
