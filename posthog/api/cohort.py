@@ -185,13 +185,15 @@ def _visible_workflows(
 def _visible_flags(
     request: Request,
     user_access_control: Optional[UserAccessControl],
+    project_id: int,
     flags: list[FeatureFlag],
 ) -> list[FeatureFlag]:
     if user_access_control is None or not _token_can_read(request, "feature_flag"):
         return []
     visible_ids = set(
         user_access_control.filter_queryset_by_access_level(
-            FeatureFlag.objects.filter(id__in=[flag.id for flag in flags]), include_all_if_admin=True
+            FeatureFlag.objects.filter(team__project_id=project_id, id__in=[flag.id for flag in flags]),
+            include_all_if_admin=True,
         ).values_list("id", flat=True)
     )
     return [flag for flag in flags if flag.id in visible_ids]
@@ -1755,7 +1757,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if deleted_state:
                 flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
-                    visible_flags = _visible_flags(request, self._user_access_control(), flags_with_cohort)
+                    visible_flags = _visible_flags(
+                        request, self._user_access_control(), cohort.team.project_id, flags_with_cohort
+                    )
                     names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags_with_cohort))
                     message = (
                         f"This cohort is used in {len(flags_with_cohort)} feature flag(s){names}. "
