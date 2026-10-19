@@ -21,31 +21,25 @@ describe('broadcastLifecycle', () => {
     })
 
     describe('confirmCreateAsBroadcast', () => {
+        const escape = (): boolean =>
+            fireEvent.keyDown(screen.getByText(TITLE).closest('.ReactModal__Content')!, { key: 'Escape', keyCode: 27 })
+
         it.each([
-            {
-                action: 'clicking "Create broadcast"',
-                answer: () => fireEvent.click(screen.getByText('Create broadcast')),
-                choice: 'broadcast',
-            },
-            {
-                action: 'clicking "Keep as workflow"',
-                answer: () => fireEvent.click(screen.getByText('Keep as workflow')),
-                choice: 'workflow',
-            },
-            {
-                action: 'pressing Escape',
-                answer: () =>
-                    fireEvent.keyDown(screen.getByText(TITLE).closest('.ReactModal__Content')!, {
-                        key: 'Escape',
-                        keyCode: 27,
-                    }),
-                choice: null,
-            },
-        ])('resolves to $choice after $action', async ({ answer, choice }) => {
-            const result = confirmCreateAsBroadcast()
+            { otherCount: 0, button: 'Create broadcast', choice: 'broadcast' },
+            { otherCount: 0, button: 'Keep as workflow', choice: 'workflow' },
+            { otherCount: 0, button: null, choice: null },
+            { otherCount: 2, button: 'Create and move 2 more', choice: 'broadcast_and_move' },
+            { otherCount: 2, button: 'Create broadcast', choice: 'broadcast' },
+            { otherCount: 2, button: 'Keep as workflow', choice: 'workflow' },
+        ])('with $otherCount other workflows, $button resolves to $choice', async ({ otherCount, button, choice }) => {
+            const result = confirmCreateAsBroadcast(otherCount)
             await screen.findByText(TITLE)
 
-            await answer()
+            if (button) {
+                fireEvent.click(screen.getByText(button))
+            } else {
+                escape()
+            }
 
             await expect(result).resolves.toBe(choice)
             await waitFor(() => expect(screen.queryByText(TITLE)).not.toBeInTheDocument())

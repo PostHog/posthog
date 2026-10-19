@@ -1,11 +1,14 @@
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { pluralize } from 'lib/utils/strings'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import {
     hogFlowsBatchJobsList,
+    hogFlowsBroadcastConversionCandidatesRetrieve,
+    hogFlowsConvertToBroadcast,
     hogFlowsDestroy,
     hogFlowsPartialUpdate,
 } from 'products/workflows/frontend/generated/api'
@@ -134,29 +137,75 @@ export function confirmOpenInWorkflowEditor(onConfirm: () => void): void {
     })
 }
 
-export type CreateAsBroadcastChoice = 'broadcast' | 'workflow'
+export type CreateAsBroadcastChoice = 'broadcast' | 'broadcast_and_move' | 'workflow'
 
-/** Resolves to null when the user closes the dialog without a choice. */
-export function confirmCreateAsBroadcast(): Promise<CreateAsBroadcastChoice | null> {
+/**
+ * Resolves to null when the user closes the dialog without a choice. `otherCount` is how many existing
+ * workflows could move to broadcasts too; the dialog offers to move them only when there are some.
+ */
+export function confirmCreateAsBroadcast(otherCount: number = 0): Promise<CreateAsBroadcastChoice | null> {
+    const overview =
+        'Broadcasts come with an overview built for sends to an audience. Watch deliveries, opens, clicks and conversions come in, and compare them across sends.'
+    const keepAsWorkflow = {
+        children: 'Keep as workflow',
+        'data-attr': 'workflow-create-as-broadcast-decline',
+    }
     return new Promise((resolve) => {
         LemonDialog.open({
             width: 500,
             title: 'Track this send as a broadcast?',
             description:
-                'Broadcasts come with an overview built for sends to an audience. Watch deliveries, opens, clicks and conversions come in, and compare them across sends.',
-            primaryButton: {
-                children: 'Create broadcast',
-                type: 'primary',
-                'data-attr': 'workflow-create-as-broadcast-confirm',
-                onClick: () => resolve('broadcast'),
-            },
-            secondaryButton: {
-                children: 'Keep as workflow',
-                'data-attr': 'workflow-create-as-broadcast-decline',
-                onClick: () => resolve('workflow'),
-            },
+                otherCount > 0
+                    ? `${overview} ${otherCount === 1 ? 'One other workflow does' : `${otherCount} other workflows do`} the same. Move ${otherCount === 1 ? 'it' : 'them'} too and keep the past sends.`
+                    : overview,
+            primaryButton:
+                otherCount > 0
+                    ? {
+                          children: `Create and move ${otherCount} more`,
+                          type: 'primary',
+                          'data-attr': 'workflow-create-as-broadcast-and-move',
+                          onClick: () => resolve('broadcast_and_move'),
+                      }
+                    : {
+                          children: 'Create broadcast',
+                          type: 'primary',
+                          'data-attr': 'workflow-create-as-broadcast-confirm',
+                          onClick: () => resolve('broadcast'),
+                      },
+            secondaryButton:
+                otherCount > 0
+                    ? {
+                          children: 'Create broadcast',
+                          'data-attr': 'workflow-create-as-broadcast-confirm',
+                          onClick: () => resolve('broadcast'),
+                      }
+                    : { ...keepAsWorkflow, onClick: () => resolve('workflow') },
+            tertiaryButton: otherCount > 0 ? { ...keepAsWorkflow, onClick: () => resolve('workflow') } : undefined,
             // A button click resolves first, so this only takes effect when the dialog is dismissed.
             onAfterClose: () => resolve(null),
         })
     })
+}
+
+/** Ids of the existing workflows that could move to broadcasts. Empty when the list cannot load. */
+export async function loadBroadcastConversionCandidateIds(projectId: string): Promise<string[]> {
+    try {
+        const candidates = await hogFlowsBroadcastConversionCandidatesRetrieve(projectId)
+        return candidates.results.map((candidate) => candidate.id)
+    } catch {
+        // The offer to move other workflows is optional, so a failed lookup must not block the save.
+        return []
+    }
+}
+
+/** Moves each workflow to broadcasts and returns how many moved. */
+export async function moveWorkflowsToBroadcasts(projectId: string, workflowIds: string[]): Promise<number> {
+    const results = await Promise.allSettled(workflowIds.map((id) => hogFlowsConvertToBroadcast(projectId, id)))
+    return results.filter((result) => result.status === 'fulfilled').length
+}
+
+export function movedToBroadcastsMessage(requested: number, moved: number): string {
+    return moved === requested
+        ? `Broadcast saved. ${pluralize(moved, 'other workflow')} moved to broadcasts.`
+        : `Broadcast saved. ${requested - moved} of ${requested} other workflows did not move. They stay in the Workflows list.`
 }

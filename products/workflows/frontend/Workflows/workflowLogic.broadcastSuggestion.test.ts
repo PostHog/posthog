@@ -29,12 +29,23 @@ const emailEdges: HogFlow['edges'] = [
 describe('workflowLogic broadcast suggestion on create', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let createdBodies: Record<string, any>[]
+    let convertedIds: string[]
+    let otherIds: string[]
 
     beforeEach(() => {
         createdBodies = []
+        convertedIds = []
+        otherIds = []
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/projects/:team_id/hog_flows/broadcast_conversion_candidates/': () => [
+                    200,
+                    {
+                        count: otherIds.length,
+                        results: otherIds.map((id) => ({ id, name: id, status: 'draft' })),
+                    },
+                ],
                 '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
             },
             post: {
@@ -42,6 +53,10 @@ describe('workflowLogic broadcast suggestion on create', () => {
                     const body = (await request.json()) as Record<string, any>
                     createdBodies.push(body)
                     return [201, { ...body, id: CREATED_ID, updated_at: '2026-05-01T00:00:00.000Z' }]
+                },
+                '/api/projects/:team_id/hog_flows/:id/convert_to_broadcast/': ({ params }) => {
+                    convertedIds.push(params.id as string)
+                    return [200, { id: params.id, origin_product: 'broadcasts' }]
                 },
             },
         })
@@ -62,6 +77,19 @@ describe('workflowLogic broadcast suggestion on create', () => {
             exitCondition: 'exit_only_at_end' as const,
             choice: 'broadcast' as const,
             asked: true,
+            others: ['wf-a'],
+            moved: [],
+            originProduct: 'broadcasts',
+            path: `/broadcasts/${CREATED_ID}`,
+        },
+        {
+            name: 'a batch email accepted as a broadcast with the others moved',
+            actions: [trigger('batch'), email, exit],
+            exitCondition: 'exit_only_at_end' as const,
+            choice: 'broadcast_and_move' as const,
+            asked: true,
+            others: ['wf-a', 'wf-b'],
+            moved: ['wf-a', 'wf-b'],
             originProduct: 'broadcasts',
             path: `/broadcasts/${CREATED_ID}`,
         },
@@ -71,6 +99,8 @@ describe('workflowLogic broadcast suggestion on create', () => {
             exitCondition: 'exit_only_at_end' as const,
             choice: 'workflow' as const,
             asked: true,
+            others: ['wf-a'],
+            moved: [],
             originProduct: undefined,
             path: `/workflows/${CREATED_ID}/workflow`,
         },
@@ -80,6 +110,8 @@ describe('workflowLogic broadcast suggestion on create', () => {
             exitCondition: 'exit_only_at_end' as const,
             choice: 'broadcast' as const,
             asked: false,
+            others: [],
+            moved: [],
             originProduct: undefined,
             path: `/workflows/${CREATED_ID}/workflow`,
         },
@@ -89,12 +121,15 @@ describe('workflowLogic broadcast suggestion on create', () => {
             exitCondition: 'exit_on_conversion' as const,
             choice: 'broadcast' as const,
             asked: false,
+            others: [],
+            moved: [],
             originProduct: undefined,
             path: `/workflows/${CREATED_ID}/workflow`,
         },
     ])(
         'creates $name with the right owner and opens it',
-        async ({ actions, exitCondition, choice, asked, originProduct, path }) => {
+        async ({ actions, exitCondition, choice, asked, others, moved, originProduct, path }) => {
+            otherIds = others
             jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(choice)
             logic.actions.setWorkflowValues({
                 name: 'Monthly update',
@@ -105,9 +140,12 @@ describe('workflowLogic broadcast suggestion on create', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.submitWorkflow()
-            }).toDispatchActions(['saveWorkflowSuccess'])
+            })
+                .toDispatchActions(['saveWorkflowSuccess'])
+                .toFinishAllListeners()
 
-            expect(jest.mocked(confirmCreateAsBroadcast).mock.calls.length).toBe(asked ? 1 : 0)
+            expect(jest.mocked(confirmCreateAsBroadcast).mock.calls).toEqual(asked ? [[others.length]] : [])
+            expect(convertedIds.sort()).toEqual(moved)
             expect(createdBodies).toHaveLength(1)
             expect(createdBodies[0].origin_product).toBe(originProduct)
             expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))

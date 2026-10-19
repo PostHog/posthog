@@ -33,7 +33,12 @@ import { hogFlowsCreate, hogFlowsResumeEmailSending } from 'products/workflows/f
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
-import { confirmCreateAsBroadcast } from '../Broadcasts/broadcastLifecycle'
+import {
+    confirmCreateAsBroadcast,
+    loadBroadcastConversionCandidateIds,
+    moveWorkflowsToBroadcasts,
+    movedToBroadcastsMessage,
+} from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
@@ -240,6 +245,8 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
 interface SaveContext {
     initiatedByAutoSave: boolean
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+    // Existing workflows to move to broadcasts once this save creates a broadcast.
+    moveToBroadcastIds: string[]
 }
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
@@ -3345,7 +3352,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     // The pending schedule rides along because an earlier save's reset clears it,
                     // which would drop a schedule change the user asked a manual save to persist.
                     const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
-                    saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
+                    saveContexts.push({
+                        initiatedByAutoSave,
+                        pendingSchedule: values.pendingSchedule,
+                        moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
+                    })
+                    cache.nextSaveMovesWorkflowIds = []
                     // Whether this save means to change the lifecycle. Only the enable and disable
                     // control does, and it says so when it dispatches. Comparing the payload's
                     // status against the stored one cannot tell the difference: that control does
@@ -3533,8 +3545,8 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 return errors
             },
-            submit: async (values) => {
-                if (!values) {
+            submit: async (workflow) => {
+                if (!workflow) {
                     return
                 }
 
@@ -3544,19 +3556,24 @@ export const workflowLogic = kea<workflowLogicType>([
                     (!props.id || props.id === 'new') &&
                     !props.editTemplateId &&
                     // The broadcast editor always saves this exit condition, so any other one would be lost.
-                    values.exit_condition === 'exit_only_at_end' &&
-                    isBroadcastShaped(values.actions) &&
-                    canEditInWizard(values.actions, values.edges)
+                    workflow.exit_condition === 'exit_only_at_end' &&
+                    isBroadcastShaped(workflow.actions) &&
+                    canEditInWizard(workflow.actions, workflow.edges)
                 ) {
-                    const choice = await confirmCreateAsBroadcast()
-                    posthog.capture('workflow broadcast suggestion answered', { choice: choice ?? 'dismissed' })
+                    const otherIds = await loadBroadcastConversionCandidateIds(String(values.currentProjectId))
+                    const choice = await confirmCreateAsBroadcast(otherIds.length)
+                    posthog.capture('workflow broadcast suggestion answered', {
+                        choice: choice ?? 'dismissed',
+                        other_workflows: otherIds.length,
+                    })
                     if (!choice) {
                         return
                     }
-                    cache.nextSaveCreatesBroadcast = choice === 'broadcast'
+                    cache.nextSaveCreatesBroadcast = choice !== 'workflow'
+                    cache.nextSaveMovesWorkflowIds = choice === 'broadcast_and_move' ? otherIds : []
                 }
 
-                actions.saveWorkflow(values)
+                actions.saveWorkflow(workflow)
                 // Hold the form in its submitting state until the save lands, so the save button
                 // keeps a loading state and cannot fire a second save. The loader created the queue
                 // while it handled the action above.
@@ -4426,7 +4443,19 @@ export const workflowLogic = kea<workflowLogicType>([
                         },
                     })
                 } else if (originalWorkflow.origin_product === 'broadcasts') {
-                    lemonToast.success('Broadcast saved')
+                    const moveIds = saveContext?.moveToBroadcastIds ?? []
+                    if (moveIds.length > 0) {
+                        const moved = await moveWorkflowsToBroadcasts(String(values.currentProjectId), moveIds)
+                        posthog.capture('workflows moved to broadcasts', { requested: moveIds.length, moved })
+                        const message = movedToBroadcastsMessage(moveIds.length, moved)
+                        if (moved === moveIds.length) {
+                            lemonToast.success(message)
+                        } else {
+                            lemonToast.warning(message)
+                        }
+                    } else {
+                        lemonToast.success('Broadcast saved')
+                    }
                 } else {
                     lemonToast.success('Workflow saved')
                 }

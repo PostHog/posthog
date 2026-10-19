@@ -158,6 +158,11 @@ from products.workflows.backend.facade.blast_radius import (
     is_account_audience,
     parse_account_audience_filters,
 )
+from products.workflows.backend.facade.broadcast_conversion import (
+    BROADCAST_CONVERSION_CANDIDATE_LIMIT,
+    convert_workflow_to_broadcast,
+    list_broadcast_conversion_candidates,
+)
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
     EmailDesignRenderFailed,
@@ -2653,6 +2658,32 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     )
 
 
+class BroadcastConversionCandidateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Workflow id.")
+    name = serializers.CharField(read_only=True, allow_blank=True, help_text="Workflow name. Empty when unnamed.")
+    status = serializers.ChoiceField(choices=HogFlowState.choices, read_only=True, help_text="Workflow status.")
+
+
+class BroadcastConversionCandidatesSerializer(serializers.Serializer):
+    """Workflows that only send one email to a batch audience and can move to broadcasts."""
+
+    count = serializers.IntegerField(read_only=True, help_text="How many workflows can move, before the cap.")
+    results = BroadcastConversionCandidateSerializer(
+        many=True,
+        read_only=True,
+        help_text=f"The most recently updated candidates, at most {BROADCAST_CONVERSION_CANDIDATE_LIMIT}.",
+    )
+
+
+class HogFlowConvertedToBroadcastSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Id of the workflow that is now a broadcast.")
+    origin_product = serializers.ChoiceField(
+        choices=HogFlowOriginProduct.choices,
+        read_only=True,
+        help_text="The product that now owns the workflow. Always `broadcasts`.",
+    )
+
+
 class HogFlowLastRunSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(read_only=True, help_text="The task this run belongs to.")
     status = serializers.CharField(
@@ -4421,6 +4452,7 @@ class HogFlowViewSet(
         "metrics_global",
         "team_reputation",
         "email_sending_suspension",
+        "broadcast_conversion_candidates",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -4448,6 +4480,7 @@ class HogFlowViewSet(
         "discard_draft",
         "restore_revision",
         "resume_email_sending",
+        "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
     ]
@@ -6460,6 +6493,56 @@ class HogFlowViewSet(
                     "email_sending_paused_reason": "",
                     "email_sending_resumed_at": resumed_at,
                 }
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_broadcast_conversion_candidates_retrieve",
+        responses={200: BroadcastConversionCandidatesSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        pagination_class=None,
+        filter_backends=[],
+        url_path="broadcast_conversion_candidates",
+    )
+    def broadcast_conversion_candidates(self, request: Request, **kwargs) -> Response:
+        """
+        List the workflows that could become broadcasts: one email to a batch audience, with nothing the
+        broadcast editor would drop. Only workflows the caller may edit are listed.
+        """
+        candidates = list_broadcast_conversion_candidates(
+            team_id=self.team_id,
+            user_access_control=None if is_service_auth(request) else self.user_access_control,
+        )
+        return Response(
+            BroadcastConversionCandidatesSerializer(
+                {"count": len(candidates), "results": candidates[:BROADCAST_CONVERSION_CANDIDATE_LIMIT]}
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_convert_to_broadcast",
+        request=None,
+        responses={200: HogFlowConvertedToBroadcastSerializer},
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None, filter_backends=[], url_path="convert_to_broadcast")
+    def convert_to_broadcast(self, request: Request, **kwargs) -> Response:
+        """
+        Move a workflow to broadcasts. It keeps its id, runs and metrics, leaves the workflows list and opens
+        in the broadcast editor. This cannot be undone.
+        """
+        hog_flow = self._workflow_ref()
+        if not convert_workflow_to_broadcast(
+            team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, actor=self._activity_actor()
+        ):
+            raise exceptions.ValidationError(
+                {"detail": "Only a workflow that sends one email to a batch audience can become a broadcast."}
+            )
+        return Response(
+            HogFlowConvertedToBroadcastSerializer(
+                {"id": hog_flow.id, "origin_product": HogFlowOriginProduct.BROADCASTS}
             ).data
         )
 
