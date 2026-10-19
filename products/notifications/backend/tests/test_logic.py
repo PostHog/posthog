@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -199,10 +198,6 @@ class TestCreateNotification(BaseTest):
 
         assert notified == {allowed_user.id}
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="all_users_with_access() over-grants on non-private projects with a member-specific 'none' row; alignment deferred to #114423",
-    )
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_denies_member_scoped_none_on_non_private_project(self, mock_publish, mock_ff):

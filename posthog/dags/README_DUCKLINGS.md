@@ -8,7 +8,7 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 DuckgresServer (Django model) + control-plane team rows
     │ DuckgresServer stores the org connection; control-plane rows gate each team's enablement
     ▼
-ClickHouse (events/person tables)
+ClickHouse (events/person/groups tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
     ▼
 Duckling S3 Bucket (parquet files)
@@ -41,6 +41,41 @@ Duckling RDS Catalog (PostgreSQL)
 | `duckling_persons_backfill_job`          | Job wrapping the asset                               |
 | `duckling_persons_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)          |
 | `duckling_persons_full_backfill_sensor`  | Sensor for historical backfill (full export)         |
+
+### Groups backfill
+
+`duckling_groups_backfill_job` runs a full snapshot per team using the team ID as its partition key.
+`duckling_groups_full_backfill_sensor` discovers teams with backfills enabled in a ready warehouse and retries failed runs.
+Rerun a team partition manually to refresh its groups; there is no daily groups top-up sensor.
+Each sensor tick checks at most 25 teams, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
+Failed snapshots retry with exponential backoff from 10 minutes to a maximum of 320 minutes.
+The sensor checks active runs separately from real snapshot history; previews do not hide a successful or active snapshot.
+The export reads ClickHouse groups with `FINAL` and follows the full persons delete-and-register flow.
+Deduplication follows the table engine: the highest `_timestamp` wins, with equal timestamps resolved by insertion order.
+The export does not apply an explicit sort.
+With the default `cleanup_existing_partition_data: true`, the job deletes the team's rows before export.
+Immediately before registering files, it deletes the team's rows again; reconnect retries replay that delete-and-register unit to avoid duplicate rows.
+Registration uses autocommit, matching persons; failures can leave an empty or partially registered team until a retry succeeds.
+There is no generation marker or table-comment dependency. Avoid overlapping manual runs for the same team because an older export can replace newer data.
+`delete_tables` is refused for the legacy shared `groups` table.
+The job supports `dry_run` and `skip_ducklake_registration`.
+As with persons, setting `cleanup_existing_partition_data: false` appends files instead of replacing rows and disables replay deduplication.
+
+Groups exports default to a 100 GiB query memory limit, matching full persons exports.
+Override it with `clickhouse_settings.max_memory_usage` when launching a run.
+For a memory failure, lower `max_s3_file_fanout` and rerun the same team partition with `delete_tables: false`.
+A failed export leaves the team empty when cleanup is enabled; only a successful export proceeds to registration.
+
+The groups sensor defaults to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
+
+1. Deploy the job and confirm `duckling_groups_full_backfill_sensor` is stopped in Dagster. The default does not override a previously stored running state.
+2. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set.
+3. Launch `duckling_groups_backfill_job` for that partition with `dry_run: false`, `skip_ducklake_registration: false`, and `delete_tables: false`.
+4. Verify the latest groups per type/key against ClickHouse and run a managed warehouse HogQL groups query. Use Dagster run status and output metadata to inspect registration.
+5. Start `duckling_groups_full_backfill_sensor` to discover all teams with `backfill_enabled: true` in ready warehouses. The successful manual snapshot is skipped.
+
+Stop the sensor to pause new discovery. Stop queued or active runs separately if they must not finish.
+Groups query mapping is available before the first snapshot completes; queries can fail before table creation or read an empty table during the initial export.
 
 ## Partition Strategy
 

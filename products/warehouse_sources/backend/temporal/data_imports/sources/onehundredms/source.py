@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +44,44 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OneHundredMsSource(ResumableSource[OneHundredMsSourceConfig, OneHundredMsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(ONE_HUNDRED_MS|ONEHUNDREDMS)_", "^HMS_ACCESS_KEY$", "^HMS_SECRET$"),
+        npm=(
+            "@100mslive/react-sdk",
+            "@100mslive/hms-video-store",
+            "@100mslive/server-sdk",
+            "@100mslive/react-native-hms",
+            "@100mslive/roomkit-react",
+            "@100mslive/hls-player",
+            "@100mslive/hls-stats",
+            "@100mslive/hms-loadtest",
+            "@100mslive/hms-noise-suppression",
+            "@100mslive/hms-video",
+            "@100mslive/hms-video-react",
+            "@100mslive/hms-virtual-background",
+            "@100mslive/hms-whiteboard",
+            "@100mslive/hmsvideo-web",
+            "@100mslive/meeting-scribe",
+            "@100mslive/react-icons",
+            "@100mslive/react-native-room-kit",
+            "@100mslive/react-native-video-plugin",
+            "@100mslive/roomkit-web",
+        ),
+        cocoapods=("HMSSDK",),
+        maven=("live.100ms:android-sdk",),
+        pub=("hmssdk_flutter",),
+        swiftpm=(
+            "github.com/100mslive/100ms-ios-sdk",
+            "github.com/100mslive/100ms-ios-analytics-sdk",
+            "github.com/100mslive/100ms-ios-broadcast-sdk",
+            "github.com/100mslive/100ms-ios-hls-sdk",
+            "github.com/100mslive/100ms-ios-sdk-staging",
+            "github.com/100mslive/100ms-noise-cancellation-models-ios",
+            "github.com/100mslive/100ms-roomkit-ios",
+            "github.com/100mslive/100ms-roomkit-models-ios",
+        ),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

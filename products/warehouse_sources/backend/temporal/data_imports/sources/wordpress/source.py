@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,25 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConfig]):
+    # NOTE: recall is low here. Most WordPress sites are not Composer projects,
+    # so these signals only catch the installs that are.
+    codebase_detection = detect(
+        env=("^WORDPRESS_",),
+        npm=("wpapi", "@wordpress/api-fetch", "@wordpress/scripts"),
+        composer=(
+            "johnpbloch/wordpress",
+            "roots/wordpress",
+            "johnpbloch/wordpress-core",
+            "johnpbloch/wordpress-core-installer",
+            "johnpbloch/wordpress-dev",
+            "johnpbloch/wordpress-project",
+            "roots/wordpress-core-installer",
+            "roots/wordpress-full",
+            "roots/wordpress-no-content",
+            "roots/wordpress-packager",
+        ),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.wordpress.org/rest-api/"

@@ -1,16 +1,48 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { WorkflowDataSuggestions } from './suggestions/WorkflowDataSuggestions'
+import { workflowDataSuggestionsLogic } from './suggestions/workflowDataSuggestionsLogic'
 import { workflowsSetupGuideLogic } from './workflowsSetupGuideLogic'
 
 /** The first-run choice on the workflows empty state. The choice picks the onboarding a person gets. */
 export function WorkflowsPathChoice(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // The suggestions logic loads on mount, so it only mounts behind the flag.
+    return featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS] ? (
+        <PathChoiceWithSuggestions />
+    ) : (
+        <PathButtons messagingIsPrimary />
+    )
+}
+
+function PathChoiceWithSuggestions(): JSX.Element {
+    const { cards } = useValues(workflowDataSuggestionsLogic({ surface: 'empty_state' }))
+
+    // The first suggestion card becomes the one primary button once cards show.
+    return (
+        <div className="flex flex-col gap-4">
+            <PathButtons messagingIsPrimary={cards.length === 0} />
+            <WorkflowDataSuggestions />
+        </div>
+    )
+}
+
+function PathButtons({ messagingIsPrimary }: { messagingIsPrimary: boolean }): JSX.Element {
     const { choosePath } = useActions(workflowsSetupGuideLogic)
 
     return (
         <div className="flex flex-wrap gap-2">
-            <LemonButton type="primary" onClick={() => choosePath('messaging')} data-attr="workflows-path-messaging">
+            <LemonButton
+                type={messagingIsPrimary ? 'primary' : 'secondary'}
+                onClick={() => choosePath('messaging')}
+                data-attr="workflows-path-messaging"
+            >
                 Message your users
             </LemonButton>
             <LemonButton

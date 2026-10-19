@@ -1,9 +1,12 @@
 from collections.abc import Mapping
+from datetime import datetime
+from enum import StrEnum
 
 from posthog.schema import MultipleVariantHandling
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.filters import pinned_variant, reachable_conditions
@@ -13,6 +16,93 @@ from products.feature_flags.backend.facade.filters import pinned_variant, reacha
 class FlagVariant:
     key: str | None
     rollout_percentage: float | None
+
+
+Split = tuple[FlagVariant, ...]
+
+
+@frozen
+class SplitChange:
+    changed_at: datetime
+    before: Split
+    after: Split
+
+
+class BucketingSetting(StrEnum):
+    # The flag settings besides the split that are inputs of the variant draw, in the order the findings name them.
+    KEY = "key"
+    AGGREGATION = "aggregation"
+    BUCKETING_IDENTIFIER = "bucketing_identifier"
+    EXPERIENCE_CONTINUITY = "experience_continuity"
+
+
+@frozen
+class BucketingChange:
+    changed_at: datetime
+    setting: BucketingSetting
+    # The key as a string, the aggregation as a group type index or None for persons, the identifier as
+    # "distinct_id" or "device_id", the continuity as a bool.
+    before: str | int | bool | None
+    after: str | int | bool | None
+
+
+# A change of the flag after launch that can move exposed people. A new kind needs its class here, an
+# `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
+# `inputs_payload.py`, and its check.
+FlagChange = SplitChange | BucketingChange
+
+
+def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C]) -> tuple[C, ...]:
+    return tuple(change for change in changes if isinstance(change, kind))
+
+
+@frozen
+class FlagHistory:
+    """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
+    before them. A change before the first exposure moved nobody, so it does not count."""
+
+    launched_at: datetime
+    team_timezone: str
+    # Every change of every kind, in time order.
+    changes: tuple[FlagChange, ...]
+    # The time of the first change, of any kind, with an exposure before it or an unknown answer. Every change
+    # from then on counts. None when nobody was exposed before any change.
+    counted_since: datetime | None
+    # None when unknown: the exposure query failed, or the request ran out of queries or time.
+    exposed_before_first: bool | None
+    # Whether anyone was exposed between the first and the last counted change of a kind. Asked only when the last
+    # sets back what the first changed, so a kind that was not asked is absent. None when unknown.
+    exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None]
+
+    def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
+        return changes_of_kind(self.changes, kind)
+
+    def counted[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
+        since = self.counted_since
+        return () if since is None else tuple(change for change in self.of_kind(kind) if change.changed_at >= since)
+
+
+class FlagHistoryNotCheckedReason(StrEnum):
+    # pinned: the finding's `evidence.reason`.
+    NO_HISTORY_ACCESS = "no_history_access"
+    NO_QUERY_ACCESS = "no_query_access"
+    EXPOSURE_FILTERS = "exposure_filters"
+    EXPOSURE_ACTION = "exposure_action"
+    EXPOSURE_CRITERIA = "exposure_criteria"
+
+
+@frozen
+class FlagHistoryNotChecked:
+    """A flag history that was not compared with the exposures, and the reason. Every change counts."""
+
+    reason: FlagHistoryNotCheckedReason
+    launched_at: datetime
+    team_timezone: str
+    # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
+    changes: tuple[FlagChange, ...]
+
+    def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
+        return changes_of_kind(self.changes, kind)
 
 
 @frozen
@@ -39,6 +129,20 @@ class FlagState:
 
 
 @frozen
+class ConditionSetTraffic:
+    """The flag's `$feature_flag_called` events of the last days, by the release condition that served each person."""
+
+    # The latest of launch, the flag's last save and the start of the window.
+    since: datetime
+    team_timezone: str
+    # People by the condition set that served their latest call of the flag's current version.
+    people_by_set: Mapping[int, int]
+    # The calls that returned a variant, and those of them that the flag service evaluated, which alone name a set.
+    calls: int
+    remotely_evaluated_calls: int
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -62,6 +166,12 @@ class HealthContext:
     primary_metric_count: int
     secondary_metric_count: int
     exposures: ExposureTotals | None
+    # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
+    flag_history: FlagHistory | FlagHistoryNotChecked | None
+    # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
+    condition_set_traffic: ConditionSetTraffic | None
+    # The variants that the analysis leaves out of the results.
+    excluded_variant_keys: frozenset[str]
 
 
 def parse_flag_state(
@@ -74,7 +184,7 @@ def parse_flag_state(
     early_exit: bool = False,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
-    flag_variants = tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
+    flag_variants = parse_variants(variants)
     variant_keys = {variant.key for variant in flag_variants if variant.key}
     reachable = reachable_conditions(conditions, flag_aggregation=aggregation_group_type_index, early_exit=early_exit)
     return FlagState(
@@ -109,6 +219,10 @@ def _variant(variant: object) -> FlagVariant:
     )
 
 
+def parse_variants(variants: object) -> Split:
+    return tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
+
+
 def _percentage(value: object) -> float | None:
     # The page compares with `=== 0` and `=== 100`, so only a JSON number can match. A string or a
     # boolean must not, and Python's `False == 0` would let a boolean through.
@@ -139,7 +253,12 @@ def _configured_baseline_variant_key(stats_config: object) -> str | None:
     return key if isinstance(key, str) and key else None
 
 
-def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
+def load_health_context(
+    experiment: Experiment,
+    exposures: ExposureTotals | None = None,
+    *,
+    flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
+) -> HealthContext:
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(
         is_launched=experiment.is_launched,
@@ -152,4 +271,7 @@ def load_health_context(experiment: Experiment, exposures: ExposureTotals | None
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,
+        flag_history=flag_history,
+        condition_set_traffic=None,
+        excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )

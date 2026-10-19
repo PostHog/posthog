@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -16,6 +16,12 @@ import { RecipientTokensService } from './messaging/recipient-tokens.service'
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const EMAIL_INPUT_TYPES = ['native_email', 'email']
+
+const ACCESS_TOKEN_PLACEHOLDER_PURPOSE = 'integration-access-token-placeholder'
+
+const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_TOKEN_PLACEHOLDER}${integrationId}`
+
+const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
 export class HogInputsService {
     constructor(
@@ -34,14 +40,17 @@ export class HogInputsService {
             ...globals,
             inputs: {},
         }
-        const inputs: HogFunctionType['inputs'] = {
+        const ownInputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
             ...hogFunction.inputs,
             ...hogFunction.encrypted_inputs,
             // Plus any additional inputs
             ...additionalInputs,
+        }
+        const inputs: HogFunctionType['inputs'] = {
+            ...ownInputs,
             // and decode any integration inputs (and push subscription inputs when newGlobals provided)
-            ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
+            ...(await this.loadIntegrationInputs(hogFunction, newGlobals, { throwIfMissingIn: ownInputs })),
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
@@ -167,9 +176,25 @@ export class HogInputsService {
         return result
     }
 
+    // The fetch step swaps these values for the token wherever they appear in the request, so they must not be
+    // something a request can contain unless the function read it from these inputs.
+    private accessTokenPlaceholder(integrationId: number): string {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return signedAccessTokenPlaceholder(base, this.encryptedFields.sign(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base))
+    }
+
+    public acceptedAccessTokenPlaceholders(integrationId: number): string[] {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return this.encryptedFields
+            .signatures(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base)
+            .map((signature) => signedAccessTokenPlaceholder(base, signature))
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
-        newGlobals?: HogFunctionInvocationGlobalsWithInputs
+        newGlobals?: HogFunctionInvocationGlobalsWithInputs,
+        // Loading covers every mapping, so only the inputs this invocation uses may fail it.
+        options?: { throwIfMissingIn?: HogFunctionType['inputs'] }
     ): Promise<Record<string, { value: Record<string, any> | Record<string, any>[] | null }>> {
         // Single integration inputs map a key to one id; integration_multi maps a key to a list of ids.
         const singleInputsToLoad: Record<string, number> = {}
@@ -228,7 +253,7 @@ export class HogInputsService {
                 ...integration.sensitive_config,
                 ...(integration.sensitive_config.access_token || integration.config.access_token
                     ? {
-                          access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                          access_token: this.accessTokenPlaceholder(integration.id),
                           access_token_raw:
                               integration.sensitive_config.access_token ?? integration.config.access_token,
                       }
@@ -237,6 +262,13 @@ export class HogInputsService {
         }
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
+            // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
+            const isUsed = options?.throwIfMissingIn?.[key]?.value === id
+            if (isUsed && (!integrations[id] || integrations[id].team_id !== hogFunction.team_id)) {
+                throw new HogConfigurationError(
+                    `The integration for input '${key}' no longer exists. It may have been deleted. Select a connected integration for this input.`
+                )
+            }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
 

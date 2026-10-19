@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import timedelta
 from typing import Optional, Union
@@ -238,11 +239,37 @@ def _mint_step_resume_jwt(team_id: int, origin_key: str) -> str:
 
 def resume_workflow_step(team_id: int, origin_key: str, status: str, result: dict) -> requests.Response:
     """Wake the parked workflow step that dispatched `origin_key`. 409 means the worker still holds the
-    job and the caller should retry; every other 2xx outcome is final."""
+    job and the caller should retry. A 200 carries the outcome in its body."""
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/workflow_steps/resume",
         json={"origin_key": origin_key, "status": status, "result": result},
         headers={"Authorization": f"Bearer {_mint_step_resume_jwt(team_id, origin_key)}"},
+        timeout=10,
+    )
+
+
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+    settings_name="WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
+    workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
+    if not WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured — cannot send email")
+    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
+
+
+def send_transactional_email(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Run a transactional email's workflow once. `payload` carries the recipient, the recipient's distinct_id and
+    the template variables. 202 means queued, 429 means the team is over its email quota."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
         timeout=10,
     )
 
@@ -288,7 +315,24 @@ def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
     return ""
 
 
+# A preferences token is a three-segment base64url JWT. The charset has no path separators, so a
+# conforming token cannot alter the request path when interpolated below. Reject anything else
+# before the call, so an unauthenticated caller can't steer this internal, secret-bearing request
+# at another CDP endpoint (requests collapses `..` path segments).
+_PREFERENCES_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+
+
+def _invalid_token_response() -> requests.Response:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = json.dumps({"error": "Invalid recipient token"}).encode()
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
 def validate_messaging_preferences_token(token: str) -> requests.Response:
+    if not isinstance(token, str) or not _PREFERENCES_TOKEN_RE.fullmatch(token):
+        return _invalid_token_response()
     return internal_requests.get(
         CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}",
         headers=get_internal_api_headers(),

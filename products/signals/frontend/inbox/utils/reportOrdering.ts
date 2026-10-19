@@ -56,6 +56,20 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
     return typeof score === 'number' ? score : null
 }
 
+/**
+ * The Recommended sort's comparator. The server orders each response by the ranker's fine-grained
+ * order and gives each row only a coarse merge key, so rows with equal keys keep their input order.
+ * A row without a key sorts last.
+ */
+export function compareInboxMergeKeys(a: SignalReport, b: SignalReport): number {
+    const keyA = a.inbox_merge_key ?? null
+    const keyB = b.inbox_merge_key ?? null
+    if (keyA === null || keyB === null) {
+        return keyA === keyB ? 0 : keyA === null ? 1 : -1
+    }
+    return keyA - keyB
+}
+
 // The server puts unscored reports after every scored report, in both directions.
 function compareRankingScores(a: number | null, b: number | null, dir: number): number {
     if (a === null || b === null) {
@@ -69,6 +83,9 @@ export function compareSignalReports(
     field: InboxSortField,
     direction: InboxSortDirection
 ): (a: SignalReport, b: SignalReport) => number {
+    if (field === 'recommended') {
+        return compareInboxMergeKeys
+    }
     const dir = direction === 'desc' ? -1 : 1
     return (a, b) => {
         if (isRankingSortField(field)) {

@@ -26,6 +26,7 @@ import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { getPublicUrl } from '@/lib/routing'
 import {
     isModernRequest,
     META_SERVER_INFO,
@@ -41,6 +42,7 @@ import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
+import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
@@ -143,6 +145,7 @@ class McpDispatcher {
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService
+    private readonly interviewRecruitment: InterviewRecruitment
 
     private warmupPromise: Promise<void> | undefined
 
@@ -154,6 +157,7 @@ class McpDispatcher {
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
         this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
+        this.interviewRecruitment = new InterviewRecruitment(redis)
     }
 
     async warmup(): Promise<void> {
@@ -240,6 +244,13 @@ class McpDispatcher {
 
         const requests = messages.filter(isRequest)
         if (requests.length === 0) {
+            const responses = messages.filter((message) => this.interviewRecruitment.isLegacyResponse(message))
+            if (!singleModern && responses.length > 0) {
+                const state = await this.stateResolver.resolve(props)
+                for (const response of responses) {
+                    await this.interviewRecruitment.receiveLegacyResponse(response, state, props.userHash)
+                }
+            }
             return new Response(null, { status: 202 })
         }
 
@@ -286,21 +297,48 @@ class McpDispatcher {
         }
 
         if (!wasArray && requests.length === 1) {
-            const result = await this.dispatch(requests[0]!, props, state)
+            let elicitation: JSONRPCRequest | undefined
+            const canStream =
+                !singleModern &&
+                req.headers
+                    .get('accept')
+                    ?.split(',')
+                    .some((value) => value.trim().split(';')[0] === 'text/event-stream')
+            const result = await this.dispatch(
+                requests[0]!,
+                props,
+                state,
+                getPublicUrl(req).origin,
+                canStream
+                    ? (request) => {
+                          elicitation = request
+                      }
+                    : undefined
+            )
+            if (elicitation) {
+                const body = [elicitation, result]
+                    .map((message) => `event: message\ndata: ${JSON.stringify(message)}\n\n`)
+                    .join('')
+                return new Response(body, {
+                    headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+                })
+            }
             // SEP-2575: unsupported RPCs get HTTP 404 in the modern dialect.
             const status =
                 singleModern && 'error' in result && result.error.code === ErrorCode.MethodNotFound ? 404 : 200
             return new Response(JSON.stringify(result), { status, headers })
         }
 
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
+        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin)))
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
     private async dispatch(
         request: JSONRPCRequest,
         props: RequestProperties,
-        state: ResolvedState | undefined
+        state: ResolvedState | undefined,
+        requestOrigin: string,
+        onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
@@ -310,12 +348,24 @@ class McpDispatcher {
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state, stateless)
+            const result = await this.dispatchMethod(
+                method,
+                params,
+                props,
+                state,
+                stateless,
+                id,
+                requestOrigin,
+                onLegacyElicitation
+            )
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
             return jsonRpcResult(id, stateless ? this.decorateStatelessResult(method, result) : result)
         } catch (error) {
+            if (error instanceof InterviewRequestError) {
+                return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
+            }
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
@@ -327,7 +377,10 @@ class McpDispatcher {
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
         state: ResolvedState | undefined,
-        stateless: boolean
+        stateless: boolean,
+        requestId: string | number,
+        requestOrigin: string,
+        onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
         if (stateless && (method === Method.Initialize || method === Method.Ping)) {
@@ -341,7 +394,45 @@ class McpDispatcher {
             case Method.ToolsList:
                 return await this.toolExecutor.handleToolsList(state!)
             case Method.ToolsCall:
-                return await this.toolExecutor.handleToolCall(params, state!)
+                return await this.toolExecutor.handleToolCall(
+                    params,
+                    state!,
+                    params
+                        ? {
+                              beforeExecute: (callState) =>
+                                  this.interviewRecruitment.beforeToolCall(
+                                      params,
+                                      callState,
+                                      props.userHash,
+                                      requestOrigin,
+                                      onLegacyElicitation ? 'legacy' : 'stateless',
+                                      !!onLegacyElicitation
+                                  ),
+                              afterExecute: async (callState, result) => {
+                                  if (onLegacyElicitation) {
+                                      const request = await this.interviewRecruitment.afterLegacyToolCall(
+                                          params,
+                                          callState,
+                                          result,
+                                          requestId,
+                                          props.userHash,
+                                          requestOrigin
+                                      )
+                                      if (request) {
+                                          onLegacyElicitation(request)
+                                      }
+                                  } else {
+                                      await this.interviewRecruitment.afterToolCall(
+                                          params,
+                                          callState,
+                                          result,
+                                          requestId
+                                      )
+                                  }
+                              },
+                          }
+                        : undefined
+                )
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList()
             case Method.ResourcesRead:
@@ -366,7 +457,7 @@ class McpDispatcher {
             base._meta && typeof base._meta === 'object' ? (base._meta as Record<string, unknown>) : undefined
         return {
             ...base,
-            resultType: 'complete',
+            resultType: base.resultType === 'input_required' ? 'input_required' : 'complete',
             ...(CACHEABLE_METHODS.has(method)
                 ? { ttlMs: CACHEABLE_RESULT_TTL_MS, cacheScope: 'private' as const }
                 : {}),

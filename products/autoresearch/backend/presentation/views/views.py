@@ -1001,6 +1001,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 distillation=data.get("distillation") or "",
                 report_notebook_short_id=data.get("report_notebook_short_id") or "",
                 reader_summary=data.get("reader_summary"),
+                headline=data.get("headline"),
                 next_steps=data.get("next_steps"),
             )
         except TrainingRunNotFound:

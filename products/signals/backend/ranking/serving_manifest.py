@@ -21,9 +21,10 @@ from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS,
 # The one role a reader acts on, taken from the artefact schema so the manifest and the
 # `ranking_score` rows it produces name the served model the same way.
 SERVED_ROLE = RANKING_SERVED_ROLE
-# The served family's model for the partition being trained, carried so a paired read compares the
-# champion against the day's fit without a second scoring pass.
-DAILY_CANDIDATE_ROLE = "daily_candidate"
+# One of the newest versions of the served model's family, carried so each version collects online
+# scores for several days and a paired read compares it against the served model without a second
+# scoring pass.
+RECENT_ROLE = "recent"
 # Another family's champion, scored alongside so a later interleaving needs no rescoring.
 CROSS_FAMILY_ROLE = "cross_family"
 # A model an owner keeps in the manifest through the `pin` override, so a `served` override can

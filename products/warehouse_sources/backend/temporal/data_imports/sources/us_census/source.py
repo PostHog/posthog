@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,8 @@ def _has_custom_query(config: USCensusSourceConfig) -> bool:
 
 @SourceRegistry.register
 class USCensusSource(SimpleSource[USCensusSourceConfig]):
+    codebase_detection = detect(env=("^(US_CENSUS|USCENSUS)_",), pypi=("census",))
+
     # Static endpoint catalog with no I/O in get_schemas — safe for public docs.
     lists_tables_without_credentials = True
     # The Census Data API is unversioned; datasets are versioned by vintage in the URL path.
