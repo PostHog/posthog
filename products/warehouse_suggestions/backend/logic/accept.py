@@ -119,7 +119,8 @@ REFRESH_INTERVAL_FIELD = "refresh_interval_seconds"
 REFRESH_MODE_FIELD = "refresh_mode"
 INCREMENTAL_KEY_FIELD = "incremental_key"
 UNIQUE_KEY_FIELD = "unique_key"
-KEY_FIELDS = (INCREMENTAL_KEY_FIELD, UNIQUE_KEY_FIELD, "lookback_seconds")
+CHOSEN_KEY_FIELDS = (INCREMENTAL_KEY_FIELD, UNIQUE_KEY_FIELD)
+KEY_FIELDS = (*CHOSEN_KEY_FIELDS, "lookback_seconds")
 
 
 class MaterializeAcceptor(Acceptor):
@@ -148,10 +149,7 @@ class MaterializeAcceptor(Acceptor):
         except MaterializationForbiddenError:
             raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
         except IncrementalConfigRefusedError as error:
-            chosen = chosen_fields(options, (*KEY_FIELDS, REFRESH_MODE_FIELD))
-            if chosen:
-                raise AcceptOptionRefusedError(chosen[0], str(error))
-            raise SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
+            raise _incremental_refusal(error, options)
         except MaterializationRefusedError as error:
             raise AcceptOptionRefusedError(REFRESH_INTERVAL_FIELD, str(error))
         except MaterializationFailedError as error:
@@ -185,6 +183,14 @@ def _incremental_config(payload: MaterializePayload, options: AcceptOptions, tea
         unique_key=unique_key,
         lookback_seconds=payload.lookback_seconds if options.lookback_seconds is None else options.lookback_seconds,
     )
+
+
+def _incremental_refusal(error: IncrementalConfigRefusedError, options: AcceptOptions) -> Exception:
+    chosen_keys = chosen_fields(options, CHOSEN_KEY_FIELDS)
+    if not chosen_keys:
+        return SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
+    refused = next((key for key in error.refused_keys if key in chosen_keys), chosen_keys[0])
+    return AcceptOptionRefusedError(refused, str(error))
 
 
 def _refuse_keys_without_incremental(options: AcceptOptions) -> None:

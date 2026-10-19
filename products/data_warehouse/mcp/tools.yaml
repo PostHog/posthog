@@ -159,7 +159,7 @@ tools:
         title: Check incremental refresh
         description: >
             Check whether a view's HogQL query can refresh incrementally, without running it. Pass the query from
-            view-get. Returns key_candidates, the date or datetime columns that can be the incremental key, and
+            view-get. Returns key_candidates, the date, datetime and number columns that can be the incremental key, and
             unique_key_candidates, the columns a unique key can use. Pass incremental_key and unique_key to check a
             specific choice: blockers then says why it cannot work. Use it before accepting a materialize suggestion
             with keys the person chose.

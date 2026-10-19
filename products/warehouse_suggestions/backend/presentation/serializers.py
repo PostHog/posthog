@@ -111,7 +111,8 @@ class MaterializePayloadSerializer(DataclassSerializer):
             },
             "freshness_after_seconds": {"help_text": "How old the data can be once materialized, in seconds."},
             "incremental_key": {
-                "help_text": "Date or datetime output column whose advancing value marks new rows. "
+                "help_text": "Output column whose advancing value marks new rows. A proposal only uses a date or "
+                "datetime column the query groups by. "
                 "Null for a full refresh."
             },
             "unique_key": {
@@ -249,8 +250,9 @@ class AcceptWarehouseSuggestionSerializer(serializers.Serializer):
     )
     incremental_key = serializers.CharField(
         required=False,
-        help_text="Materialize only, incremental refresh only: a date or datetime output column whose advancing "
-        "value marks new rows, instead of the proposed one. Omit to keep the proposed key.",
+        help_text="Materialize only, incremental refresh only: an output column whose value only grows as rows "
+        "arrive, such as a date, a datetime or an increasing number, instead of the proposed one. "
+        "view-check-incremental lists the columns that qualify. Omit to keep the proposed key.",
     )
     unique_key = serializers.ListField(
         child=serializers.CharField(),
