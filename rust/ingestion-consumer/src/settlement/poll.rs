@@ -72,6 +72,10 @@ impl Settlement for PollSettlement {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.budget.forget_partitions(topic_partitions);
     }
+
+    fn paused(&self) -> Vec<TopicPartition> {
+        self.budget.paused()
+    }
 }
 
 enum NoFrontier {

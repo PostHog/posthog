@@ -80,6 +80,10 @@ impl PartitionBudget {
         Some(self.commit(offsets))
     }
 
+    pub(super) fn paused(&self) -> Vec<TopicPartition> {
+        self.paused.lock().unwrap().iter().cloned().collect()
+    }
+
     pub(super) fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.uncommitted.forget_partitions(topic_partitions);
         let mut paused = self.paused.lock().unwrap();

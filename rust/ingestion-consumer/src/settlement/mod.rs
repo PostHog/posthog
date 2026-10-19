@@ -51,6 +51,8 @@ pub(crate) trait Settlement: Send + Sync {
     fn take_all(&self) -> Option<Commit>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+
+    fn paused(&self) -> Vec<TopicPartition>;
 }
 
 pub(crate) fn for_granularity(

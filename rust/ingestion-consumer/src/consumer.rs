@@ -645,7 +645,10 @@ impl IngestionConsumer {
                 return;
             }
 
-            if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
+            let collect = accepting_new_batches
+                && in_flight_polls.len() < self.max_in_flight_batches
+                && (in_flight_polls.is_empty() || !self.every_partition_paused());
+            if collect {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
                         info!(
@@ -856,6 +859,23 @@ impl IngestionConsumer {
                 "Removed revoked partitions' messages from in-flight polls"
             );
         }
+    }
+
+    /// Paused partitions fill no poll, so a collection would wait out the batch
+    /// timeout before the completions whose commits resume them.
+    fn every_partition_paused(&self) -> bool {
+        let paused = self.settlement.paused();
+        if paused.is_empty() {
+            return false;
+        }
+        let Ok(assignment) = self.consumer.assignment() else {
+            return false;
+        };
+        let assigned = assignment.elements();
+        !assigned.is_empty()
+            && assigned.iter().all(|element| {
+                paused.contains(&TopicPartition::new(element.topic(), element.partition()))
+            })
     }
 
     /// A paused partition still serves rebalance callbacks and the poll interval, because polling never stops.
