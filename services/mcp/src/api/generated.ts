@@ -38246,6 +38246,74 @@ export namespace Schemas {
     }
 
     /**
+     * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+     */
+    export type DraftEmailTemplateDesignCounters = { [key: string]: unknown };
+
+    export type DraftEmailTemplateDesignBodyRowsItem = { [key: string]: unknown };
+
+    export type DraftEmailTemplateDesignBodyHeadersItem = { [key: string]: unknown };
+
+    export type DraftEmailTemplateDesignBodyFootersItem = { [key: string]: unknown };
+
+    /**
+     * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+     */
+    export type DraftEmailTemplateDesignBodyValues = { [key: string]: unknown };
+
+    export type DraftEmailTemplateDesignBody = {
+      /** Any unique string. */
+      id?: string;
+      /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+      rows: DraftEmailTemplateDesignBodyRowsItem[];
+      headers?: DraftEmailTemplateDesignBodyHeadersItem[];
+      footers?: DraftEmailTemplateDesignBodyFootersItem[];
+      /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+      values?: DraftEmailTemplateDesignBodyValues;
+    };
+
+    /**
+     * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+     */
+    export type DraftEmailTemplateDesign = {
+      /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+      counters?: DraftEmailTemplateDesignCounters;
+      /** Design schema version, e.g. 16. */
+      schemaVersion: number;
+      body: DraftEmailTemplateDesignBody;
+    };
+
+    export interface DraftEmailTemplate {
+      /** Email subject line. Supports Liquid templating. A draft may leave it blank until it is published. */
+      subject?: string;
+      /** Plain-text fallback body for clients that can't render the email. */
+      text?: string;
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
+      html?: string;
+      /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+      design?: DraftEmailTemplateDesign;
+    }
+
+    /**
+     * * `liquid` - liquid
+     */
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
+
+
+    export const MessageTemplateContentTemplatingEnum = {
+      Liquid: 'liquid',
+    } as const;
+
+    export interface DraftMessageTemplateContent {
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+       *
+       * * `liquid` - liquid */
+      templating?: MessageTemplateContentTemplatingEnum;
+      /** Draft email content. Replaced as a whole on update, so send the complete object. */
+      email?: DraftEmailTemplate | null;
+    }
+
+    /**
      * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
      */
     export interface DraftScannerRequest {
@@ -67336,16 +67404,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    /**
-     * * `liquid` - liquid
-     */
-    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
-
-
-    export const MessageTemplateContentTemplatingEnum = {
-      Liquid: 'liquid',
-    } as const;
-
     export interface MessageTemplateContent {
       /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
        *
@@ -67386,6 +67444,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly transactional_hog_flow_id: string | null;
+      /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+      draft_content?: DraftMessageTemplateContent | null;
     }
 
     export interface MessagingError {
@@ -83325,6 +83385,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly transactional_hog_flow_id?: string | null;
+      /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+      draft_content?: DraftMessageTemplateContent | null;
     }
 
     export interface PatchedMoveTileRequest {
