@@ -3182,6 +3182,143 @@ export interface workflowLogicMeta {
                   } & Record<string, unknown>)
                 | null
         ) => boolean
+        isPersonlessTrigger: (
+            triggerAction:
+                | ({
+                      config:
+                          | {
+                                type: 'api'
+                            }
+                          | {
+                                type: 'schedule'
+                            }
+                          | {
+                                filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
+                                    properties: any[]
+                                    tag_names?: string[] | undefined
+                                }
+                                type: 'batch'
+                            }
+                          | {
+                                filters: {
+                                    actions?: any[] | undefined
+                                    events?: any[] | undefined
+                                    filter_test_accounts?: boolean | undefined
+                                    properties?: any[] | undefined
+                                }
+                                type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'manual'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'tracking_pixel'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'webhook'
+                            }
+                      created_at?: number | undefined
+                      description: string
+                      filters?:
+                          | {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                properties?: any[] | undefined
+                            }
+                          | null
+                          | undefined
+                      id: string
+                      name: string
+                      on_error?: 'abort' | 'continue' | null | undefined
+                      output_variable?:
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }[]
+                          | null
+                          | undefined
+                      type: 'trigger'
+                      updated_at?: number | undefined
+                  } & Record<string, unknown>)
+                | null
+        ) => boolean
         workflowSanitized: (
             workflow: HogFlow,
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>

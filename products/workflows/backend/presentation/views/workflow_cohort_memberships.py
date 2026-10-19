@@ -1,8 +1,7 @@
 import uuid
 from typing import Any, cast
 
-from django.db.models import F, Value
-from django.db.models.functions import Coalesce
+from django.db import models
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from redis.exceptions import LockError
@@ -15,8 +14,11 @@ from posthog.auth import InternalAPIUser
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.redis import get_client
 
-from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import is_person_in_cohort
+from products.cohorts.backend.facade.api import (
+    StaticCohortMembershipOutcome,
+    add_resolved_person_to_static_cohort,
+    get_static_cohort_membership_status,
+)
 from products.workflows.backend.facade.api import workflow_exists
 from products.workflows.backend.facade.service_jwt import WORKFLOW_ADD_STATIC_COHORT_MEMBER_PURPOSE
 from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
@@ -34,18 +36,20 @@ class WorkflowCohortMembershipRequestSerializer(serializers.Serializer):
     person_uuid = serializers.UUIDField(help_text="UUID of the workflow person to add.")
 
 
+class WorkflowCohortMembershipResult(models.TextChoices):
+    ADDED = "added", "Added"
+    ALREADY_PRESENT = "already_present", "Already present"
+    MISSING_PERSON = "missing_person", "Missing person"
+    COHORT_NOT_FOUND = "cohort_not_found", "Cohort not found"
+    COHORT_DELETED = "cohort_deleted", "Cohort deleted"
+    COHORT_NOT_STATIC = "cohort_not_static", "Cohort not static"
+    WORKFLOW_NOT_FOUND = "workflow_not_found", "Workflow not found"
+    BUSY = "busy", "Busy"
+
+
 class WorkflowCohortMembershipResponseSerializer(serializers.Serializer):
     result = serializers.ChoiceField(
-        choices=[
-            "added",
-            "already_present",
-            "missing_person",
-            "cohort_not_found",
-            "cohort_deleted",
-            "cohort_not_static",
-            "workflow_not_found",
-            "busy",
-        ],
+        choices=WorkflowCohortMembershipResult.choices,
         help_text="Machine-readable result of the cohort membership update.",
     )
     detail = serializers.CharField(help_text="A short result message for the workflow log.")
@@ -80,13 +84,9 @@ class WorkflowCohortMembershipViewSet(viewsets.GenericViewSet):
         cohort_id = serializer.validated_data["cohort_id"]
         person_uuid = str(serializer.validated_data["person_uuid"])
 
-        cohort = Cohort.objects.filter(team_id=team_id, id=cohort_id).first()
-        if cohort is None:
-            return _result("cohort_not_found", "Static cohort was not found.", status.HTTP_404_NOT_FOUND)
-        if cohort.deleted:
-            return _result("cohort_deleted", "Static cohort was deleted.", status.HTTP_409_CONFLICT)
-        if not cohort.is_static:
-            return _result("cohort_not_static", "Selected cohort is not static.", status.HTTP_409_CONFLICT)
+        cohort_status = get_static_cohort_membership_status(team_id=team_id, cohort_id=cohort_id)
+        if cohort_error := _cohort_error_result(cohort_status):
+            return cohort_error
 
         people = get_person_ids_and_uuids_by_uuids(team_id, [person_uuid])
         if not people:
@@ -100,13 +100,16 @@ class WorkflowCohortMembershipViewSet(viewsets.GenericViewSet):
         )
         try:
             with lock:
-                if is_person_in_cohort(team_id, person_id, cohort_id):
-                    return _result("already_present", "Person is already in the static cohort.")
-
-                cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
-                    [(person_id, resolved_uuid)], team_id=team_id, raise_on_error=True, save_state=False
+                membership_outcome = add_resolved_person_to_static_cohort(
+                    team_id=team_id,
+                    cohort_id=cohort_id,
+                    person_id=person_id,
+                    person_uuid=resolved_uuid,
                 )
-                Cohort.objects.filter(team_id=team_id, id=cohort_id).update(count=Coalesce(F("count"), Value(0)) + 1)
+                if membership_outcome == StaticCohortMembershipOutcome.ALREADY_PRESENT:
+                    return _result("already_present", "Person is already in the static cohort.")
+                if cohort_error := _cohort_error_result(membership_outcome):
+                    return cohort_error
         except LockError:
             return _result(
                 "busy",
@@ -120,3 +123,13 @@ def _result(result: str, detail: str, http_status: int = status.HTTP_200_OK) -> 
     return Response(
         WorkflowCohortMembershipResponseSerializer({"result": result, "detail": detail}).data, status=http_status
     )
+
+
+def _cohort_error_result(outcome: StaticCohortMembershipOutcome) -> Response | None:
+    if outcome == StaticCohortMembershipOutcome.NOT_FOUND:
+        return _result("cohort_not_found", "Static cohort was not found.", status.HTTP_404_NOT_FOUND)
+    if outcome == StaticCohortMembershipOutcome.DELETED:
+        return _result("cohort_deleted", "Static cohort was deleted.", status.HTTP_409_CONFLICT)
+    if outcome == StaticCohortMembershipOutcome.NOT_STATIC:
+        return _result("cohort_not_static", "Selected cohort is not static.", status.HTTP_409_CONFLICT)
+    return None

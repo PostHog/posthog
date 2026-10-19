@@ -44,9 +44,8 @@ describe('postHogAddPersonToStaticCohort', () => {
         expect(url).toMatch(/\/api\/projects\/1\/workflow_cohort_memberships\/$/)
         expect(parseJSON(options.body)).toEqual(payload)
         const token = options.headers.Authorization.replace('Bearer ', '')
-        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         expect(
-            jwt.verify(token, 'local-dev-workflow-add-static-cohort-member-jwt', {
+            jwt.verify(token, defaultConfig.WORKFLOW_ADD_STATIC_COHORT_MEMBER_JWT_SECRET, {
                 audience: 'posthog:workflows:add_static_cohort_member',
                 algorithms: ['HS256'],
             })

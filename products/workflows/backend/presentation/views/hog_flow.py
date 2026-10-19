@@ -121,7 +121,7 @@ from products.cdp.backend.presentation.serializers import (
     InputsSerializer,
     require_viewer_access_to_added_actions,
 )
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.facade.api import StaticCohortMembershipOutcome, get_static_cohort_membership_status
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -1659,12 +1659,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         if get_team is None:
             return
         team = get_team()
-        cohort = Cohort.objects.filter(team_id=team.id, id=cohort_id).first()
-        if cohort is None:
+        cohort_status = get_static_cohort_membership_status(team_id=team.id, cohort_id=cohort_id)
+        if cohort_status == StaticCohortMembershipOutcome.NOT_FOUND:
             raise serializers.ValidationError({"inputs": {"cohort_id": "Static cohort was not found."}})
-        if cohort.deleted:
+        if cohort_status == StaticCohortMembershipOutcome.DELETED:
             raise serializers.ValidationError({"inputs": {"cohort_id": "Static cohort was deleted."}})
-        if not cohort.is_static:
+        if cohort_status == StaticCohortMembershipOutcome.NOT_STATIC:
             raise serializers.ValidationError({"inputs": {"cohort_id": "Select a static cohort."}})
 
         request = self.context.get("request")
@@ -3388,8 +3388,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # secret into an attacker-controlled step. Rejecting here blocks it before anything is written.
         submitted_actions = data.get("actions")
         if isinstance(submitted_actions, list):
-            submitted_ids = [a.get("id") for a in submitted_actions if isinstance(a, dict)]
-            duplicate_ids = sorted({aid for aid in submitted_ids if aid is not None and submitted_ids.count(aid) > 1})
+            submitted_ids: list[str] = [
+                action_id
+                for action in submitted_actions
+                if isinstance(action, dict) and isinstance((action_id := action.get("id")), str)
+            ]
+            duplicate_ids = sorted({action_id for action_id in submitted_ids if submitted_ids.count(action_id) > 1})
             if duplicate_ids:
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
@@ -3442,15 +3446,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if is_personless_trigger(data["trigger"]):
             data["exit_condition"] = HogFlowExitCondition.ONLY_AT_END
             if not is_draft:
-                offending_types = sorted(
+                offending_types: list[str] = sorted(
                     {
-                        (
-                            (action.get("config") or {}).get("template_id")
-                            if action.get("type") == "function"
-                            else action.get("type", "")
-                        )
+                        action_type
                         for action in actions
                         if is_person_dependent_action(action)
+                        and isinstance(
+                            (
+                                action_type := (
+                                    (action.get("config") or {}).get("template_id")
+                                    if action.get("type") == "function"
+                                    else action.get("type")
+                                )
+                            ),
+                            str,
+                        )
                     }
                 )
                 if offending_types:
@@ -3466,8 +3476,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES
-        billable_action_types = sorted(
-            {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
+        billable_action_types: list[str] = sorted(
+            {
+                action_type
+                for action in actions
+                if isinstance((action_type := action.get("type")), str) and action_type in BILLABLE_ACTION_TYPES
+            }
         )
         data["billable_action_types"] = billable_action_types
 

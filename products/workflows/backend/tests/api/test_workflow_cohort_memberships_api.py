@@ -58,7 +58,7 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
 
     @covers_authentication(WorkflowCohortMembershipJWTAuthentication, WorkflowStepJWTAuthentication)
     @patch(
-        "products.workflows.backend.presentation.views.workflow_cohort_memberships.is_person_in_cohort",
+        "products.cohorts.backend.facade.api.is_person_in_cohort",
         return_value=False,
     )
     @patch(
@@ -85,7 +85,7 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         )
 
     @patch(
-        "products.workflows.backend.presentation.views.workflow_cohort_memberships.is_person_in_cohort",
+        "products.cohorts.backend.facade.api.is_person_in_cohort",
         return_value=True,
     )
     @patch(
