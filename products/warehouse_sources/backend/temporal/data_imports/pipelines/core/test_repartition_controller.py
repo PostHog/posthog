@@ -317,6 +317,72 @@ class TestRepartitionDetection:
         assert schema.last_repartition_at is None
         assert capture.call_count == 0
 
+    @pytest.mark.parametrize(
+        "sync_type, base_budget, merge_budget, recent_ooms, expected_trigger",
+        [
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 10**12, 0, None),
+            (ExternalDataSchema.SyncType.WEBHOOK, 1, 10**12, 0, None),
+            (ExternalDataSchema.SyncType.XMIN, 1, 10**12, 0, None),
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 2, 0, "proactive_threshold"),
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 0, 0, "proactive_threshold"),
+            (ExternalDataSchema.SyncType.INCREMENTAL, 1, 10**12, 3, "oom_history"),
+            (ExternalDataSchema.SyncType.FULL_REFRESH, 1, 10**12, 0, "proactive_threshold"),
+            (None, 1, 10**12, 0, "proactive_threshold"),
+        ],
+        ids=[
+            "incremental_over_base_budget_is_not_split",
+            "webhook_over_base_budget_is_not_split",
+            "xmin_over_base_budget_is_not_split",
+            "merge_table_over_its_fallback_cap_still_splits",
+            "merge_cap_below_base_budget_falls_back_to_base",
+            "merge_table_with_repeated_ooms_still_splits",
+            "full_refresh_keeps_the_base_budget",
+            "unknown_sync_type_keeps_the_base_budget",
+        ],
+    )
+    def test_keyed_merge_tables_split_on_size_only_past_the_merge_budget(
+        self,
+        team,
+        sync_type: str | None,
+        base_budget: int,
+        merge_budget: int,
+        recent_ooms: int,
+        expected_trigger: str | None,
+    ):
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        schema.sync_type = sync_type
+        schema.save()
+        for _ in range(recent_ooms):
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(team_id=schema.team_id, schema=schema)
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                override_settings(
+                    DATA_WAREHOUSE_TARGET_PARTITION_BYTES=base_budget,
+                    DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=merge_budget,
+                ),
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "min_splittable_partition_bytes", return_value=1),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        if expected_trigger is None:
+            assert pending is None
+            assert schema.partition_measurement is not None
+            assert schema.partition_measurement["healthy"] is True
+        else:
+            assert pending is not None
+            assert pending["trigger_reason"] == expected_trigger
+            assert pending["partition_mode"] == "md5"
+            assert pending["partition_count"] > 2
+
 
 class TestPartitionMeasurementRecord:
     @pytest.mark.parametrize(
@@ -345,6 +411,7 @@ class TestPartitionMeasurementRecord:
             "job_id": str(job.id),
             "phase": phase,
             "budget": budget,
+            "split_budget": budget,
             "healthy": healthy,
         }
 
@@ -383,13 +450,16 @@ class TestPartitionMeasurementRecord:
         assert measurement is not None and measurement["healthy"] is False
 
     @pytest.mark.parametrize(
-        "previous_status, nominated, measured_budget, recent_ooms, redundant",
+        "previous_status, nominated, sync_type, measured_budget, measured_split_budget, recent_ooms, redundant",
         [
-            (ExternalDataJob.Status.COMPLETED, False, 500, 0, True),
-            (ExternalDataJob.Status.FAILED, False, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, True, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, 400, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, 500, 3, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 0, True),
+            (ExternalDataJob.Status.FAILED, False, None, 500, 500, 0, False),
+            (ExternalDataJob.Status.COMPLETED, True, None, 500, 500, 0, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 400, 500, 0, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 3, False),
+            (ExternalDataJob.Status.COMPLETED, False, ExternalDataSchema.SyncType.INCREMENTAL, 500, 2000, 0, True),
+            (ExternalDataJob.Status.COMPLETED, False, ExternalDataSchema.SyncType.INCREMENTAL, 500, 3000, 0, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, None, 0, False),
         ],
         ids=[
             "previous_run_completed",
@@ -397,12 +467,24 @@ class TestPartitionMeasurementRecord:
             "operator_nomination_waits",
             "budget_changed_since_the_measurement",
             "repeated_oom_kills_since_the_measurement",
+            "merge_table_measured_against_its_split_budget",
+            "split_budget_changed_since_the_measurement",
+            "measurement_without_a_split_budget",
         ],
     )
     def test_gate_reads_what_can_change_without_a_write(
-        self, team, previous_status: str, nominated: bool, measured_budget: int, recent_ooms: int, redundant: bool
+        self,
+        team,
+        previous_status: str,
+        nominated: bool,
+        sync_type: str | None,
+        measured_budget: int,
+        measured_split_budget: int | None,
+        recent_ooms: int,
+        redundant: bool,
     ):
         schema = _make_schema(team, {})
+        schema.sync_type = sync_type
         other_schema = ExternalDataSchema.objects.create(
             name="other", team=team, source=schema.source, sync_type_config={}
         )
@@ -423,13 +505,16 @@ class TestPartitionMeasurementRecord:
                 "job_id": str(previous.id),
                 "phase": "post_load",
                 "budget": measured_budget,
+                "split_budget": measured_split_budget,
                 "healthy": True,
             },
             **({"coarsen_requested": _NOMINATION} if nominated else {}),
         }
 
         with (
-            patch.object(ctrl, "target_partition_bytes", return_value=500),
+            override_settings(
+                DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500, DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=2000
+            ),
             patch.object(ctrl.ExternalDataSchemaOOMEvent, "recent_count", return_value=recent_ooms),
         ):
             assert ctrl.pre_extraction_measurement_is_redundant(schema, current) is redundant
