@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import datetime as dt
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     ERROR_MESSAGES,
     SECURITY_HUB_API_VERSION,
     SUBSCRIPTION_MESSAGE,
+    UNMODELED_OPERATION_PATHS,
     SecurityHubEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -93,8 +95,19 @@ class AwsSecurityHubClient:
             ),
         )
 
+    def serialize(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if operation in self.model.operation_names:
+            return self.serializer.serialize_to_request(payload, self.model.operation_model(operation))
+        return {
+            "method": "POST",
+            "url_path": UNMODELED_OPERATION_PATHS[operation],
+            "query_string": {},
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(payload).encode(),
+        }
+
     def request(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-        serialized = self.serializer.serialize_to_request(payload, self.model.operation_model(operation))
+        serialized = self.serialize(operation, payload)
         url = self.base_url + serialized["url_path"]
         if serialized["query_string"]:
             url += "?" + urlencode(serialized["query_string"], doseq=True)

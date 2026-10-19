@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
     MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_2026_10,
     MONDAY_VERSION_V2,
     monday_source,
     validate_credentials as validate_monday_credentials,
@@ -38,8 +39,8 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
         npm=("@mondaydotcomorg/api", "monday-sdk-js", "@mondaycom/apps-sdk"),
     )
 
-    supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07)
-    default_version = MONDAY_VERSION_2026_07
+    supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07, MONDAY_VERSION_2026_10)
+    default_version = MONDAY_VERSION_2026_10
     api_docs_url = "https://developer.monday.com/api-reference"
     # "v2" sends `API-Version: 2024-10`, which monday deprecated on this date. monday now answers it with
     # its maintenance version instead of rejecting it, so a v2 pin no longer selects what it names.
