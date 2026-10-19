@@ -446,6 +446,27 @@ export const VisionAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
+    .object({
+        reason: zod
+            .union([
+                zod
+                    .enum(['not_a_real_problem', 'already_known', 'not_my_area', 'other'])
+                    .describe(
+                        '\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+            ),
+    })
+    .describe('Why the calling user marked an observation not useful in What to watch.')
+
+/**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionObservationsLabelCreateBodyFeedbackDefault = ``
@@ -1007,6 +1028,27 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
             "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
         ),
 })
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const VisionScannersObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
+    .object({
+        reason: zod
+            .union([
+                zod
+                    .enum(['not_a_real_problem', 'already_known', 'not_my_area', 'other'])
+                    .describe(
+                        '\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+            ),
+    })
+    .describe('Why the calling user marked an observation not useful in What to watch.')
 
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
