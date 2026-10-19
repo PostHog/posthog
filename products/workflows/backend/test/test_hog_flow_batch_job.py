@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 from django.db.models.signals import post_save
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -70,6 +70,7 @@ class TestHogFlowBatchJob(TestCase):
             ("non_realtime_cohort", "not_realtime", None, False),
         ]
     )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -112,15 +113,27 @@ class TestHogFlowBatchJob(TestCase):
         expected = {"id": cohort.pk, "team_id": self.team.pk} if expect_realtime else None
         assert mock_create_invocation.call_args.kwargs["realtime_cohort"] == expected
 
+    @parameterized.expand(
+        [
+            # An edit after the save clears the cohort's readiness; its membership is partial until it recalculates.
+            ("stamps_cleared", False, "all"),
+            # The stamps stay set, but the pipeline stops updating the membership.
+            ("team_left_the_realtime_allowlist", True, "none"),
+        ]
+    )
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_hog_flow_batch_job_fails_when_its_realtime_cohort_is_no_longer_ready(self, mock_create_invocation):
-        # An edit after the save clears the cohort's readiness; its membership is partial until it recalculates.
+    def test_hog_flow_batch_job_fails_when_its_realtime_cohort_is_no_longer_ready(
+        self, _name, backfilled, allowlist, mock_create_invocation
+    ):
+        backfill_stamp = datetime(2026, 1, 1, tzinfo=UTC) if backfilled else None
         cohort = Cohort.objects.create(
             team=self.team,
             name="c",
             cohort_type=CohortType.REALTIME,
+            last_backfill_events_at=backfill_stamp,
+            last_backfill_person_properties_at=backfill_stamp,
             filters={
                 "properties": {
                     "type": "AND",
@@ -138,11 +151,12 @@ class TestHogFlowBatchJob(TestCase):
             },
         )
 
-        job = HogFlowBatchJob.objects.create(
-            team=self.team,
-            hog_flow=self.hog_flow,
-            filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
-        )
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+            job = HogFlowBatchJob.objects.create(
+                team=self.team,
+                hog_flow=self.hog_flow,
+                filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
+            )
 
         mock_create_invocation.assert_not_called()
         job.refresh_from_db()

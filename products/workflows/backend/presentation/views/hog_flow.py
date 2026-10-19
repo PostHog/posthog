@@ -273,6 +273,7 @@ from products.workflows.backend.facade.validation import (
     is_duration,
     is_signed_duration,
     realtime_audience_cohort,
+    realtime_cohort_is_ready,
 )
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
@@ -1445,7 +1446,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     }
                 )
-            if not realtime_cohort.is_flag_compatible:
+            if not realtime_cohort_is_ready(realtime_cohort):
                 raise serializers.ValidationError(
                     {
                         "filters": (

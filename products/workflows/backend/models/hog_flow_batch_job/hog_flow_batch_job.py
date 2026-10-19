@@ -8,7 +8,10 @@ from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.plugins.plugin_server_api import create_batch_hog_flow_job_invocation
 
 from products.workflows.backend.facade.enums import HogFlowBatchJobState
-from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort
+from products.workflows.backend.services.batch_audience_cohorts import (
+    realtime_audience_cohort,
+    realtime_cohort_is_ready,
+)
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
 logger = structlog.get_logger(__name__)
@@ -55,7 +58,7 @@ def batch_job_audience_filters(job: HogFlowBatchJob) -> dict:
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
         realtime_cohort = realtime_audience_cohort(instance.team.project_id, batch_job_audience_filters(instance))
-        if realtime_cohort is not None and not realtime_cohort.is_flag_compatible:
+        if realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort):
             # An edit to the cohort since the save cleared its readiness. Its membership is partial until
             # it finishes calculating again, so the run fails instead of sending to the wrong people.
             logger.warning(

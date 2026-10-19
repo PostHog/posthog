@@ -4132,6 +4132,8 @@ class TestHogFlowAPI(APIBaseTest):
             # A schedule trigger starts one run with no person, so it never fans out to the members.
             ("schedule_trigger", "schedule", "ready", None, True, 400, "can't evaluate"),
             ("not_ready", "batch", "not_ready", None, True, 400, "isn't ready yet"),
+            # The backfill stamps outlive the team's place on the realtime allowlist; the membership doesn't.
+            ("team_off_realtime_allowlist", "batch", "ready_off_allowlist", None, True, 400, "isn't ready yet"),
             # The send pages the cohort's members from Postgres, which holds no person properties.
             ("with_another_condition", "batch", "ready", "with_property", True, 400, "only be the people in it"),
             ("not_in", "batch", "ready", "not_in", True, 400, "only be the people in it"),
@@ -4149,7 +4151,7 @@ class TestHogFlowAPI(APIBaseTest):
         if cohort_kind == "not_realtime":
             cohort = self._make_cohort(behavioral=True)
         else:
-            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind == "ready")
+            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind != "not_ready")
         condition: dict[str, Any] = {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}
         if shape == "not_in":
             condition["operator"] = "not_in"
@@ -4174,12 +4176,15 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         }
 
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        allowlist = "none" if cohort_kind == "ready_off_allowlist" else "all"
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == expected_status, response.json()
         if expected_detail:
             assert expected_detail in response.json()["detail"]
 
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     def test_hog_flow_audience_keeps_a_stored_realtime_cohort_after_flag_dial_down(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)

@@ -1,5 +1,6 @@
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
+from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
 
 def find_behavioral_cohort_name(project_id: int, cohort_ids: list[int | str]) -> str | None:
@@ -63,4 +64,16 @@ def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
         or condition.get("negation")
     ):
         return None
-    return find_realtime_behavioral_cohort(project_id, [condition.get("value")])
+    cohort_id = condition.get("value")
+    if not isinstance(cohort_id, int | str):
+        return None
+    return find_realtime_behavioral_cohort(project_id, [cohort_id])
+
+
+def realtime_cohort_is_ready(cohort: Cohort) -> bool:
+    """Whether the realtime pipeline holds this cohort's full membership and keeps it current.
+
+    The backfill stamps stay set when a team leaves the realtime allowlist, but the pipeline then
+    stops updating the membership, so the team has to be on the allowlist too.
+    """
+    return cohort.is_flag_compatible and is_realtime_cohort_team(cohort.team_id)
