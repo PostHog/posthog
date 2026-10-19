@@ -7,8 +7,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
 )
-from products.experiments.backend.health.checks.forced_variant import needs_condition_set_traffic
-from products.experiments.backend.health.condition_set_traffic import denied_scanned_properties
+from products.experiments.backend.health.condition_set_traffic import (
+    denied_scanned_properties,
+    needs_condition_set_traffic,
+)
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,

@@ -310,19 +310,36 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("same_split", _split(50, 50)),
-            ("with_a_variant_left_at_zero", [*_split(50, 50), {"key": "blue", "rollout_percentage": 0}]),
+            ("same_split", _filters(_split(50, 50)), [ExperimentHealthFlagChangeKind.SPLIT]),
+            (
+                "with_a_variant_left_at_zero",
+                _filters([*_split(50, 50), {"key": "blue", "rollout_percentage": 0}]),
+                [ExperimentHealthFlagChangeKind.SPLIT],
+            ),
+            # Both kinds ask about the same window, and the second must not query again.
+            (
+                "with_the_conditions_set_back_too",
+                _filters(_split(50, 50)),
+                [ExperimentHealthFlagChangeKind.SPLIT, ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS],
+            ),
         ]
     )
     def test_revert_asks_whether_anyone_was_exposed_in_between(
-        self, _name: str, set_back_to: list[dict[str, Any]]
+        self, _name: str, set_back_to: dict[str, Any], set_back_kinds: list[ExperimentHealthFlagChangeKind]
     ) -> None:
-        changed_at = self._log_split_changes([_split(50, 50), _split(0, 100), set_back_to])
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1)]
+        changed = _filters(_split(0, 100))
+        if ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS in set_back_kinds:
+            changed["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": "test"}]
+        self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), changed))
+        self._log_change(changed_at[1], filters=(changed, set_back_to))
 
         history, query = self._load([True, False])
 
         assert isinstance(history, FlagHistory)
-        self.assertIs(history.exposed_between.get(ExperimentHealthFlagChangeKind.SPLIT), False)
+        self.assertEqual(history.exposed_between, dict.fromkeys(set_back_kinds, False))
+        self.assertEqual(query.call_count, 2)
         self.assertEqual(
             query.call_args.kwargs,
             {

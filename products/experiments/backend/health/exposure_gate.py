@@ -244,6 +244,8 @@ class _ExposureGate:
             return None
         settled = answer or timezone.now() - window.end > _SETTLED_AFTER
         cache.set(cache_key, answer, _ANSWER_CACHE_SECONDS if settled else _RECENT_NOBODY_CACHE_SECONDS)
+        # Two kinds can ask the same window, and a prefetched miss would otherwise send the second to ClickHouse.
+        self._prefetched[cache_key] = answer
         return answer
 
     def _cache_key(self, window: _Window) -> str:
@@ -514,6 +516,8 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
             job_type=row["job_type"],
             before_groups=row["before_groups"],
             after_groups=row["after_groups"],
+            before_aggregation=row["before_aggregation"],
+            after_aggregation=row["after_aggregation"],
         )
         if conditions_change is not None:
             changes.append(conditions_change)

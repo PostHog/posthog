@@ -7,11 +7,9 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.checks.forced_variant import (
-    forced_variant_release_condition,
-    needs_condition_set_traffic,
-)
+from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.condition_changes import parse_release_conditions
+from products.experiments.backend.health.condition_set_traffic import needs_condition_set_traffic
 from products.experiments.backend.health.context import (
     ConditionsChange,
     ConditionSetTraffic,
@@ -35,6 +33,10 @@ SPLIT_WITH_HOLDOUT = [*EVEN_SPLIT, {"key": "holdout", "rollout_percentage": 0}]
 EVERYONE: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
 STAFF: dict[str, Any] = {
     "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
+    "rollout_percentage": 100,
+}
+STAFF_AT_ONE_DOMAIN: dict[str, Any] = {
+    "properties": [{"key": "email", "value": "qa@example.com", "operator": "icontains", "type": "person"}],
     "rollout_percentage": 100,
 }
 IOS: dict[str, Any] = {
@@ -314,10 +316,11 @@ class TestForcedVariantReleaseCondition(TestCase):
             ("set_after_launch", [STAFF, EVERYONE], True),
             ("changed_after_launch", [{**STAFF, "variant": "control"}, EVERYONE], True),
             ("in_place_at_launch", [{**STAFF, "variant": "test"}, EVERYONE, IOS], False),
+            ("filters_edited_after_launch", [{**STAFF_AT_ONE_DOMAIN, "variant": "test"}, EVERYONE], False),
         ]
     )
     def test_an_override_set_after_launch_carries_its_date(
-        self, _name: str, groups_at_launch: list[dict[str, Any]], expected: bool
+        self, _name: str, groups_at_launch: list[dict[str, Any]], set_after_launch: bool
     ) -> None:
         finding = forced_variant_release_condition(
             _context([{**STAFF, "variant": "test"}, EVERYONE], groups_at_launch=groups_at_launch)
@@ -327,5 +330,12 @@ class TestForcedVariantReleaseCondition(TestCase):
         self.assertEqual(
             "The override of Set 1 was set on September 12, 2026 at 3:04 PM CEST, after launch, so users it matches "
             "who were exposed before may have switched variants." in finding.detail,
-            expected,
+            set_after_launch,
+        )
+        self.assertTrue(
+            finding.detail.endswith(
+                "Then move the experiment's start date to after the removal."
+                if set_after_launch
+                else "Then reset the experiment, or move its start date to after the removal."
+            )
         )

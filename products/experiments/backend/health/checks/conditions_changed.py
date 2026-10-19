@@ -3,7 +3,9 @@ The release conditions of the experiment's flag changed after launch while peopl
 functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 
 A condition added, removed or with other criteria moves people into or out of the experiment. The people exposed
-before stay in the results, so the results mix two audiences. That is information, so it is graded info.
+before stay in the results, so the results mix two audiences. That is information, so it is graded info. A new
+order of conditions that serve different variants moves the people who match several of them to another variant.
+How many is unknown, so that is info too.
 
 A variant override that was removed moves the people its condition matches from its variant to a random one, and
 their exposures under that variant stay in the results. It is graded by the share of that variant's users the
@@ -24,13 +26,6 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     history_to_check,
     not_checked_finding,
 )
-from products.experiments.backend.health.checks.forced_variant import (
-    PinnedShareGrade,
-    PinnedShareUnknownReason,
-    percent,
-    pinned_share_severity,
-    removed_override_grade,
-)
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     ConditionsNetEffect,
@@ -42,11 +37,22 @@ from products.experiments.backend.health.context import (
     FlagHistory,
     FlagHistoryNotChecked,
     HealthContext,
+    ReachableCondition,
+)
+from products.experiments.backend.health.pinned_share import (
+    PinnedConditions,
+    PinnedShareGrade,
+    PinnedShareUnknownReason,
+    grade_pinned_share,
+    percent,
+    pinned_conditions,
+    pinned_share_severity,
 )
 from products.experiments.backend.health.split_changes import format_change_time
 
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"
+_REORDERED_TITLE = "The order of the release conditions changed after launch"
 _REVERTED_TITLE = "The release conditions changed and were set back"
 _NOT_CHECKED_TITLE = "Release condition changes were not checked"
 
@@ -71,6 +77,21 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
         if finding is not None:
             return finding
     change = the_change(effect.change_count, "the")
+    if effect.reordered:
+        return _finding(
+            history,
+            effect,
+            subcode=ConditionsChangeShape.VARIANT_OVERRIDE_CHANGED,
+            title=_REORDERED_TITLE,
+            sentences=[
+                f"{_changed(history, effect)}{_condition_counts(effect)}, and conditions that serve different "
+                "variants now come in another order.",
+                "Users who match more than one of them now get the variant of another condition, so those exposed "
+                f"before {change} may have switched variants. Their exposures stay in the results.",
+                f"Review {change} in the flag history.",
+            ],
+            diagnostic_ref="A7",
+        )
     if effect.audience_changed:
         return _finding(
             history,
@@ -81,6 +102,7 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
                 f"{_changed(history, effect)}{_condition_counts(effect)}.",
                 f"People who match differently now enter or leave the experiment, and people exposed before {change} "
                 "stay in the results.",
+                *_edited_overrides(effect),
                 f"Review {change} in the flag history.",
             ],
         )
@@ -101,16 +123,59 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFi
     )
 
 
+def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
+    numbers = effect.edited_override_numbers
+    if not numbers:
+        return []
+    if len(numbers) == 1:
+        variant = effect.to_conditions[numbers[0] - 1].variant
+        return [
+            f'Set {numbers[0]} has the variant override "{variant}", so users who now match it or no longer match '
+            "it may also have switched variants."
+        ]
+    names = ", ".join(str(number) for number in numbers[:-1]) + f" and {numbers[-1]}"
+    return [
+        f"Sets {names} have variant overrides, so users who now match them or no longer match them may also have "
+        "switched variants."
+    ]
+
+
+def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
+    """The overrides removed after launch, as pins on the conditions that held them, which the finding is graded
+    by as if they were still in place. None when no removed override has a condition left to count its users."""
+    history = ctx.flag_history
+    flag = ctx.flag
+    if not isinstance(history, FlagHistory) or flag is None or flag.deleted or not ctx.is_running or ctx.archived:
+        return None
+    effect = conditions_net_effect(history.counted(ConditionsChange))
+    if effect is None:
+        return None
+    removed = _analyzed(ctx, effect)
+    pinned = tuple(
+        ReachableCondition(number=override.condition_number, pinned_variant=override.variant)
+        for override in removed
+        if override.condition_number is not None
+    )
+    if not pinned:
+        return None
+    return pinned_conditions(pinned, flag.variants, all_counted=len(pinned) == len(removed))
+
+
+def _analyzed(ctx: HealthContext, effect: ConditionsNetEffect) -> list[RemovedOverride]:
+    # An excluded variant is not in the results, so an override to it biased nothing.
+    return [override for override in effect.overrides.removed if override.variant not in ctx.excluded_variant_keys]
+
+
 def _override_removed(
     ctx: HealthContext, history: FlagHistory, effect: ConditionsNetEffect
 ) -> ExperimentHealthFinding | None:
-    # An excluded variant is not in the results, so an override to it biased nothing.
-    removed = [override for override in effect.overrides.removed if override.variant not in ctx.excluded_variant_keys]
-    grade = removed_override_grade(ctx)
+    removed = _analyzed(ctx, effect)
+    pins = removed_overrides_to_grade(ctx)
+    grade = grade_pinned_share(pins, ctx.condition_set_traffic) if pins is not None and pins.weighted else None
     severity = pinned_share_severity(grade)
     if not removed or severity is None:
         return None
-    last_removed_at = max(override.removed_at for override in removed)
+    last_changed_at = max(override.restored_at or override.removed_at for override in removed)
     return _finding(
         history,
         effect,
@@ -124,7 +189,7 @@ def _override_removed(
             *_moved(removed),
             *_measured(grade, removed),
             f"Reset the experiment, or move its start date to "
-            f"{suggested_start(last_removed_at, history.team_timezone)}.",
+            f"{suggested_start(last_changed_at, history.team_timezone)}.",
         ],
         grade=grade,
         diagnostic_ref="A7",
@@ -132,6 +197,16 @@ def _override_removed(
 
 
 def _moved(removed: list[RemovedOverride]) -> list[str]:
+    if len(removed) == 1 and removed[0].restored_at is not None:
+        return [
+            f'Between these changes, users it matches did not get "{removed[0].variant}", so those exposed then may '
+            "have switched variants. Their exposures stay in the results."
+        ]
+    if any(override.restored_at is not None for override in removed):
+        return [
+            "For a while, users they match did not get the override's variant, so those exposed then may have "
+            "switched variants. Their exposures stay in the results."
+        ]
     if len(removed) == 1:
         variant = f'"{removed[0].variant}"'
         return [
@@ -147,6 +222,12 @@ def _moved(removed: list[RemovedOverride]) -> list[str]:
 
 def _removed(override: RemovedOverride, team_timezone: str) -> str:
     removed_at = format_change_time(override.removed_at, team_timezone)
+    if override.restored_at is not None:
+        restored_at = format_change_time(override.restored_at, team_timezone)
+        return (
+            f'The variant override "{override.variant}" of Set {override.condition_number} changed on {removed_at} '
+            f"and was set back on {restored_at}."
+        )
     set_at = format_change_time(override.set_at, team_timezone) if override.set_at is not None else None
     if override.condition_number is None:
         subject = f'A release condition with the variant override "{override.variant}"'
@@ -172,13 +253,18 @@ def _measured(grade: PinnedShareGrade | None, removed: list[RemovedOverride]) ->
             f"about {round(measurement.variant_people):,})."
         ]
     if grade is None:
-        return ["PostHog can't measure how many users the override matched."]
+        return [
+            f"PostHog can't measure how many users {'the override' if len(removed) == 1 else 'the overrides'} matched."
+        ]
     if grade.unknown_reason == PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE:
         return [
             "Most of this flag's calls are evaluated locally in a server SDK, bootstrapped, or assigned in your own "
             f"code, so PostHog can't measure how many users {subject} {matches}."
         ]
-    return [f"Too few users called the flag since the change to measure how many users {subject} {matches}."]
+    if grade.unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE and measurement is not None:
+        since = format_change_time(measurement.since, measurement.team_timezone)
+        return [f"Too few users called the flag since {since} to measure how many users {subject} {matches}."]
+    return [f"PostHog can't measure how many users {subject} {matches}."]
 
 
 def _finding(

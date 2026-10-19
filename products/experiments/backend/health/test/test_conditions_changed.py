@@ -30,6 +30,15 @@ EVEN = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_p
 PRO = {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]}
 EVERYONE: dict[str, Any] = {"properties": []}
 PRO_PINNED = {**PRO, "variant": "test"}
+PRO_OR_TEAM_PINNED = {
+    "properties": [{"key": "plan", "value": ["pro", "team"], "operator": "exact", "type": "person"}],
+    "variant": "test",
+}
+TEAM = {"properties": [{"key": "plan", "value": ["team"], "operator": "exact", "type": "person"}]}
+EU_CONTROL = {
+    "properties": [{"key": "$geoip_continent_code", "value": ["EU"], "operator": "exact", "type": "person"}],
+    "variant": "control",
+}
 TRAFFIC_SINCE = "September 13, 2026 at 10:00 AM CEST"
 
 
@@ -75,6 +84,7 @@ INFO = ExperimentHealthFindingSeverity.INFO
 WARNING = ExperimentHealthFindingSeverity.WARNING
 CHANGED_TITLE = "The release conditions changed after launch"
 OVERRIDE_TITLE = "A variant override was removed after launch"
+REORDERED_TITLE = "The order of the release conditions changed after launch"
 OVERRIDE_MOVED = (
     'Users it matched got "test" while the override was in place and a random variant after, so those exposed while '
     'it was in place may have switched variants. Their exposures under "test" stay in the results.'
@@ -119,8 +129,46 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 10, 2: 50}),
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Too few '
-                "users called the flag since the change to measure how many users Set 1 matches. Reset the "
+                f"users called the flag since {TRAFFIC_SINCE} to measure how many users Set 1 matches. Reset the "
                 f"experiment, or move its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "override_removed_without_a_measurement",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE]),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
+                "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
+                f"{FIRST_CHANGE}.",
+            ),
+            (
+                "override_changed_then_removed",
+                _context(
+                    [PRO_PINNED, EVERYONE],
+                    [{**PRO, "variant": "control"}, EVERYONE],
+                    [PRO, EVERYONE],
+                    people_by_set={1: 300, 2: 2700},
+                ),
+                ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
+                f'The variant override "control" of Set 1 was set on {FIRST_CHANGE} and removed on {SECOND_CHANGE}. '
+                'Users it matched got "control" while the override was in place and a random variant after, so '
+                'those exposed while it was in place may have switched variants. Their exposures under "control" '
+                f"stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "
+                f'"control" with the override in place (300 of about 1,650). Reset the experiment, or move its start '
+                f"date to {SECOND_CHANGE}.",
+            ),
+            (
+                "override_removed_with_its_condition_next_to_a_small_share",
+                _context(
+                    [PRO_PINNED, {**TEAM, "variant": "test"}, EVERYONE],
+                    [TEAM, EVERYONE],
+                    people_by_set={1: 10, 2: 2990},
+                ),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'A release condition with the variant override "test" was removed on {FIRST_CHANGE}. The variant '
+                f'override "test" of Set 1 was removed on {FIRST_CHANGE}. Users they matched got the override\'s '
+                "variant while it was in place and a random variant after, so those exposed while it was in place "
+                "may have switched variants. Their exposures stay in the results. PostHog can't measure how many "
+                f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}.",
             ),
             (
                 "override_removed_with_its_condition",
@@ -144,6 +192,40 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'{OVERRIDE_MOVED} Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" '
                 "with the override in place (300 of about 1,650). Reset the experiment, or move its start date to "
                 f"{SECOND_CHANGE}.",
+            ),
+            (
+                "override_removed_and_set_back",
+                _context(
+                    [PRO_PINNED, EVERYONE],
+                    [PRO, EVERYONE],
+                    [PRO_PINNED, EVERYONE],
+                    exposed_between=True,
+                    people_by_set={1: 300, 2: 2700},
+                ),
+                ("reverted", WARNING, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
+                'Between these changes, users it matches did not get "test", so those exposed then may have '
+                f"switched variants. Their exposures stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about "
+                '18.2% of the users who would get "test" with the override in place (300 of about 1,650). Reset the '
+                f"experiment, or move its start date to {SECOND_CHANGE}.",
+            ),
+            (
+                "pinned_conditions_reordered",
+                _context([PRO_PINNED, EU_CONTROL, EVERYONE], [EU_CONTROL, PRO_PINNED, EVERYONE]),
+                ("variant_override_changed", INFO, REORDERED_TITLE, "A7"),
+                f"The release conditions changed on {FIRST_CHANGE}, and conditions that serve different variants now "
+                "come in another order. Users who match more than one of them now get the variant of another "
+                "condition, so those exposed before the change may have switched variants. Their exposures stay in "
+                "the results. Review the change in the flag history.",
+            ),
+            (
+                "filters_of_a_pinned_condition_edited",
+                _context([PRO_PINNED, EVERYONE], [PRO_OR_TEAM_PINNED, EVERYONE]),
+                ("conditions_changed", INFO, CHANGED_TITLE, "A6"),
+                f"The release conditions changed on {FIRST_CHANGE}. People who match differently now enter or leave "
+                "the experiment, and people exposed before the change stay in the results. Set 1 has the variant "
+                'override "test", so users who now match it or no longer match it may also have switched variants. '
+                "Review the change in the flag history.",
             ),
             (
                 "set_back_with_exposures_in_between",

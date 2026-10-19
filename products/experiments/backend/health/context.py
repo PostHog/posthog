@@ -49,8 +49,13 @@ class BucketingChange:
 @frozen
 class ReleaseCondition:
     # The group type and property filters of the condition, as a signature that is equal for two conditions
-    # that match the same people. The rollout is not part of it.
+    # that match the same people under the flag-level aggregation of their save. The rollout is not part of it.
     criteria: str
+    # The group type index that the condition matches, None for persons, and the keys of its property filters.
+    # The flag page's history pairs two conditions that share them as one condition edited.
+    aggregation: int | None
+    property_keys: frozenset[str]
+    rollout: float
     variant: str | None
 
 
