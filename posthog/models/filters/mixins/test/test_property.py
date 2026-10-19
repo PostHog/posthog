@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -15,22 +16,25 @@ def _entity(data: dict[str, Any]) -> Entity:
     return Entity({"id": "$pageview", "type": "events", **data})
 
 
-def test_property_group_multi_level_parsing():
+@pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
+def test_property_group_multi_level_parsing(encode: Callable[[dict[str, Any]], Any]):
     entity = _entity(
         {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {"key": "attr", "value": "val_1"},
-                            {"key": "attr_2", "value": "val_2"},
-                        ],
-                    },
-                    {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
-                ],
-            }
+            "properties": encode(
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "attr", "value": "val_1"},
+                                {"key": "attr_2", "value": "val_2"},
+                            ],
+                        },
+                        {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
+                    ],
+                }
+            )
         }
     )
 
@@ -51,16 +55,19 @@ def test_property_group_multi_level_parsing():
     assert entity.property_groups.values[1].values[0].value == "val_2"
 
 
-def test_property_group_simple_parsing():
+@pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
+def test_property_group_simple_parsing(encode: Callable[[dict[str, Any]], Any]):
     entity = _entity(
         {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {"key": "attr", "value": "val_1"},
-                    {"key": "attr_2", "value": "val_2"},
-                ],
-            }
+            "properties": encode(
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "attr", "value": "val_1"},
+                        {"key": "attr_2", "value": "val_2"},
+                    ],
+                }
+            )
         }
     )
 
@@ -173,70 +180,6 @@ def test_property_group_simple_to_dict():
             {"key": "attr_2", "value": "val_2", "type": "event"},
         ],
     }
-
-
-def test_property_group_simple_json_parsing():
-    entity = _entity(
-        {
-            "properties": json.dumps(
-                {
-                    "type": "AND",
-                    "values": [
-                        {"key": "attr", "value": "val_1"},
-                        {"key": "attr_2", "value": "val_2"},
-                    ],
-                }
-            )
-        }
-    )
-
-    assert entity.property_groups.type == "AND"
-
-    assert isinstance(entity.property_groups.values[0], Property)
-    assert entity.property_groups.values[0].key == "attr"
-    assert entity.property_groups.values[0].value == "val_1"
-    assert isinstance(entity.property_groups.values[1], Property)
-    assert entity.property_groups.values[1].key == "attr_2"
-    assert entity.property_groups.values[1].value == "val_2"
-
-
-def test_property_group_multi_level_json_parsing():
-    entity = _entity(
-        {
-            "properties": json.dumps(
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "attr", "value": "val_1"},
-                                {"key": "attr_2", "value": "val_2"},
-                            ],
-                        },
-                        {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
-                    ],
-                }
-            )
-        }
-    )
-
-    assert entity.property_groups.type == "AND"
-    assert isinstance(entity.property_groups.values[0], PropertyGroup)
-    assert entity.property_groups.values[0].type == "AND"
-
-    assert isinstance(entity.property_groups.values[0].values[0], Property)
-    assert entity.property_groups.values[0].values[0].key == "attr"
-    assert entity.property_groups.values[0].values[0].value == "val_1"
-    assert isinstance(entity.property_groups.values[0].values[1], Property)
-    assert entity.property_groups.values[0].values[1].key == "attr_2"
-    assert entity.property_groups.values[0].values[1].value == "val_2"
-
-    assert isinstance(entity.property_groups.values[1], PropertyGroup)
-    assert entity.property_groups.values[1].type == "OR"
-    assert isinstance(entity.property_groups.values[1].values[0], Property)
-    assert entity.property_groups.values[1].values[0].key == "attr"
-    assert entity.property_groups.values[1].values[0].value == "val_2"
 
 
 @pytest.mark.parametrize(
