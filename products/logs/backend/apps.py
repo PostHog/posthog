@@ -13,8 +13,9 @@ class LogsConfig(AppConfig):
         #   transitively imports the whole query-runner layer, which would drag posthog.schema and
         #   HogQL into django.setup() for every process type.
         # - The alerts platform cannot import this product, so native alert messages get the logs
-        #   wording, grandfathered webhooks the legacy logs body, and alerts on the HogFunction path
-        #   their `$logs_alert_*` events, through the functions registered below.
+        #   wording, grandfathered webhooks the legacy logs body, alerts on the HogFunction path
+        #   their `$logs_alert_*` events, `$alert_transition` the logs source facts, and the platform
+        #   API the logs `source_config` schema, through the functions registered below.
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.delivery import (  # noqa: PLC0415
             register_legacy_event_emitter,
@@ -22,6 +23,7 @@ class LogsConfig(AppConfig):
             register_source_describer,
             register_source_facts,
         )
+        from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
         from products.logs.backend import activity_logging  # noqa: F401, PLC0415
         from products.logs.backend.platform_alert_legacy_events import (  # noqa: PLC0415
             emit_logs_legacy_events,
@@ -31,8 +33,10 @@ class LogsConfig(AppConfig):
             describe_logs_transition,
             legacy_logs_webhook_body,
         )
+        from products.logs.backend.platform_source_config import load_logs_source_config  # noqa: PLC0415
 
         register_source_describer(SourceKind.LOGS, describe_logs_transition)
         register_legacy_webhook_body(SourceKind.LOGS, legacy_logs_webhook_body)
         register_legacy_event_emitter(SourceKind.LOGS, emit_logs_legacy_events)
         register_source_facts(SourceKind.LOGS, logs_source_facts)
+        register_source_config(SourceKind.LOGS, load_logs_source_config)
