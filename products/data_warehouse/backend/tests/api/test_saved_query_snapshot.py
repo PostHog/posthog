@@ -35,3 +35,22 @@ class TestSavedQuerySnapshot(APIBaseTest):
             response = self.client.patch(self._url(f"{saved_query.id}/"), {"name": "plan_history_renamed"})
 
         assert response.status_code == 200, response.json()
+
+    def test_snapshot_key_change_is_refused_when_history_publishes_after_validation(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="plan_history", query=QUERY, snapshot_config=SNAPSHOT
+        )
+
+        def publish_first_generation(_team_id: int) -> bool:
+            DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk).update(
+                snapshot_state={"generation_uri": "s3://bucket/generation", "last_run_id": "run"}
+            )
+            return True
+
+        with patch(FLAG_CHECK, side_effect=publish_first_generation):
+            response = self.client.patch(self._url(f"{saved_query.id}/"), {"snapshot": {"unique_key": ["plan"]}})
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "snapshot"
+        saved_query.refresh_from_db()
+        assert saved_query.snapshot_config == SNAPSHOT

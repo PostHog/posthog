@@ -346,13 +346,16 @@ class TestCreateDataModelingJobActivity:
 
 
 class TestFailMaterializationActivity:
+    @pytest.mark.parametrize("node_deleted", [False, True])
     @pytest.mark.parametrize(
         "cancelled,expected_status",
         [(False, DataModelingJob.Status.FAILED), (True, DataModelingJob.Status.CANCELLED)],
     )
     async def test_marks_job_as_terminal(
-        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status
+        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status, node_deleted
     ):
+        if node_deleted:
+            await database_sync_to_async(Node.objects.filter(id=anode.id).delete)()
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -823,6 +826,11 @@ class TestNodeSuspension:
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
             "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
+            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: 'b'",
+            "This model has been suspended after 5 consecutive failed materializations. "
+            "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -855,7 +863,16 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty", "ProxyConnectionError"])
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "Preempted",
+            "QueueEmpty",
+            "ProxyConnectionError",
+            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
+            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
+        ],
+    )
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, identifier
     ):
@@ -1387,12 +1404,17 @@ class TestPrepareQueryableTableActivity:
             )
         await database_sync_to_async(warehouse_table.delete)()
 
+    @pytest.mark.parametrize(
+        "concurrent_change, published",
+        [("another_run_publishes", "winner"), ("unique_key_changes", "parent")],
+    )
     async def test_snapshot_conflict_leaves_the_table_on_the_published_generation(
-        self, activity_environment, ateam, asaved_query, ajob
+        self, activity_environment, ateam, asaved_query, ajob, concurrent_change, published
     ):
         root = f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}/snapshot-generations"
         parent, winner, loser = (f"{root}/1791000000_{name}_1" for name in ("parent", "winner", "loser"))
         asaved_query.snapshot_state = {"generation_uri": parent, "last_run_id": "parent"}
+        asaved_query.snapshot_config = {"unique_key": ["id"]}
         await database_sync_to_async(asaved_query.save)()
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam, name="test_snapshot_table", format="Delta"
@@ -1405,15 +1427,25 @@ class TestPrepareQueryableTableActivity:
             file_uris=[],
             row_count=3,
             snapshot_generation_uri=loser,
-            snapshot_state={"generation_uri": loser, "parent_generation_uri": parent, "last_run_id": "loser"},
+            snapshot_state={
+                "generation_uri": loser,
+                "parent_generation_uri": parent,
+                "last_run_id": "loser",
+                "unique_key": ["id"],
+            },
         )
 
         def create_table_while_another_run_publishes(*args):
-            # The loser repoints the table, then the winner publishes before the loser takes the lock.
+            # The loser repoints the table, then the saved query changes before the loser takes the lock.
             DataWarehouseTable.objects.filter(pk=warehouse_table.pk).update(queryable_folder=args[3])
-            DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
-                snapshot_state={"generation_uri": winner, "parent_generation_uri": parent, "last_run_id": "winner"}
-            )
+            if concurrent_change == "another_run_publishes":
+                DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                    snapshot_state={"generation_uri": winner, "parent_generation_uri": parent, "last_run_id": "winner"}
+                )
+            else:
+                DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                    snapshot_config={"unique_key": ["other_id"]}
+                )
             warehouse_table.refresh_from_db()
             return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
 
@@ -1427,8 +1459,10 @@ class TestPrepareQueryableTableActivity:
         await database_sync_to_async(warehouse_table.refresh_from_db)()
         assert (
             warehouse_table.queryable_folder
-            == f"{asaved_query.normalized_name}/snapshot-generations/1791000000_winner_1"
+            == f"{asaved_query.normalized_name}/snapshot-generations/1791000000_{published}_1"
         )
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.snapshot_state["last_run_id"] != "loser"
         await database_sync_to_async(warehouse_table.delete)()
 
     async def test_snapshot_conflict_is_refused_before_the_table_is_touched(
@@ -2042,6 +2076,40 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "clickhouse_type,expected_conversion",
+        [
+            ("Array(UUID)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(IPv4)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
+            ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(String)", None),
+            ("Array(Tuple(uuid String))", None),
+            ("Array(Array(UUID))", None),
+        ],
+    )
+    async def test_applies_arrow_conversions_to_array_elements(
+        self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
+        client.describe_body = f"person_ids\t{clickhouse_type}\n".encode()
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table("SELECT [] AS person_ids", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        if expected_conversion is None:
+            assert "arrayMap(" not in client.arrow_query
+        else:
+            assert expected_conversion in client.arrow_query
+
     @pytest.mark.parametrize(
         "query,team_modifiers,expected_sql,expected_sql_new_events_schema",
         [

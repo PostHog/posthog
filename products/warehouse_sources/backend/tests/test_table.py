@@ -199,6 +199,11 @@ class TestSafeExposeChError:
         [
             ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
             ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+            (
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'my-data/file.csv')",
+                "s3:GetObject",
+            ),
         ],
     )
     def test_native_s3_access_denials_name_the_iam_action_to_check(

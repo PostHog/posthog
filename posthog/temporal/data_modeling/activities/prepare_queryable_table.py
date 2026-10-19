@@ -54,6 +54,10 @@ def _snapshot_folder(saved_query: DataWarehouseSavedQuery, generation_uri: str) 
     return generation_uri.removeprefix(prefix).rstrip("/")
 
 
+_PARENT_CHANGED = "Snapshot parent generation changed before publication."
+_CONFIG_CHANGED = "Snapshot configuration changed before publication."
+
+
 def _snapshot_publication_state(inputs: PrepareQueryableTableInputs, current: object) -> str:
     """Return "published", "ready" or "conflict" for this run's candidate against the stored state."""
     assert inputs.snapshot_state is not None
@@ -65,6 +69,13 @@ def _snapshot_publication_state(inputs: PrepareQueryableTableInputs, current: ob
     return "ready"
 
 
+def _snapshot_config_changed(inputs: PrepareQueryableTableInputs, config: object) -> bool:
+    # The key can change until the first generation is published. History built with another key must not become this model's history.
+    assert inputs.snapshot_state is not None
+    built_key = inputs.snapshot_state.get("unique_key")
+    return built_key is not None and (not isinstance(config, dict) or config.get("unique_key") != built_key)
+
+
 @database_sync_to_async_pool
 def _check_snapshot_parent(inputs: PrepareQueryableTableInputs) -> None:
     assert inputs.snapshot_state is not None
@@ -72,11 +83,9 @@ def _check_snapshot_parent(inputs: PrepareQueryableTableInputs) -> None:
         pk=inputs.saved_query_id
     )
     if _snapshot_publication_state(inputs, current) == "conflict":
-        raise SnapshotPublicationConflict("Snapshot parent generation changed before publication.")
-    # The key can change until the first generation is published. History built with another key must not become this model's history.
-    built_key = inputs.snapshot_state.get("unique_key")
-    if built_key is not None and (not isinstance(config, dict) or config.get("unique_key") != built_key):
-        raise SnapshotPublicationConflict("Snapshot configuration changed before publication.")
+        raise SnapshotPublicationConflict(_PARENT_CHANGED)
+    if _snapshot_config_changed(inputs, config):
+        raise SnapshotPublicationConflict(_CONFIG_CHANGED)
 
 
 @database_sync_to_async_pool
@@ -84,15 +93,19 @@ def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
     state = None
+    conflict = _PARENT_CHANGED
     with transaction.atomic():
         if inputs.snapshot_state is not None:
             locked = DataWarehouseSavedQuery.objects.select_for_update().get(pk=saved_query.pk)
             state = _snapshot_publication_state(inputs, locked.snapshot_state)
             if state == "published":
                 return
+            if state == "ready" and _snapshot_config_changed(inputs, locked.snapshot_config):
+                # The check before table creation ran without the lock, so a key edit can land after it.
+                state, conflict = "conflict", _CONFIG_CHANGED
             if state == "conflict":
                 # Table creation repointed the table at this run's candidate before the lock.
-                # Another run published first, so point the table back at its generation.
+                # Point it back at the generation the saved query still publishes.
                 winner_uri = locked.snapshot_state.get("generation_uri") if locked.snapshot_state else None
                 if winner_uri:
                     saved_query_table.queryable_folder = _snapshot_folder(saved_query, winner_uri)
@@ -108,7 +121,7 @@ def _update_saved_query_with_table(
 
     if state == "conflict":
         # Raised after the block so the rollback does not undo the table restore.
-        raise SnapshotPublicationConflict("Snapshot parent generation changed before publication.")
+        raise SnapshotPublicationConflict(conflict)
 
     if not inputs.incremental:
         # `create_table_from_saved_query` already counted the published files, which is the whole
