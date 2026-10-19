@@ -10150,6 +10150,10 @@ snapshots:
         hash: v1.k794b7964.3795bb1f396527c180bfcef4de823b5064fc13a2ed44cd4ef60abe7cb88002bb.bDHlqsOUbRivTPIRkkukSBdGNT9qfo4LPtuL5GSKvyI
     scenes-app-feature-flags--deleted-feature-flag--light:
         hash: v1.k794b7964.0e7e762946624e513cd91315999f4eec08f741351e5305537f752ca23f73d043.iZUHrQEikVJFEDf5HnL6ffOYuQZJr5lCturFKuLetiI
+    scenes-app-feature-flags--deleted-rules-v-2-feature-flag--dark:
+        hash: v1.k794b7964.e04929cae93f23935399e4e54e7fb0658112b83c9cad626a5f1cf09368bffd85.U2yqL_Ggv_CSSzRo6F8M_i0yGtkWpJ-Cr29Th2SftIQ
+    scenes-app-feature-flags--deleted-rules-v-2-feature-flag--light:
+        hash: v1.k794b7964.bed8de01c0601540fc620e1f235885cddb48ebb25238ea2b449a942ab3631ae4.78Gc8NQcOx8K0JKzCHLBowQs5R9hLwUDf-Y4CgZegSI
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--dark:
         hash: v1.k794b7964.e1d5ac9782c87c254a9fe2d841d305abd0c643b082e72c4a1985b4da47ab9c01.va_xLeHZCGS8-LnghJ5Ovp6raP-y9RrviqDYhOX33fo
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--light:
