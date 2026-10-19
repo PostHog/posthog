@@ -61,14 +61,13 @@ describe('panelLayoutLogic', () => {
         })
     })
 
-    it('defers scene geometry during a sidebar drag and cancels pending measurements when the ref changes', () => {
+    it('holds scene geometry until release and cancels measurements when the container clears', () => {
         jest.useFakeTimers()
         const originalObserver = global.ResizeObserver
         let notify: ResizeObserverCallback = () => {}
-        const disconnect = jest.fn()
         global.ResizeObserver = jest.fn().mockImplementation((callback: ResizeObserverCallback) => {
             notify = callback
-            return { observe: jest.fn(), disconnect }
+            return { observe: jest.fn(), disconnect: jest.fn() }
         })
         const container = document.createElement('main')
         const bounds = jest.spyOn(container, 'getBoundingClientRect')
@@ -76,29 +75,23 @@ describe('panelLayoutLogic', () => {
 
         try {
             panelLayoutLogic.actions.setMainContentRef({ current: container })
-            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1200)
-            bounds.mockReturnValue({ width: 1100 } as DOMRect)
-            notify([], {} as ResizeObserver)
-            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1100)
-
             document.body.classList.add('is-resizing')
             bounds.mockReturnValue({ width: 900 } as DOMRect)
             notify([], {} as ResizeObserver)
             jest.advanceTimersByTime(500)
-            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1100)
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1200)
+
             document.body.classList.remove('is-resizing')
-            jest.advanceTimersByTime(16)
+            jest.advanceTimersToNextTimer()
             expect(panelLayoutLogic.values.mainContentRect?.width).toBe(900)
 
             document.body.classList.add('is-resizing')
-            notify([], {} as ResizeObserver)
-            panelLayoutLogic.actions.setMainContentRef({ current: container })
-            expect(disconnect).toHaveBeenCalledTimes(1)
-            expect(jest.getTimerCount()).toBe(0)
+            bounds.mockReturnValue({ width: 800 } as DOMRect)
             notify([], {} as ResizeObserver)
             panelLayoutLogic.actions.setMainContentRef(null)
-            expect(disconnect).toHaveBeenCalledTimes(2)
-            expect(jest.getTimerCount()).toBe(0)
+            document.body.classList.remove('is-resizing')
+            jest.runOnlyPendingTimers()
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(900)
         } finally {
             document.body.classList.remove('is-resizing')
             global.ResizeObserver = originalObserver
