@@ -335,6 +335,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&leader_backend),
             config.stash_max_wait(),
             config.stash_drain_concurrency,
+            Arc::clone(&store),
         ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
@@ -391,6 +392,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // The same server limit the routing table's ack
                     // batches mirror: one env, one `--max-txn-ops`.
                     max_txn_ops: config.etcd_max_txn_ops,
+                    migration_pre_flip_deadline: config.coordinator_migration_pre_flip_deadline(),
+                    migration_debounce_interval: config.coordinator_migration_debounce_interval(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

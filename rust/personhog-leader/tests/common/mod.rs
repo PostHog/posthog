@@ -118,6 +118,8 @@ pub fn start_coordinator(
             handoff_deadline: Duration::from_secs(86_400),
             warming_deadline: Duration::from_secs(86_400),
             max_txn_ops: 128,
+            migration_pre_flip_deadline: Duration::from_secs(86_400),
+            migration_debounce_interval: Duration::from_millis(10),
         },
         strategy,
         None,

@@ -7,6 +7,7 @@ use futures::future::join_all;
 use keyed_stash::Entry;
 use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::StashHandler;
+use personhog_coordination::store::PersonhogStore;
 use tokio_util::sync::CancellationToken;
 use tonic::Code;
 
@@ -18,6 +19,9 @@ use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 
 /// How long a drain waits before looking again for a key it could not take.
 const SETTLE_RETRY: Duration = Duration::from_millis(10);
+
+/// How long a drain waits for its config read before draining under the adopted count.
+const CONFIG_READ_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Stash handler for the router. Reacts to handoff phase transitions:
 ///
@@ -97,6 +101,8 @@ pub struct RouterStashHandler {
     /// Per-key ordering is preserved (sequential within a key); across
     /// keys we fan out up to this many at once.
     drain_concurrency: usize,
+    /// A drain reads the config here first, in case the config watch lags its handoff.
+    store: Arc<PersonhogStore>,
 }
 
 impl RouterStashHandler {
@@ -104,6 +110,7 @@ impl RouterStashHandler {
         leader_backend: Arc<LeaderBackend>,
         max_stash_wait: Duration,
         drain_concurrency: usize,
+        store: Arc<PersonhogStore>,
     ) -> Self {
         // A drain_concurrency of 0 would mean "never forward" — treat
         // as 1 (fully sequential) to keep the contract sensible if
@@ -113,6 +120,32 @@ impl RouterStashHandler {
             leader_backend,
             max_stash_wait,
             drain_concurrency,
+            store,
+        }
+    }
+
+    /// Adopt the config as etcd holds it, so a drain whose handoff arrived before the
+    /// config watch delivered a flip takes the keys its target owns. Best effort: on a
+    /// failed or slow read, or a cancel, the drain runs under the adopted count, which
+    /// only costs bounces.
+    async fn adopt_current_config(&self, cancel: &CancellationToken) {
+        let read = tokio::select! {
+            _ = cancel.cancelled() => return,
+            read = tokio::time::timeout(CONFIG_READ_TIMEOUT, self.store.get_changelog_config()) => read,
+        };
+        match read {
+            Ok(Ok(Some(config))) => {
+                self.leader_backend.changelog().adopt(&config);
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => {
+                metrics::counter!("personhog_router_drain_config_read_failures_total").increment(1);
+                tracing::warn!(error = %e, "drain could not read config/changelog; draining under the adopted count");
+            }
+            Err(_) => {
+                metrics::counter!("personhog_router_drain_config_read_failures_total").increment(1);
+                tracing::warn!("drain config read timed out; draining under the adopted count");
+            }
         }
     }
 }
@@ -303,6 +336,10 @@ impl StashHandler for RouterStashHandler {
         self.leader_backend.stash_table().is_pending(partition)
     }
 
+    fn pending_partitions(&self) -> Vec<u32> {
+        self.leader_backend.stash_table().pending_partitions()
+    }
+
     async fn begin_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
         tracing::info!(
             partition,
@@ -319,6 +356,7 @@ impl StashHandler for RouterStashHandler {
         new_owner: &str,
         cancel: CancellationToken,
     ) -> CoordResult<()> {
+        self.adopt_current_config(&cancel).await;
         let Some(session) = self.leader_backend.stash_table().drain_session(partition) else {
             // Nothing pending — the partition never froze, or a prior
             // drain already settled it.
@@ -332,7 +370,10 @@ impl StashHandler for RouterStashHandler {
         // owner's entry stays in the cache unused — the routing table
         // no longer points at it — and is reclaimed only if that
         // address is ever resolved again; the cache has no eviction.
-        self.leader_backend.clear_client_cache(new_owner);
+        // A drain no handoff or assignment names has no new owner.
+        if !new_owner.is_empty() {
+            self.leader_backend.clear_client_cache(new_owner);
+        }
 
         let mut completed_total: u64 = 0;
         let mut bounced_waves: u32 = 0;

@@ -3,6 +3,7 @@ pub mod changelog;
 pub mod coordinator;
 pub mod error;
 pub mod hash;
+pub mod migration;
 pub mod pod;
 pub mod protocol;
 pub mod routing_table;

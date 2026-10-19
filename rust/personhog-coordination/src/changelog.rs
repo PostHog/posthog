@@ -183,23 +183,43 @@ pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource>
 pub const CHANGELOG_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 pub const CHANGELOG_BOOT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// The partition count has its own atomic: routing reads it per request.
+/// The partition count and the draining floor have their own atomics:
+/// routing reads them per request.
 #[derive(Clone)]
 pub struct LiveChangelog {
     current: Arc<std::sync::RwLock<ChangelogConfig>>,
     partitions: Arc<AtomicU32>,
+    draining_floor: Arc<AtomicU32>,
+}
+
+/// The smallest partition count among the draining generations; `u32::MAX` when none drains.
+fn draining_floor_of(config: &ChangelogConfig) -> u32 {
+    config
+        .draining
+        .iter()
+        .map(|g| g.partitions)
+        .min()
+        .unwrap_or(u32::MAX)
 }
 
 impl LiveChangelog {
     pub fn new(config: ChangelogConfig) -> Self {
         Self {
             partitions: Arc::new(AtomicU32::new(config.partitions)),
+            draining_floor: Arc::new(AtomicU32::new(draining_floor_of(&config))),
             current: Arc::new(std::sync::RwLock::new(config)),
         }
     }
 
     pub fn partitions(&self) -> u32 {
         self.partitions.load(Ordering::Acquire)
+    }
+
+    /// Partitions at or above the floor were born in a flip some consumer
+    /// is still catching up on; `None` once nothing drains.
+    pub fn draining_floor(&self) -> Option<u32> {
+        let floor = self.draining_floor.load(Ordering::Acquire);
+        (floor != u32::MAX).then_some(floor)
     }
 
     pub fn current(&self) -> ChangelogConfig {
@@ -225,6 +245,9 @@ impl LiveChangelog {
             return false;
         }
         *current = config.clone();
+        // The floor first: a reader that sees the new count sees its floor too.
+        self.draining_floor
+            .store(draining_floor_of(config), Ordering::Release);
         self.partitions.store(config.partitions, Ordering::Release);
         true
     }

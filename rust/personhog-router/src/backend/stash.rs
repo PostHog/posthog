@@ -20,6 +20,7 @@
 //! An entry leaves the stash only with a definitive outcome. An attempt that
 //! cannot finish puts its entries back in order, so a retry is never overtaken.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
@@ -250,6 +251,23 @@ impl StashTable {
     /// that maps to it under the live count has parked or in-flight requests.
     pub fn is_pending(&self, partition: u32) -> bool {
         self.inner.stashing.contains_key(&partition) || self.inner.holds_keys_of(partition)
+    }
+
+    /// Every partition `is_pending` holds for, scanning one shard at a time.
+    pub fn pending_partitions(&self) -> Vec<u32> {
+        let inner = &self.inner;
+        let mut pending: BTreeSet<u32> = inner.stashing.iter().map(|e| *e.key()).collect();
+        for shard in &inner.shards {
+            if shard.held.load(Ordering::Acquire) > 0 {
+                pending.extend(
+                    shard
+                        .lock()
+                        .deferring_keys()
+                        .map(|key| inner.partition_of(key)),
+                );
+            }
+        }
+        pending.into_iter().collect()
     }
 
     /// Begin buffering requests for `partition`. Each call opens a new
@@ -860,6 +878,30 @@ mod tests {
         assert!(holder.take_for_attempt(usize::MAX).is_empty());
         let taker = table.drain_session(new).unwrap();
         assert_eq!(taker.take_for_attempt(usize::MAX).len(), 1);
+    }
+
+    /// The reconcile pass drains what this lists, so it must name a freeze
+    /// with nothing parked and a parked key's partition under the live count.
+    #[test]
+    fn pending_partitions_names_freezes_and_parked_keys() {
+        let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", 8));
+        let table = StashTable::with_bounds(usize::MAX, usize::MAX, changelog.clone());
+        let person_id = moving_person(8, 4);
+        let old = partition_for_person(1, person_id, 8);
+        table.begin_stash(old);
+        assert!(matches!(
+            enqueue(&table, person_id),
+            StashDecision::Stashed(_)
+        ));
+        let empty_freeze = (0..8).find(|p| *p != old).unwrap();
+        table.begin_stash(empty_freeze);
+
+        adopt(&changelog, 4);
+        let new = partition_for_person(1, person_id, 4);
+        let pending = table.pending_partitions();
+        for partition in [old, empty_freeze, new] {
+            assert!(pending.contains(&partition), "{partition} in {pending:?}");
+        }
     }
 
     /// A freeze opened while a drain runs belongs to the next handoff;

@@ -2,13 +2,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use assignment_coordination::store::EtcdStore;
-use etcd_client::{Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, WatchStream};
+use etcd_client::{
+    Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, TxnOpResponse, WatchStream,
+};
 
 use crate::error::{Error, Result};
 use crate::types::{
-    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, HandoffReplacement, HandoffState,
-    LeaderInfo, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod,
-    RegisteredRouter, RouterFreezeAck,
+    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, Generation, HandoffReplacement,
+    HandoffState, LeaderInfo, MigrationPhase, MigrationRequest, MigrationState,
+    PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod, RegisteredRouter,
+    RouterFreezeAck, SealAck,
 };
 
 /// All etcd key patterns used by the PersonHog store.
@@ -39,6 +42,12 @@ enum StoreKey<'a> {
     Leader,
     Generation,
     ChangelogConfig,
+    Migration,
+    MigrationRequest,
+    MigrationHistory(&'a str),
+    MigrationHistoryPrefix,
+    SealAck(&'a str),
+    SealAcksPrefix,
 }
 
 impl StoreKey<'_> {
@@ -72,6 +81,12 @@ impl StoreKey<'_> {
             StoreKey::Leader => format!("{prefix}coordinator/leader"),
             StoreKey::Generation => format!("{prefix}generation"),
             StoreKey::ChangelogConfig => format!("{prefix}config/changelog"),
+            StoreKey::Migration => format!("{prefix}migrations/current"),
+            StoreKey::MigrationRequest => format!("{prefix}migrations/requested"),
+            StoreKey::MigrationHistory(id) => format!("{prefix}migrations/history/{id}"),
+            StoreKey::MigrationHistoryPrefix => format!("{prefix}migrations/history/"),
+            StoreKey::SealAck(pod) => format!("{prefix}seal_acks/{pod}"),
+            StoreKey::SealAcksPrefix => format!("{prefix}seal_acks/"),
         }
     }
 }
@@ -112,6 +127,48 @@ pub struct PlanApplication {
     /// Chunks the server refused as too large and that applied per
     /// unit instead: the configured budget exceeds the server's.
     pub over_budget_chunks: usize,
+    /// Partitions dropped because the record the plan was decided on moved
+    /// after it was read (see `Authority`).
+    pub stood_down: Vec<u32>,
+}
+
+impl PlanApplication {
+    fn stand_down(&mut self, units: &[PlanUnit], authority: Option<Authority>) {
+        self.stood_down.extend(units.iter().map(|u| u.partition));
+        let by = match authority {
+            Some(Authority::Migration { .. }) => "driver",
+            _ => "planner",
+        };
+        metrics::counter!("personhog_coordination_plan_stood_down_total", "by" => by).increment(1);
+    }
+}
+
+/// What the planner's placement rests on: the changelog config and the
+/// migration record, read at one revision. Every planner plan transaction
+/// requires both unchanged. The config compares on its mod revision, which a
+/// flip or retire moves; the migration on its create revision, which a new or
+/// archived saga moves and the driver's phase and blocking writes do not. A
+/// saga cancelled before its flip and archived leaves both as they were; a plan
+/// landing after it meets the world it was planned for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanBasis {
+    pub config: Option<ChangelogConfig>,
+    pub migration: Option<MigrationState>,
+    config_revision: i64,
+    migration_revision: i64,
+}
+
+/// The record a coordinator plan was decided on. Its transactions require it
+/// unchanged, so a stalled pass that wakes after a successor acted lands nothing.
+#[derive(Debug, Clone, Copy)]
+enum Authority {
+    /// The planner: its plan basis.
+    Planner {
+        config_revision: i64,
+        migration_revision: i64,
+    },
+    /// The migration driver: the saga record at the revision its pass read.
+    Migration { mod_revision: i64 },
 }
 
 /// One partition's slice of a plan: the guards that make its
@@ -162,11 +219,13 @@ fn is_txn_too_large(e: &Error) -> bool {
 /// Greedy chunk boundaries over per-unit `(guards, ops)` costs: a chunk
 /// takes units while its compare list and its op list both stay within
 /// `budget` — etcd checks the two lists separately against
-/// `--max-txn-ops`. `reserve_ops` holds back room in every chunk for
-/// ops added on top of its units (the freeze-quorum write).
+/// `--max-txn-ops`. `reserve_guards` and `reserve_ops` hold back room in
+/// every chunk for what is added on top of its units: the plan basis
+/// compares and the freeze-quorum write.
 fn plan_chunk_ranges(
     costs: &[(usize, usize)],
     budget: usize,
+    reserve_guards: usize,
     reserve_ops: usize,
 ) -> Vec<std::ops::Range<usize>> {
     let budget = budget.max(1);
@@ -174,7 +233,7 @@ fn plan_chunk_ranges(
     let mut start = 0;
     let (mut guards, mut ops) = (0, 0);
     for (i, &(g, o)) in costs.iter().enumerate() {
-        let fits = guards + g <= budget && ops + o + reserve_ops <= budget;
+        let fits = guards + g + reserve_guards <= budget && ops + o + reserve_ops <= budget;
         // A chunk always takes at least one unit, so a budget below a
         // single unit's cost still makes progress and lets the server
         // be the judge.
@@ -699,6 +758,7 @@ impl PersonhogStore {
     /// the predecessor's acks in the same transaction. A non-terminal
     /// handoff record is never deleted; it is only ever replaced by the
     /// thing that resolves its stashes.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn create_assignments_and_handoffs(
         &self,
         assignments: &[PartitionAssignment],
@@ -724,7 +784,9 @@ impl PersonhogStore {
     /// unchunked plan past `--max-txn-ops` is rejected as a hard error,
     /// and a coordinator retrying it re-earns the same rejection
     /// forever. A partially applied plan is placement drift the next
-    /// reconcile-tick replan heals.
+    /// reconcile-tick replan heals. Production plans carry the record they
+    /// were decided on (`apply_plan_on`, `apply_migration_plan`).
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn apply_plan(
         &self,
         assignments: &[PartitionAssignment],
@@ -736,6 +798,158 @@ impl PersonhogStore {
         // handoff is ever durable with a dangling reference.
         freeze_quorum: Option<(&str, &[String])>,
         max_txn_ops: usize,
+    ) -> Result<PlanApplication> {
+        self.apply_plan_inner(
+            assignments,
+            handoffs,
+            replacements,
+            preconditions,
+            freeze_quorum,
+            max_txn_ops,
+            None,
+        )
+        .await
+    }
+
+    /// The planner's plan, landing only while `basis` still holds.
+    pub async fn apply_plan_on(
+        &self,
+        basis: &PlanBasis,
+        handoffs: &[HandoffState],
+        replacements: &[HandoffReplacement],
+        preconditions: &[AssignmentPrecondition],
+        freeze_quorum: Option<(&str, &[String])>,
+        max_txn_ops: usize,
+    ) -> Result<PlanApplication> {
+        let authority = Authority::Planner {
+            config_revision: basis.config_revision,
+            migration_revision: basis.migration_revision,
+        };
+        self.apply_plan_inner(
+            &[],
+            handoffs,
+            replacements,
+            preconditions,
+            freeze_quorum,
+            max_txn_ops,
+            Some(authority),
+        )
+        .await
+    }
+
+    /// A migration pass's plan, landing only while the saga record is still at
+    /// `migration_mod_revision`: any write to it moves it, including a cancel,
+    /// a phase change, a blocking-list write and the archive.
+    pub async fn apply_migration_plan(
+        &self,
+        migration_mod_revision: i64,
+        handoffs: &[HandoffState],
+        replacements: &[HandoffReplacement],
+        preconditions: &[AssignmentPrecondition],
+        freeze_quorum: Option<(&str, &[String])>,
+        max_txn_ops: usize,
+    ) -> Result<PlanApplication> {
+        self.apply_plan_inner(
+            &[],
+            handoffs,
+            replacements,
+            preconditions,
+            freeze_quorum,
+            max_txn_ops,
+            Some(Authority::Migration {
+                mod_revision: migration_mod_revision,
+            }),
+        )
+        .await
+    }
+
+    /// The changelog config and the migration record, read in one transaction.
+    pub async fn read_plan_basis(&self) -> Result<PlanBasis> {
+        count_call("read_plan_basis");
+        let txn = Txn::new().and_then(vec![
+            TxnOp::get(self.key(StoreKey::ChangelogConfig), None),
+            TxnOp::get(self.key(StoreKey::Migration), None),
+        ]);
+        let resp = self.inner.txn(txn).await?;
+        let mut kvs = Vec::new();
+        for op in resp.op_responses() {
+            match op {
+                TxnOpResponse::Get(get) => kvs.push(get.kvs().first().cloned()),
+                _ => {
+                    return Err(crate::error::Error::invalid_state(
+                        "plan basis read returned a non-get response",
+                    ))
+                }
+            }
+        }
+        let [config, migration]: [Option<etcd_client::KeyValue>; 2] = kvs
+            .try_into()
+            .map_err(|_| crate::error::Error::invalid_state("plan basis read lost a get"))?;
+        Ok(PlanBasis {
+            config_revision: config.as_ref().map_or(0, |kv| kv.mod_revision()),
+            migration_revision: migration.as_ref().map_or(0, |kv| kv.create_revision()),
+            config: config
+                .map(|kv| serde_json::from_slice(kv.value()))
+                .transpose()?,
+            migration: migration
+                .map(|kv| serde_json::from_slice(kv.value()))
+                .transpose()?,
+        })
+    }
+
+    fn authority_guards(&self, authority: Authority) -> Vec<Compare> {
+        let migration = self.key(StoreKey::Migration);
+        match authority {
+            Authority::Planner {
+                config_revision,
+                migration_revision,
+            } => vec![
+                Compare::mod_revision(
+                    self.key(StoreKey::ChangelogConfig),
+                    CompareOp::Equal,
+                    config_revision,
+                ),
+                Compare::create_revision(migration, CompareOp::Equal, migration_revision),
+            ],
+            Authority::Migration { mod_revision } => {
+                vec![Compare::mod_revision(
+                    migration,
+                    CompareOp::Equal,
+                    mod_revision,
+                )]
+            }
+        }
+    }
+
+    /// Whether a plan's authority has moved; a moved authority fails every unit alike.
+    async fn authority_moved(&self, authority: Option<Authority>) -> Result<bool> {
+        Ok(match authority {
+            None => false,
+            Some(Authority::Planner {
+                config_revision,
+                migration_revision,
+            }) => {
+                let now = self.read_plan_basis().await?;
+                (now.config_revision, now.migration_revision)
+                    != (config_revision, migration_revision)
+            }
+            Some(Authority::Migration { mod_revision }) => self
+                .get_migration_with_mod_revision()
+                .await?
+                .is_none_or(|(_, now)| now != mod_revision),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn apply_plan_inner(
+        &self,
+        assignments: &[PartitionAssignment],
+        handoffs: &[HandoffState],
+        replacements: &[HandoffReplacement],
+        preconditions: &[AssignmentPrecondition],
+        freeze_quorum: Option<(&str, &[String])>,
+        max_txn_ops: usize,
+        authority: Option<Authority>,
     ) -> Result<PlanApplication> {
         count_call("apply_plan");
         let mut units: HashMap<u32, PlanUnit> = HashMap::new();
@@ -842,18 +1056,26 @@ impl PersonhogStore {
             .map(|u| (u.guards.len(), u.ops.len()))
             .collect();
         let reserve_ops = usize::from(quorum.is_some());
-        let ranges = plan_chunk_ranges(&costs, max_txn_ops, reserve_ops);
+        let authority_guards = authority
+            .map(|a| self.authority_guards(a))
+            .unwrap_or_default();
+        let reserve_guards = authority_guards.len();
+        let ranges = plan_chunk_ranges(&costs, max_txn_ops, reserve_guards, reserve_ops);
         metrics::histogram!("personhog_coordination_plan_chunks").record(ranges.len() as f64);
 
         let mut application = PlanApplication::default();
         for range in ranges {
-            let chunk = &units[range];
-            match self.apply_units(chunk, &quorum).await {
+            let chunk = &units[range.clone()];
+            match self.apply_units(chunk, &quorum, &authority_guards).await {
                 Ok(true) => {
                     application
                         .applied
                         .extend(chunk.iter().map(|u| u.partition));
                     continue;
+                }
+                Ok(false) if self.authority_moved(authority).await? => {
+                    application.stand_down(&units[range.start..], authority);
+                    return Ok(application);
                 }
                 Ok(false) => {}
                 // The server's effective --max-txn-ops can sit below the
@@ -877,14 +1099,26 @@ impl PersonhogStore {
             // A failed guard names no key, so retry the chunk one
             // partition at a time: the concurrent write that broke the
             // chunk stands down only the units it actually touched.
-            for u in chunk {
-                if self.apply_units(std::slice::from_ref(u), &quorum).await? {
+            // One authority check per fallback: past a move every unit fails alike.
+            let mut checked = false;
+            for (i, u) in chunk.iter().enumerate() {
+                if self
+                    .apply_units(std::slice::from_ref(u), &quorum, &authority_guards)
+                    .await?
+                {
                     application.applied.push(u.partition);
-                } else {
-                    metrics::counter!("personhog_coordination_plan_units_conflicted_total")
-                        .increment(1);
-                    application.conflicted.push(u.partition);
+                    continue;
                 }
+                if !checked {
+                    checked = true;
+                    if self.authority_moved(authority).await? {
+                        application.stand_down(&units[range.start + i..], authority);
+                        return Ok(application);
+                    }
+                }
+                metrics::counter!("personhog_coordination_plan_units_conflicted_total")
+                    .increment(1);
+                application.conflicted.push(u.partition);
             }
         }
         Ok(application)
@@ -897,8 +1131,9 @@ impl PersonhogStore {
         &self,
         chunk: &[PlanUnit],
         quorum: &Option<(String, Vec<u8>)>,
+        authority_guards: &[Compare],
     ) -> Result<bool> {
-        let mut guards: Vec<Compare> = Vec::new();
+        let mut guards: Vec<Compare> = authority_guards.to_vec();
         let mut ops: Vec<TxnOp> = Vec::new();
         if let Some((key, value)) = quorum {
             if chunk.iter().any(|u| u.references_quorum) {
@@ -1199,6 +1434,14 @@ impl PersonhogStore {
         Ok(self.inner.get_with_revision(&key).await?)
     }
 
+    pub async fn get_changelog_config_with_mod_revision(
+        &self,
+    ) -> Result<Option<(ChangelogConfig, i64)>> {
+        count_call("get_changelog_config_with_mod_revision");
+        let key = self.key(StoreKey::ChangelogConfig);
+        Ok(self.inner.get_with_mod_revision(&key).await?)
+    }
+
     /// Create-if-absent at epoch 1; only a flip may move a live config.
     pub async fn seed_changelog_config(
         &self,
@@ -1252,6 +1495,404 @@ impl PersonhogStore {
         Ok(self.inner.put_raw(&key, generation).await?)
     }
 
+    // ── Migration operations ────────────────────────────────────
+
+    pub async fn get_migration(&self) -> Result<Option<MigrationState>> {
+        count_call("get_migration");
+        let key = self.key(StoreKey::Migration);
+        Ok(self.inner.get(&key).await?)
+    }
+
+    pub async fn get_migration_with_mod_revision(&self) -> Result<Option<(MigrationState, i64)>> {
+        count_call("get_migration_with_mod_revision");
+        let key = self.key(StoreKey::Migration);
+        Ok(self.inner.get_with_mod_revision(&key).await?)
+    }
+
+    /// Writes the saga record directly, skipping the request and its quiet-fleet start.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn create_migration(&self, migration: &MigrationState) -> Result<bool> {
+        count_call("create_migration");
+        let key = self.key(StoreKey::Migration);
+        let txn = Txn::new()
+            .when(vec![Compare::create_revision(
+                key.clone(),
+                CompareOp::Equal,
+                0,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(migration)?, None)]);
+        let resp = self.inner.txn(txn).await?;
+        Ok(resp.succeeded())
+    }
+
+    pub async fn cas_migration_phase(
+        &self,
+        expected_id: &str,
+        expected_mod_revision: i64,
+        next: MigrationPhase,
+    ) -> Result<bool> {
+        count_call("cas_migration_phase");
+        self.cas_phase(expected_id, expected_mod_revision, next, None)
+            .await
+    }
+
+    /// Move the saga to Cancelling, recording why.
+    pub async fn cancel_migration(
+        &self,
+        expected_id: &str,
+        expected_mod_revision: i64,
+        reason: &str,
+    ) -> Result<bool> {
+        count_call("cancel_migration");
+        self.cas_phase(
+            expected_id,
+            expected_mod_revision,
+            MigrationPhase::Cancelling,
+            Some(reason),
+        )
+        .await
+    }
+
+    async fn cas_phase(
+        &self,
+        expected_id: &str,
+        expected_mod_revision: i64,
+        next: MigrationPhase,
+        cancel_reason: Option<&str>,
+    ) -> Result<bool> {
+        let key = self.key(StoreKey::Migration);
+        let Some((mut migration, mod_revision)) = self
+            .inner
+            .get_with_mod_revision::<MigrationState>(&key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if migration.id != expected_id
+            || mod_revision != expected_mod_revision
+            || !migration.phase.may_transition_to(next)
+        {
+            return Ok(false);
+        }
+        migration.phase = next;
+        migration.phase_entered_at_ms = assignment_coordination::util::now_millis();
+        migration.blocking.clear();
+        if let Some(reason) = cancel_reason {
+            migration.cancel_reason = Some(reason.to_string());
+        }
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&migration)?, None)]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn set_migration_blocking(
+        &self,
+        expected_mod_revision: i64,
+        blocking: Vec<String>,
+    ) -> Result<bool> {
+        count_call("set_migration_blocking");
+        let key = self.key(StoreKey::Migration);
+        let Some((mut migration, mod_revision)) = self
+            .inner
+            .get_with_mod_revision::<MigrationState>(&key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if mod_revision != expected_mod_revision {
+            return Ok(false);
+        }
+        migration.blocking = blocking;
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&migration)?, None)]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn flip_changelog(
+        &self,
+        migration: &MigrationState,
+        migration_mod_revision: i64,
+        config: &ChangelogConfig,
+        config_mod_revision: i64,
+    ) -> Result<bool> {
+        count_call("flip_changelog");
+        let migration_key = self.key(StoreKey::Migration);
+        let config_key = self.key(StoreKey::ChangelogConfig);
+        let mut draining = config.draining.clone();
+        draining.push(Generation {
+            topic: migration.from.topic.clone(),
+            partitions: migration.from.partitions,
+            epoch: config.epoch,
+        });
+        let flipped = ChangelogConfig {
+            topic: migration.to.topic.clone(),
+            partitions: migration.to.partitions,
+            epoch: config.epoch + 1,
+            gated_groups: config.gated_groups.clone(),
+            draining,
+        };
+        let mut record = migration.clone();
+        record.phase = MigrationPhase::Resuming;
+        record.phase_entered_at_ms = assignment_coordination::util::now_millis();
+        record.blocking.clear();
+        let txn = Txn::new()
+            .when(vec![
+                Compare::mod_revision(
+                    migration_key.clone(),
+                    CompareOp::Equal,
+                    migration_mod_revision,
+                ),
+                Compare::mod_revision(config_key.clone(), CompareOp::Equal, config_mod_revision),
+            ])
+            .and_then(vec![
+                TxnOp::put(config_key, serde_json::to_vec(&flipped)?, None),
+                TxnOp::put(migration_key, serde_json::to_vec(&record)?, None),
+            ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn archive_migration(
+        &self,
+        migration: &MigrationState,
+        mod_revision: i64,
+        final_phase: MigrationPhase,
+    ) -> Result<bool> {
+        count_call("archive_migration");
+        let key = self.key(StoreKey::Migration);
+        let mut record = migration.clone();
+        record.phase = final_phase;
+        record.phase_entered_at_ms = assignment_coordination::util::now_millis();
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![
+                TxnOp::put(
+                    self.key(StoreKey::MigrationHistory(&migration.id)),
+                    serde_json::to_vec(&record)?,
+                    None,
+                ),
+                TxnOp::delete(
+                    self.key(StoreKey::SealAcksPrefix),
+                    Some(DeleteOptions::new().with_prefix()),
+                ),
+                TxnOp::delete(key, None),
+            ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn list_migration_history(&self) -> Result<Vec<MigrationState>> {
+        count_call("list_migration_history");
+        let key = self.key(StoreKey::MigrationHistoryPrefix);
+        Ok(self.inner.list(&key).await?)
+    }
+
+    pub async fn put_seal_ack(&self, ack: &SealAck) -> Result<()> {
+        count_call("put_seal_ack");
+        let key = self.key(StoreKey::SealAck(&ack.pod_name));
+        Ok(self.inner.put(&key, ack, None).await?)
+    }
+
+    /// The mod revision of one pod's seal ack, to tell a rewrite from no write.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn seal_ack_mod_revision(&self, pod_name: &str) -> Result<Option<i64>> {
+        let key = self.key(StoreKey::SealAck(pod_name));
+        Ok(self
+            .inner
+            .get_with_mod_revision::<SealAck>(&key)
+            .await?
+            .map(|(_, rev)| rev))
+    }
+
+    pub async fn list_seal_acks(&self) -> Result<Vec<SealAck>> {
+        count_call("list_seal_acks");
+        let key = self.key(StoreKey::SealAcksPrefix);
+        Ok(self.inner.list(&key).await?)
+    }
+
+    /// Drop a drained generation from the config, guarded on its revision.
+    pub async fn retire_changelog_topic(&self, topic: &str) -> Result<bool> {
+        count_call("retire_changelog_topic");
+        let Some((mut config, mod_revision)) =
+            self.get_changelog_config_with_mod_revision().await?
+        else {
+            return Ok(false);
+        };
+        let before = config.draining.len();
+        config.draining.retain(|g| g.topic != topic);
+        if config.draining.len() == before {
+            return Ok(false);
+        }
+        let key = self.key(StoreKey::ChangelogConfig);
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    /// Write a request, refused while another request or a saga exists.
+    pub async fn create_migration_request(&self, request: &MigrationRequest) -> Result<bool> {
+        count_call("create_migration_request");
+        let key = self.key(StoreKey::MigrationRequest);
+        let txn = Txn::new()
+            .when(vec![
+                Compare::create_revision(key.clone(), CompareOp::Equal, 0),
+                Compare::create_revision(self.key(StoreKey::Migration), CompareOp::Equal, 0),
+            ])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(request)?, None)]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn get_migration_request_with_mod_revision(
+        &self,
+    ) -> Result<Option<(MigrationRequest, i64)>> {
+        count_call("get_migration_request_with_mod_revision");
+        let key = self.key(StoreKey::MigrationRequest);
+        Ok(self.inner.get_with_mod_revision(&key).await?)
+    }
+
+    /// Rewrite a waiting request (its first sighting or what it waits on), guarded on its revision.
+    pub async fn update_migration_request(
+        &self,
+        record: &MigrationRequest,
+        mod_revision: i64,
+    ) -> Result<bool> {
+        count_call("update_migration_request");
+        let key = self.key(StoreKey::MigrationRequest);
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(record)?, None)]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    /// Start the saga from a request, only if no handoff record exists that was
+    /// written after `handoffs_revision`; from an empty read, that is none at all.
+    pub async fn start_migration(
+        &self,
+        request_mod_revision: i64,
+        handoffs_revision: i64,
+        migration: &MigrationState,
+    ) -> Result<bool> {
+        count_call("start_migration");
+        let request_key = self.key(StoreKey::MigrationRequest);
+        let migration_key = self.key(StoreKey::Migration);
+        let txn = Txn::new()
+            .when(vec![
+                Compare::mod_revision(request_key.clone(), CompareOp::Equal, request_mod_revision),
+                Compare::create_revision(migration_key.clone(), CompareOp::Equal, 0),
+                Compare::mod_revision(
+                    self.key(StoreKey::HandoffsPrefix),
+                    CompareOp::Less,
+                    handoffs_revision + 1,
+                )
+                .with_prefix(),
+            ])
+            .and_then(vec![
+                TxnOp::put(migration_key, serde_json::to_vec(migration)?, None),
+                TxnOp::delete(request_key, None),
+            ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    /// Archive a request that will not start, with its reason, guarded on its revision.
+    pub async fn reject_migration_request(
+        &self,
+        request: &MigrationRequest,
+        mod_revision: i64,
+        reason: &str,
+    ) -> Result<bool> {
+        count_call("reject_migration_request");
+        let key = self.key(StoreKey::MigrationRequest);
+        let record = request.rejected(reason, assignment_coordination::util::now_millis());
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![
+                TxnOp::put(
+                    self.key(StoreKey::MigrationHistory(&request.id)),
+                    serde_json::to_vec(&record)?,
+                    None,
+                ),
+                TxnOp::delete(key, None),
+            ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn watch_migration_request_from(&self, start_revision: i64) -> Result<WatchStream> {
+        count_call("watch_migration_request_from");
+        let key = self.key(StoreKey::MigrationRequest);
+        Ok(self.inner.watch_key_from(&key, start_revision).await?)
+    }
+
+    pub async fn watch_migration_from(&self, start_revision: i64) -> Result<WatchStream> {
+        count_call("watch_migration_from");
+        let key = self.key(StoreKey::Migration);
+        Ok(self.inner.watch_key_from(&key, start_revision).await?)
+    }
+
+    pub async fn watch_seal_acks_from(&self, start_revision: i64) -> Result<WatchStream> {
+        count_call("watch_seal_acks_from");
+        let key = self.key(StoreKey::SealAcksPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
+    }
+
+    /// A shrunk partition's hold, acks and assignment go in one guarded transaction.
+    pub async fn dissolve_partition(
+        &self,
+        partition: u32,
+        handoff_mod_revision: i64,
+    ) -> Result<bool> {
+        count_call("dissolve_partition");
+        let handoff_key = self.key(StoreKey::Handoff(partition));
+        let prefix_delete = || Some(DeleteOptions::new().with_prefix());
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                handoff_key.clone(),
+                CompareOp::Equal,
+                handoff_mod_revision,
+            )])
+            .and_then(vec![
+                TxnOp::delete(
+                    self.key(StoreKey::FreezeAcksForPartition(partition)),
+                    prefix_delete(),
+                ),
+                TxnOp::delete(
+                    self.key(StoreKey::DrainedAcksForPartition(partition)),
+                    prefix_delete(),
+                ),
+                TxnOp::delete(
+                    self.key(StoreKey::WarmedAcksForPartition(partition)),
+                    prefix_delete(),
+                ),
+                TxnOp::delete(self.key(StoreKey::Assignment(partition)), None),
+                TxnOp::delete(handoff_key, None),
+            ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
     // ── Cleanup ─────────────────────────────────────────────────
 
     /// Delete all keys under the store's prefix.
@@ -1298,7 +1939,7 @@ mod tests {
     #[test]
     fn creations_chunk_on_the_compare_list() {
         let costs = vec![(2, 1); 256];
-        let ranges = plan_chunk_ranges(&costs, 128, 1);
+        let ranges = plan_chunk_ranges(&costs, 128, 0, 1);
         assert_contiguous_cover(&ranges, costs.len());
         for r in &ranges {
             let guards: usize = costs[r.clone()].iter().map(|c| c.0).sum();
@@ -1319,7 +1960,7 @@ mod tests {
     #[test]
     fn replacements_chunk_on_the_op_list_with_the_reserve() {
         let costs = vec![(2, 4); 256];
-        let ranges = plan_chunk_ranges(&costs, 128, 1);
+        let ranges = plan_chunk_ranges(&costs, 128, 0, 1);
         assert_contiguous_cover(&ranges, costs.len());
         for r in &ranges {
             let ops: usize = costs[r.clone()].iter().map(|c| c.1).sum();
@@ -1332,7 +1973,7 @@ mod tests {
     #[test]
     fn a_fitting_plan_is_one_chunk() {
         let costs = vec![(2, 1); 60];
-        assert_eq!(plan_chunk_ranges(&costs, 128, 1), vec![0..60]);
+        assert_eq!(plan_chunk_ranges(&costs, 128, 0, 1), vec![0..60]);
     }
 
     /// A budget below a single unit's cost still emits that unit alone:
@@ -1340,6 +1981,14 @@ mod tests {
     #[test]
     fn an_oversized_unit_is_its_own_chunk() {
         let costs = vec![(2, 4), (2, 4)];
-        assert_eq!(plan_chunk_ranges(&costs, 1, 0), vec![0..1, 1..2]);
+        assert_eq!(plan_chunk_ranges(&costs, 1, 0, 0), vec![0..1, 1..2]);
+    }
+
+    /// A plan's authority compares are reserved in every chunk.
+    #[test]
+    fn a_reserved_guard_takes_a_compare_slot() {
+        let costs = vec![(2, 1), (2, 1)];
+        assert_eq!(plan_chunk_ranges(&costs, 4, 0, 0), vec![0..2]);
+        assert_eq!(plan_chunk_ranges(&costs, 4, 1, 0), vec![0..1, 1..2]);
     }
 }

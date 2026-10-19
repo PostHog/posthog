@@ -846,6 +846,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        |_| false,
     )
     .await;
 
@@ -867,10 +868,93 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        |_| false,
     )
     .await;
     assert!(dirty_index.get(&warming_key).is_none());
     assert!(cache.peek(1, &warming_key).is_none());
+}
+
+/// A retired stream's marks settle without the writer's offsets, death
+/// documents included; a live stream's marks keep waiting for the writer.
+#[tokio::test]
+async fn the_prune_tick_settles_a_retired_streams_marks_without_offsets() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    let (_cfg, pools) = warming_config_for("prune-tick-retired", &cluster);
+    const RETIRED_TOPIC: &str = "personhog_updates_retired";
+
+    let cache = PartitionedCache::new(1 << 20);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let locks = dashmap::DashMap::new();
+    cache.create_partition(0);
+
+    let death_doc = |person_id: i64| {
+        let mut person = make_person(1, person_id);
+        person.is_deleted = true;
+        person.version = 2;
+        personhog_leader::cache::CachedPerson::try_from(person).unwrap()
+    };
+    let mark_on = |topic: &str, partition: u32| personhog_leader::cache::DirtyMark {
+        version: 2,
+        offset: 0,
+        partition: 0,
+        stream: personhog_leader::cache::Stream {
+            topic: std::sync::Arc::from(topic),
+            partition,
+        },
+        is_deleted: true,
+    };
+    let retired_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 1,
+    };
+    let live_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 2,
+    };
+    let moved_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 3,
+    };
+    cache.put(0, retired_key.clone(), death_doc(1));
+    dirty_index.mark(retired_key.clone(), mark_on(RETIRED_TOPIC, 3));
+    cache.put(0, live_key.clone(), death_doc(2));
+    dirty_index.mark(live_key.clone(), mark_on(CHANGELOG_TOPIC, 0));
+    // Queued under the retired stream, but its live mark moved on.
+    dirty_index.mark(moved_key.clone(), mark_on(RETIRED_TOPIC, 3));
+    dirty_index.mark(moved_key.clone(), mark_on(CHANGELOG_TOPIC, 0));
+
+    // The writer committed on neither topic.
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        personhog_leader::settle::prune_and_settle_tick(
+            &dirty_index,
+            &cache,
+            &locks,
+            &pools.offsets,
+            Duration::from_secs(5),
+            |topic| topic == RETIRED_TOPIC,
+        ),
+    )
+    .await
+    .expect("the tick must return once the retired stream is exhausted");
+
+    assert!(dirty_index.get(&retired_key).is_none());
+    assert_eq!(
+        dirty_index
+            .get(&moved_key)
+            .map(|m| m.stream.topic.to_string()),
+        Some(CHANGELOG_TOPIC.to_string()),
+        "a key that moved to the live stream keeps waiting there"
+    );
+    assert!(
+        cache.peek(0, &retired_key).is_none(),
+        "the retired stream's death document settles"
+    );
+    assert!(
+        dirty_index.get(&live_key).is_some(),
+        "a live stream waits for the writer's offset"
+    );
 }
 
 /// One tick drains a death backlog larger than a prune chunk: the chunk
@@ -921,6 +1005,7 @@ async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        |_| false,
     )
     .await;
 
@@ -1086,6 +1171,7 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
         &locks,
         &pools.offsets,
         Duration::from_secs(5),
+        |_| false,
     )
     .await;
     assert!(dirty_index.is_empty(), "every old-stream mark settles");

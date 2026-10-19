@@ -435,6 +435,21 @@ impl LeaderBackend {
         loop {
             // Per attempt: a bounce may be the leader refusing a stale modulus.
             let partition = self.partition_for_person(key.0, key.1);
+            // A partition born in the flip has no owner until its fresh handoff
+            // lands; a write for it parks until that handoff's drain, never bounces.
+            // The stash opens under the table's read lock: a route inserted after
+            // the check is followed by a drain that finds the stash.
+            if self
+                .config
+                .changelog
+                .draining_floor()
+                .is_some_and(|floor| partition >= floor)
+            {
+                let table = self.routing_table.read().await;
+                if !table.contains_key(&partition) {
+                    self.stash.begin_stash(partition);
+                }
+            }
             // The stash module emits its own enqueued/rejected counters
             // at the source; we don't double-count here. It borrows the
             // frame and headers, cloning only when the request actually

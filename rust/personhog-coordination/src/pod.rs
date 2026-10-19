@@ -65,6 +65,16 @@ pub enum DesiredState {
     Released,
 }
 
+/// Whether `pod` is the incoming owner of a handoff still freezing or draining.
+/// A hold's connections are the leader's seal duty to prepare, not this hint's.
+pub fn prepare_hinted(pod: &str, handoff: Option<&HandoffState>) -> bool {
+    handoff.is_some_and(|h| {
+        h.new_owner == pod
+            && !h.is_held()
+            && matches!(h.phase, HandoffPhase::Freezing | HandoffPhase::Draining)
+    })
+}
+
 /// Pure derivation of a pod's desired state for a partition. The handoff,
 /// when it involves this pod, takes precedence over the assignment: the
 /// assignment names the *old* owner (or nobody) for the whole life of a
@@ -75,6 +85,14 @@ pub fn desired_state(
     handoff: Option<&HandoffState>,
 ) -> DesiredState {
     if let Some(h) = handoff {
+        // A migration restart: created at Warming, it re-acquires over the new changelog.
+        if h.old_owner.as_deref() == Some(pod) && h.new_owner == pod && !h.is_held() {
+            match h.phase {
+                HandoffPhase::Warming => return DesiredState::Acquiring,
+                HandoffPhase::Complete => return DesiredState::Serving,
+                HandoffPhase::Freezing | HandoffPhase::Draining => {}
+            }
+        }
         if h.old_owner.as_deref() == Some(pod) {
             return match h.phase {
                 HandoffPhase::Freezing => DesiredState::Serving,
@@ -1259,12 +1277,8 @@ impl PodHandle {
         // and deliberately not `did_work`: preparation is a hint, and
         // counting it as progress would let a pod that only ever
         // prepares look healthy to the budgets.
-        if let Some(h) = handoff {
-            if h.new_owner == *pod
-                && matches!(h.phase, HandoffPhase::Freezing | HandoffPhase::Draining)
-            {
-                self.handler.prepare_acquire(partition).await;
-            }
+        if prepare_hinted(pod, handoff) {
+            self.handler.prepare_acquire(partition).await;
         }
 
         match desired {
@@ -2033,8 +2047,47 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
             config_epoch: 0,
             new_owner_address: None,
+        }
+    }
+
+    fn held(phase: HandoffPhase) -> HandoffState {
+        let mut h = handoff(Some(POD), POD, phase);
+        h.held_by = Some("m-test".to_string());
+        h
+    }
+
+    #[test]
+    fn only_a_pending_incoming_owner_is_hinted() {
+        use HandoffPhase::*;
+        let cases = [
+            (
+                "incoming, freezing",
+                Some(handoff(Some("other"), POD, Freezing)),
+                true,
+            ),
+            (
+                "incoming, draining",
+                Some(handoff(Some("other"), POD, Draining)),
+                true,
+            ),
+            (
+                "incoming, warming",
+                Some(handoff(Some("other"), POD, Warming)),
+                false,
+            ),
+            (
+                "outgoing, draining",
+                Some(handoff(Some(POD), "other", Draining)),
+                false,
+            ),
+            ("held, draining", Some(held(Draining)), false),
+            ("no handoff", None, false),
+        ];
+        for (name, h, expected) in cases {
+            assert_eq!(prepare_hinted(POD, h.as_ref()), expected, "{name}");
         }
     }
 
@@ -2118,6 +2171,30 @@ mod tests {
                 None,
                 Some(handoff(None, POD, Warming)),
                 Acquiring,
+            ),
+            (
+                "held holder keeps serving through Freezing",
+                Some(assignment(POD)),
+                Some(held(Freezing)),
+                Serving,
+            ),
+            (
+                "held holder drains and acks in Draining",
+                Some(assignment(POD)),
+                Some(held(Draining)),
+                Drained { ack: true },
+            ),
+            (
+                "same-owner replacement re-acquires in Warming",
+                Some(assignment(POD)),
+                Some(handoff(Some(POD), POD, Warming)),
+                Acquiring,
+            ),
+            (
+                "same-owner replacement serves at Complete",
+                Some(assignment(POD)),
+                Some(handoff(Some(POD), POD, Complete)),
+                Serving,
             ),
             (
                 "handoff between two other pods defers to owned assignment",
