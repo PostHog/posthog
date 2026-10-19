@@ -35,16 +35,14 @@ export function NavPanelAdvertisement(): JSX.Element | null {
 
     // The org-wide product push campaign, driven by the growth backend. Respects the
     // user's "no product suggestions" setting.
-    const productPushAd =
-        isCloudOrDev && activeCampaign && user?.allow_sidebar_suggestions !== false ? (
-            <NavPanelProductPushAd campaign={activeCampaign} />
-        ) : null
-
-    // The MCP server only serves cloud and dev instances. The card outranks the automated push, and
-    // shows the push instead once the user has connected or dismissed it.
-    if (isCloudOrDev && user) {
-        return <NavPanelMcpAd fallback={productPushAd} />
+    if (isCloudOrDev && activeCampaign && user?.allow_sidebar_suggestions !== false) {
+        return <NavPanelProductPushAd campaign={activeCampaign} />
     }
 
-    return productPushAd
+    // Fills the gaps between campaigns. The MCP server only serves cloud and dev instances.
+    if (isCloudOrDev && user) {
+        return <NavPanelMcpAd />
+    }
+
+    return null
 }

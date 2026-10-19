@@ -111,8 +111,9 @@ export function CommandBlock({
             type="button"
             aria-label={ariaLabel}
         >
-            <IconTerminal className={cn(sizeStyle.icon, 'text-muted')} />
-            <span className="relative">
+            {/* A narrow column needs the width for the command more than for the terminal icon. */}
+            {!displayLines && <IconTerminal className={cn(sizeStyle.icon, 'text-muted')} />}
+            <span className={cn('relative', displayLines && 'min-w-0 [overflow-wrap:anywhere]')}>
                 <code
                     className={cn('!bg-transparent !p-0 !border-0 select-all', {
                         // The rainbow gradient is clipped to the text of this element, which an inline
