@@ -15,6 +15,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
@@ -45,6 +46,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         useValues(todayShellLogic)
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
+    useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',

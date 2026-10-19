@@ -91,3 +91,10 @@ export type { Option } from '../components/OptionSelector'
 export { VisualizationWidget, getArtifactOpenTarget } from '../components/tool/widgets/VisualizationWidget'
 export type { VisualizationWidgetProps } from '../components/tool/widgets/VisualizationWidget'
 export { RecordingsWidget } from '../components/tool/widgets/RecordingsWidget'
+
+// A task's overflow menu items: placement, actions and details. Shared by the task page and the PostHog AI panel.
+export { TaskMenuItems } from '../scenes/TaskTracker/components/TaskMenuItems'
+export type { TaskMenuItemsProps } from '../scenes/TaskTracker/components/TaskMenuItems'
+
+// The staff debug logs switch, drawn with a host's menu parts.
+export { DebugLogsMenuItem } from '../components/DebugLogsMenuItem'
