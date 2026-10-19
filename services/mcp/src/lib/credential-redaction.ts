@@ -13,7 +13,7 @@
 
 import { assignKey, isRecord } from '@/lib/plain-object'
 
-export const REDACTED_VALUE = '[REDACTED]'
+const REDACTED_VALUE = '[REDACTED]'
 
 /** Compared after the name is lowercased and stripped of everything but letters and digits. */
 const CREDENTIAL_NAME_FRAGMENTS = ['apikey', 'token', 'secret', 'password', 'passwd', 'credential', 'signature']
