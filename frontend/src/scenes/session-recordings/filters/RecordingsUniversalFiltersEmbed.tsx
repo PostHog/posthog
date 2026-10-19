@@ -923,6 +923,7 @@ export const ReplayFiltersTab = ({
                             }}
                             recordingDurationFilter={durationFilter}
                             durationTypeFilter={durationFilter.key}
+                            isUnset={!filters.duration?.length}
                             pageKey="session-recordings"
                             size="small"
                         />

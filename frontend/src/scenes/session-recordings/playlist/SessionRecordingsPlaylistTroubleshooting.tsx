@@ -17,8 +17,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
 
     const recordingsAreHidden = hideViewedRecordings !== false
     const hasFilters = totalFiltersCount > 0
-    // The default duration filter applies to every link that does not set one, and a reset keeps it,
-    // so the viewer needs its own way to see and remove it.
+    // A reset keeps the default duration filter, and a caller's own duration filter is part of its scope.
     const durationFilter = isScopedByCaller ? undefined : filters.duration?.[0]
 
     useEffect(() => {

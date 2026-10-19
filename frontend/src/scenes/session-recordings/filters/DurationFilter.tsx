@@ -13,6 +13,8 @@ interface DurationFilterProps {
     recordingDurationFilter: RecordingDurationFilter
     durationTypeFilter: DurationType
     onChange: (recordingDurationFilter: RecordingDurationFilter, durationType: DurationType) => void
+    /** Labels the button "Any duration"; the popover still edits from recordingDurationFilter. */
+    isUnset?: boolean
     pageKey: string
     size?: LemonButtonProps['size']
     type?: LemonButtonProps['type']
@@ -39,13 +41,14 @@ export function DurationFilter({
     recordingDurationFilter,
     durationTypeFilter,
     onChange,
+    isUnset,
     size,
     type,
 }: DurationFilterProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const durationString = useMemo(
-        () => humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter),
-        [recordingDurationFilter, durationTypeFilter]
+        () => (isUnset ? 'Any duration' : humanFriendlyDurationFilter(recordingDurationFilter, durationTypeFilter)),
+        [isUnset, recordingDurationFilter, durationTypeFilter]
     )
 
     return (
