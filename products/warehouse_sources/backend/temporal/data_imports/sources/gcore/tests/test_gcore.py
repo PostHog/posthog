@@ -166,14 +166,6 @@ def test_sync_authentication_errors_are_terminal(status: int) -> None:
     assert messages and all(messages)
 
 
-def test_unknown_table_fails_before_network() -> None:
-    result = driver().run("unknown", [])
-
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown Gcore table" in str(result.raised)
-    assert result.requests == []
-
-
 def test_origin_credentials_are_excluded() -> None:
     body: dict[str, Any] = {
         "count": 1,

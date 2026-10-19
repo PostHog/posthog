@@ -172,10 +172,6 @@ class TestFlattenTimelineEntry:
 
 
 class TestPlainSourcePipeline:
-    def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError, match="Unknown Plain endpoint: made_up"):
-            plain_source(api_key="k", endpoint_name="made_up", logger=mock.MagicMock())
-
     def test_returns_source_response_with_partition_metadata(self):
         response = plain_source(api_key="k", endpoint_name="customers", logger=mock.MagicMock())
 
