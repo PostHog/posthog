@@ -9,6 +9,8 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
 
+from posthog.schema import MaxRecordingUniversalFilters
+
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
@@ -16,11 +18,12 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
+from posthog.session_recordings.playlist_filters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import SCANNER_QUERY_FILTER_KEYS, ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
@@ -1195,8 +1198,31 @@ def _scanner_facts(scanner: ReplayScanner) -> str:
         estimate = str(observations)
     return (
         f"scanner_id={scanner.id} | type={scanner.scanner_type} | enabled={str(scanner.enabled).lower()} | "
+        f"recordings={'filtered' if _has_recording_filter(scanner) else 'all'} | "
         f"sampling_rate={scanner.sampling_rate} | estimated_monthly_observations={estimate}"
     )
+
+
+# The schedule owns time, and pinned session ids would turn a standing watch into a one-off scan.
+_SCANNER_QUERY_IGNORED_KEYS = ("date_from", "date_to", "limit", "order", "order_direction", "session_ids")
+
+
+def _scanner_query_for(recordings_filters: MaxRecordingUniversalFilters | None) -> dict[str, Any]:
+    """The scanner `query` a recording filter stands for, in the shape the scanner form saves."""
+    if recordings_filters is None:
+        # Same default as the scanner form: real users only, unless the filter says otherwise.
+        return {"kind": "RecordingsQuery", "filter_test_accounts": True}
+    query = convert_filters_to_recordings_query(recordings_filters.model_dump(exclude_none=True)).model_dump(
+        mode="json", exclude_none=True
+    )
+    query = {key: value for key, value in query.items() if key not in _SCANNER_QUERY_IGNORED_KEYS}
+    query.setdefault("filter_test_accounts", True)
+    return query
+
+
+def _has_recording_filter(scanner: ReplayScanner) -> bool:
+    query = scanner.query if isinstance(scanner.query, dict) else {}
+    return any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(scanner.experiment_scope())
 
 
 CREATE_SCANNER_TOOL_DESCRIPTION = """
@@ -1219,9 +1245,17 @@ spend. Create it disabled (`enabled: false`) to set it up without spending anyth
 Call get_replay_vision_quota first when proposing anything broad, and prefer a `sampling_rate` below 1.0
 over an unfiltered scanner.
 
-This tool takes no recording filter. A scanner it creates, other than an experiment scanner, scans every
-new recording in the project at its `sampling_rate`. Don't size its cost from a sample of recordings
-you looked at. Create it disabled, then call estimate_replay_vision_scanner with the id this tool returns.
+# Which recordings it scans
+`recordings_filters` is the scanner's selection. Without it, the scanner scans every new recording in the
+project at its `sampling_rate`. A recording search you ran earlier does not narrow the scanner: pass the
+same filter here. Run filter_session_recordings with the filter first when you need to check that it
+matches what the user means.
+
+Put every exclusion in `recordings_filters`, for example `$device_type` to keep only mobile sessions. An
+instruction in `prompt` to skip or label some recordings still scans them, and each one costs credits.
+
+The estimate this tool returns covers the scanner's own selection. Quote that number, or call
+estimate_replay_vision_scanner. Never extrapolate monthly cost from a sample of recordings you looked at.
 
 # What it returns
 The new scanner's id, whether it's running, its sampling rate, and its estimated monthly volume when one
@@ -1241,7 +1275,8 @@ class CreateScannerArgs(BaseModel):
         description=(
             "The instruction the model follows while watching one recording. Write it as a direct, "
             "specific question grounded in observable behavior, e.g. 'Did the user fail to complete "
-            "checkout?'. Avoid vague adjectives and anything the model can't see in a recording."
+            "checkout?'. Avoid vague adjectives and anything the model can't see in a recording. "
+            "Don't use it to skip recordings: put exclusions in `recordings_filters`."
         )
     )
     scanner_type: str = Field(
@@ -1284,6 +1319,14 @@ class CreateScannerArgs(BaseModel):
             "variant, which is what a comparison needs."
         ),
     )
+    recordings_filters: MaxRecordingUniversalFilters | None = Field(
+        default=None,
+        description=(
+            "Which recordings the scanner picks up, in the same shape as filter_session_recordings takes. "
+            "Leave unset to scan every recording. Dates, ordering and session ids don't apply: the schedule "
+            "controls time, so leave them out."
+        ),
+    )
     sampling_rate: float = Field(
         default=1.0,
         description="Fraction of matching recordings to scan, 0 to 1. Lower this to control spend.",
@@ -1310,15 +1353,22 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         # no schedule and spends nothing, and only an enabled one needs a decision.
         return enabled is True
 
-    async def format_dangerous_operation_preview(self, name: str = "", sampling_rate: float = 1.0, **kwargs) -> str:
-        return await self._preview(name, sampling_rate)
+    async def format_dangerous_operation_preview(
+        self,
+        name: str = "",
+        sampling_rate: float = 1.0,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
+        **kwargs,
+    ) -> str:
+        return await self._preview(name, sampling_rate, recordings_filters is not None)
 
     @database_sync_to_async
-    def _preview(self, name: str, sampling_rate: float) -> str:
+    def _preview(self, name: str, sampling_rate: float, filtered: bool) -> str:
         spend = _spend_sentence(self._team, DEFAULT_SCAN_MODEL, 1)
         sampled = "" if sampling_rate >= 1.0 else f" It samples {sampling_rate:.0%} of them."
+        scope = "every new recording that matches its filter" if filtered else "every new recording"
         return (
-            f"**Create and enable** scanner '{name}'. It scans every new recording from now on, "
+            f"**Create and enable** scanner '{name}'. It scans {scope} from now on, "
             f"sweeping every 5 minutes.{sampled} Each recording costs {spend} "
             "Create it disabled instead if you want to size it first."
         )
@@ -1336,6 +1386,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         length: str | None = None,
         experiment_id: int | None = None,
         variants: list[str] | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
     ) -> tuple[str, dict[str, Any]]:
         # Not gated on `enabled`: the serializer refuses to create either kind without consent, so
         # checking only for enabled ones turned the disabled path into an unhandled exception.
@@ -1353,6 +1404,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             length,
             experiment_id,
             variants,
+            recordings_filters,
         )
 
     @database_sync_to_async
@@ -1369,6 +1421,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         length: str | None,
         experiment_id: int | None,
         variants: list[str] | None,
+        recordings_filters: MaxRecordingUniversalFilters | None,
     ) -> tuple[str, dict[str, Any]]:
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
@@ -1389,6 +1442,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     variants=variants,
                 ),
                 "model": DEFAULT_SCAN_MODEL,
+                "query": _scanner_query_for(recordings_filters),
                 "sampling_rate": sampling_rate,
                 "enabled": enabled,
             },
@@ -1441,16 +1495,19 @@ def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: f
 
 UPDATE_SCANNER_TOOL_DESCRIPTION = """
 Use this tool to change a saved Replay Vision scanner: turn it on or off, rename it, reword its prompt,
-or change how much of the matching traffic it samples.
+change which recordings it picks up, or change how much of the matching traffic it samples.
 
 # When to use
 - The user wants to enable a scanner they created earlier, or pause one that's running
 - The user wants to reword what a scanner looks for, or dial its sampling up or down
+- The user wants a scanner to skip some recordings, or to cover more of them. Change `recordings_filters`,
+  not the prompt: a recording the prompt tells the scanner to skip is still scanned and still costs credits.
 
 # Cost
 Enabling a scanner starts a sweep that runs every 5 minutes and spends credits on each matching
 recording, so enabling asks the user to confirm and shows the projected monthly spend. Raising the
-sampling rate on a scanner that is already running does the same, because it widens what gets scanned.
+sampling rate or changing the filter on a scanner that is already running does the same, because either
+can widen what gets scanned.
 Turning a scanner off, renaming it, or rewording its prompt spends nothing and doesn't ask.
 
 Rewording the prompt does not rescan anything already observed; it applies to recordings scanned from
@@ -1473,6 +1530,13 @@ class UpdateScannerArgs(BaseModel):
         default=None,
         description="New fraction of matching recordings to scan, 0 to 1. Leave unset to keep the current one.",
     )
+    recordings_filters: MaxRecordingUniversalFilters | None = Field(
+        default=None,
+        description=(
+            "Replaces which recordings the scanner picks up, in the same shape as filter_session_recordings "
+            "takes. Leave unset to keep the current selection."
+        ),
+    )
 
 
 class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
@@ -1484,38 +1548,60 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "editor"), ("session_recording", "viewer")]
 
     async def is_dangerous_operation(
-        self, scanner_id: str = "", enabled: bool | None = None, sampling_rate: float | None = None, **kwargs
+        self,
+        scanner_id: str = "",
+        enabled: bool | None = None,
+        sampling_rate: float | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
+        **kwargs,
     ) -> bool:
         # Argument-dependent, so the mixin's `needs_confirmation` doesn't decide it. Only two edits commit
         # the project to spend: starting the schedule, and widening what a running schedule scans.
         # Pausing, renaming and rewording all cost nothing.
-        return await self._starts_or_widens_spending(scanner_id, enabled, sampling_rate)
+        return await self._starts_or_widens_spending(scanner_id, enabled, sampling_rate, recordings_filters is not None)
 
     @database_sync_to_async
-    def _starts_or_widens_spending(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None) -> bool:
+    def _starts_or_widens_spending(
+        self, scanner_id: str, enabled: bool | None, sampling_rate: float | None, refilters: bool
+    ) -> bool:
         if enabled is True:
             return True
         scanner = self._scanner_for(scanner_id)
-        if scanner is None or enabled is False:
+        if scanner is None or enabled is False or not scanner.enabled:
             return False
-        return sampling_rate is not None and scanner.enabled and sampling_rate > scanner.sampling_rate
+        # Whether a new filter matches more recordings isn't known until it's estimated, so it always asks.
+        return refilters or (sampling_rate is not None and sampling_rate > scanner.sampling_rate)
 
     async def format_dangerous_operation_preview(
-        self, scanner_id: str = "", enabled: bool | None = None, sampling_rate: float | None = None, **kwargs
+        self,
+        scanner_id: str = "",
+        enabled: bool | None = None,
+        sampling_rate: float | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
+        **kwargs,
     ) -> str:
-        return await self._preview(scanner_id, enabled, sampling_rate)
+        return await self._preview(scanner_id, enabled, sampling_rate, recordings_filters is not None)
 
     @database_sync_to_async
-    def _preview(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None) -> str:
+    def _preview(self, scanner_id: str, enabled: bool | None, sampling_rate: float | None, refilters: bool) -> str:
         scanner = self._scanner_for(scanner_id)
         if scanner is None:
             return f"Update scanner {scanner_id}"
         rate = sampling_rate if sampling_rate is not None else scanner.sampling_rate
-        action = "**Turn on**" if enabled is True else "**Widen**"
+        if enabled is True:
+            action = "**Turn on**"
+        elif refilters:
+            action = "**Change the filter on**"
+        else:
+            action = "**Widen**"
+        spend = (
+            "The new filter's monthly volume is estimated after saving, so its cost isn't known up front."
+            if refilters
+            else _monthly_spend_sentence(self._team, scanner, rate)
+        )
         return (
             f"{action} scanner '{scanner.name}'. It sweeps every 5 minutes, scanning "
-            f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. "
-            f"{_monthly_spend_sentence(self._team, scanner, rate)}"
+            f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. {spend}"
         )
 
     async def _arun_impl(
@@ -1525,11 +1611,12 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         name: str | None = None,
         prompt: str | None = None,
         sampling_rate: float | None = None,
+        recordings_filters: MaxRecordingUniversalFilters | None = None,
     ) -> tuple[str, dict[str, Any]]:
         # The serializer refuses to enable without consent, so answer rather than raise.
         if enabled is True and not await self._consent_given():
             return self._no_ai_consent()
-        return await self._update(scanner_id, enabled, name, prompt, sampling_rate)
+        return await self._update(scanner_id, enabled, name, prompt, sampling_rate, recordings_filters)
 
     @database_sync_to_async
     def _update(
@@ -1539,11 +1626,14 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         name: str | None,
         prompt: str | None,
         sampling_rate: float | None,
+        recordings_filters: MaxRecordingUniversalFilters | None,
     ) -> tuple[str, dict[str, Any]]:
         scanner = self._scanner_for(scanner_id)
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         data: dict[str, Any] = {}
+        if recordings_filters is not None:
+            data["query"] = _scanner_query_for(recordings_filters)
         if enabled is not None:
             data["enabled"] = enabled
         if name is not None:
@@ -1574,7 +1664,7 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             return _first_error(serializer.errors), {"error": "invalid_config"}
         updated = serializer.save()
         state = "It's running now." if updated.enabled else "It's turned off, so it isn't scanning or spending."
-        return f"Updated the scanner. {state}", {
+        return f"Updated the scanner. {state}\n{_scanner_facts(updated)}", {
             "scanner_id": str(updated.id),
             "enabled": updated.enabled,
             "changed": sorted(data),
@@ -1711,19 +1801,23 @@ class DeleteReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
 
 ESTIMATE_SCANNER_TOOL_DESCRIPTION = """
 Use this tool to find out how many recordings a scanner would scan each month, and what that would
-cost, before creating or enabling one.
+cost, before enabling it.
 
 # When to use
-- Before creating a scanner, especially a broad one, so the user can see the monthly spend first
+- After creating a scanner disabled, so the user sees its monthly spend before it starts
 - Before enabling a scanner the user created earlier
 - The user asks how expensive a scanner would be, or how much traffic it would cover
 
 # What it returns
-Projected recordings a month, the credits that costs, and what's left in the monthly budget. Estimating
-costs nothing and scans nothing.
+Projected recordings a month, what that costs in credits, and what's left in the monthly budget. The
+projection counts every recording the scanner's own filter matches. Estimating costs nothing and scans
+nothing.
 
-Pass `scanner_id` to size a scanner that already exists. Pass `sampling_rate` on its own to see what a
-different rate would cost.
+This is the only source for a scanner's monthly cost. Never work one out from a recording search or a
+sample of observations: neither covers the scanner's full selection.
+
+Pass `scanner_id` to size a scanner that already exists. A scanner that doesn't exist yet can't be
+sized, so create it disabled first. Pass `sampling_rate` on its own to see what a different rate would cost.
 """
 
 
