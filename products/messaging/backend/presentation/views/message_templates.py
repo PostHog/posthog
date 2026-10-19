@@ -48,6 +48,7 @@ from products.messaging.backend.facade.templates import (
     edit_template_content,
     get_template,
     list_templates,
+    save_template_draft,
     team_category_id,
     update_template,
 )
@@ -474,8 +475,11 @@ class MessageTemplatesViewSet(
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data
         if fields.keys() == {"draft_content"}:
-            # Sends never read the draft, so it skips the sendability check and the workflow sync.
-            updated = update_template(self.team_id, template.id, fields)
+            # Sends never read the draft, so it skips the sendability check and the workflow sync. It is still an edit
+            # of the transactional email, so it needs the same workflow access as a publish.
+            if template.transactional_hog_flow_id:
+                self._require_workflow_editor(template.transactional_hog_flow_id)
+            updated = save_template_draft(self.team_id, template.id, fields["draft_content"])
             self._emit_resource_edited(updated)
             return Response(self._serialize(updated))
         if "content" in fields:

@@ -388,6 +388,21 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        it('holds autosave while an edit from elsewhere is unresolved, then saves once the person keeps theirs', async () => {
+            jest.useFakeTimers()
+            const edited = { ...draft, email: { ...draft.email, subject: 'Edited subject' } }
+
+            logic.actions.setExternallyEdited(true)
+            logic.actions.setTemplateValue('content', edited)
+            await jest.advanceTimersByTimeAsync(3000)
+            expect(bodies).toEqual([])
+
+            logic.actions.keepMyTemplateVersion()
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            expect(bodies).toEqual([{ draft_content: edited }])
+        })
+
         it('publishing sends the content and leaves no draft behind', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()

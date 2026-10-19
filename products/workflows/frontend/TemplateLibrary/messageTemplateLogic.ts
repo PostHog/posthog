@@ -708,6 +708,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         keepMyTemplateVersion: () => {
             actions.setExternallyEdited(false)
+            actions.autoSaveDraft()
         },
         setTemplateValue: () => actions.autoSaveDraft(),
         setTemplateValues: () => actions.autoSaveDraft(),
@@ -717,8 +718,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             await breakpoint(1500)
             // A save in flight starts the next one when it lands, so edits made meanwhile are not lost.
+            // While the edited-elsewhere banner is up, a save would overwrite the other edit before the person chooses.
             if (
                 !values.draftOutOfDate ||
+                values.externallyEdited ||
                 values.isTemplateSubmitting ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft
@@ -761,7 +764,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 secondaryButton: { children: 'Cancel' },
             })
         },
-        confirmDiscardDraft: async () => {
+        confirmDiscardDraft: async (_, breakpoint) => {
+            // A draft save that lands after the discard would bring the draft back, so let it finish first.
+            while (values.isSavingDraft) {
+                await breakpoint(100)
+            }
             try {
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     draft_content: null,

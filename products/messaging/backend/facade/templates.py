@@ -89,6 +89,11 @@ def update_template(team_id: int, template_id: UUID, fields: dict[str, Any]) -> 
     return _to_contract(templates_service.update_template(team_id, template_id, fields))
 
 
+def save_template_draft(team_id: int, template_id: UUID, draft: dict[str, Any] | None) -> MessageTemplateRow:
+    """Replace only the template's unpublished draft. `None` discards it."""
+    return _to_contract(templates_service.save_draft(team_id, template_id, draft))
+
+
 def edit_template_content(
     team_id: int, template_id: UUID, edit: Callable[[dict[str, Any]], dict[str, Any]]
 ) -> MessageTemplateRow:

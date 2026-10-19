@@ -434,6 +434,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         [
             ("send", "post", "send/", {"to": "user@example.com"}),
             ("update", "patch", "", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
+            ("save_draft", "patch", "", {"draft_content": {"email": {"subject": "Draft", "html": "<p>Draft</p>"}}}),
         ]
     )
     def test_a_member_denied_the_workflow_cannot_send_or_change_it(self, mock_post, _flag, _name, method, suffix, body):
