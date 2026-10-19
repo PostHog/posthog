@@ -4399,11 +4399,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 if (props.id === 'new' && originalWorkflow.id) {
+                    const { view } = router.values.searchParams
                     router.actions.replace(
                         urls.workflow(
                             originalWorkflow.id,
                             workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
-                        )
+                        ),
+                        view ? { view } : {}
                     )
                 }
             }
