@@ -37,6 +37,7 @@ from ..facade.contracts import (
     Suggestion,
     SuggestionAlreadyDecidedError,
     SuggestionNotFoundError,
+    SuggestionOutdatedError,
     SuggestionPage,
     SuggestionSubjectGoneError,
 )
@@ -238,5 +239,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise ValidationError({"subject_id": SUBJECT_GONE[error.subject_kind]})
         except RefreshIntervalRefusedError as error:
             raise ValidationError({"refresh_interval_seconds": str(error)})
+        except SuggestionOutdatedError as error:
+            raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))

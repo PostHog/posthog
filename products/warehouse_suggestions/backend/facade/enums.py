@@ -32,3 +32,14 @@ class WarehouseSuggestionAssetOutcome(LabeledStrEnum):
     LIVE = "live"
     DELETED = "deleted"
     UNUSED = "unused"
+
+
+class WarehouseSuggestionRefreshMode(LabeledStrEnum):
+    FULL = "full"
+    INCREMENTAL = "incremental"
+
+
+class WarehouseSuggestionRefreshIntervalBasis(LabeledStrEnum):
+    SOURCE_SYNC = ("source_sync", "Source sync")
+    READ_RATE = ("read_rate", "Read rate")
+    SAVINGS = "savings"
