@@ -22,10 +22,10 @@ Credentials, the client and its config come from batch exports' S3 destination:
   roles, and `request_checksum_calculation="when_required"`. That last one is why R2, GCS and
   MinIO accept our uploads at all: they reject AWS's newer checksum headers.
 
-What is not taken from there is the upload itself. `ConcurrentS3Consumer` times every part
-through `ExecutionTimeRecorder`, which resolves a Temporal metric meter and raises outside an
-activity. Delivery runs in the Postgres-queue load worker, not in an activity, so the parts are
-uploaded here instead, keeping their `RequestTimeout` retry behavior.
+What is not taken from there is the upload itself. `ConcurrentS3Consumer` counts exported rows
+and bytes through Temporal activity metrics, which raise outside an activity. Delivery runs in the
+Postgres-queue load worker, not in an activity, so the parts are uploaded here instead, keeping
+their `RequestTimeout` retry behavior.
 
 Bytes are streamed a row group at a time through `ParquetStreamTransformer.iter`, which holds
 at most one row group of record batches. Collecting the whole staged batch first would hold

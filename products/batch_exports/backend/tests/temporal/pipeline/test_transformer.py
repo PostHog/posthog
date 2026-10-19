@@ -203,6 +203,37 @@ async def test_parquet_stream_transformer_writes_small_record_batches_as_large_r
         assert all(0.9 * max_file_size_bytes <= len(file) <= 1.1 * max_file_size_bytes for file in files[:-1])
 
 
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only_for_json_columns():
+    record_batch = pa.RecordBatch.from_pylist(
+        [
+            {"uuid": "a", "tags": ["x", "y"], "person": {"name": "a"}, "properties": '{"a": 1}'},
+            {"uuid": "b", "tags": ["z"], "person": {"name": "b"}, "properties": '{"b": 2}'},
+        ]
+    )
+
+    async def iter_record_batches():
+        yield record_batch
+
+    transformer = ParquetStreamTransformer()
+    data = b"".join([chunk.data async for chunk in transformer.iter(iter_record_batches())])
+
+    row_group = pq.ParquetFile(io.BytesIO(data)).metadata.row_group(0)
+    columns = [row_group.column(index) for index in range(row_group.num_columns)]
+    assert {column.path_in_schema: column.is_stats_set and column.statistics.has_min_max for column in columns} == {
+        "uuid": True,
+        "tags.list.element": True,
+        "person.name": True,
+        "properties": False,
+    }
+    assert {column.path_in_schema: "RLE_DICTIONARY" in column.encodings for column in columns} == {
+        "uuid": True,
+        "tags.list.element": True,
+        "person.name": True,
+        "properties": False,
+    }
+
+
 class FakeField(Field):
     def __init__(self, name: str, data_type: pa.DataType):
         self.name = name

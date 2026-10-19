@@ -387,6 +387,21 @@ def replace_broken_unicode(obj):
         return obj
 
 
+def get_parquet_column_paths(schema: pa.Schema, field_names: collections.abc.Iterable[str]) -> list[str]:
+    """Return the Parquet leaf column paths of the fields named `field_names` in `schema`.
+
+    `ParquetWriter` matches `use_dictionary` and `write_statistics` against leaf column paths, such as
+    `tags.list.element` for a list field, not against top-level field names.
+    """
+    paths: list[str] = []
+    for name in field_names:
+        buffer = io.BytesIO()
+        pq.write_table(pa.schema([schema.field(name)]).empty_table(), buffer)
+        parquet_schema = pq.ParquetFile(buffer).schema
+        paths.extend(parquet_schema.column(index).path for index in range(len(parquet_schema)))
+    return paths
+
+
 class ParquetStreamTransformer:
     """A transformer to convert record batches into Parquet."""
 
@@ -416,6 +431,8 @@ class ParquetStreamTransformer:
         self._schema: pa.Schema | None = None
         self._pending_record_batches: list[pa.RecordBatch] = []
         self._pending_record_batches_bytes = 0
+        self._pending_record_batches_rows = 0
+        self._non_json_column_paths: list[str] | None = None
         self._current_file_size = 0
         # The compression ratio (Parquet bytes written per Arrow byte) achieved when writing the
         # previous row group. We use this as an estimate for calculating how many bytes will be
@@ -442,7 +459,7 @@ class ParquetStreamTransformer:
                     " Record batches size: %(mb_processed).2f MB, process time:"
                     " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
                 ),
-                log_attributes={"num_records": sum(batch.num_rows for batch in self._pending_record_batches)},
+                log_attributes={"num_records": self._pending_record_batches_rows},
             ) as recorder:
                 recorder.add_bytes_processed(self._pending_record_batches_bytes)
                 # Running write in a thread to yield control back to event loop.
@@ -465,19 +482,22 @@ class ParquetStreamTransformer:
 
     def _get_parquet_writer(self) -> pq.ParquetWriter:
         if self._parquet_writer is None:
-            json_columns = {"properties", "person_properties", "set", "set_once"}
-            # self.schema is set before getting a ParquetWriter.
-            non_json_columns = [col for col in self.schema.names if col not in json_columns]
+            if self._non_json_column_paths is None:
+                json_columns = {"properties", "person_properties", "set", "set_once"}
+                # self.schema is set before getting a ParquetWriter.
+                self._non_json_column_paths = get_parquet_column_paths(
+                    self.schema, [col for col in self.schema.names if col not in json_columns]
+                )
 
             self._parquet_writer = pq.ParquetWriter(
                 self._parquet_buffer,
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
-                use_dictionary=non_json_columns,  # type: ignore
+                use_dictionary=self._non_json_column_paths,  # type: ignore
                 # Min/max statistics on JSON strings cannot help a reader skip row groups, so we do
                 # not write statistics for them to save on file size.
-                write_statistics=non_json_columns,
+                write_statistics=self._non_json_column_paths,
             )
         assert self._parquet_writer is not None
         return self._parquet_writer
@@ -529,8 +549,10 @@ class ParquetStreamTransformer:
 
     def _add_pending_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Hold a record batch until enough record batches are pending to write a row group."""
-        self._pending_record_batches.append(record_batch.select(self.schema.names))
+        record_batch = record_batch.select(self.schema.names)
+        self._pending_record_batches.append(record_batch)
         self._pending_record_batches_bytes += record_batch.nbytes
+        self._pending_record_batches_rows += record_batch.num_rows
 
     def _flush_row_group(self) -> bytes:
         """Write all pending record batches as one row group, and return the bytes written."""
@@ -560,6 +582,7 @@ class ParquetStreamTransformer:
 
         self._pending_record_batches = []
         self._pending_record_batches_bytes = 0
+        self._pending_record_batches_rows = 0
 
 
 class RedshiftQueryStreamTransformer:
