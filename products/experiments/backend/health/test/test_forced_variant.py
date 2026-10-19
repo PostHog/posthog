@@ -7,12 +7,25 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.checks.forced_variant import (
-    forced_variant_release_condition,
-    needs_condition_set_traffic,
+from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.condition_changes import parse_release_conditions
+from products.experiments.backend.health.condition_set_traffic import needs_condition_set_traffic
+from products.experiments.backend.health.context import (
+    ConditionsChange,
+    ConditionSetTraffic,
+    FlagHistory,
+    FlagHistoryNotChecked,
+    HealthContext,
+    parse_flag_state,
 )
-from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, parse_flag_state
-from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
+from products.experiments.backend.health.test.factories import (
+    DRAFT,
+    ENDED,
+    RUNNING,
+    RUNNING_CONTEXT,
+    Status,
+    flag_history,
+)
 
 EVEN_SPLIT = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 SHIPPED_SPLIT = [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
@@ -22,10 +35,16 @@ STAFF: dict[str, Any] = {
     "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
     "rollout_percentage": 100,
 }
+STAFF_AT_ONE_DOMAIN: dict[str, Any] = {
+    "properties": [{"key": "email", "value": "qa@example.com", "operator": "icontains", "type": "person"}],
+    "rollout_percentage": 100,
+}
 IOS: dict[str, Any] = {
     "properties": [{"key": "$device_type", "value": "iOS", "operator": "exact", "type": "person"}],
     "rollout_percentage": 100,
 }
+
+CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 
 
 def _context(
@@ -37,14 +56,28 @@ def _context(
     early_exit: bool = False,
     traffic: ConditionSetTraffic | None = None,
     excluded: frozenset[str] = frozenset(),
+    groups_at_launch: list[dict[str, Any]] | None = None,
 ) -> HealthContext:
     return replace(
         RUNNING_CONTEXT,
         **status,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
+        flag_history=None if groups_at_launch is None else _history(groups_at_launch, groups, variants),
         condition_set_traffic=traffic,
         excluded_variant_keys=excluded,
     )
+
+
+def _history(
+    before: list[dict[str, Any]], after: list[dict[str, Any]], variants: list[dict[str, Any]]
+) -> FlagHistory | FlagHistoryNotChecked:
+    variant_keys = [variant["key"] for variant in variants]
+    change = ConditionsChange(
+        changed_at=CHANGED_AT,
+        before=parse_release_conditions(before, variant_keys=variant_keys),
+        after=parse_release_conditions(after, variant_keys=variant_keys),
+    )
+    return flag_history([change], launched_at=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
 
 
 def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) -> ConditionSetTraffic:
@@ -273,7 +306,41 @@ class TestForcedVariantReleaseCondition(TestCase):
                 _context([{**STAFF, "variant": "holdout"}, EVERYONE], variants=SPLIT_WITH_HOLDOUT),
                 False,
             ),
+            (
+                "an_override_removed_after_launch",
+                _context([STAFF, EVERYONE], groups_at_launch=[{**STAFF, "variant": "test"}, EVERYONE]),
+                True,
+            ),
         ]
     )
     def test_needs_condition_set_traffic(self, _name: str, ctx: HealthContext, expected: bool) -> None:
         self.assertIs(needs_condition_set_traffic(ctx), expected)
+
+    @parameterized.expand(
+        [
+            ("set_after_launch", [STAFF, EVERYONE], True),
+            ("changed_after_launch", [{**STAFF, "variant": "control"}, EVERYONE], True),
+            ("in_place_at_launch", [{**STAFF, "variant": "test"}, EVERYONE, IOS], False),
+            ("filters_edited_after_launch", [{**STAFF_AT_ONE_DOMAIN, "variant": "test"}, EVERYONE], False),
+        ]
+    )
+    def test_an_override_set_after_launch_carries_its_date(
+        self, _name: str, groups_at_launch: list[dict[str, Any]], set_after_launch: bool
+    ) -> None:
+        finding = forced_variant_release_condition(
+            _context([{**STAFF, "variant": "test"}, EVERYONE], groups_at_launch=groups_at_launch)
+        )
+
+        assert finding is not None
+        self.assertEqual(
+            "The override of Set 1 was set on September 12, 2026 at 3:04 PM CEST, after launch, so users it matches "
+            "who were exposed before may have switched variants." in finding.detail,
+            set_after_launch,
+        )
+        self.assertTrue(
+            finding.detail.endswith(
+                "Then move the experiment's start date to after the removal."
+                if set_after_launch
+                else "Then reset the experiment, or move its start date to after the removal."
+            )
+        )

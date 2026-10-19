@@ -7,16 +7,20 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
 )
-from products.experiments.backend.health.checks.forced_variant import needs_condition_set_traffic
-from products.experiments.backend.health.condition_set_traffic import denied_scanned_properties
+from products.experiments.backend.health.condition_set_traffic import (
+    denied_scanned_properties,
+    needs_condition_set_traffic,
+)
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,
+    ConditionsChange,
     ConditionSetTraffic,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagState,
+    ReleaseCondition,
     Split,
     SplitChange,
 )
@@ -78,6 +82,16 @@ def _health_inputs_bucketing_value(value: str | int | bool | None) -> str:
     return value if isinstance(value, str) else json.dumps(value)
 
 
+def _health_inputs_conditions_text(conditions: tuple[ReleaseCondition, ...]) -> str:
+    count = f"{len(conditions)} {'condition' if len(conditions) == 1 else 'conditions'}"
+    overrides = [
+        f"set {number} overrides to {condition.variant}"
+        for number, condition in enumerate(conditions, start=1)
+        if condition.variant
+    ]
+    return ", ".join([count, *overrides])
+
+
 def _health_inputs_flag_change(change: FlagChange) -> dict[str, Any]:
     """A change as the staff view lists it, with its values as text, so the view needs no code per kind."""
     match change:
@@ -94,6 +108,13 @@ def _health_inputs_flag_change(change: FlagChange) -> dict[str, Any]:
                 "changed": _SETTING_LABELS[change.setting],
                 "before": _health_inputs_bucketing_value(change.before),
                 "after": _health_inputs_bucketing_value(change.after),
+            }
+        case ConditionsChange():
+            return {
+                "kind": ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS,
+                "changed": "Release conditions",
+                "before": _health_inputs_conditions_text(change.before),
+                "after": _health_inputs_conditions_text(change.after),
             }
 
 
