@@ -762,7 +762,9 @@ def _build_template_context(
         stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
         if stable_chunks:
             context["stable_chunks"] = True
-            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(
+                context["js_url"], logged_out=not is_authenticated
+            )
             context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
             if stable_chunks.eager_css_urls:
                 # The stable page links its split stylesheets and loads the full one only as a fallback.
@@ -1824,7 +1826,10 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[(at_location + 1) :], False)
+        return self.is_generic_domain(email[(at_location + 1) :])
+
+    def is_generic_domain(self, domain: str) -> bool:
+        return self.emails.get(domain, False)
 
 
 # maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the
@@ -1869,6 +1874,28 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
+def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict) -> dict:
+    """A metric variable that the client sends as its name and selection gets its saved definition."""
+    requested = request_filters.get("metricVariables")
+    if not isinstance(requested, list):
+        return request_filters
+    saved = {
+        variable["name"]: variable
+        for variable in dashboard_filters.get("metricVariables") or []
+        if isinstance(variable, dict) and isinstance(variable.get("name"), str)
+    }
+    metric_variables = []
+    for variable in requested:
+        if not isinstance(variable, dict) or variable.get("source"):
+            metric_variables.append(variable)
+            continue
+        if not isinstance(variable.get("name"), str):
+            raise serializers.ValidationError({"filters_override": "A metric variable name must be a string."})
+        if variable["name"] in saved:
+            metric_variables.append({**saved[variable["name"]], "current": variable.get("current")})
+    return {**request_filters, "metricVariables": metric_variables}
+
+
 def filters_override_requested_by_client(
     request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
 ) -> dict:
@@ -1895,6 +1922,8 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
+    if isinstance(request_filters, dict):
+        request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
     return {**dashboard_filters, **request_filters}
 
 

@@ -66,7 +66,7 @@ class TestDepotSource:
         source = DepotSource()
         session = mock.MagicMock()
         session.post.return_value = _response(status, reason, body)
-        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None)
+        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None, schema_name="job_attempts")
 
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             response = source.source_for_pipeline(DepotSourceConfig(api_token="token", repository="a/b"), inputs)

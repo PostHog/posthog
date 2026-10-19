@@ -13,7 +13,6 @@ import { inlineEquivalentPropertyGroups, isPropertyGroupFilterLike } from 'lib/c
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FLAG_CALLS_SERIES_NAME, readsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
@@ -30,7 +29,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    hasDataWarehouseSeries?: boolean
+    globalFiltersUnsupported?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -40,7 +39,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    hasDataWarehouseSeries,
+    globalFiltersUnsupported,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { featureFlags } = useValues(featureFlagLogic)
@@ -63,11 +62,9 @@ export function PropertyGroupFilters({
         [propertyGroupFilter.values]
     )
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = !hasDataWarehouseSeries
-        ? undefined
-        : readsFlagCalls(query)
-          ? `${FLAG_CALLS_SERIES_NAME} doesn't support filter groups. Use the filters on the series instead.`
-          : 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
+    const disabledReason = globalFiltersUnsupported
+        ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
+        : undefined
     return (
         <div className="deprecated-space-y-2 PropertyGroupFilters @container">
             {propertyGroupFilter.values && (

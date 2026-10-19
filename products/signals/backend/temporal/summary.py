@@ -19,6 +19,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
@@ -168,6 +169,7 @@ class ReportDecision:
     reconcile_checks: bool = False
     checks_summary: str | None = None
     checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
     layers: list[dict[str, Any]] = field(default_factory=list)
     research_task_id: str | None = None
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
@@ -503,6 +505,7 @@ class SignalReportSummaryWorkflow:
                     reconcile_checks=agentic_result.reconcile_checks,
                     checks_summary=agentic_result.checks_summary,
                     checks_snapshot=agentic_result.checks_snapshot,
+                    checks_monitoring_enabled=agentic_result.checks_monitoring_enabled,
                     layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
@@ -546,6 +549,7 @@ class SignalReportSummaryWorkflow:
                         metrics=decision.metrics,
                         checks=decision.checks,
                         checks_snapshot=decision.checks_snapshot,
+                        checks_monitoring_enabled=decision.checks_monitoring_enabled,
                         reconcile_checks=decision.reconcile_checks,
                         checks_summary=decision.checks_summary,
                         checks_task_id=decision.research_task_id,
@@ -575,6 +579,7 @@ class SignalReportSummaryWorkflow:
                     metrics=decision.metrics,
                     checks=decision.checks,
                     checks_snapshot=decision.checks_snapshot,
+                    checks_monitoring_enabled=decision.checks_monitoring_enabled,
                     reconcile_checks=decision.reconcile_checks,
                     checks_summary=decision.checks_summary,
                     checks_task_id=decision.research_task_id,
@@ -900,6 +905,7 @@ class MarkReportReadyInput:
     # that meant "write none", so only a new result marked for reconciliation can clear rows.
     checks: list[dict[str, Any]] | None = None
     checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
 
     reconcile_checks: bool = False
     checks_summary: str | None = None
@@ -958,6 +964,7 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
         reconcile=input.reconcile_checks,
         specs=specs,
         checks_snapshot=input.checks_snapshot,
+        monitoring_definitions_visible=input.checks_monitoring_enabled,
         attribution=(
             ArtefactAttribution.from_task(input.checks_task_id)
             if input.checks_task_id
@@ -1168,13 +1175,16 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
                 user_id=input.requested_user_id,
                 task_id=input.requested_task_id,
                 after_run_count=input.requested_after_run_count,
-            )
+            ),
+            ch_user=ClickHouseUser.SIGNALS,
         )
     else:
-        await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
+        await maybe_autostart_from_report_artefacts(
+            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+        )
         # A plan never starts its own run, so its first layers start here, at the same settle point.
         await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
-            team_id=input.team_id, parent_report_id=input.report_id
+            team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
 
 
@@ -1259,6 +1269,7 @@ class MarkReportPendingInput:
     # See MarkReportReadyInput.checks: same transaction, same replay-safe defaults.
     checks: list[dict[str, Any]] | None = None
     checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
     reconcile_checks: bool = False
     checks_summary: str | None = None
     checks_task_id: str | None = None

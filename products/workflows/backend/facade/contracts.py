@@ -13,6 +13,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    SetupStepKey,
     WorkflowProposalStatus,
 )
 
@@ -48,6 +49,18 @@ class WorkflowActivitySummary:
     total_count: int
     active_count: int
     recent: tuple[RecentWorkflow, ...]
+
+
+@frozen
+class OwnedWorkflowHealth:
+    """A live workflow one person created: its runs over the last 7 days and what waits on its owner."""
+
+    workflow_id: UUID
+    name: str
+    succeeded: int
+    failed: int
+    email_sending_paused: bool
+    pending_suggestions: int
 
 
 @frozen
@@ -103,6 +116,38 @@ class WorkflowSchedule:
     next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@frozen
+class SendCalendarBatchJob:
+    """One batch run, with only the fields the send calendar shows."""
+
+    id: UUID
+    status: HogFlowBatchJobState
+    created_at: datetime
+
+
+@frozen
+class SendCalendarFlow:
+    """An active, scheduled email workflow, with only the fields a send calendar card shows.
+
+    The email fields come from the first email step. ``audience_properties`` and ``audience_type``
+    come from a batch trigger's filters, and ``email_to`` only from a schedule trigger, which has no
+    audience. ``batch_jobs`` holds only the runs inside the requested range.
+    """
+
+    id: UUID
+    name: str | None
+    origin_product: str | None
+    created_by: "User | None"
+    user_access_level: str | None
+    trigger_type: str
+    audience_properties: list[dict[str, Any]]
+    audience_type: str | None
+    email_to: str | None
+    message_category_id: str | None
+    schedules: tuple[WorkflowSchedule, ...]
+    batch_jobs: tuple[SendCalendarBatchJob, ...]
 
 
 class WorkflowScheduleNotFound(Exception):
@@ -488,6 +533,29 @@ class WorkflowRef:
     has_email_step: bool
 
 
+@frozen
+class TransactionalEmailContent:
+    """What a transactional email's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    # None uses the project's default sender on create, and keeps the workflow's sender on update.
+    from_integration_id: int | None
+    message_category_id: UUID | None
+
+
+class TransactionalEmailSenderUnavailable(Exception):
+    """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailContentInvalid(Exception):
+    """The content has no subject or no body, so the workflow could not send it."""
+
+
 class WorkflowNotFound(Exception):
     pass
 
@@ -743,3 +811,11 @@ class EmailDraft:
     text: str
     generated_by: EmailDraftOrigin
     fallback_reason: EmailDraftFallbackReason | None = None
+
+
+@frozen
+class SetupStep:
+    """One messaging setup step and whether the project has done it."""
+
+    key: SetupStepKey
+    done: bool

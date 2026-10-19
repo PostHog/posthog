@@ -396,6 +396,9 @@ class UsageReportCounters:
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
+    # Distinct log patterns, a measure of how varied a team's logs are. Report-only: it tells real
+    # usage apart from a test ping and does not feed any billed field.
+    logs_distinct_patterns_in_period: int
 
     # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
     apm_tracing_bytes_in_period: int
@@ -2640,6 +2643,41 @@ def get_teams_with_logs_records_in_period(
         )
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_distinct_patterns_in_period(
+    begin: datetime,
+    end: datetime,
+) -> TeamUsageRows:
+    """
+    Returns the number of distinct log patterns each team sent in the period.
+
+    Reads the `logs_pattern_buckets` rollup, never raw logs. A pattern only means the same shape
+    within one masker version, so each team counts the patterns of the latest `pattern_version` it
+    sent in the period. A period that spans a masker change counts only the newer version's
+    patterns, which undercounts that one day instead of counting each shape twice.
+
+    `uniq` keeps memory bounded for a team that emits a very large number of shapes. It is exact
+    for small counts, which is where a test ping and real usage differ.
+    """
+    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, argMax(patterns, pattern_version) AS count
+            FROM (
+                SELECT team_id, pattern_version, uniq(pattern) AS patterns
+                FROM logs_pattern_buckets_distributed
+                WHERE time_bucket >= %(begin)s AND time_bucket < %(end)s
+                GROUP BY team_id, pattern_version
+            )
+            GROUP BY team_id
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.LOGS,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+
 # Maps the `telemetry.sdk.name` resource attribute (the SDK identifier, set on every log record) to
 # the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys. posthog-js sets
 # `web`; posthog-rails sets `posthog-ruby`; the mobile SDKs set their package name.
@@ -3228,6 +3266,9 @@ def _get_all_usage_data(
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
+        "teams_with_logs_distinct_patterns_in_period": get_teams_with_logs_distinct_patterns_in_period(
+            period_start, period_end
+        ),
         "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
@@ -3517,6 +3558,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
+        logs_distinct_patterns_in_period=all_data["teams_with_logs_distinct_patterns_in_period"].get(team.id, 0),
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),

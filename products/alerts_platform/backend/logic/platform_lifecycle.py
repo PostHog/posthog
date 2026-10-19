@@ -335,6 +335,7 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     return {
         **source_condition(configuration.source_config),
         "evaluation_periods": configuration.evaluation_periods,
+        "check_interval_minutes": configuration.check_interval_minutes,
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
     }
