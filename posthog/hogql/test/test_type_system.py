@@ -212,7 +212,11 @@ class TestHogQLTypeSystem:
 
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
-        for query in ("SELECT ifNull(throwIf(0, 'x'), 1)", "SELECT if(1, throwIf(0, 'x'), 1)"):
+        for query in (
+            "SELECT ifNull(throwIf(0, 'x'), 1)",
+            "SELECT if(1, throwIf(0, 'x'), 1)",
+            "WITH t AS (SELECT toValidUTF8(properties.list) AS value FROM events) SELECT value FROM t",
+        ):
             node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
             column_type = node.select[0].type
             assert column_type is not None
@@ -599,6 +603,20 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type(
             "SELECT arrayMap((x, y) -> y, [1], ['b'])",
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+
+    @pytest.mark.parametrize(
+        "expression,expected_type",
+        [
+            ("value", ast.StringJSONType(nullable=True)),
+            ("toString(value)", ast.StringType(nullable=True)),
+            ("lower(value)", ast.StringType(nullable=True)),
+            ("value.nested", ast.StringJSONType(nullable=True)),
+        ],
+    )
+    def test_cte_preserves_projected_property_type(self, expression: str, expected_type: ast.ConstantType) -> None:
+        self._assert_first_column_type(
+            f"WITH t AS (SELECT properties.obj AS value FROM events) SELECT {expression} FROM t", expected_type
         )
 
     def test_resolver_infers_json_extract_type_literal(self) -> None:

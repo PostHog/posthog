@@ -2476,7 +2476,7 @@ class Resolver(CloningVisitor):
                 elif cte.cte_type == "column":
                     # Try to extract the actual return type from the scalar CTE's SELECT query
                     # Scalar CTEs should return a single column, so we get the type of the first selected column
-                    inner_type: ast.Type = ast.StringType()
+                    inner_type: ast.Type = cte.expr.type or ast.UnknownType(unanalyzable=True)
                     if isinstance(cte.type.select_query_type, ast.SelectQueryType):
                         select_query_type = cte.type.select_query_type
                         if select_query_type.columns:

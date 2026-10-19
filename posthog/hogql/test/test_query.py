@@ -1066,10 +1066,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
             ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
             ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
+            ("cte_to_string", "JSONExtractArrayRaw(toString(list))", ["1", "2"], [], "t"),
+            ("cte_lower", "JSONExtractArrayRaw(lower(list))", ["1", "2"], [], "t"),
+            (
+                "cte_unknown_function",
+                "JSONExtractArrayRaw(list)",
+                ["1", "2"],
+                [],
+                "t",
+                "toValidUTF8(properties.list)",
+            ),
         ]
     )
     def test_json_container_functions_accept_nullable_input(
-        self, _name: str, expression: str, expected_with: Any, expected_without: Any, source: str = "events"
+        self,
+        _name: str,
+        expression: str,
+        expected_with: Any,
+        expected_without: Any,
+        source: str = "events",
+        cte_expression: str = "properties.list",
     ) -> None:
         _create_event(
             distinct_id="d1",
@@ -1081,13 +1097,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = execute_hogql_query(
-            f"WITH t AS (SELECT event, properties.list AS list FROM events) SELECT event, {expression} FROM {source}",
+            f"WITH t AS (SELECT event, {cte_expression} AS list FROM events) SELECT event, {expression} FROM {source}",
             team=self.team,
             pretty=False,
         )
 
         rows = sorted(response.results, key=lambda row: row[0])
         self.assertEqual(rows, [("with", expected_with), ("without", expected_without)])
+
+    @parameterized.expand(
+        [
+            ("array", "SELECT JSONExtractArrayRaw(NULL)", None),
+            ("keys", "SELECT JSONExtractKeys(NULL)", None),
+            ("map", "SELECT JSONExtract(NULL, 'Map(String, String)')", None),
+            ("fallback", "SELECT coalesce(JSONExtractArrayRaw(NULL), ['fallback'])", ["fallback"]),
+            ("alias", "WITH NULL AS value SELECT JSONExtractArrayRaw(value)", None),
+            ("cte", "WITH t AS (SELECT NULL AS value) SELECT JSONExtractArrayRaw(value) FROM t", None),
+            ("subquery", "SELECT JSONExtractArrayRaw(value) FROM (SELECT NULL AS value)", None),
+        ]
+    )
+    def test_json_container_functions_preserve_null_only_input(self, _name: str, query: str, expected: Any) -> None:
+        response = execute_hogql_query(query, team=self.team, pretty=False)
+
+        self.assertEqual(response.results, [(expected,)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):

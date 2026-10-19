@@ -24,6 +24,7 @@ export type ExperimentHealthFindingCode =
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'
+    | 'bucketing_changed_mid_run'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
