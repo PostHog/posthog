@@ -32,6 +32,7 @@ from posthog.permissions import (
     APIScopePermission,
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
+    get_authenticator_client,
 )
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
@@ -743,6 +744,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
                 dataset = create_dataset(
                     team=self.team,
                     created_by=cast(User, request.user),
+                    caller_properties=get_authenticator_client(request.successful_authenticator),
                     name=data["name"],
                     description=data["description"],
                     metadata=data["metadata"],

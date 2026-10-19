@@ -401,10 +401,10 @@ def _create_item_version(
     return version
 
 
-def max_datasets_for_team(*, team: Team, user: User | None) -> int:
+def max_datasets_for_team(*, team: Team, user: User | None, caller_properties: dict[str, str] | None = None) -> int:
     """The project's dataset limit: its override in the flag payload, or `MAX_DATASETS_PER_TEAM`.
 
-    The payload is evaluated for the requesting user with the organization and project groups
+    The payload is evaluated for the requesting user with the groups and caller properties
     that `PostHogFeatureFlagPermission` uses, so it follows the same rollout that gates the API.
     A missing, malformed, or unreadable override resolves to the default.
     """
@@ -412,12 +412,17 @@ def max_datasets_for_team(*, team: Team, user: User | None) -> int:
         return MAX_DATASETS_PER_TEAM
     organization_id = str(team.organization_id)
     project_id = str(team.id)
+    caller = caller_properties or {}
     try:
         payload = posthoganalytics.get_feature_flag_payload(
             DATASETS_FEATURE_FLAG,
             str(user.distinct_id),
             groups={"organization": organization_id, "project": project_id},
-            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            group_properties={
+                "organization": {**caller, "id": organization_id},
+                "project": {**caller, "id": project_id},
+            },
+            person_properties=caller or None,
             send_feature_flag_events=False,
         )
         if isinstance(payload, str):
@@ -441,11 +446,12 @@ def create_dataset(
     name: str,
     description: str = "",
     metadata: dict[str, JSONValue] | None = None,
+    caller_properties: dict[str, str] | None = None,
 ) -> Dataset:
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
     # Read before taking the lock, so a slow flag read never holds it.
-    limit = max_datasets_for_team(team=team, user=created_by)
+    limit = max_datasets_for_team(team=team, user=created_by, caller_properties=caller_properties)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
     current_count = Dataset.objects.for_team(team.id, canonical=True).count()

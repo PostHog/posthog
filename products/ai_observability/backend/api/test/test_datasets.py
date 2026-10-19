@@ -1,4 +1,6 @@
+import json
 from datetime import timedelta
+from functools import partial
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +11,7 @@ from django.db.models.deletion import RestrictedError
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from posthoganalytics.client import Client
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -806,13 +809,51 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(Dataset.objects.for_team(self.team.id).count(), 1)
 
-    def test_dataset_limit_uses_the_team_override_evaluated_for_the_requesting_user(self) -> None:
+    @parameterized.expand(
+        [
+            ("session_person", None, "session", "posthog"),
+            ("api_key_organization", 0, "personal_api_key", "personal_api_key"),
+            ("session_project", 1, "session", "posthog"),
+        ]
+    )
+    def test_dataset_limit_uses_the_team_override_evaluated_for_the_requesting_user(
+        self, _name: str, group_index: int | None, credential_type: str, client_id: str
+    ) -> None:
+        if credential_type == "personal_api_key":
+            key = self.create_personal_api_key_with_scopes(["dataset:write"])
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        caller_properties = {"credential_type": credential_type, "client_id": client_id}
         payload = {"team_configs": {str(self.team.id): {"max_datasets": 2}}}
+        filters: dict[str, object] = {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": key,
+                            "value": [value],
+                            "operator": "exact",
+                            "type": "person" if group_index is None else "group",
+                        }
+                        for key, value in caller_properties.items()
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ],
+            "payloads": {"true": json.dumps(payload)},
+        }
+        if group_index is not None:
+            filters["aggregation_group_type_index"] = group_index
+        flag_client = Client("test-project-token", send=False, sync_mode=True)
+        self.addCleanup(flag_client.shutdown)
+        flag_client.group_type_mapping = {"0": "organization", "1": "project"}
+        flag_client.feature_flags = [{"key": "llm-analytics-datasets", "active": True, "filters": filters}]
         with (
             patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 1),
             patch(
                 "products.ai_observability.backend.dataset_service.posthoganalytics.get_feature_flag_payload",
-                return_value=payload,
+                side_effect=partial(flag_client.get_feature_flag_payload, only_evaluate_locally=True),
             ) as get_payload,
         ):
             self._create_dataset("First dataset")
@@ -826,9 +867,10 @@ class TestDatasetsApi(APIBaseTest):
             str(self.user.distinct_id),
             groups={"organization": str(self.organization.id), "project": str(self.team.id)},
             group_properties={
-                "organization": {"id": str(self.organization.id)},
-                "project": {"id": str(self.team.id)},
+                "organization": {**caller_properties, "id": str(self.organization.id)},
+                "project": {**caller_properties, "id": str(self.team.id)},
             },
+            person_properties=caller_properties,
             send_feature_flag_events=False,
         )
 
