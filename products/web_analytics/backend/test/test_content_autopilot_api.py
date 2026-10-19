@@ -33,7 +33,7 @@ class TestContentAutopilotAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.web_analytics.backend.presentation.views.content_autopilot.posthog_feature_flag_enabled",
+            "posthog.permissions.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()
@@ -69,11 +69,11 @@ class TestContentAutopilotAPI(APIBaseTest):
         response = self.client.get(self._profiles_url())
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.feature_enabled.assert_called_once_with(
-            CONTENT_AUTOPILOT_FEATURE_FLAG,
-            self.user.distinct_id,
-            organization_id=str(self.organization.id),
-        )
+        self.feature_enabled.assert_called_once()
+        args, kwargs = self.feature_enabled.call_args
+        self.assertEqual(args, (CONTENT_AUTOPILOT_FEATURE_FLAG, str(self.user.distinct_id)))
+        self.assertEqual(kwargs["organization_id"], self.organization.id)
+        self.assertEqual(kwargs["team_id"], self.team.id)
 
     def test_requires_an_authenticated_project_member(self) -> None:
         self.client.logout()

@@ -5,6 +5,7 @@ from urllib.parse import ParseResult, urlparse
 
 from posthog.dataclasses import frozen
 
+from products.web_analytics.backend.content_autopilot.edits import heading_levels
 from products.web_analytics.backend.content_autopilot.research import ResearchBundle
 from products.web_analytics.backend.content_autopilot.site_discovery import site_host
 
@@ -96,15 +97,15 @@ class _StructureProblem:
 
 
 def _structure_problems(markdown: str) -> dict[str, _StructureProblem]:
-    lines = markdown.splitlines()
-    h1_count = sum(1 for line in lines if line.startswith("# "))
+    levels = heading_levels(markdown)
+    h1_count = levels.count(1)
     words = word_count(markdown)
     problems: dict[str, _StructureProblem] = {}
     if h1_count != 1:
         problems["h1"] = _StructureProblem(
             severity=abs(h1_count - 1), message=f"it has {h1_count} H1 headings instead of one"
         )
-    if not any(line.startswith("## ") for line in lines):
+    if 2 not in levels:
         problems["h2"] = _StructureProblem(severity=1, message="it has no H2 sections")
     if words < MIN_WORDS:
         problems["words"] = _StructureProblem(

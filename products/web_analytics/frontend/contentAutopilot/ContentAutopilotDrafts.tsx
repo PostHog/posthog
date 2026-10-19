@@ -3,11 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonCard, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type { ContentAutopilotProposalListApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { ContentAutopilotDraftRow, contentAutopilotLogic } from './contentAutopilotLogic'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 
 const proposalStatusTag = (proposal: ContentAutopilotProposalListApi): JSX.Element => {
     switch (proposal.lifecycle_status) {
@@ -33,27 +32,6 @@ const proposalStatusTag = (proposal: ContentAutopilotProposalListApi): JSX.Eleme
             )
     }
 }
-
-const proposalPath = (proposal: ContentAutopilotProposalListApi): string =>
-    proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : ''
-
-const rowTitle = (row: ContentAutopilotDraftRow): string =>
-    row.kind === 'proposal' ? row.proposal.title : row.opportunity.title
-
-const rowQuestion = (row: ContentAutopilotDraftRow): string =>
-    row.kind === 'proposal' ? row.proposal.target_query : ''
-
-const rowIsNewPage = (row: ContentAutopilotDraftRow): boolean =>
-    row.kind === 'proposal'
-        ? row.proposal.proposal_type === 'new_content'
-        : row.opportunity.recommended_type === 'new_content'
-
-const rowPath = (row: ContentAutopilotDraftRow): string =>
-    row.kind === 'proposal'
-        ? proposalPath(row.proposal)
-        : row.opportunity.target_url
-          ? (parseWebAnalyticsURL(row.opportunity.target_url).pathname ?? '')
-          : ''
 
 export const ContentAutopilotDrafts = (): JSX.Element | null => {
     const { draftRows, workspaceErrors } = useValues(contentAutopilotLogic)
@@ -92,10 +70,8 @@ export const ContentAutopilotDrafts = (): JSX.Element | null => {
                     key: 'title',
                     render: (_, row) => (
                         <div className="py-2 min-w-60">
-                            <div className="font-semibold">{rowTitle(row)}</div>
-                            {rowQuestion(row) ? (
-                                <div className="text-xs text-muted mt-1">{rowQuestion(row)}</div>
-                            ) : null}
+                            <div className="font-semibold">{row.title}</div>
+                            {row.question ? <div className="text-xs text-muted mt-1">{row.question}</div> : null}
                         </div>
                     ),
                 },
@@ -104,8 +80,8 @@ export const ContentAutopilotDrafts = (): JSX.Element | null => {
                     key: 'change',
                     render: (_, row) => (
                         <div className="text-sm">
-                            <div>{rowIsNewPage(row) ? 'New page' : 'Updates a page'}</div>
-                            <div className="text-xs text-muted truncate max-w-80">{rowPath(row)}</div>
+                            <div>{row.isNewPage ? 'New page' : 'Updates a page'}</div>
+                            <div className="text-xs text-muted truncate max-w-80">{row.path}</div>
                         </div>
                     ),
                 },
@@ -113,32 +89,22 @@ export const ContentAutopilotDrafts = (): JSX.Element | null => {
                     title: 'Status',
                     key: 'status',
                     render: (_, row) =>
-                        row.kind === 'proposal' ? (
-                            proposalStatusTag(row.proposal)
-                        ) : (
-                            <LemonTag type="muted">Queued</LemonTag>
-                        ),
+                        row.proposal ? proposalStatusTag(row.proposal) : <LemonTag type="muted">Queued</LemonTag>,
                 },
                 {
                     title: 'Updated',
                     key: 'updated',
-                    render: (_, row) => (
-                        <TZLabel
-                            time={row.kind === 'proposal' ? row.proposal.updated_at : row.opportunity.updated_at}
-                        />
-                    ),
+                    render: (_, row) => <TZLabel time={row.updatedAt} />,
                 },
                 {
                     key: 'actions',
-                    render: (_, row) =>
-                        row.kind === 'proposal' && row.proposal.lifecycle_status !== 'generating' ? (
+                    render: (_, { proposal }) =>
+                        proposal && proposal.lifecycle_status !== 'generating' ? (
                             <div className="flex justify-end">
                                 <LemonButton
                                     size="small"
-                                    type={
-                                        row.proposal.lifecycle_status === 'ready_for_review' ? 'primary' : 'secondary'
-                                    }
-                                    onClick={() => selectProposal(row.proposal.id)}
+                                    type={proposal.lifecycle_status === 'ready_for_review' ? 'primary' : 'secondary'}
+                                    onClick={() => selectProposal(proposal.id)}
                                     data-attr="content-autopilot-review-draft"
                                 >
                                     Review

@@ -115,6 +115,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
+    loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.

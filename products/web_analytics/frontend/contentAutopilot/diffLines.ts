@@ -1,17 +1,17 @@
 export type ContentAutopilotDiffLine = { kind: 'same' | 'added' | 'removed'; text: string }
 
-export type ContentAutopilotDiffSegment =
+type ContentAutopilotDiffSegment =
     | { kind: 'line'; line: ContentAutopilotDiffLine }
     | { kind: 'collapsed'; count: number }
 
 const MAX_DIFF_CELLS = 4_000_000
 
-export function diffLines(before: string, after: string): ContentAutopilotDiffLine[] {
-    const beforeLines = before.split('\n')
-    const afterLines = after.split('\n')
-    const beforeKeys = beforeLines.map((line) => line.trimEnd())
-    const afterKeys = afterLines.map((line) => line.trimEnd())
-
+function diffMiddle(
+    beforeLines: string[],
+    afterLines: string[],
+    beforeKeys: string[],
+    afterKeys: string[]
+): ContentAutopilotDiffLine[] {
     if (beforeLines.length * afterLines.length > MAX_DIFF_CELLS) {
         return [
             ...beforeLines.map((text): ContentAutopilotDiffLine => ({ kind: 'removed', text })),
@@ -52,12 +52,47 @@ export function diffLines(before: string, after: string): ContentAutopilotDiffLi
     return lines
 }
 
+export function diffLines(before: string, after: string): ContentAutopilotDiffLine[] {
+    const beforeLines = before.split('\n')
+    const afterLines = after.split('\n')
+    const beforeKeys = beforeLines.map((line) => line.trimEnd())
+    const afterKeys = afterLines.map((line) => line.trimEnd())
+
+    let prefix = 0
+    while (prefix < beforeLines.length && prefix < afterLines.length && beforeKeys[prefix] === afterKeys[prefix]) {
+        prefix += 1
+    }
+    let suffix = 0
+    while (
+        suffix < beforeLines.length - prefix &&
+        suffix < afterLines.length - prefix &&
+        beforeKeys[beforeLines.length - 1 - suffix] === afterKeys[afterLines.length - 1 - suffix]
+    ) {
+        suffix += 1
+    }
+
+    const same = (text: string): ContentAutopilotDiffLine => ({ kind: 'same', text })
+    return [
+        ...afterLines.slice(0, prefix).map(same),
+        ...diffMiddle(
+            beforeLines.slice(prefix, beforeLines.length - suffix),
+            afterLines.slice(prefix, afterLines.length - suffix),
+            beforeKeys.slice(prefix, beforeKeys.length - suffix),
+            afterKeys.slice(prefix, afterKeys.length - suffix)
+        ),
+        ...afterLines.slice(afterLines.length - suffix).map(same),
+    ]
+}
+
 export function collapseUnchangedLines(lines: ContentAutopilotDiffLine[], context = 2): ContentAutopilotDiffSegment[] {
     const segments: ContentAutopilotDiffSegment[] = []
+    const keep = (from: number, to: number): void => {
+        segments.push(...lines.slice(from, to).map((line): ContentAutopilotDiffSegment => ({ kind: 'line', line })))
+    }
     let start = 0
     while (start < lines.length) {
         if (lines[start].kind !== 'same') {
-            segments.push({ kind: 'line', line: lines[start] })
+            keep(start, start + 1)
             start += 1
             continue
         }
@@ -68,11 +103,11 @@ export function collapseUnchangedLines(lines: ContentAutopilotDiffLine[], contex
         const keepBefore = start === 0 ? 0 : context
         const keepAfter = end === lines.length ? 0 : context
         if (end - start > keepBefore + keepAfter + 1) {
-            lines.slice(start, start + keepBefore).forEach((line) => segments.push({ kind: 'line', line }))
+            keep(start, start + keepBefore)
             segments.push({ kind: 'collapsed', count: end - start - keepBefore - keepAfter })
-            lines.slice(end - keepAfter, end).forEach((line) => segments.push({ kind: 'line', line }))
+            keep(end - keepAfter, end)
         } else {
-            lines.slice(start, end).forEach((line) => segments.push({ kind: 'line', line }))
+            keep(start, end)
         }
         start = end
     }

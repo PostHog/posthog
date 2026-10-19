@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useMemo } from 'react'
 
 import { pluralize } from 'lib/utils/strings'
 
@@ -16,7 +17,7 @@ const LINE_STYLES: Record<ContentAutopilotDiffLine['kind'], { sign: string; clas
 }
 
 export const ContentAutopilotLineDiff = ({ before, after }: ContentAutopilotLineDiffProps): JSX.Element => {
-    const lines = diffLines(before, after)
+    const lines = useMemo(() => diffLines(before, after), [before, after])
     const added = lines.filter(({ kind }) => kind === 'added').length
     const removed = lines.filter(({ kind }) => kind === 'removed').length
 
