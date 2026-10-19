@@ -2,6 +2,7 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -41,6 +42,14 @@ export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
 export const WithLongFilterValue: Story = createInsightStory(__editorFiltersLongValue as any, 'edit')
 WithLongFilterValue.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+
+export const WithLongFilterValueQuill: Story = createInsightStory(__editorFiltersLongValue as any, 'edit')
+WithLongFilterValueQuill.parameters = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
     testOptions: {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },

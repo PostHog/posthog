@@ -5,6 +5,7 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { retryImport } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -52,6 +53,7 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { EditorFiltersShell } from './EditorFiltersShell'
 import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
+import { QuillEditorFilterGroups } from './QuillEditorFilterGroups'
 import { TrendsSeries } from './TrendsSeries'
 
 // Only web analytics insights use these filters, and they pull in the web analytics logic and its schema validators.
@@ -92,6 +94,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const quillEnabled = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!querySource) {
         return null
@@ -439,16 +442,24 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     return (
         <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
-            <div className="flex flex-col gap-3">
-                {allFilterGroups.map((editorFilterGroup) => (
-                    <EditorFilterGroup
-                        key={editorFilterGroup.title}
-                        editorFilterGroup={editorFilterGroup}
-                        insightProps={insightProps}
-                        queryKind={querySource?.kind}
-                    />
-                ))}
-            </div>
+            {quillEnabled ? (
+                <QuillEditorFilterGroups
+                    editorFilterGroups={allFilterGroups}
+                    insightProps={insightProps}
+                    queryKind={querySource?.kind}
+                />
+            ) : (
+                <div className="flex flex-col gap-3">
+                    {allFilterGroups.map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insightProps={insightProps}
+                            queryKind={querySource?.kind}
+                        />
+                    ))}
+                </div>
+            )}
         </EditorFiltersShell>
     )
 }
