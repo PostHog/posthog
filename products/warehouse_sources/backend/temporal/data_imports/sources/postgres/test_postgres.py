@@ -1672,6 +1672,18 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "cannot delete path in scalar",
+            "InvalidParameterValue: cannot delete path in scalar",
+        ],
+    )
+    def test_jsonb_delete_path_on_scalar_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"jsonb path-deletion on scalar error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'unit "week" not supported for type interval',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
@@ -10001,6 +10013,23 @@ class TestRlsActiveFromConnErrorHandling:
                 "(server_login_retry)"
             )
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_activity_cancelled_error_is_not_captured(self):
+        # Temporal injects a `temporalio.exceptions.CancelledError` into whatever statement is
+        # running when the activity is cancelled (user cancels the sync, or it hits its
+        # start_to_close_timeout). That's expected, not a bug in this best-effort lookup — don't
+        # flood error tracking with it. Matched by type name, like `sync_lock._is_cancellation`,
+        # so the fake class here doesn't need to depend on temporalio.
+        class CancelledError(Exception):
+            pass
+
+        conn = self._conn_raising(CancelledError("Cancelled"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
