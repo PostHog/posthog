@@ -26,11 +26,48 @@ export const OOB_DOMAINS: readonly string[] = [
 /** The guard that saw the host. One value per call site, so a log line names the path. */
 export type OobGuard = 'node_request' | 'node_email_validation'
 
-function canonicalizeHost(host: string): string {
-    // domainToASCII lowercases and applies the IDNA mapping the resolver queries, so a fullwidth or
-    // uppercase form of a listed name reaches the same entry. It returns an empty string for a name
-    // the codec rejects, and the lowercased input is then the closest form available.
-    const canonical = domainToASCII(host) || host.toLowerCase()
+/**
+ * One line per host, team and guard in this window. A CDP destination retries, and undici reuses a
+ * keep-alive socket without a fresh lookup, so an undeduped count tracks request volume rather than
+ * probing. The window stays short enough that a sustained campaign still reads as repeated activity.
+ */
+const DEDUPE_WINDOW_MS = 15 * 60 * 1000
+const DEDUPE_MAX_ENTRIES = 10_000
+
+const lastLoggedAt = new Map<string, number>()
+
+/** Whether this key was last logged outside the window. Bounded by size, so it needs no timer. */
+function firstSightInWindow(key: string, now: number): boolean {
+    const seenAt = lastLoggedAt.get(key)
+    if (seenAt !== undefined && now - seenAt < DEDUPE_WINDOW_MS) {
+        return false
+    }
+    // Deleting before setting moves the key to the end, so iteration order stays recency order and
+    // the front of the map is always the oldest entry.
+    lastLoggedAt.delete(key)
+    lastLoggedAt.set(key, now)
+    while (lastLoggedAt.size > DEDUPE_MAX_ENTRIES) {
+        const oldest = lastLoggedAt.keys().next().value
+        if (oldest === undefined) {
+            break
+        }
+        lastLoggedAt.delete(oldest)
+    }
+    return true
+}
+
+// A host of printable ascii needs no IDNA pass, because domainToASCII would only lowercase it.
+const ASCII_HOST_RE = /^[\x21-\x7e]+$/
+
+function canonicalizeHost(host: string): string | null {
+    // domainToASCII applies the IDNA mapping the resolver queries, so a fullwidth or uppercase form
+    // of a listed name reaches the same entry. It returns an empty string for a name the codec
+    // rejects. Such a string is not a host, and matching it would put a form the parser refused,
+    // such as one carrying a fullwidth @, into a log line.
+    const canonical = ASCII_HOST_RE.test(host) ? host.toLowerCase() : domainToASCII(host)
+    if (!canonical) {
+        return null
+    }
     // An absolute FQDN carries the DNS root dot, which the list does not.
     return canonical.replace(/\.+$/, '')
 }
@@ -46,6 +83,9 @@ export function matchedOobDomain(host: string | null | undefined): string | null
         return null
     }
     const canonical = canonicalizeHost(host)
+    if (canonical === null) {
+        return null
+    }
     return OOB_DOMAINS.find((domain) => canonical === domain || canonical.endsWith(`.${domain}`)) ?? null
 }
 
@@ -56,6 +96,8 @@ export function matchedOobDomain(host: string | null | undefined): string | null
  * confirms the path to whoever runs the collaborator. Detection only: this never throws and never
  * changes what the caller does. Call it before the resolve, so the later blocking phase is a small
  * change.
+ *
+ * `context.teamId` is logged as `team_id`, which is the field the Python guards bind.
  */
 export function noteOobDomain(
     host: string | null | undefined,
@@ -67,9 +109,14 @@ export function noteOobDomain(
     }
     try {
         const domain = matchedOobDomain(host)
-        if (domain !== null) {
-            logger.info('security.oob_domain_seen', { ...context, host, domain, guard })
+        if (domain === null) {
+            return
         }
+        const { teamId, ...rest } = context
+        if (!firstSightInWindow(`${guard}\u0000${teamId ?? 'none'}\u0000${host}`, Date.now())) {
+            return
+        }
+        logger.info('security.oob_domain_seen', { ...rest, team_id: teamId ?? null, host, domain, guard })
     } catch (error) {
         logger.warn('security.oob_domain_check_failed', { host, guard, error })
     }

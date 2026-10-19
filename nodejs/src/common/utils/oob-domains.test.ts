@@ -27,6 +27,8 @@ describe('oob-domains', () => {
         ['a host that only ends in the same letters', 'notoast.me', null],
         ['a listed name used as a prefix', 'oast.me.evil.example', null],
         ['a listed name behind userinfo', 'user@abc.oast.me', null],
+        ['a listed name behind fullwidth userinfo', 'user＠abc.oast.me', null],
+        ['a listed name behind a fullwidth slash', 'user／abc.oast.me', null],
         ['a raw URL whose path ends in a listed name', 'https://evil.example/abc.oast.me', null],
         ['an unlisted host', 'example.com', null],
         ['an empty host', '', null],
@@ -51,17 +53,35 @@ describe('oob-domains', () => {
             }
         })
 
-        it('logs the match with the caller attribution', () => {
+        it('logs the match with the caller attribution under the team_id the python guards bind', () => {
             process.env.CLOUD_DEPLOYMENT = 'US'
 
-            noteOobDomain('abc.oast.me', 'node_request', { teamId: 2 })
+            noteOobDomain('attribution.oast.me', 'node_request', { teamId: 2 })
 
             expect(info).toHaveBeenCalledWith('security.oob_domain_seen', {
-                teamId: 2,
-                host: 'abc.oast.me',
+                team_id: 2,
+                host: 'attribution.oast.me',
                 domain: 'oast.me',
                 guard: 'node_request',
             })
+        })
+
+        it('logs one line per host and team in the window, so a retrying caller cannot flood', () => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+
+            noteOobDomain('flood.oast.me', 'node_request', { teamId: 3 })
+            noteOobDomain('flood.oast.me', 'node_request', { teamId: 3 })
+
+            expect(info).toHaveBeenCalledTimes(1)
+        })
+
+        it('logs a second team hitting the same host, so one noisy team cannot mask another', () => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+
+            noteOobDomain('shared.oast.me', 'node_request', { teamId: 4 })
+            noteOobDomain('shared.oast.me', 'node_request', { teamId: 5 })
+
+            expect(info).toHaveBeenCalledTimes(2)
         })
 
         it('stays silent off cloud, so self-hosted behavior does not change', () => {
