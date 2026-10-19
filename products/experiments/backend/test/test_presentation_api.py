@@ -1089,9 +1089,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 history["checked"],
                 history["not_checked_reason"],
-                [change["counted"] for change in history["split_changes"]],
+                [change["counted"] for change in history["changes"]],
             ),
             expected,
+        )
+        self.assertEqual(
+            [(change["kind"], change["changed"], change["before"], change["after"]) for change in history["changes"]],
+            [("split", "Split", "control 50%, test 50%", "control 80%, test 20%")] if rebalance else [],
         )
 
     def _deny_event_property(self, name: str) -> None:
