@@ -466,6 +466,15 @@ class TestEvaluationBackfillWorkflow:
                 "execution_failed",
                 id="persistent_outage_across_pages",
             ),
+            pytest.param(
+                set(range(10, 70)),
+                None,
+                70,
+                70,
+                list(BACKFILL_FAILURE_PAUSES),
+                "execution_failed",
+                id="outage_spends_budget_on_last_unit",
+            ),
             pytest.param({i for i in range(70) if i % 10}, None, 70, 70, [], None, id="scattered_failures"),
             pytest.param(
                 set(range(10)) | set(range(11, 21)),

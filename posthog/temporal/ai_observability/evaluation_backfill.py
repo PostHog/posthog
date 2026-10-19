@@ -266,6 +266,11 @@ class _BackfillPacing:
                         await temporalio.workflow.wait_condition(lambda: self.stopped, timeout=pause)
         return not self.stopped
 
+    def finish_page(self) -> None:
+        # The last page starts no run after its final failure, so ready() never sees a spent budget.
+        if self.failures >= BACKFILL_FAILURES_BEFORE_PAUSE and self.pauses == len(BACKFILL_FAILURE_PAUSES):
+            self.stop_reason = self.stop_reason or "execution_failed"
+
     def record(self, result: BackfillChildOutcome) -> None:
         if result.stop_reason:
             self.stop_reason = self.stop_reason or result.stop_reason
@@ -716,6 +721,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 cancelled=True,
             )
             raise
+        pacing.finish_page()
         advance = await record(results)
         if advance.finished:
             await self._measure_remainder(inputs)
