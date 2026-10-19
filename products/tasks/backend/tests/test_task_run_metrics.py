@@ -43,8 +43,9 @@ class TestCustomImageBuildMetrics:
 
 
 class TestSandboxDeadlineMetrics:
-    def test_turn_open_reason_is_preserved(self) -> None:
-        labels = {"outcome": "snapshot_only", "reason": "turn_open", "origin_product": "workflow"}
+    @parameterized.expand(["turn_open", "agent_activity", "activity_during_snapshot", "activity_during_handoff"])
+    def test_reason_is_preserved(self, reason: str) -> None:
+        labels = {"outcome": "snapshot_only", "reason": reason, "origin_product": "workflow"}
         before = _sample_value("posthog_tasks_sandbox_deadline_total", labels)
 
         observe_sandbox_deadline(dict[str, object](labels))
@@ -109,14 +110,31 @@ class TestStartupStepMetrics:
         assert all(call.kwargs["send_feature_flags"] is False for call in capture.call_args_list)
 
     @pytest.mark.parametrize("capture_fails", [False, True])
-    def test_step_events_use_scoped_run_context_without_affecting_work(self, capture_fails: bool) -> None:
-        with patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture:
+    @pytest.mark.parametrize("override", [False, True])
+    def test_step_events_use_scoped_run_context_without_affecting_work(
+        self, capture_fails: bool, override: bool
+    ) -> None:
+        with (
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+            patch("products.tasks.backend.temporal.metrics._metric_meter") as metric_meter,
+        ):
             capture.side_effect = RuntimeError("queue unavailable") if capture_fails else None
             for run_id, origin in [("first-run", "slack"), ("second-run", "review_hog")]:
                 with (
                     posthoganalytics.new_context(fresh=True, capture_exceptions=False),
-                    log_activity_execution("startup", run_id=run_id, origin_product=origin, environment="cloud"),
-                    StepTimer("setup"),
+                    log_activity_execution(
+                        "startup",
+                        run_id=run_id,
+                        origin_product=origin,
+                        environment="cloud",
+                        runtime="vm",
+                        sandbox_backend="modal",
+                        boot_path="overlap",
+                        used_snapshot=True,
+                    ),
+                    StepTimer(
+                        "setup", runtime="gvisor" if override else None, used_snapshot=False if override else None
+                    ),
                 ):
                     pass
             with StepTimer("unrelated"):
@@ -129,6 +147,20 @@ class TestStartupStepMetrics:
             ("second-run", "review_hog"),
         ]
         assert all(event["run_environment"] == "cloud" for event in properties)
+        for event, sample in zip(properties, metric_meter.call_args_list[:2]):
+            for key, expected in {
+                "origin_product": event["origin_product"],
+                "runtime": "gvisor" if override else "vm",
+                "sandbox_backend": "modal",
+                "boot_path": "overlap",
+                "used_snapshot": "false" if override else "true",
+            }.items():
+                assert event[key] == sample.args[0][key] == expected
+        assert metric_meter.call_args.args[0] == {
+            "step": "unrelated",
+            "used_snapshot": "unknown",
+            "status": "COMPLETED",
+        }
 
 
 class TestTaskRunMetrics(TestCase):

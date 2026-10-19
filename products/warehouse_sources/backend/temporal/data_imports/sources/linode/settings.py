@@ -6,6 +6,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+LINODE_MONTHLY_TRANSFER = "linode_monthly_transfer"
+
+# Months of history the first monthly transfer sync reads, the current month included. Each month
+# costs one request per Linode, so the window stays bounded.
+MONTHLY_TRANSFER_LOOKBACK_MONTHS = 12
+
 # Max allowed page_size is 500 (min 25). Using the max minimizes request count against the 200 req/min
 # paginated-GET rate limit.
 PAGE_SIZE = 500
@@ -46,7 +52,8 @@ class LinodeEndpointConfig:
 # Incremental sync uses the JSON `X-Filter` header with the `+gte`/`+order_by`/`+order` operators on
 # fields the API documents as filterable. Only `events` (by monotonic integer id) and `invoices` (by
 # date) expose a genuine server-side filter; the infrastructure inventories are small and their
-# created/updated timestamps are not consistently filterable, so they ship full refresh.
+# created/updated timestamps are not consistently filterable, so they ship full refresh. The monthly
+# transfer table is incremental without X-Filter: the month is part of the request path.
 LINODE_ENDPOINTS: dict[str, LinodeEndpointConfig] = {
     "linodes": LinodeEndpointConfig(
         name="linodes",
@@ -156,6 +163,57 @@ LINODE_ENDPOINTS: dict[str, LinodeEndpointConfig] = {
         name="regions",
         path="/regions",
         incremental_fields=[],
+    ),
+    "images": LinodeEndpointConfig(
+        name="images",
+        path="/images",
+        partition_key="created",
+        incremental_fields=[],
+    ),
+    "databases": LinodeEndpointConfig(
+        name="databases",
+        path="/databases/instances",
+        # The listing aggregates every engine (MySQL, PostgreSQL, Valkey), and the API does not say
+        # that ids are unique across engines.
+        primary_keys=["engine", "id"],
+        partition_key="created",
+        incremental_fields=[],
+    ),
+    "database_types": LinodeEndpointConfig(
+        name="database_types",
+        path="/databases/types",
+        incremental_fields=[],
+    ),
+    "lke_node_pools": LinodeEndpointConfig(
+        name="lke_node_pools",
+        path="/lke/clusters/{cluster_id}/pools",
+        primary_keys=["cluster_id", "id"],
+        # Pools carry no timestamp, so there is nothing stable to partition on.
+        incremental_fields=[],
+        fanout=DependentEndpointConfig(
+            parent_name="lke_clusters",
+            resolve_param="cluster_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "cluster_id"},
+        ),
+    ),
+    LINODE_MONTHLY_TRANSFER: LinodeEndpointConfig(
+        name=LINODE_MONTHLY_TRANSFER,
+        path="/linode/instances/{linode_id}/transfer/{year}/{month}",
+        # One row per Linode per calendar month. The source builds `month_start` itself and walks the
+        # months oldest first, so an incremental run requests only the months from the watermark on.
+        primary_keys=["linode_id", "month_start"],
+        partition_key="month_start",
+        incremental_field="month_start",
+        incremental_fields=[
+            {
+                "label": "month_start",
+                "type": IncrementalFieldType.DateTime,
+                "field": "month_start",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
     ),
 }
 

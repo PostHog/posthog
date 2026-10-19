@@ -1,6 +1,6 @@
 import type {
-    BriefingApi,
     HighlightItemApi,
+    HighlightMetricApi,
     HighlightsApi,
     SignalViewApi,
 } from 'products/today/frontend/generated/api.schemas'
@@ -25,39 +25,6 @@ export function signal(overrides: Partial<SignalViewApi>): SignalViewApi {
     }
 }
 
-export function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
-    return {
-        id: 'briefing-1',
-        local_day: '2026-09-30',
-        headline: 'One report needs your input',
-        paragraphs: [[{ text: 'Signup form rejects emails', item_key: 'report:a', highlight: true }]],
-        items: [
-            {
-                key: 'report:a',
-                title: 'Signup form rejects emails',
-                label: 'Signup form rejects emails',
-                signal: 'P1, waits for you',
-                url: '/project/1/inbox/reports/a',
-                rank: 1,
-                group: 'report',
-                source: 'self_driving',
-                reason: 'waiting_for_you',
-                state: 'open',
-                source_product: null,
-                report: null,
-            },
-        ],
-        more_reports_count: 0,
-        open_reports_count: 0,
-        refresh_at: '2026-10-01T06:00:00Z',
-        status: 'ready',
-        writer: 'agent',
-        created_at: '2026-09-30T06:00:00Z',
-        ready_at: '2026-09-30T06:00:20Z',
-        ...overrides,
-    }
-}
-
 export function makeHighlightItem(overrides: Partial<HighlightItemApi> = {}): HighlightItemApi {
     return {
         key: 'alert:a',
@@ -69,6 +36,28 @@ export function makeHighlightItem(overrides: Partial<HighlightItemApi> = {}): Hi
         series: null,
         score: 0.9,
         source: 'alerts',
+        ...overrides,
+    }
+}
+
+export function makePulseMetric(overrides: Partial<HighlightMetricApi> = {}): HighlightMetricApi {
+    return {
+        key: 'insight:abc',
+        name: 'Sign-ups',
+        value: 120,
+        unit: 'number',
+        change_pct: 4,
+        series: [100, 120],
+        interval: 'week',
+        url: '/insights/abc',
+        value_format: null,
+        period_starts: ['2026-09-21', '2026-09-28'],
+        reason: 'routine',
+        dashboard_name: null,
+        opened_days: 5,
+        last_opened: '2026-09-29',
+        movers: [],
+        previous_value: 100,
         ...overrides,
     }
 }

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator, model_validator
 
-from posthog.schema import PropertyOperator
+from posthog.schema import ErrorTrackingOrderBy, PropertyOperator
 
 from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.dashboards.backend.constants import (
@@ -78,7 +78,6 @@ ActivityEventsPropertyValues = Annotated[
     Field(max_length=ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES),
 ]
 
-ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
 SessionReplayOrderBy = Literal[
     "start_time", "activity_score", "recording_duration", "duration", "click_count", "console_error_count"
@@ -169,7 +168,7 @@ class ActivityEventsPropertyFilter(BaseModel):
 
 class ErrorTrackingListWidgetConfig(WidgetListConfigBase):
     limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of issues to return.")
-    orderBy: ErrorTrackingOrderBy = Field(default="occurrences", description="Issue ranking column.")
+    orderBy: ErrorTrackingOrderBy = Field(default=ErrorTrackingOrderBy.OCCURRENCES, description="Issue ranking column.")
     orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
     status: ErrorTrackingWidgetStatus = Field(default="active", description="Issue status filter.")
     assignee: WidgetAssigneeFilter | None = Field(

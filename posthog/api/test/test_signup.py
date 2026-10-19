@@ -704,13 +704,15 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
 
     def test_cant_sign_up_with_weak_passwords(self):
+        next_step = "Try a longer password that isn't a common word or pattern."
         cases = [
-            ["password", "Add another word or two. Uncommon words are better."],
+            ["password", f"This is a top-10 common password. {next_step}"],
             [
                 "test test test",
-                "Add another word or two. Uncommon words are better. Avoid repeated words and characters.",
+                f'Repeats like "abcabcabc" are only slightly harder to guess than "abc". {next_step}',
             ],
-            ["12345678", "Add another word or two. Uncommon words are better."],
+            ["12345678", f"This is a top-10 common password. {next_step}"],
+            ["correcthorse", f"This password is too easy to guess. {next_step}"],
         ]
 
         for password, detail in cases:

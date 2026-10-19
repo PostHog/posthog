@@ -52,6 +52,8 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
     {
         "event",
+        # A transactional email: one authenticated API call runs the workflow once.
+        "api",
         "schedule",
         "manual",
         "batch",
@@ -60,8 +62,12 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "internal-event",
+        "cohort",
     }
 )
+
+# Membership changes a cohort trigger can start a run on.
+COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 
 # The internal events a workflow may subscribe to. The internal-events stream carries payloads
 # that each owning product gates behind its own scopes — recording content, exception detail,

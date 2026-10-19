@@ -11,6 +11,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { ScopeAccessLevel } from 'lib/scopes'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
+import { GatewayKeySpend } from './GatewayKeySpend'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
@@ -169,6 +170,8 @@ export function ProjectSecretAPIKeys(): JSX.Element {
                 showCreatedBy={true}
                 showActions={!restrictionReason}
             />
+
+            <GatewayKeySpend />
 
             <EditKeyModal />
         </>

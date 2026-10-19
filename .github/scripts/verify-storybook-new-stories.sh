@@ -7,8 +7,11 @@ set -euo pipefail
 # Usage:
 #   verify-storybook-new-stories.sh <base_sha> [repeat_count]
 #
+# Pass the merge base, not the base branch tip. A branch tip that moved on since the
+# fork point makes its own story changes look like this branch's.
+#
 # Example:
-#   .github/scripts/verify-storybook-new-stories.sh origin/master 3
+#   .github/scripts/verify-storybook-new-stories.sh "$(git merge-base origin/master HEAD)" 3
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
     echo "Usage: $0 <base_sha> [repeat_count]" >&2
