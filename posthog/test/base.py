@@ -288,6 +288,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(
             r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
         )
+        # The pattern allows one level of nested parentheses inside the lock call.
         query = re.sub(
             r"pg_(?:try_)?advisory_\w+\((?:[^()']|'[^']*'|\([^()]*\))*\)",
             lambda lock_call: re.sub(r"\d+", "99999", lock_call.group(0)),

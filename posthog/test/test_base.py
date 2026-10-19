@@ -9,6 +9,7 @@ from posthog.test.base import (
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.db import reset_queries
 from django.test import TestCase
 
 from clickhouse_driver.errors import ServerException
@@ -69,9 +70,17 @@ class TestSnapshotPostgresQueriesContext(TestCase, QueryMatchingTest):
     def test_cold_content_type_cache_fill_is_neither_captured_nor_counted(self) -> None:
         ContentType.objects.clear_cache()
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(1) as counted:
             with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
                 ContentType.objects.get_for_model(Team)
                 Team.objects.exists()
 
-        assert [query["sql"] for query in context.captured_queries] == ['SELECT 1 AS "a" FROM "posthog_team" LIMIT 1']
+        assert context.captured_queries == [{"sql": query["sql"]} for query in counted.captured_queries]
+
+    def test_capture_keeps_queries_that_ran_before_a_query_log_clear(self) -> None:
+        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
+            Team.objects.exists()
+            reset_queries()
+            Team.objects.exists()
+
+        assert len(context.captured_queries) == 2
