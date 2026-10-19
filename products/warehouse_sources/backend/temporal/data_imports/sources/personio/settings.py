@@ -13,7 +13,7 @@ _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PersonioEndpointConfig:
     name: str
     path: str
