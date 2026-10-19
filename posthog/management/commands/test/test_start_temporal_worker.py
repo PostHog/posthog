@@ -10,6 +10,7 @@ from posthog.management.commands.start_temporal_worker import (
     AI_WORKFLOWS,
     ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
+    DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
@@ -39,6 +40,10 @@ from products.wizard.backend.facade.temporal import (
 
 
 class _NotADataSyncWorkflow:
+    pass
+
+
+def _not_a_data_sync_activity() -> None:
     pass
 
 
@@ -84,17 +89,45 @@ def test_queue_registers_workflows_and_activities(
 # data syncs; everything else stays lazy to keep startup fast. Queue settings collapse to a single
 # dev queue under DEBUG, so assert the gating predicate directly against workflow sets.
 @pytest.mark.parametrize(
-    "workflows,expected",
+    "workflows,activities,expected",
     [
-        (list(DATA_SYNC_WORKFLOWS), True),
-        ([DATA_SYNC_WORKFLOWS[0]], True),
-        ([DATA_SYNC_WORKFLOWS[0], _NotADataSyncWorkflow], True),
-        ([_NotADataSyncWorkflow], False),
-        ([], False),
+        (list(DATA_SYNC_WORKFLOWS), [], True),
+        ([DATA_SYNC_WORKFLOWS[0]], [], True),
+        ([DATA_SYNC_WORKFLOWS[0], _NotADataSyncWorkflow], [], True),
+        ([_NotADataSyncWorkflow], [], False),
+        ([], [], False),
+        # The control-plane queue has no workflow, but its job-status activity looks up source classes.
+        ([], list(DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES), True),
+        ([], [DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES[0], _not_a_data_sync_activity], True),
+        ([_NotADataSyncWorkflow], [_not_a_data_sync_activity], False),
     ],
 )
-def test_only_data_import_queues_warm_sources(workflows: list[type], expected: bool) -> None:
-    assert workflows_include_data_import_syncs(workflows) is expected
+def test_only_data_import_queues_warm_sources(
+    workflows: list[type], activities: list[Callable[..., object]], expected: bool
+) -> None:
+    assert workflows_include_data_import_syncs(workflows, activities) is expected
+
+
+# The import workflows route these activities to the control-plane queue when a setting is on. The
+# import queue must keep them too: with the setting off, or while routed tasks drain after a rollback,
+# the import worker is their only poller. Queue settings collapse to a single dev queue under DEBUG,
+# so match on the spec entries rather than on queue names.
+def test_control_plane_activities_are_registered_on_both_warehouse_queues() -> None:
+    assert DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES
+    control_plane_entries = [
+        (workflows, activities)
+        for queue, workflows, activities in _task_queue_specs
+        if queue == settings.DATA_WAREHOUSE_CONTROL_PLANE_TASK_QUEUE
+        and activities is DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES
+    ]
+    assert control_plane_entries == [([], DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES)]
+
+    import_entries = [
+        activities for _, workflows, activities in _task_queue_specs if DATA_SYNC_WORKFLOWS[0] in workflows
+    ]
+    assert import_entries
+    for activities in import_entries:
+        assert set(DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES) <= set(activities)
 
 
 # The WA digest schedules name their task queue explicitly, so if these workflows stop being

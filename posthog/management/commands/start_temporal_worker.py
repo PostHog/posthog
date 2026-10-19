@@ -314,6 +314,7 @@ from products.today.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    CONTROL_PLANE_ACTIVITIES as DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
     METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
     PERSON_PROPERTY_BACKFILL_ACTIVITIES,
@@ -357,6 +358,12 @@ _task_queue_specs = [
         settings.DATA_WAREHOUSE_TASK_QUEUE,
         DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
         DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
+    ),
+    # Activities only: the import workflows run on DATA_WAREHOUSE_TASK_QUEUE and route these here.
+    (
+        settings.DATA_WAREHOUSE_CONTROL_PLANE_TASK_QUEUE,
+        [],
+        DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES,
     ),
     (
         settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
@@ -662,9 +669,17 @@ ACTIVITY_WORKER_CONFIGS = {
 }
 
 
-def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
-    """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
-    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
+def workflows_include_data_import_syncs(
+    workflows: collections.abc.Iterable[type],
+    activities: collections.abc.Iterable[typing.Callable[..., typing.Any]] = (),
+) -> bool:
+    """True when this worker runs data-warehouse source syncs and must eagerly load the sources.
+
+    The control-plane queue registers no workflow, but its job-status activity looks up source classes.
+    """
+    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows) or any(
+        act in DATA_WAREHOUSE_CONTROL_PLANE_ACTIVITIES for act in activities
+    )
 
 
 if settings.DEBUG:
@@ -814,7 +829,7 @@ class Command(BaseCommand):
         # Deferring to the first SourceRegistry.get_source() at runtime (the lazy path) let the
         # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
         # import the vendor SDKs, so they keep their fast startup.
-        if workflows_include_data_import_syncs(workflows):
+        if workflows_include_data_import_syncs(workflows, activities):
             load_all_sources()
 
         if options["client_key"]:

@@ -39,6 +39,7 @@ from products.managed_warehouse.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.control_plane import control_plane_task_queue
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     DataQualitySuiteTriggerInputs,
     EmitSignalsActivityInputs,
@@ -422,6 +423,7 @@ class PostImportWorkflow(PostHogWorkflow):
         ctx = await workflow.execute_activity(
             resolve_post_import_context_activity,
             inputs,
+            task_queue=control_plane_task_queue(),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
