@@ -25,7 +25,8 @@ function isGroup(segment: string): boolean {
     return segment.startsWith('(') && segment.endsWith(')')
 }
 
-// The index route has no segment and redirects to the inbox, so both hold the splash until the inbox loads.
+// The index route has no segment and redirects to the default page, so it and the inbox hold the splash until the
+// inbox loads. Chats and Views show their own loading state at once.
 function holdsSplash(segments: readonly string[]): boolean {
     const first = segments.find((segment) => !isGroup(segment))
     return first === undefined || first === 'inbox'

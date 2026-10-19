@@ -59,7 +59,8 @@ products/mobile/
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
-                          EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow
+                          EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
+                          DefaultPageGroup, defaultPageStore (the tab the app opens on)
     lib/                  analytics, posthogClient, dates, errors, haptics, richText, useAsyncAction, useNow,
                           environment (build variant, host kind, update id), appVariants (+ .json), legalLinks
     ui/                   tokens.ts, primitives (SearchField, StateView, ...), icons/

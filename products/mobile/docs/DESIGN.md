@@ -174,3 +174,7 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
 - **Sign-in**: the logo, form and account link are vertically centered above the legal footer. Privacy policy and Terms sit at the bottom safe area. The page scrolls when the form needs more room, including with the keyboard open.
 - **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
   large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).
+  Groups run Start page, Project, Notifications, Demo (dev builds), App, Account, Environment (internal builds), Legal, then Sign out.
+  Start page and Project use the same radio rows (`SettingsRadioRow`).
+  Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
+  Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.

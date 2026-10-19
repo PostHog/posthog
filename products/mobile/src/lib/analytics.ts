@@ -11,6 +11,7 @@ export type AnalyticsEvent =
     | 'mobile_demo_started'
     | 'mobile_demo_ended'
     | 'mobile_settings_opened'
+    | 'mobile_default_page_changed'
     | 'mobile_push_enable_pressed'
     | 'mobile_push_permission_resolved'
     | 'mobile_push_registration_finished'

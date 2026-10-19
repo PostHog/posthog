@@ -5,9 +5,10 @@ import { useAuthStore } from '@/auth/authStore'
 import { groupByOrganization } from '@/features/projects/projectList'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { colors, radii, type } from '@/ui/tokens'
 
 import { SettingsGroup } from './SettingsGroup'
+import { SettingsRadioRow } from './SettingsRadioRow'
 
 export function ProjectSwitcher(): ReactElement {
     const projects = useAuthStore((state) => state.projects)
@@ -73,28 +74,15 @@ export function ProjectSwitcher(): ReactElement {
                           </Text>,
                       ]
                     : []),
-                ...group.projects.map((project) => {
-                    const selected = project.id === projectId
-                    return (
-                        <Pressable44
-                            key={project.id}
-                            onPress={() => selectProject(project.id, 'settings')}
-                            accessibilityRole="radio"
-                            accessibilityState={{ checked: selected }}
-                            accessibilityLabel={project.name}
-                            pressedBackground={colors.background}
-                            style={styles.projectRow}
-                            testID={`project-${project.id}`}
-                        >
-                            <Text style={styles.projectName} numberOfLines={1}>
-                                {project.name}
-                            </Text>
-                            <View style={[styles.radio, selected && styles.radioSelected]}>
-                                {selected ? <View style={styles.radioDot} /> : null}
-                            </View>
-                        </Pressable44>
-                    )
-                }),
+                ...group.projects.map((project) => (
+                    <SettingsRadioRow
+                        key={project.id}
+                        label={project.name}
+                        selected={project.id === projectId}
+                        onPress={() => selectProject(project.id, 'settings')}
+                        testID={`project-${project.id}`}
+                    />
+                )),
             ])}
             {accountError ? <View style={styles.retryRow}>{retry}</View> : null}
         </SettingsGroup>
@@ -107,37 +95,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingTop: 16,
         paddingBottom: 10,
-    },
-    projectRow: {
-        minHeight: 52,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        paddingHorizontal: 16,
-    },
-    projectName: {
-        ...type.body,
-        color: colors.ink,
-        flex: 1,
-    },
-    radio: {
-        width: iconSizes.control,
-        height: iconSizes.control,
-        borderRadius: radii.pill,
-        borderWidth: 1.5,
-        borderColor: colors.border,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    radioSelected: {
-        borderColor: colors.ink,
-        backgroundColor: colors.ink,
-    },
-    radioDot: {
-        width: 8,
-        height: 8,
-        borderRadius: radii.pill,
-        backgroundColor: colors.white,
     },
     stateRow: {
         minHeight: 52,

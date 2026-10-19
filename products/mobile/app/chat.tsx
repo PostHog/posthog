@@ -3,6 +3,7 @@ import { type ReactElement, useCallback } from 'react'
 
 import { ChatSheet } from '@/features/chat/ChatSheet'
 import { chatSheetSource } from '@/features/chat/chatSheetEvents'
+import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 
 export default function ChatRoute(): ReactElement {
     const router = useRouter()
@@ -17,7 +18,7 @@ export default function ChatRoute(): ReactElement {
         if (router.canGoBack()) {
             router.back()
         } else {
-            router.replace('/inbox')
+            router.replace(currentDefaultPageHref())
         }
     }, [router])
     return (

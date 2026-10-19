@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useCallback } from 'react'
 import { StyleSheet, View } from 'react-native'
 
+import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 import { ChartSelectionProvider } from '@/ui/chart/selection/ChartSelectionProvider'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { colors } from '@/ui/tokens'
@@ -34,14 +35,14 @@ export function ViewScreenFrame({ children, chrome }: ViewScreenFrameProps): Rea
     )
 }
 
-/** Back to the previous screen, or to the inbox when a deep link opened the view. */
+/** Back to the previous screen, or to the default page when a deep link opened the view. */
 export function useViewBack(): () => void {
     const router = useRouter()
     return useCallback(() => {
         if (router.canGoBack()) {
             router.back()
         } else {
-            router.replace('/inbox')
+            router.replace(currentDefaultPageHref())
         }
     }, [router])
 }

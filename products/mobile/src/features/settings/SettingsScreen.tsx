@@ -13,6 +13,8 @@ import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { readAppVersion } from './appInfo'
+import { DefaultPageGroup } from './DefaultPageGroup'
+import { currentDefaultPageHref } from './defaultPageStore'
 import { EnvironmentGroup } from './EnvironmentGroup'
 import { LegalGroup } from './LegalGroup'
 import { ProjectSwitcher } from './ProjectSwitcher'
@@ -46,7 +48,7 @@ export function SettingsScreen(): ReactElement {
         if (router.canGoBack()) {
             router.back()
         } else {
-            router.replace('/inbox')
+            router.replace(currentDefaultPageHref())
         }
     }
     const toggleDemo = (enabled: boolean): void => {
@@ -76,11 +78,7 @@ export function SettingsScreen(): ReactElement {
                     Settings
                 </Text>
                 <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
-                <SettingsGroup title="Account" testID="settings-account">
-                    <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
-                    {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
-                    {demo ? <SettingsRow label="Project" value={viewer.projectName || 'None'} /> : null}
-                </SettingsGroup>
+                <DefaultPageGroup />
                 {signedIn && !demo ? <ProjectSwitcher /> : null}
                 {signedIn ? <PushStatusGroup /> : null}
                 {__DEV__ ? (
@@ -110,6 +108,11 @@ export function SettingsScreen(): ReactElement {
                 ) : null}
                 <SettingsGroup title="App">
                     <SettingsRow label="Version" value={version} />
+                </SettingsGroup>
+                <SettingsGroup title="Account" testID="settings-account">
+                    <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
+                    {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
+                    {demo ? <SettingsRow label="Project" value={viewer.projectName || 'None'} /> : null}
                 </SettingsGroup>
                 {isInternalBuild ? <EnvironmentGroup host={sessionHost} /> : null}
                 <LegalGroup accountHost={signedIn && !demo ? host : null} />
