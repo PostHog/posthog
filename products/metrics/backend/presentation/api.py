@@ -28,7 +28,7 @@ from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models import User
@@ -1126,7 +1126,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team.pk,
         ):
             raise PermissionDenied("PromQL variable queries are not enabled for this project.")
-        if data["source"] == MetricVariableSource.PROMQL and api_queries_budget_enforcement_enabled(self.team):
+        # API keys are budgeted as on /query, so SQL options debit the reads they make.
+        if get_query_tag_value("access_method") == "personal_api_key":
+            tag_queries(api_queries_budgeted=True)
+        if api_queries_budget_enforcement_enabled(self.team):
             budget = get_api_queries_budget_status(self.team)
             if budget is not None and budget.remaining_bytes <= 0:
                 raise Throttled(

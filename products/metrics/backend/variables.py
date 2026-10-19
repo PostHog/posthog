@@ -52,6 +52,8 @@ class Variable:
     options: tuple[str, ...]
     # Grafana puts an imported all value into the query as it is written, whatever string holds it.
     all_value_as_written: bool = False
+    # True once All has the values of every option, which can be none.
+    loaded: bool = False
 
 
 @frozen
@@ -300,7 +302,7 @@ def all_definitions(
 
 
 def with_values(variable: Variable, values: Iterable[str]) -> Variable:
-    return dataclasses.replace(variable, values=tuple(values))
+    return dataclasses.replace(variable, values=tuple(values), loaded=True)
 
 
 def format_promql(variable: Variable, value_format: str | None, *, context: PromQLStringContext) -> str:
@@ -384,7 +386,7 @@ def _comment_end(sql: str, start: int) -> int | None:
 
 
 def _sql_placeholder(name: str, variable: Variable) -> ast.Expr:
-    if variable.is_all and not variable.values:
+    if variable.is_all and not variable.values and not variable.loaded:
         raise ValueError(f"${name} is set to All, but its values are not known. Select values for ${name}.")
     if len(variable.values) == 1 and not variable.is_all:
         return ast.Constant(value=variable.values[0])

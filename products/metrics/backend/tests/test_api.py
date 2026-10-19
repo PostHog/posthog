@@ -17,6 +17,7 @@ from rest_framework import status
 
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
+from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -31,8 +32,13 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.variable_options import fill_all_values, list_variable_options
-from products.metrics.backend.variables import Variable
+from products.metrics.backend.variable_options import (
+    _shared_options,
+    cache as options_cache,
+    fill_all_values,
+    list_variable_options,
+)
+from products.metrics.backend.variables import Variable, substitute_sql
 
 
 class TestMetricsValuesApi(APIBaseTest):
@@ -262,7 +268,8 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         run.assert_not_called()
 
-    def test_promql_options_respect_the_query_byte_budget(self) -> None:
+    @parameterized.expand([("promql", "query_result(up)"), ("sql", OPTIONS_SQL)])
+    def test_options_respect_the_query_byte_budget(self, source: str, query: str) -> None:
         exhausted = MagicMock(remaining_bytes=0, retry_after_seconds=30)
         with (
             patch(
@@ -270,11 +277,39 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
             ),
             patch("products.metrics.backend.presentation.api.get_api_queries_budget_status", return_value=exhausted),
             patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
+            patch("products.metrics.backend.variable_options.run_metrics_sql_values") as run,
         ):
-            response = self._post({"source": "promql", "query": "query_result(up)"})
+            response = self._post({"source": source, "query": query})
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         request.assert_not_called()
+        run.assert_not_called()
+
+    def test_all_without_options_is_an_empty_set(self) -> None:
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=[]):
+            filled = fill_all_values(
+                team=self.team,
+                names=["job"],
+                variables={"job": Variable(values=(), is_all=True, all_value=None, options=())},
+                definitions={
+                    "job": MetricsDashboardVariable(
+                        name="job", source=MetricsDashboardVariableSource.SQL, query=OPTIONS_SQL, includeAll=True
+                    )
+                },
+                date_from=timezone.now() - timedelta(hours=1),
+                date_to=timezone.now(),
+            )
+
+        substitution = substitute_sql("SELECT 1 WHERE service_name IN $job", filled)
+        assert substitution.placeholders == {"metric_variable_job": ast.Tuple(exprs=[])}
+
+    def test_a_load_that_outlives_its_lock_keeps_the_new_lock(self) -> None:
+        def slow_load() -> list[str]:
+            options_cache.set("options:lock", "taken-over", 90)
+            return ["a"]
+
+        assert _shared_options("options", slow_load) == ["a"]
+        assert options_cache.get("options:lock") == "taken-over"
 
     def test_clickhouse_limits_are_shown_to_the_user(self) -> None:
         with patch(
