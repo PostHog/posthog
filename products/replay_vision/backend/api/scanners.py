@@ -140,6 +140,7 @@ from products.replay_vision.backend.quota import (
     free_credits_ceiling,
     org_credit_cap,
     quota_state,
+    quota_state_for_cap,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
@@ -3307,12 +3308,20 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         goal = body.validated_data["goal"]
         free_only = body.validated_data["free_only"]
-        # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
-        monthly_credit_budget = (
-            free_credits_ceiling(org_credit_cap(self.team.organization_id))
-            if free_only
-            else body.validated_data["monthly_credit_budget"]
-        )
+        if free_only:
+            cap = org_credit_cap(self.team.organization_id)
+            # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
+            monthly_credit_budget = free_credits_ceiling(cap)
+            # A free-only draft saved after the free credits run out pauses before its first scan.
+            if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
+                raise ValidationError(
+                    {
+                        "free_only": "Your organization has used its free credits for this billing period. "
+                        "Set a monthly credit budget instead."
+                    }
+                )
+        else:
+            monthly_credit_budget = body.validated_data["monthly_credit_budget"]
         # The goal is customer text, so only its length goes into telemetry.
         draft_properties: dict[str, Any] = {
             "goal_length": len(goal),

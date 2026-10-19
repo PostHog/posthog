@@ -1,5 +1,6 @@
 import threading
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -22,6 +23,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
@@ -573,6 +576,31 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.json()["attr"] == attr
         mock_generate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("free_credits_left", FREE_TIER_MONTHLY_CREDITS - 1, 200),
+            ("free_credits_used", FREE_TIER_MONTHLY_CREDITS, 400),
+        ]
+    )
+    @patch(_GENERATE_PATH)
+    def test_free_only_needs_free_credits_left(self, _name, credits_spent, expected_status, mock_generate):
+        mock_generate.return_value = _draft()
+        ReplayObservationUsage.objects.create(
+            observation_id=uuid4(),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            observation_created_at=timezone.now(),
+            model="gemini-3-flash-preview",
+            credits=credits_spent,
+        )
+
+        resp = self._post(spend={"free_only": True})
+
+        assert resp.status_code == expected_status, resp.json()
+        if expected_status == 400:
+            assert resp.json()["attr"] == "free_only"
+            mock_generate.assert_not_called()
 
     @patch(_GENERATE_PATH, side_effect=DraftError("model down"))
     def test_model_failure_is_a_clean_503(self, _mock):
