@@ -14,6 +14,7 @@ import {
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionScannersBulkObserveCreate, visionScannersObservationsList } from '../generated/api'
@@ -389,20 +390,21 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     // Ordering pinned: the newest-wins mapping below depends on it, not on the API default.
                     // Without a limit the server's default page truncates the tail and those sessions read
                     // as "Not scanned" when they have been.
-                    const chunks: string[][] = []
-                    for (let start = 0; start < sessionIds.length; start += SESSIONS_PER_LOOKUP) {
-                        chunks.push(sessionIds.slice(start, start + SESSIONS_PER_LOOKUP))
-                    }
-                    const responses = await Promise.all(
-                        chunks.map((chunk) =>
+                    // A failed lookup only blanks its own sessions, so one 5xx doesn't discard the rest of the poll.
+                    const settled = await Promise.allSettled(
+                        chunk(sessionIds, SESSIONS_PER_LOOKUP).map((ids) =>
                             visionScannersObservationsList(String(teamId), props.scannerId, {
-                                session_id: chunk.join(','),
+                                session_id: ids.join(','),
                                 order_by: '-created_at',
-                                limit: chunk.length * OBSERVATIONS_PER_SESSION_ALLOWANCE,
+                                limit: ids.length * OBSERVATIONS_PER_SESSION_ALLOWANCE,
                             })
                         )
                     )
                     breakpoint()
+                    const responses = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+                    if (responses.length === 0) {
+                        throw (settled[0] as PromiseRejectedResult).reason
+                    }
                     const bySession: Record<string, RowObservation> = {}
                     for (const observation of responses.flatMap((response) => response.results ?? [])) {
                         // Results are newest-first — the first observation per session is the one the row reflects.

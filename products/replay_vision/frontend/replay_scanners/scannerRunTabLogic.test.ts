@@ -80,21 +80,36 @@ describe('scannerRunTabLogic', () => {
         expect(lookupUrl).toContain('limit=12')
     })
 
-    it('splits a large selection into lookups short enough for the URL limit', async () => {
+    it('splits a large selection into short lookups and keeps the chunks that succeed', async () => {
         const sessionIds = Array.from(
             { length: 120 },
             (_, i) => `0190f5c2-0000-7000-8000-${String(i).padStart(12, '0')}`
         )
+        const lookedUp: string[][] = []
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/:id/observations/': ({ request }: { request: Request }) => {
+                    const ids = new URL(request.url).searchParams.get('session_id')?.split(',') ?? []
+                    lookedUp.push(ids)
+                    if (ids.includes(sessionIds[0])) {
+                        return [500, {}]
+                    }
+                    return [
+                        200,
+                        { results: ids.map((id) => ({ id: `obs-${id}`, session_id: id, status: 'succeeded' })) },
+                    ]
+                },
+            },
+        })
 
         await expectLogic(logic, () => logic.actions.setVisibleSessionIds(sessionIds)).toDispatchActions([
             'loadObservationsSuccess',
         ])
 
-        const lookedUp = requestedUrls
-            .filter((url) => url.includes('session_id='))
-            .map((url) => new URL(url).searchParams.get('session_id')!.split(','))
-        expect(lookedUp.every((ids) => ids.length <= 50)).toBe(true)
+        expect(Math.max(...lookedUp.map((ids) => ids.length))).toBeLessThanOrEqual(50)
         expect(lookedUp.flat().sort()).toEqual([...sessionIds].sort())
+        // The first chunk's lookup failed, so only the other chunks' sessions carry an observation.
+        expect(Object.keys(logic.values.observationBySession).sort()).toEqual(sessionIds.slice(50).sort())
     })
 
     it('releases the pending bridge once the scanned session lands in the lookup', async () => {
