@@ -9,6 +9,7 @@ from django.db.models.functions import Cast
 
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
+from products.messaging.backend.services.content_hash import email_content_hash, superseded_after_publish
 
 
 def get_email_content(team_id: int, template_id: UUID) -> dict | None:
@@ -78,36 +79,38 @@ def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
 
 
+def team_template_with_key(team_id: int, key: str) -> MessageTemplate:
+    # A deleted template releases its key, so only one template that is not deleted can hold it.
+    return MessageTemplate.objects.get(team_id=team_id, deleted=False, key=key)
+
+
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:
     # Not filtered on deleted, as the related field this serves never was.
     return MessageCategory.objects.get(team_id=team_id, pk=category_id).pk
 
 
-def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
+def apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
     for attr, value in fields.items():
         setattr(template, "message_category_id" if attr == "message_category" else attr, value)
 
 
 def create_template(team_id: int, created_by_id: int | None, fields: dict[str, Any]) -> MessageTemplate:
     template = MessageTemplate(team_id=team_id, created_by_id=created_by_id)
-    _apply_fields(template, fields)
+    apply_fields(template, fields)
+    record_content_hash(template)
     template.save(force_insert=True)
     return template
 
 
-def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any]) -> MessageTemplate:
-    template = team_template(team_id, template_id)
-    _apply_fields(template, fields)
-    template.save()
-    return template
+def edit_content(template: MessageTemplate, edit: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
+    template.content = edit(deepcopy(template.content or {}))
 
 
-def edit_content_locked(
-    team_id: int, template_id: UUID | str, edit: Callable[[dict[str, Any]], dict[str, Any]]
-) -> MessageTemplate:
-    with transaction.atomic():
-        # nosemgrep: idor-lookup-without-team (re-fetch of an already team-scoped template, locked for update)
-        locked = MessageTemplate.objects.select_for_update().get(pk=team_template(team_id, template_id).pk)
-        locked.content = edit(deepcopy(locked.content or {}))
-        locked.save()
-    return locked
+def record_content_hash(template: MessageTemplate) -> None:
+    """Set the hash of the template's email, and remember the hash it replaces."""
+    email = (template.content or {}).get("email")
+    published_hash = email_content_hash(email if isinstance(email, dict) else {})
+    template.superseded_content_hashes = superseded_after_publish(
+        template.content_hash, published_hash, template.superseded_content_hashes or []
+    )
+    template.content_hash = published_hash

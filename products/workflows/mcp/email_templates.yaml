@@ -73,6 +73,9 @@ tools:
             exclude:
                 - content
                 - created_by
+                - change_prompt_starter
+                - change_prompt_context
+                - change_prompt_variables
     workflows-patch-email-template:
         operation: messaging_templates_design_partial_update
         enabled: true
@@ -95,7 +98,8 @@ tools:
             changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the
             design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if
             valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the
-            result.
+            result. A template whose managed_by is code refuses this with 403 immutable: change its file in the
+            repository and upload it with workflows-upload-email-template instead.
         response:
             exclude:
                 - content
@@ -120,6 +124,46 @@ tools:
             exclude:
                 - content.email.design
                 - created_by
+    workflows-upload-email-template:
+        operation: messaging_templates_by_key_update
+        enabled: true
+        feature_flag: workflows-transactional-email-api
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Upload email template by key
+        description: >
+            Upload an email template kept as an HTML file in a repository, by a key you choose (such as welcome or
+            password-reset). Use this for templates that live in code; use workflows-create-email-template for
+            templates designed in PostHog. Send name, subject, html, and optionally text, preheader and source
+            (repository, path, ref of the file). Use {{ variables.* }} for every value the email needs; templates
+            can't read person properties. The first upload creates the template and makes it sendable over the
+            transactional email API with the project's default verified sender, so verify a sender first. Later uploads
+            publish changed content at once and answer unchanged when nothing changed. Uploading replaces edits made
+            in PostHog. When you upload only because a send answered template_outdated, set if_not_superseded: an
+            answer of superseded means newer content is already published and nothing changed. Leave it out to publish
+            this content even when newer content replaced it, such as to roll back. A plain 404 means the transactional email API is not enabled for this project: stop and tell
+            the user.
+    workflows-send-email:
+        operation: messaging_send_email_create
+        enabled: true
+        feature_flag: workflows-transactional-email-api
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send transactional email
+        description: >
+            Send one transactional email to one recipient from a template, named by template.key (as uploaded with
+            workflows-upload-email-template) or template.id (a template made in PostHog). Put every value the
+            template needs into message_data, read as {{ variables.* }}; the template can't read person properties.
+            Set identifiers.distinct_id to record the email on that person. Pass template.hash, the content_hash of the
+            last upload, to check that PostHog holds that content: template_outdated means nothing was sent, so upload
+            the template and send again; a template_superseded warning means newer content was sent. Each call sends
+            an email, so never repeat a call that succeeded. A plain 404 without a code means the transactional email
+            API is not enabled for this project: stop and tell the user.
     workflows-update-email-template:
         operation: messaging_templates_partial_update
         enabled: true
@@ -138,9 +182,14 @@ tools:
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
             back the complete content.email with your edited design. The server re-renders the sent email from the
             design on save. After updating, call workflows-show-email-template so the user sees the result, and share
-            the returned _posthogUrl edit link.
+            the returned _posthogUrl edit link. A template whose managed_by is code refuses every update with 403
+            immutable: change its file in the repository and upload it with workflows-upload-email-template instead.
+            To move a template made in PostHog into code, send key (such as welcome) as the only field. A key is set
+            once and never changes. The next workflows-upload-email-template with that key updates this template and
+            keeps its id, workflow and sender.
         exclude_params:
             - content.email.html
+            - managed_by
         response:
             exclude:
                 - content

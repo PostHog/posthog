@@ -3,26 +3,44 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { messagingTemplatesMakeTransactionalCreate } from 'products/messaging/frontend/generated/api'
+import type { TemplateManagedByEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import {
+    TemplateSource,
+    isChangeDescribed,
+    isCodeManagedTemplate,
+    templateSource,
+    withoutServerOwnedFields,
+} from './codeManagedTemplate'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { templateCopy } from './templateCopy'
+import { templateHtmlFile } from './templateHtmlFile'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
+
+export interface AgentPromptEventProperties {
+    template_id: string
+    has_path: boolean
+    has_repository: boolean
+}
 
 export interface MessageTemplateLogicProps {
     id: string
@@ -33,8 +51,17 @@ export interface MessageTemplateLogicProps {
 export interface messageTemplateLogicValues {
     aiComposerAvailable: boolean // newTemplateAgentLogic
     currentTeamIdStrict: number | string // teamLogic
+    agentPrompt: string
+    agentPromptEventProperties: AgentPromptEventProperties
+    agentPromptOpen: boolean
+    changePromptStarter: string
+    changeSentence: string
+    changeSentenceDraft: string | null
+    copyAgentPromptDisabledReason: string | undefined
     deferredExternalEdit: ResourceEditedEvent | null
     externallyEdited: boolean
+    isCodeManaged: boolean
+    isDuplicating: boolean
     isMakingTransactional: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
@@ -43,12 +70,16 @@ export interface messageTemplateLogicValues {
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
+    refusedEdits: MessageTemplate | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
     templateChanged: boolean
     templateErrors: DeepPartialMap<
         {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -57,7 +88,12 @@ export interface messageTemplateLogicValues {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -67,10 +103,14 @@ export interface messageTemplateLogicValues {
     templateLoading: boolean
     templateManualErrors: Record<string, any>
     templatePickerOpen: boolean
+    templateSource: TemplateSource | null
     templateTouched: boolean
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
         {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -79,7 +119,12 @@ export interface messageTemplateLogicValues {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -94,10 +139,25 @@ export interface messageTemplateLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    copyAgentPrompt: () => {
+        value: true
+    }
+    copyHtmlFile: () => {
+        value: true
+    }
     deleteTemplate: () => {
         value: true
     }
+    discardChangeSentence: () => {
+        value: true
+    }
     duplicateTemplate: () => {
+        value: true
+    }
+    duplicateTemplateDone: () => {
+        value: true
+    }
+    duplicateWithMyChanges: () => {
         value: true
     }
     keepMyTemplateVersion: () => {
@@ -139,10 +199,28 @@ export interface messageTemplateLogicActions {
     makeTransactionalDone: (hogFlowId: string | null) => {
         hogFlowId: string | null
     }
+    releaseTemplate: () => any
+    releaseTemplateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    releaseTemplateSuccess: (
+        template: MessageTemplate,
+        payload?: any
+    ) => {
+        template: MessageTemplate
+        payload?: any
+    }
     replayDeferredExternalEdit: () => {
         value: true
     }
     resetTemplate: (values?: {
+        change_prompt_context?: string | null | undefined
+        change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -151,11 +229,19 @@ export interface messageTemplateLogicActions {
         created_by: UserBasicType | null
         description: string
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
         values?: {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -164,7 +250,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -184,6 +275,12 @@ export interface messageTemplateLogicActions {
         template: MessageTemplate
         payload?: any
     }
+    setAgentPromptOpen: (open: boolean) => {
+        open: boolean
+    }
+    setChangeSentence: (sentence: string) => {
+        sentence: string
+    }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
     }
@@ -192,6 +289,9 @@ export interface messageTemplateLogicActions {
     }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
+    }
+    setRefusedEdits: (edits: MessageTemplate | null) => {
+        edits: MessageTemplate | null
     }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
@@ -214,6 +314,9 @@ export interface messageTemplateLogicActions {
     }
     setTemplateValues: (
         values: DeepPartial<{
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -222,12 +325,20 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
     ) => {
         values: DeepPartial<{
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -236,7 +347,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -255,6 +371,9 @@ export interface messageTemplateLogicActions {
         errors: Record<string, any>
     }
     submitTemplateRequest: (template: {
+        change_prompt_context?: string | null | undefined
+        change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -263,11 +382,19 @@ export interface messageTemplateLogicActions {
         created_by: UserBasicType | null
         description: string
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
         template: {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -276,12 +403,20 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
     }
     submitTemplateSuccess: (template: {
+        change_prompt_context?: string | null | undefined
+        change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -290,11 +425,19 @@ export interface messageTemplateLogicActions {
         created_by: UserBasicType | null
         description: string
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
         template: {
+            change_prompt_context?: string | null | undefined
+            change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -303,7 +446,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -325,6 +473,13 @@ export interface messageTemplateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
+        isCodeManaged: (originalTemplate: MessageTemplate) => boolean
+        templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
+        changePromptStarter: (originalTemplate: MessageTemplate) => string
+        changeSentence: (changeSentenceDraft: string | null, changePromptStarter: string) => string
+        agentPrompt: (changeSentence: string, originalTemplate: MessageTemplate) => string
+        copyAgentPromptDisabledReason: (changeSentence: string, changePromptStarter: string) => string | undefined
+        agentPromptEventProperties: (originalTemplate: MessageTemplate) => AgentPromptEventProperties
     }
 }
 
@@ -334,6 +489,17 @@ export type messageTemplateLogicType = MakeLogicType<
     MessageTemplateLogicProps,
     messageTemplateLogicMeta
 >
+
+async function createCopyOf(source: MessageTemplate): Promise<MessageTemplate | null> {
+    try {
+        const copy = await api.messaging.createTemplate(templateCopy(source))
+        lemonToast.success('Template duplicated successfully')
+        return copy
+    } catch (error: any) {
+        lemonToast.error(error?.detail || 'Failed to duplicate template')
+        return null
+    }
+}
 
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
@@ -347,6 +513,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
+        duplicateTemplateDone: true,
+        setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
+        duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
@@ -359,6 +528,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         makeTransactional: true,
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
+        setAgentPromptOpen: (open: boolean) => ({ open }),
+        setChangeSentence: (sentence: string) => ({ sentence }),
+        discardChangeSentence: true,
+        copyAgentPrompt: true,
+        copyHtmlFile: true,
     }),
     selectors({
         logicProps: [
@@ -366,7 +540,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         template: {
             defaults: {
                 ...NEW_TEMPLATE,
@@ -380,7 +554,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
-                actions.saveTemplate(template)
+                if (!values.isCodeManaged) {
+                    actions.saveTemplate(template)
+                }
             },
         },
     })),
@@ -407,6 +583,21 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 makeTransactionalDone: () => false,
             },
         ],
+        isDuplicating: [
+            false,
+            {
+                duplicateTemplate: () => true,
+                duplicateWithMyChanges: () => true,
+                duplicateTemplateDone: () => false,
+            },
+        ],
+        // Unsaved edits that the server refused because an upload claimed the template back for code.
+        refusedEdits: [
+            null as MessageTemplate | null,
+            {
+                setRefusedEdits: (_, { edits }) => edits,
+            },
+        ],
         transactionalTab: [
             'design' as TransactionalTemplateTab,
             {
@@ -417,6 +608,19 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 setTemplatePickerOpen: (_, { open }) => open,
+            },
+        ],
+        agentPromptOpen: [
+            false,
+            {
+                setAgentPromptOpen: (_, { open }) => open,
+            },
+        ],
+        changeSentenceDraft: [
+            null as string | null,
+            {
+                setChangeSentence: (_, { sentence }) => sentence,
+                discardChangeSentence: () => null,
             },
         ],
         // Another channel (the PostHog AI agent, the API, another tab) saved this template while the form
@@ -449,6 +653,41 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
         ],
+        isCodeManaged: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): boolean => isCodeManagedTemplate(originalTemplate),
+        ],
+        templateSource: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): TemplateSource | null => templateSource(originalTemplate),
+        ],
+        changePromptStarter: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): string => originalTemplate.change_prompt_starter ?? '',
+        ],
+        changeSentence: [
+            (s) => [s.changeSentenceDraft, s.changePromptStarter],
+            (changeSentenceDraft: string | null, changePromptStarter: string): string =>
+                changeSentenceDraft ?? changePromptStarter,
+        ],
+        agentPrompt: [
+            (s) => [s.changeSentence, s.originalTemplate],
+            (changeSentence: string, originalTemplate: MessageTemplate): string =>
+                `${changeSentence}\n\n${originalTemplate.change_prompt_context ?? ''}`,
+        ],
+        copyAgentPromptDisabledReason: [
+            (s) => [s.changeSentence, s.changePromptStarter],
+            (changeSentence: string, changePromptStarter: string): string | undefined =>
+                isChangeDescribed(changeSentence, changePromptStarter) ? undefined : 'Describe the change first',
+        ],
+        agentPromptEventProperties: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): AgentPromptEventProperties => ({
+                template_id: originalTemplate.id,
+                has_path: !!originalTemplate.source_path,
+                has_repository: !!originalTemplate.source_repository,
+            }),
+        ],
     }),
     loaders(({ props }) => ({
         template: {
@@ -465,8 +704,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 if (template.id === 'new') {
                     return api.messaging.createTemplate(template)
                 }
-                return api.messaging.updateTemplate(template.id, template)
+                return api.messaging.updateTemplate(template.id, withoutServerOwnedFields(template))
             },
+            releaseTemplate: () => api.messaging.updateTemplate(props.id, { managed_by: 'gui' }),
         },
         message: {
             loadMessage: async () => {
@@ -477,7 +717,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, selectors }) => ({
         resourceEdited: ({ event }) => {
             if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
                 actions.templateEditedElsewhere(event)
@@ -514,6 +754,68 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         keepMyTemplateVersion: () => {
             actions.setExternallyEdited(false)
         },
+        // A code-managed form never diverges from the server copy, so nothing can save or autosave it.
+        setTemplateValue: () => {
+            if (values.isCodeManaged) {
+                actions.resetTemplate(values.originalTemplate)
+            }
+        },
+        setTemplateValues: () => {
+            if (values.isCodeManaged) {
+                actions.resetTemplate(values.originalTemplate)
+            }
+        },
+        setAgentPromptOpen: ({ open }) => {
+            if (open) {
+                posthog.capture('message template agent prompt opened', values.agentPromptEventProperties)
+            }
+        },
+        copyAgentPrompt: async () => {
+            if (values.copyAgentPromptDisabledReason) {
+                return
+            }
+            const copied = await copyToClipboard(values.agentPrompt, 'prompt', { silent: true })
+            if (!copied) {
+                return
+            }
+            posthog.capture('message template agent prompt copied', {
+                ...values.agentPromptEventProperties,
+                variable_count: values.originalTemplate.change_prompt_variables?.length ?? 0,
+            })
+            lemonToast.success(
+                'Prompt copied. Paste it into your coding agent. PostHog keeps sending the current version until your app sends or uploads the changed file.'
+            )
+            actions.setAgentPromptOpen(false)
+        },
+        copyHtmlFile: async () => {
+            const { id, content } = values.originalTemplate
+            const copied = await copyToClipboard(templateHtmlFile(content.email), 'HTML file', { silent: true })
+            if (!copied) {
+                return
+            }
+            const droppedTextPart = !!content.email.text?.trim()
+            posthog.capture('message template html file copied', {
+                template_id: id,
+                dropped_text_part: droppedTextPart,
+            })
+            const textPartNote = droppedTextPart
+                ? ' This file has no plain-text part. The next upload from this file removes the plain-text version.'
+                : ''
+            lemonToast.success(
+                `Copied. Save it as the template's file. PostHog keeps sending the current version until your app sends or uploads the file.${textPartNote}`
+            )
+        },
+        releaseTemplateSuccess: ({ template }) => {
+            posthog.capture('message template released from code', { template_id: template.id })
+            actions.resetTemplate(template)
+            actions.setOriginalTemplate(template)
+            lemonToast.success('This template is no longer managed by code. You can edit it here.')
+            actions.replayDeferredExternalEdit()
+        },
+        releaseTemplateFailure: ({ errorObject }) => {
+            lemonToast.error(errorObject?.detail ?? 'Could not stop managing this template in code. Please try again.')
+            actions.replayDeferredExternalEdit()
+        },
         makeTransactional: async () => {
             try {
                 const updated = await messagingTemplatesMakeTransactionalCreate(
@@ -549,7 +851,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setExternallyEdited(true)
             }
         },
-        loadTemplateSuccess: ({ template }) => {
+        loadTemplateSuccess: ({ template }, _, __, previousState) => {
+            // A sentence typed against another file's starter would point the agent at the old file.
+            if (selectors.changePromptStarter(previousState) !== values.changePromptStarter) {
+                actions.discardChangeSentence()
+            }
             if (values.isSyncingExternalEdit) {
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
                 actions.resetTemplate(template)
@@ -567,6 +873,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveTemplateFailure: ({ errorObject }) => {
+            if (errorObject?.code === 'immutable') {
+                // An upload claimed the template back for code. The page locks at once, so a failed reload
+                // can't leave it editable. Only the offered duplicate keeps the refused edits.
+                const claimed = { ...values.originalTemplate, managed_by: 'code' as const }
+                actions.setRefusedEdits(values.template)
+                actions.setExternallyEdited(false)
+                actions.setOriginalTemplate(claimed)
+                actions.resetTemplate(claimed)
+                actions.loadTemplate()
+                return
+            }
             actions.replayDeferredExternalEdit()
             // A 404 means the template no longer resolves for this environment - it was soft-deleted,
             // or it belongs to a different environment than the one currently selected.
@@ -610,22 +927,35 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             })
         },
-        duplicateTemplate: async () => {
+        duplicateTemplate: async (_, breakpoint) => {
             if (values.templateChanged) {
                 lemonToast.error('Please save your changes before duplicating')
+                actions.duplicateTemplateDone()
                 return
             }
-            const template = values.template
-            try {
-                const duplicatedTemplate = await api.messaging.createTemplate({
-                    name: `${template.name} (copy)`,
-                    description: template.description,
-                    content: template.content,
+            const copy = await createCopyOf(values.template)
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
+                posthog.capture('message template duplicated', {
+                    template_id: values.originalTemplate.id,
+                    code_managed: values.isCodeManaged,
                 })
-                lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-            } catch {
-                lemonToast.error('Failed to duplicate template')
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
+            }
+        },
+        duplicateWithMyChanges: async (_, breakpoint) => {
+            const edits = values.refusedEdits
+            const copy = edits && (await createCopyOf(edits))
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
+                posthog.capture('message template duplicated', {
+                    template_id: values.originalTemplate.id,
+                    code_managed: values.isCodeManaged,
+                })
+                actions.setRefusedEdits(null)
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
             }
         },
         deleteTemplate: async () => {

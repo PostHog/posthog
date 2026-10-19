@@ -66,6 +66,10 @@
                                     "required": ["schemaVersion", "body"],
                                     "type": "object"
                                 },
+                                "preheader": {
+                                    "description": "Inbox preview text shown after the subject. Supports Liquid templating.",
+                                    "type": "string"
+                                },
                                 "subject": {
                                     "description": "Email subject line. Supports Liquid templating. Required for email-type templates.",
                                     "type": "string"
