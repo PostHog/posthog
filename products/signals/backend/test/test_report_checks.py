@@ -2046,6 +2046,34 @@ class TestCheckResultTool(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("emit_only", "emit", 0),
+            ("emit_and_edit", "both", 0),
+            ("edit_only", "edit", 1),
+            ("no_report_tools", "none", 1),
+            ("unstamped", None, 0),
+        ]
+    )
+    def test_a_failure_resurfaces_only_when_the_lane_cannot_file_the_follow_up(
+        self, _name: str, report_channel: str | None, expected_signals: int
+    ) -> None:
+        check = self._check()
+        if report_channel is not None:
+            self.scout_run.metadata = {"report_channel": report_channel}
+            self.scout_run.save(update_fields=["metadata"])
+
+        with patch(_EMIT_SIGNAL, new=AsyncMock(return_value=None)) as emit:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._record(check)
+
+        assert emit.call_count == expected_signals
+        if expected_signals:
+            sent = emit.call_args.kwargs
+            assert sent["source_type"] == SignalSourceType.CHECK_FAILED
+            assert sent["extra"]["report_id"] == str(self.report.id)
+            assert "fired 30 times yesterday" in sent["description"]
+
+    @parameterized.expand(
+        [
             ("not_due_and_no_run_is_waiting", {"dispatched_at": None}),
             ("already_finished", {"status": SignalReportCheck.Status.CANCELLED}),
             ("waiting_for_its_report", {"status": SignalReportCheck.Status.PENDING, "dispatched_at": None}),
