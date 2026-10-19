@@ -52,7 +52,6 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
     const scroll = useRef<ScrollView>(null)
     const positioned = useRef(false)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
-    const lastGroupId = useMemo(() => displayItems.findLast((item) => item.kind === 'activity')?.id, [displayItems])
 
     if (session.history.status === 'loading') {
         positioned.current = false
@@ -83,7 +82,6 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
                         key={item.id}
                         group={item}
                         invocations={session.invocations}
-                        isLast={item.id === lastGroupId}
                         waitingToolCallId={session.decision?.toolCallId}
                     />
                 )

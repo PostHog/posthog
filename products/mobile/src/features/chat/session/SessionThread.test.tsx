@@ -85,7 +85,7 @@ describe('SessionThread', () => {
         expect(screen.queryByTestId('session-thread')).toBeNull()
     })
 
-    test('opens the running group, keeps a settled group closed, and opens it on press', () => {
+    test('keeps running and settled groups closed, and opens one on press', () => {
         render(
             <SessionThread
                 session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase: 'working', stage: 'Editing' })}
@@ -94,14 +94,16 @@ describe('SessionThread', () => {
         )
         expect(screen.getByLabelText('Ran 1 command, read a file')).toBeTruthy()
         expect(screen.queryByTestId('session-tool-c1')).toBeNull()
-        expect(screen.getByTestId('session-tool-c3')).toHaveTextContent(/Pass the series name to the legend/)
-        expect(screen.getByText('prop')).toBeTruthy()
-        expect(screen.getByText('name')).toBeTruthy()
-        expect(screen.queryByText(/\*\*|`/)).toBeNull()
+        expect(screen.queryByTestId('session-tool-c3')).toBeNull()
         expect(screen.getByTestId('chat-progress')).toHaveTextContent('Editing')
 
         fireEvent.press(screen.getByLabelText('Ran 1 command, read a file'))
         expect(screen.getByTestId('session-tool-c1')).toBeTruthy()
+        fireEvent.press(screen.getByLabelText('Edit Legend.tsx'))
+        expect(screen.getByTestId('session-tool-c3')).toHaveTextContent(/Pass the series name to the legend/)
+        expect(screen.getByText('prop')).toBeTruthy()
+        expect(screen.getByText('name')).toBeTruthy()
+        expect(screen.queryByText(/\*\*|`/)).toBeNull()
     })
 
     test('keeps the PR visible while working and once the last group settles', () => {
@@ -113,7 +115,7 @@ describe('SessionThread', () => {
         const { rerender } = render(
             <SessionThread session={session({ ...props, invocations: INVOCATIONS })} onRetryHistory={jest.fn()} />
         )
-        expect(screen.getByTestId('session-tool-c3')).toBeTruthy()
+        expect(screen.getByLabelText('Edit Legend.tsx')).toBeTruthy()
         expect(screen.getByTestId('pr-ready-card')).toBeTruthy()
         expect(screen.getByTestId('pull-request-state')).toHaveTextContent('Status unavailable')
 

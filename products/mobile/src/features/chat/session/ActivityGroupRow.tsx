@@ -16,8 +16,6 @@ import type { SessionActivityGroup, SessionThoughtItem, SessionToolInvocation } 
 interface ActivityGroupRowProps {
     group: SessionActivityGroup
     invocations: ReadonlyMap<string, SessionToolInvocation>
-    /** Only the thread's last group opens by itself while it runs. */
-    isLast: boolean
     /** The call a pending decision waits on, which the row must not count as running. */
     waitingToolCallId?: string
 }
@@ -67,12 +65,11 @@ function ThoughtRow({ item }: { item: SessionThoughtItem }): ReactElement | null
     ) : null
 }
 
-function ActivityGroupRowImpl({ group, invocations, isLast, waitingToolCallId }: ActivityGroupRowProps): ReactElement {
+function ActivityGroupRowImpl({ group, invocations, waitingToolCallId }: ActivityGroupRowProps): ReactElement {
     const running = isActivityRunning(group, invocations, waitingToolCallId)
     const summary = summarizeActivity(group, invocations, waitingToolCallId)
-    // Once the person toggles the row, their choice wins over the automatic open and close.
-    const [manual, setManual] = useState<boolean | null>(null)
-    const expanded = manual ?? (isLast && running)
+    // Every group starts closed, also while it runs; the summary line carries the progress.
+    const [expanded, setExpanded] = useState(false)
     const toggle = (): void => {
         if (!expanded) {
             track('mobile_chat_activity_expanded', {
@@ -80,7 +77,7 @@ function ActivityGroupRowImpl({ group, invocations, isLast, waitingToolCallId }:
                 tool_count: group.items.filter((item) => item.kind === 'tool').length,
             })
         }
-        setManual(!expanded)
+        setExpanded(!expanded)
     }
 
     const reduceMotion = useReducedMotion()
@@ -130,7 +127,6 @@ function ActivityGroupRowImpl({ group, invocations, isLast, waitingToolCallId }:
 // The invocations map changes on every tool update, so a settled group skips a render when its own calls did not change.
 function sameRow(previous: ActivityGroupRowProps, next: ActivityGroupRowProps): boolean {
     return (
-        previous.isLast === next.isLast &&
         previous.waitingToolCallId === next.waitingToolCallId &&
         previous.group.id === next.group.id &&
         previous.group.items.length === next.group.items.length &&
