@@ -209,11 +209,6 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_proxy_forwards_posthog_namespace_headers(self, mock_client_cls):
-        # Required for PostHog MCP installs through the Store: without
-        # `x-posthog-mcp-consumer` reaching the upstream, single-exec mode
-        # never resolves and `exec` comes back as "Tool exec not found".
-        # The full `x-posthog-*` namespace forwards so callers can also pass
-        # custom headers through.
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
         )
@@ -230,6 +225,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={
                 "x-posthog-mcp-consumer": "posthog-code",
                 "x-posthog-mcp-mode": "cli",
+                "x-posthog-mcp-store": "false",
                 "x-posthog-mcp-version": "2",
                 "x-posthog-project-id": "42",
                 "x-posthog-read-only": "true",
@@ -243,7 +239,8 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Case-insensitive lookup since Django normalizes to title case.
         forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
         assert forwarded["x-posthog-mcp-consumer"] == "posthog-code"
-        assert forwarded["x-posthog-mcp-mode"] == "cli"
+        assert forwarded["x-posthog-mcp-mode"] == "tools"
+        assert forwarded["x-posthog-mcp-store"] == "true"
         assert forwarded["x-posthog-mcp-version"] == "2"
         assert forwarded["x-posthog-project-id"] == "42"
         assert forwarded["x-posthog-read-only"] == "true"

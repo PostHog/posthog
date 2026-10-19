@@ -25,6 +25,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMe
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
+    finalize_review_report,
     persist_findings,
     persist_pr_snapshot,
     persist_verdicts,
@@ -41,6 +42,7 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewFailedInput,
     TrackReviewStartedInput,
     _gate_push,
+    _notify_review_finished,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
@@ -211,6 +213,21 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
 
+        hooks = (MagicMock(side_effect=RuntimeError("callback down")), MagicMock())
+        with patch("products.review_hog.backend.temporal.activities.get_finished_review_hooks", return_value=hooks):
+            _notify_review_finished(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                review_mode="full",
+                failed=False,
+                published=published,
+            )
+        finished = hooks[1].call_args.args[0]
+        assert (finished.repository, finished.pr_number, finished.findings_count) == ("o/r", 7, 1)
+        assert (finished.failed, finished.published) == (False, published)
+        assert finished.review_url.endswith(f"/project/{self.team.id}/code-review?review={report_id}")
+
     def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
         # The cap, the dedup calls, and the lens sessions are only measurable through these
         # properties, the must-fix share is how priority inflation shows up before the must-fix
@@ -227,6 +244,9 @@ class TestTrackReviewCompleted(BaseTest):
             kept=4,
             dedup_fell_back=True,
             budget_left=3,
+            changed_lines=40,
+            must_fix_on_change=1,
+            must_fix_off_change=2,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
 
@@ -247,6 +267,9 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_kept": 4,
             "flash_dedup_fallback": True,
             "flash_budget_left": 3,
+            "flash_changed_lines": 40,
+            "flash_must_fix_on_change": 1,
+            "flash_must_fix_off_change": 2,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
@@ -383,6 +406,74 @@ class TestTrackReviewCompleted(BaseTest):
         # Each push reports the draft state of its own head, and only a ready PR gets a next push chance.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
         assert (props["next_push_probability"], second.kwargs["properties"]["next_push_probability"]) == (None, 0.559)
+
+    @parameterized.expand(
+        [
+            ("quiet_previous_review", False, False, (True, "quiet_small_push", 0, 400)),
+            ("previous_review_found_a_bug", True, False, (False, "system_one_above_threshold", 1, 400)),
+            # A retry after a failed publish runs one run_index higher at the head its first attempt finalized.
+            ("retry_of_a_finalized_head", False, True, (False, "system_one_above_threshold", None, None)),
+        ]
+    )
+    def test_the_gate_reads_the_previous_turns_findings_and_the_pr_size(
+        self,
+        _name: str,
+        previous_finding: bool,
+        head_finalized: bool,
+        expected: tuple[bool, str, int | None, int | None],
+    ) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename="a.py", status="modified", additions=300, deletions=100),
+                PRFile(filename="pnpm-lock.yaml", status="modified", additions=900, deletions=0),
+            ],
+        )
+        if previous_finding:
+            issues = [_issue("1-1-1")]
+            persist_findings(team_id=self.team.id, report_id=report_id, issues=issues, run_index=1)
+            persist_verdicts(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=issues,
+                run_index=1,
+                validations={"1-1-1": IssueValidation(is_valid=True, argumentation="real")},
+            )
+        if head_finalized:
+            finalize_review_report(
+                team_id=self.team.id, report_id=report_id, body_markdown="# r", run_index=1, head_sha="sha1"
+            )
+        decision = PushGateDecision(
+            skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.8, own_code_lines=12
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
+            result = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+
+        props = capture.call_args.kwargs["properties"]
+        assert (result.skip, result.reason, props["previous_findings"], props["reviewable_lines"]) == expected
 
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()

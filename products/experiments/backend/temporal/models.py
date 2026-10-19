@@ -99,7 +99,14 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     fairness_key: str | None = None
 
 
-@dataclasses.dataclass
+def _role_from_either_field(role: str, metric_type: str) -> str:
+    resolved = role or metric_type
+    if not resolved:
+        raise ValueError("role is required")
+    return resolved
+
+
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricToRecalculate:
     """A single metric to recalculate.
 
@@ -109,7 +116,15 @@ class ExperimentMetricToRecalculate:
 
     experiment_id: int
     metric_uuid: str
-    metric_type: str  # "primary" or "secondary"
+    # "primary" or "secondary": the metric's role in the experiment, not its kind.
+    role: str = ""
+    # The old name of `role`. Workers and runs that started before `role` existed write and read only this
+    # field, so __post_init__ keeps the two fields equal. Remove this field, and the default of `role`, when no
+    # such worker or run is left.
+    metric_type: str = ""
+
+    def __post_init__(self) -> None:
+        self.role = self.metric_type = _role_from_either_field(self.role, self.metric_type)
 
 
 @dataclasses.dataclass
@@ -134,7 +149,14 @@ class MetricOutOfTimeFailure:
     recalculation_id: str
     experiment_id: int
     metric_uuid: str
-    metric_type: str  # "primary" or "secondary"
+    role: str = ""  # "primary" or "secondary"
+    # The old name of `role`, kept for the same reason as ExperimentMetricToRecalculate.metric_type.
+    metric_type: str = ""
+
+    def __post_init__(self) -> None:
+        role = _role_from_either_field(self.role, self.metric_type)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "metric_type", role)
 
 
 @dataclasses.dataclass

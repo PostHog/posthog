@@ -7269,6 +7269,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.status_code == expected, response.json()
         if expected == 400:
             assert f"used in 1 active workflow(s): Workflow {usage}" in response.json()["detail"]
+            assert response.json()["code"] == "cohort_used_by_workflows"
 
     @parameterized.expand(
         [
@@ -7312,6 +7313,39 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
         assert "Workflow trigger" not in response.json()["detail"]
 
+    @parameterized.expand([("used_in", "workflows"), ("blocking_workflows", None)])
+    def test_lists_viewable_workflows_relying_on_the_cohort(self, path, key):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        cohort_id = self._create_realtime_cohort()
+        hidden_id = self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        visible_ids = {
+            self._create_workflow_using_cohort(cohort_id, "branch", "active"),
+            self._create_workflow_using_cohort(cohort_id, "branch_precalculated", "active"),
+        }
+        self._create_workflow_using_cohort(cohort_id, "branch", "draft")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=hidden_id,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        with patch("posthog.api.cohort.COHORT_USED_IN_PAGE_SIZE", 1):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/{path}/")
+
+        assert response.status_code == 200, response.json()
+        workflows = response.json()[key] if key else response.json()
+        assert [workflow["id"] for workflow in workflows["results"]] in [[visible_id] for visible_id in visible_ids]
+        assert {key: workflows[key] for key in ("total", "hidden", "has_more")} == {
+            "total": 3,
+            "hidden": 1,
+            "has_more": True,
+        }
+
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, "trigger", "active")
@@ -7329,7 +7363,52 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "stops the cohort updating in real time" in response.json()["detail"]
+        assert response.json()["code"] == "cohort_used_by_workflows"
         assert Cohort.objects.get(id=cohort_id).cohort_type == CohortType.REALTIME
+
+    @parameterized.expand(
+        [
+            ("criteria_change", "active", {"value": "@example.com"}, 400),
+            ("criteria_change_to_an_equal_looking_number", "active", {"stored_value": 1, "value": 1.0}, 400),
+            ("criteria_change_with_draft_workflow", "draft", {"value": "@example.com"}, 200),
+            ("rename", "active", {"name": "Renamed"}, 200),
+            ("rename_resending_the_same_criteria", "active", {"name": "Renamed", "value": "@posthog.com"}, 200),
+            (
+                "rename_resending_the_same_criteria_regrouped",
+                "active",
+                {"name": "Renamed", "value": "@posthog.com", "regrouped": True},
+                200,
+            ),
+        ]
+    )
+    def test_criteria_edit_is_blocked_by_active_workflows_using_it(self, _name, status, change, expected_status):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, "trigger", status)
+        if "stored_value" in change:
+            stored_filters = Cohort.objects.get(id=cohort_id).filters
+            assert stored_filters is not None
+            stored_filters["properties"]["values"][0]["value"] = change["stored_value"]
+            Cohort.objects.filter(id=cohort_id).update(filters=stored_filters)
+        payload: dict[str, Any] = {
+            key: value for key, value in change.items() if key not in ("value", "regrouped", "stored_value")
+        }
+        if "value" in change:
+            condition = {"type": "person", "key": "email", "operator": "icontains", "value": change["value"]}
+            if change.get("regrouped"):
+                condition = {"type": "AND", "values": [condition]}
+            payload["filters"] = {"properties": {"type": "AND", "values": [condition]}}
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", payload, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert (
+                "Changing its criteria would send its current members through them again" in response.json()["detail"]
+            )
+            assert response.json()["code"] == "cohort_used_by_workflows"
+            stored_filters = Cohort.objects.get(id=cohort_id).filters
+            assert stored_filters is not None
+            assert stored_filters["properties"]["values"][0]["value"] == change.get("stored_value", "@posthog.com")
 
     def test_edit_that_stops_realtime_is_blocked_by_workflows_on_a_cohort_that_includes_it(self):
         included_id = self._create_realtime_cohort()

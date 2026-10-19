@@ -14,7 +14,15 @@ from django.test import override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLQuery, MetricsQuery, MetricsQueryClause
+from posthog.schema import (
+    DashboardFilter,
+    DateRange,
+    HogQLQuery,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsQuery,
+    MetricsQueryClause,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -122,6 +130,41 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
     def _run(self, **fields: Any) -> list[Any]:
         query = MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", **fields)
         return MetricsQueryRunner(query=query, team=self.team).calculate().results
+
+    @parameterized.expand(
+        [
+            ("one_value", MetricsDashboardVariableSelection(values=["api"]), {"api"}),
+            ("injected_value_is_a_constant", MetricsDashboardVariableSelection(values=["api' OR 1=1 --"]), set()),
+        ]
+    )
+    def test_dashboard_variables_filter_a_sql_query(
+        self, _name: str, selection: MetricsDashboardVariableSelection, expected: set[str]
+    ) -> None:
+        self._seed()
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, service_name, count() AS value "
+            "FROM posthog.metrics WHERE service_name IN $service AND timestamp >= {date_from} "
+            "AND timestamp < {date_to} GROUP BY time, service_name"
+        )
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", clauses=[], language="sql", sql=sql),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="service",
+                        source="custom",
+                        customValues=["api", "worker"],
+                        includeAll=True,
+                        current=selection,
+                    )
+                ]
+            )
+        )
+
+        assert {series.labels["service_name"] for series in runner.calculate().results} == expected
 
     def test_generated_sql_matches_the_builder_engine(self) -> None:
         self._seed()
@@ -382,6 +425,39 @@ class TestMetricsPromQLMode(APIBaseTest):
             [series] = self._runner(promql).calculate().results
 
         assert (series.clause, series.labels) == (clause, labels)
+
+    def test_dashboard_variables_reach_the_promql_text_and_the_cache_key(self) -> None:
+        def runner_for(job: MetricsDashboardVariableSelection) -> MetricsQueryRunner:
+            runner = self._runner('sum(rate(http_requests_total{job=~"$job", env="${env}"}[$__rate_interval]))')
+            runner.apply_dashboard_filters(
+                DashboardFilter(
+                    metricVariables=[
+                        MetricsDashboardVariable(name="job", source="custom", includeAll=True, current=job),
+                        MetricsDashboardVariable(
+                            name="env", source="textbox", current=MetricsDashboardVariableSelection(values=["prod"])
+                        ),
+                    ]
+                )
+            )
+            return runner
+
+        payload = {"status": "success", "data": {"resultType": "matrix", "result": []}}
+        all_jobs = runner_for(MetricsDashboardVariableSelection(values=["api", "web"], all=True))
+        with patch(
+            "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)
+        ) as request:
+            all_jobs.calculate()
+
+        assert (
+            request.call_args.kwargs["data"]["query"] == 'sum(rate(http_requests_total{env="prod"}[$__rate_interval]))'
+        )
+        assert all_jobs.get_cache_key() != runner_for(MetricsDashboardVariableSelection(values=["api"])).get_cache_key()
+
+    def test_unresolved_variable_is_explained_without_a_query(self) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            with pytest.raises(ExposedHogQLError, match=r"\$job"):
+                self._runner('up{job="$job"}').calculate()
+        request.assert_not_called()
 
     def test_empty_scalar_result_has_no_series(self) -> None:
         payload = {"status": "success", "data": {"resultType": "scalar", "result": []}}

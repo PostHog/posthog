@@ -482,6 +482,44 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             [paul_google_session, no_email_session],
         )
 
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
+    def test_can_filter_by_cleaned_path_not_exact(self) -> None:
+        self.team.path_cleaning_filters = [{"regex": "\\/user\\/\\d+", "alias": "/user/:id"}]
+        self.team.save()
+        EventProperty.objects.create(team=self.team, event="$pageview", property="$pathname")
+
+        sessions = {"user_page_session": str(uuid7()), "other_session": str(uuid7())}
+        paths = {"user_page_session": ["/user/123", "/pricing"], "other_session": ["/pricing"]}
+        for label, session_id in sessions.items():
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            for path in paths[label]:
+                create_event(
+                    team=self.team,
+                    distinct_id="user",
+                    timestamp=self.an_hour_ago + timedelta(minutes=1),
+                    properties={"$session_id": session_id, "$window_id": "1", "$pathname": path},
+                )
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": [
+                    {
+                        "type": "event",
+                        "key": "$pathname",
+                        "operator": "is_cleaned_path_not_exact",
+                        "value": ["/user/999"],
+                    }
+                ]
+            },
+            [sessions["other_session"]],
+        )
+
     @parameterized.expand(
         [
             ("icontains", "icontains", ["chat_session"]),

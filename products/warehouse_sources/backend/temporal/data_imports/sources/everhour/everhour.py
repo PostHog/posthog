@@ -29,8 +29,8 @@ MAX_PAGES_PER_URL = 50_000
 # defaults to a narrow recent window).
 EARLIEST_FROM_DATE = "2015-01-01"
 
-# Matches the parent project id in a fan-out tasks URL: /projects/{project_id}/tasks
-_PROJECT_ID_RE = re.compile(r"/projects/([^/?]+)/tasks")
+# Matches the parent project id in a project fan-out URL, e.g. /projects/{project_id}/tasks
+_PROJECT_ID_RE = re.compile(r"/projects/([^/?]+)/")
 
 # The endpoint each fan-out mode draws its parent ids from.
 _FAN_OUT_PARENT_ENDPOINTS: dict[FanOut, str] = {"project": "projects", "user": "users"}
