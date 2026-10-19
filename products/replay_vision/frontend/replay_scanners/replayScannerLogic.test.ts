@@ -171,6 +171,7 @@ describe('replayScannerLogic', () => {
                 experiment_targeting: null,
             })
             expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
+            expect(logic.values.scanner?.name).toMatch(/experiment: Checkout redesign$/)
             // The experiment fixes the type, so the wizard offers no other type and no goal step.
             expect(logic.values.lockedToExperimentScanner).toBe(true)
         })
