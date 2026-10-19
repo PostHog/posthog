@@ -1957,7 +1957,6 @@ export const EvaluationApiTargetConfigStrategy = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
  * * `system_one` - System One
  * * `openai_compatible` - OpenAI-compatible
  */
@@ -1972,7 +1971,6 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
     SystemOne: 'system_one',
     OpenaiCompatible: 'openai_compatible',
 } as const
@@ -4512,7 +4510,6 @@ export interface TaggerConditionApi {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
  * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMCompletionProviderEnumApi =
@@ -4527,7 +4524,6 @@ export const LLMCompletionProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
     OpenaiCompatible: 'openai_compatible',
 } as const
 
@@ -4545,7 +4541,6 @@ export interface TaggerModelConfigurationApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
     provider: LLMCompletionProviderEnumApi
     /**
@@ -4600,7 +4595,6 @@ export interface TaggerModelConfigurationWriteApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
     provider: LLMCompletionProviderEnumApi
     /**
@@ -5363,7 +5357,6 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openrouter: 'openrouter',
     SystemOne: 'system_one',
     TogetherAi: 'together_ai',
-    Zeabur: 'zeabur',
 } as const
 
 export type LlmAnalyticsParserRecipesListParams = {

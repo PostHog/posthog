@@ -58,6 +58,24 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.QUOTA_EXCEEDED,
             ),
             (
+                "pooler_enotfound_tenant_is_non_retryable",
+                psycopg.OperationalError(
+                    'connection to server at "203.0.113.1", port 5432 failed: '
+                    "FATAL:  (ENOTFOUND) tenant/user postgres.exampleref not found"
+                ),
+                CDCErrorCategory.POOLER_TENANT_NOT_FOUND,
+            ),
+            (
+                "pooler_legacy_tenant_wording_is_non_retryable",
+                psycopg.OperationalError("FATAL:  Tenant or user not found"),
+                CDCErrorCategory.POOLER_TENANT_NOT_FOUND,
+            ),
+            (
+                "pooler_nxdomain_is_non_retryable",
+                psycopg.OperationalError("FATAL:  Failed to connect to database: {:error, :nxdomain}"),
+                CDCErrorCategory.POOLER_TENANT_NOT_FOUND,
+            ),
+            (
                 "network_unreachable_is_non_retryable_host",
                 psycopg.OperationalError(
                     'connection to server at "2001:db8::1", port 5432 failed: Network is unreachable'
