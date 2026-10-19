@@ -109,7 +109,9 @@ def update_configuration(
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
         write_source = (
-            mirror(legacy_configuration_id) if mirror is not None and legacy_configuration_id is not None else None
+            mirror(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+            if mirror is not None and legacy_configuration_id is not None
+            else None
         )
         configuration = readable.select_for_update().first()
         if configuration is None:

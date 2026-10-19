@@ -664,16 +664,18 @@ def _as_configured_now(
     switches itself off, and the next backfill turns it back on if the alert is enabled again.
 
     A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
-    platform's, so it is evaluated as stored.
+    platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
+    a child environment has its logs there, and the query would read the project's instead.
     """
-    owned = [check for check in checks if check.owned_by_platform]
-    checks = [check for check in checks if not check.owned_by_platform]
     legacy_ids = [check.legacy_configuration_id for check in checks]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
-    current: list[PlatformAlertCheckInput] = list(owned)
+    current: list[PlatformAlertCheckInput] = []
     stopped: list[Decision] = []
     for check in checks:
         alert = alerts.get(check.legacy_configuration_id)
+        if check.owned_by_platform and alert is not None:
+            current.append(check)
+            continue
         if alert is None or not alert.enabled:
             stopped.append(_stopped(check, now=now))
             continue

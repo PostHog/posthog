@@ -854,10 +854,14 @@ class SourceEditMirror(Protocol):
     While a source keeps its own row for an alert the platform owns, the two must agree: the
     source's API reads that row, and a rollback hands it back. It runs before the platform locks
     its copy, because every other writer of both rows takes the source's row first. It locks the
-    source's row and returns the writer for the edit, or None when the row is gone.
+    source's row and returns the writer for the edit, or None when the row is gone. It raises
+    `PlatformAlertNotEditable` when the source's row belongs to another team than the copy, because
+    the platform API checked access to the copy's team only.
     """
 
-    def __call__(self, legacy_configuration_id: UUID) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
+    def __call__(
+        self, *, team_id: int, legacy_configuration_id: UUID
+    ) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
 
 
 @frozen
