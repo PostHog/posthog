@@ -1073,6 +1073,7 @@ from .savvycal.source import SavvyCalSource
 from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
+from .scarf.source import ScarfSource
 from .schematic.source import SchematicSource
 from .scrunch.source import ScrunchSource
 from .search_ads_360.source import SearchAds360Source
