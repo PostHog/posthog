@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
@@ -35,12 +36,23 @@ export function BroadcastPerformance({
         return <LemonSkeleton className="h-40" active={totalsLoading} />
     }
 
-    const headline = [
+    const headline: { label: string; value: string; detail: number | null; tooltip?: string }[] = [
         { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
         { label: 'Delivered', value: share(stats.delivered, stats.sent), detail: stats.delivered },
         { label: 'Bounced', value: share(stats.bounced, stats.sent), detail: stats.bounced },
         { label: 'Marked as spam', value: share(stats.markedAsSpam, stats.sent), detail: stats.markedAsSpam },
-        { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
+        { label: 'Failed', value: share(stats.failed, stats.sent + stats.failed), detail: stats.failed },
+        ...(stats.skipped > 0
+            ? [
+                  {
+                      label: 'Skipped',
+                      value: humanFriendlyNumber(stats.skipped),
+                      detail: null,
+                      tooltip:
+                          'Not sent because the address looked undeliverable, was suppressed after an earlier bounce or spam report, or hit your frequency cap.',
+                  },
+              ]
+            : []),
     ]
     const engagement = [
         { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
@@ -51,14 +63,16 @@ export function BroadcastPerformance({
 
     return (
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-primary p-4">
-            <div className="grid grid-cols-2 gap-4 @xl:grid-cols-5">
-                {headline.map(({ label, value, detail }) => (
-                    <div key={label} className="flex flex-col">
-                        <span className="text-xl font-semibold">{value}</span>
-                        <span className="text-xs uppercase tracking-wide text-muted">
-                            {detail === null ? label : `${humanFriendlyNumber(detail)} ${label.toLowerCase()}`}
-                        </span>
-                    </div>
+            <div className={`grid grid-cols-2 gap-4 ${headline.length > 5 ? '@xl:grid-cols-6' : '@xl:grid-cols-5'}`}>
+                {headline.map(({ label, value, detail, tooltip }) => (
+                    <Tooltip key={label} title={tooltip}>
+                        <div className="flex flex-col">
+                            <span className="text-xl font-semibold">{value}</span>
+                            <span className="text-xs uppercase tracking-wide text-muted">
+                                {detail === null ? label : `${humanFriendlyNumber(detail)} ${label.toLowerCase()}`}
+                            </span>
+                        </div>
+                    </Tooltip>
                 ))}
             </div>
 
