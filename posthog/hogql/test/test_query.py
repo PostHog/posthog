@@ -1066,6 +1066,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
             ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
             ("null_literal_keeps_null", "JSONExtractArrayRaw(NULL)", None, None),
+            ("null_through_function_returns_empty", "JSONExtractArrayRaw(toString(NULL))", [], []),
             ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
             ("cte_to_string", "JSONExtractArrayRaw(toString(list))", ["1", "2"], [], "t"),
             ("cte_unknown_function", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t", "toValidUTF8(properties.list)"),
