@@ -36,7 +36,12 @@ export function QuillNewActionButton({ onSelectOption }: { onSelectOption?: () =
                 >
                     <Button
                         variant="primary"
-                        render={<LinkPrimitive to={urls.createAction()} onClick={onSelectOption} />}
+                        render={
+                            <LinkPrimitive
+                                to={disabledReason ? undefined : urls.createAction()}
+                                onClick={onSelectOption}
+                            />
+                        }
                         data-attr="create-action"
                         tooltip="New action"
                     >
@@ -63,7 +68,12 @@ export function QuillNewActionButton({ onSelectOption }: { onSelectOption?: () =
                             <Button
                                 size="row"
                                 left
-                                render={<LinkPrimitive to={urls.createAction()} onClick={onSelectOption} />}
+                                render={
+                                    <LinkPrimitive
+                                        to={disabledReason ? undefined : urls.createAction()}
+                                        onClick={onSelectOption}
+                                    />
+                                }
                             />
                         }
                         data-attr="new-action-pageview"
