@@ -539,14 +539,14 @@ class SyncWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
             )
         except (asyncio.CancelledError, Exception) as error:
             if telemetry_enabled:
-                counts = _failure_counts(error)
+                failure_counts = _failure_counts(error)
                 await _emit_segment_telemetry(
                     input,
                     path="legacy",
                     status="cancelled" if is_cancelled_exception(error) else "failed",
                     started_at=started_at,
-                    source_count=None if counts is None else counts.get("source_count"),
-                    counts=counts,
+                    source_count=None if failure_counts is None else failure_counts.get("source_count"),
+                    counts=failure_counts,
                     error=error,
                 )
             raise
