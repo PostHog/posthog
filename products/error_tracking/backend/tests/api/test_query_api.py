@@ -88,6 +88,18 @@ def test_build_sparkline_accepts_float_values() -> None:
         ("increasing", [2, 2, 5, 5], "2026-04-01T00:00:00+00:00", {"direction": "increasing", "change_percent": 150}),
         ("decreasing", [5, 5, 2, 2], "2026-04-01T00:00:00+00:00", {"direction": "decreasing", "change_percent": -60}),
         ("small change is stable", [4, 4, 5, 4], "2026-04-01T00:00:00+00:00", {"direction": "stable"}),
+        (
+            "20% drop is stable",
+            [3, 2, 2, 2],
+            "2026-04-01T00:00:00+00:00",
+            {"direction": "stable", "change_percent": -20},
+        ),
+        (
+            "25% drop is decreasing",
+            [2, 2, 1, 2],
+            "2026-04-01T00:00:00+00:00",
+            {"direction": "decreasing", "change_percent": -25},
+        ),
         ("first seen in the current half", [0, 0, 1, 3], "2026-04-23T06:00:00+00:00", {"direction": "new"}),
         ("quiet before the current half", [0, 0, 1, 3], "2026-04-01T00:00:00+00:00", {"direction": "increasing"}),
         ("odd bucket count leaves the middle out", [1, 9, 1], "2026-04-01T00:00:00+00:00", {"direction": "stable"}),
@@ -619,6 +631,10 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                     }
                 }
             },
+        )
+        self.create_exception_event(
+            timestamp=first_seen + timedelta(hours=6),
+            properties={"$exception_releases": {"release-id-2": {"version": "2026.04.10-hotfix"}}},
         )
         self.create_exception_event(
             properties={

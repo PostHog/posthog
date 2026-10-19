@@ -531,12 +531,18 @@ def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
 FIRST_EVENT_WINDOW = timedelta(days=1)
 
 
-def first_event_window(first_seen: object) -> tuple[str, str] | None:
-    if not isinstance(first_seen, str):
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
         return None
     try:
-        first_seen_at = datetime.fromisoformat(first_seen)
+        return datetime.fromisoformat(value)
     except ValueError:
+        return None
+
+
+def first_event_window(first_seen: object) -> tuple[str, str] | None:
+    first_seen_at = parse_timestamp(first_seen)
+    if first_seen_at is None:
         return None
     return (first_seen_at - FIRST_EVENT_WINDOW).isoformat(), (first_seen_at + FIRST_EVENT_WINDOW).isoformat()
 
@@ -673,16 +679,7 @@ class IssueTrendDirection(LabeledStrEnum):
 
 # The fewest volume buckets that split the date range into two halves.
 TREND_VOLUME_RESOLUTION = 2
-TREND_CHANGE_RATIO = 1.25
-
-
-def parse_timestamp(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
+TREND_CHANGE_FRACTION = 0.25
 
 
 def trend_direction(previous: int, current: int, first_seen: object, current_from: object) -> IssueTrendDirection:
@@ -690,9 +687,9 @@ def trend_direction(previous: int, current: int, first_seen: object, current_fro
     current_from_at = parse_timestamp(current_from)
     if previous == 0 and current > 0 and first_seen_at and current_from_at and first_seen_at >= current_from_at:
         return IssueTrendDirection.NEW
-    if current > previous and current >= previous * TREND_CHANGE_RATIO:
+    if current > previous and current - previous >= previous * TREND_CHANGE_FRACTION:
         return IssueTrendDirection.INCREASING
-    if current < previous and current * TREND_CHANGE_RATIO <= previous:
+    if current < previous and previous - current >= previous * TREND_CHANGE_FRACTION:
         return IssueTrendDirection.DECREASING
     return IssueTrendDirection.STABLE
 
