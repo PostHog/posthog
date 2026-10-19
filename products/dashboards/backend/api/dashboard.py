@@ -3141,8 +3141,8 @@ class DashboardsViewSet(
         if self.action == "bulk_delete":
             return queryset.exclude(deleted=True).select_related("team")
 
-        # subscribe_nudge only reads the dashboard's pk and name, so skip the detail prefetch
-        # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
+        # subscribe_nudge only reads the dashboard's pk and name, so skip the folder/last-viewed
+        # annotations, the sharing-configuration prefetch and the created_by join.
         # Team scoping is preserved by the filter above; the CanEditDashboard object permission
         # still gates the write.
         if self.action == "subscribe_nudge":
