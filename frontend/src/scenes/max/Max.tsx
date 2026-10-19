@@ -12,7 +12,9 @@ import {
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -181,6 +183,19 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { closeSidePanel } = useActions(sidePanelLogic)
 
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const openInContextPanel = (): void => {
+        openSidePanelMax(conversationId ?? undefined)
+    }
+
+    const copyChatLink = (): void => {
+        copyToClipboard(
+            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+            'conversation sharing link'
+        )
+    }
+
     const isNewView = effectivePhaiView === 'new'
     const isReportChat = !!sidePanel && selectedTabOptions === REPORT_AI_PANEL
     const isScoutChat = !!sidePanel && selectedTabOptions === SCOUT_AI_PANEL
@@ -347,35 +362,45 @@ export const MaxInstance = React.memo(function MaxInstance({
                 name={null}
                 resourceType={{ type: 'chat' }}
                 actions={
-                    <>
-                        {tabId && conversationId ? (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                sideIcon={<IconShare />}
-                                onClick={() => {
-                                    copyToClipboard(
-                                        urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
-                                        'conversation sharing link'
-                                    )
-                                }}
-                            >
-                                Copy link to chat
-                            </LemonButton>
-                        ) : undefined}
-                        {tabId ? (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                sideIcon={<IconOpenSidebar />}
-                                onClick={() => {
-                                    openSidePanelMax(conversationId ?? undefined)
-                                }}
-                            >
-                                Open in context panel
-                            </LemonButton>
-                        ) : undefined}
-                    </>
+                    todayRailNav ? (
+                        <>
+                            {tabId && conversationId ? (
+                                <Button variant="outline" onClick={copyChatLink}>
+                                    Copy link to chat
+                                    <IconShare />
+                                </Button>
+                            ) : undefined}
+                            {tabId ? (
+                                <Button variant="outline" onClick={openInContextPanel}>
+                                    Open in context panel
+                                    <IconOpenSidebar />
+                                </Button>
+                            ) : undefined}
+                        </>
+                    ) : (
+                        <>
+                            {tabId && conversationId ? (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconShare />}
+                                    onClick={copyChatLink}
+                                >
+                                    Copy link to chat
+                                </LemonButton>
+                            ) : undefined}
+                            {tabId ? (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconOpenSidebar />}
+                                    onClick={openInContextPanel}
+                                >
+                                    Open in context panel
+                                </LemonButton>
+                            ) : undefined}
+                        </>
+                    )
                 }
             />
             <div className="grow flex flex-col">{content}</div>
