@@ -107,6 +107,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Queue extraction attempts resolve their run by this key. Keep null Temporal run ids
+            # out of the index and retain newest-first ordering for defensive duplicate handling.
+            models.Index(
+                fields=["team", "workflow_run_id", "-created_at"],
+                condition=Q(workflow_run_id__isnull=False),
+                name="idx_extjob_team_wfrun_created",
+            ),
         ]
 
     def folder_path(self) -> str:
