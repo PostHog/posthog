@@ -1,3 +1,4 @@
+import { parseJSON } from '../../../../common/utils/json-parse'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './linear.template'
 
@@ -40,5 +41,26 @@ describe('linear template', () => {
         const attachmentBody = (attachmentResponse.invocation.queueParameters as any).body
         expect(attachmentBody).toContain('attachmentCreate')
         expect(attachmentBody).toContain(expectedLinkPart)
+    })
+
+    it('builds the title and description from the event properties', async () => {
+        const { title: _title, description: _description, ...inputs } = baseInputs
+        const response = await tester.invoke(inputs, {
+            event: {
+                properties: {
+                    $exception_types: ['RangeError'],
+                    $exception_values: ['Invalid Date'],
+                    $current_url: 'https://example.com/checkout',
+                    $session_id: 'session-1',
+                },
+            },
+        })
+
+        expect(response.error).toBeUndefined()
+        const mutation = parseJSON((response.invocation.queueParameters as any).body).query
+        expect(mutation).toContain('title: "RangeError: Invalid Date"')
+        expect(mutation).toContain(
+            'description: "Invalid Date\\n\\n- URL: https://example.com/checkout\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1"'
+        )
     })
 })

@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../hog-helpers'
+
 export const template: HogFunctionTemplate = {
     status: 'stable',
     free: false,
@@ -47,7 +49,7 @@ if (res.status < 200 or res.status >= 300) {
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_types[1]}',
+            default: ERROR_TRACKING_TICKET_TITLE,
         },
         {
             key: 'description',
@@ -56,7 +58,7 @@ if (res.status < 200 or res.status >= 300) {
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_values[1]}',
+            default: ERROR_TRACKING_TICKET_DESCRIPTION,
         },
         {
             key: 'posthog_issue_id',
