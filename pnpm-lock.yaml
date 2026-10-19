@@ -1981,6 +1981,9 @@ importers:
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
+      mockdate:
+        specifier: ^3.0.5
+        version: 3.0.5
       react:
         specifier: 18.3.1
         version: 18.3.1
