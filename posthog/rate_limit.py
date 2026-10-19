@@ -1507,6 +1507,13 @@ class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
 
     scope = "widget_team_poll"
 
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        # WidgetAuthentication has already resolved the token's team into request.auth
+        team = getattr(request, "auth", None)
+        if isinstance(team, Team) and str(team.id) in settings.CONVERSATIONS_WIDGET_HIGH_VOLUME_TEAM_IDS:
+            self.num_requests, self.duration = self.parse_rate(settings.CONVERSATIONS_WIDGET_HIGH_VOLUME_POLL_RATE)
+        return super().allow_request(request, view)
+
 
 class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
     """Keep this off GET poll views so list and message polling cannot exhaust it."""

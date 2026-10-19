@@ -67,6 +67,16 @@ function ticketActivityTime(ticket: ConversationTicket): number {
 const POLL_INTERVAL_BACKGROUND = 60 * 1000 // support surface not visible: only keep the unread badge fresh
 const POLL_INTERVAL_ACTIVE = 20 * 1000 // support surface open on the ticket list
 const POLL_INTERVAL_THREAD = 10 * 1000 // a ticket thread is open, so replies must land quickly
+// Every app user shares one team-wide widget bucket, so after a 429 wait before asking again,
+// doubling per consecutive 429
+const RATE_LIMIT_BACKOFF_MIN = 30 * 1000
+const RATE_LIMIT_BACKOFF_MAX = 5 * 60 * 1000
+
+// posthog-js marks a 429 with kind 'rate_limit' and does not pass the status code through
+function isRateLimited(error: unknown): boolean {
+    const e = error as { kind?: string; status?: number } | null
+    return e?.kind === 'rate_limit' || e?.status === 429
+}
 
 // Panel options for a ticket deep link (#panel=support:ticket:<id>); supportRouterLogic skips this prefix
 const TICKET_OPTIONS_PREFIX = 'ticket:'
@@ -569,6 +579,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 clearTimeout(cache.conversationsRetryTimer)
                 cache.conversationsRetryTimer = null
             }
+            const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
             // Not just a truthiness check: posthog-js creates the `conversations` facade at init,
             // but its methods resolve null until the lazily loaded manager is ready — a cold page
             // load would otherwise render an empty list once and never retry
@@ -594,7 +605,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // persistent error toast on surfaces that have nothing to do with support and block
                 // clicks on whatever sits under the toast container. Only warn while the person is
                 // actually on a support surface; opening one later re-runs loadTickets and warns then.
-                const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
                 // Only warn people who could act on it. A free plan has no email fallback, and the
                 // panel already shows them the community and upgrade options, so a toast offering
                 // to email us would promise a channel they don't get. Warn while entitlement is
@@ -610,6 +620,17 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return
             }
             cache.conversationsRetries = 0
+            // Tab focus and panel opens call this too, so the 429 backoff holds here and not only in
+            // the poll timer. On a support surface the wait ends in a retry; elsewhere the next focus,
+            // panel open, or page load picks it up.
+            const backoffRemaining = (cache.ticketsRetryAt ?? 0) - Date.now()
+            if (backoffRemaining > 0) {
+                if (onSupportSurface) {
+                    clearTimeout(cache.pollTimer)
+                    cache.pollTimer = window.setTimeout(() => actions.loadTickets(), backoffRemaining)
+                }
+                return
+            }
             // Polls, tab-focus, and scene remounts reuse loadTickets. The flag drives a full-list
             // spinner, so it is only raised until the first successful fetch.
             if (!cache.ticketsFetched) {
@@ -619,6 +640,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     cache.ticketsFetched = true
+                    cache.ticketsBackoff = 0
+                    cache.ticketsLoadErrorShown = false
                     actions.setTickets(response.results as ConversationTicket[])
                     // With no tickets there's nothing to poll for; creating one re-runs loadTickets
                     // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
@@ -638,7 +661,25 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
-                lemonToast.error('Failed to load tickets.')
+                let retryDelay = POLL_INTERVAL_ACTIVE
+                if (isRateLimited(e)) {
+                    retryDelay = Math.min(
+                        Math.max((cache.ticketsBackoff ?? 0) * 2, RATE_LIMIT_BACKOFF_MIN),
+                        RATE_LIMIT_BACKOFF_MAX
+                    )
+                    cache.ticketsBackoff = retryDelay
+                    cache.ticketsRetryAt = Date.now() + retryDelay
+                }
+                // The unread badge mounts this logic on every page, so only tell people who are
+                // looking at support, and only once until a load succeeds again
+                if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
+                    if (!cache.ticketsLoadErrorShown) {
+                        cache.ticketsLoadErrorShown = true
+                        lemonToast.error('Failed to load tickets.')
+                    }
+                    clearTimeout(cache.pollTimer)
+                    cache.pollTimer = window.setTimeout(() => actions.loadTickets(), retryDelay)
+                }
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -958,10 +999,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Someone who lost their tickets and can't get the restore link has no way back to a
                 // conversation they already started, so it's worth the same visibility as a dead panel
                 captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
-                const message =
-                    e?.status === 429
-                        ? 'Too many requests. Please try again later.'
-                        : 'Something went wrong. Please try again.'
+                const message = isRateLimited(e)
+                    ? 'Too many requests. Please try again later.'
+                    : 'Something went wrong. Please try again.'
                 actions.setRestoreError(message)
                 actions.setRestoreState('error')
             }

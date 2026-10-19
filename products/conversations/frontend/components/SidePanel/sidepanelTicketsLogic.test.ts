@@ -438,6 +438,54 @@ describe('sidepanelTicketsLogic', () => {
         errorToast.mockRestore()
     })
 
+    // Every page mounts this logic for the unread badge, so a failed background load must not toast
+    it('stays quiet when tickets fail to load outside a support surface', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(new Error('boom'))
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((posthog as any).conversations.getTickets).toHaveBeenCalled()
+        expect(errorToast).not.toHaveBeenCalled()
+        expect(logic.cache.pollTimer).toBeFalsy()
+        errorToast.mockRestore()
+    })
+
+    // All app users share one team-wide widget bucket, so a 429 has to slow every entry point down
+    it('backs off after a 429 and toasts only once on the support panel', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        const getTickets = jest
+            .fn()
+            .mockRejectedValue(Object.assign(new Error('Too many requests.'), { kind: 'rate_limit' }))
+        ;(posthog as any).conversations.getTickets = getTickets
+        sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getTickets).toHaveBeenCalled()
+        expect(errorToast).toHaveBeenCalledTimes(1)
+        expect(logic.cache.pollTimer).toBeTruthy()
+
+        getTickets.mockClear()
+        await expectLogic(logic, () => {
+            logic.actions.loadTickets()
+        }).toFinishAllListeners()
+        expect(getTickets).not.toHaveBeenCalled()
+
+        const dateNow = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 5 * 60 * 1000 + 1)
+        await expectLogic(logic, () => {
+            logic.actions.loadTickets()
+        }).toFinishAllListeners()
+        expect(getTickets).toHaveBeenCalledTimes(1)
+        expect(errorToast).toHaveBeenCalledTimes(1)
+        dateNow.mockRestore()
+        errorToast.mockRestore()
+    })
+
     it('reports a missing widget instead of silently dropping the composed message', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()

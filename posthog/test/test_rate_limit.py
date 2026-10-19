@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -1063,3 +1063,15 @@ class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
             self.assertTrue(poll.allow_request(request, view))
             self.assertFalse(poll.allow_request(request, view))
         self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))
+
+    @parameterized.expand([("listed_team", 2, True), ("unlisted_team", 3, False)])
+    def test_high_volume_team_gets_larger_poll_rate(self, _name: str, team_id: int, expect_allowed: bool) -> None:
+        request = Mock(headers={"X-Conversations-Token": "widget-token"}, auth=Team(id=team_id))
+        with (
+            override_settings(
+                CONVERSATIONS_WIDGET_HIGH_VOLUME_TEAM_IDS=["2"], CONVERSATIONS_WIDGET_HIGH_VOLUME_POLL_RATE="2/minute"
+            ),
+            patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"),
+        ):
+            self.assertTrue(rate_limit.WidgetTeamPollThrottle().allow_request(request, Mock()))
+            self.assertEqual(rate_limit.WidgetTeamPollThrottle().allow_request(request, Mock()), expect_allowed)
