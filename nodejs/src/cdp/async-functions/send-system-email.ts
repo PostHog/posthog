@@ -19,6 +19,7 @@ registerAsyncFunction('sendSystemEmail', {
             })
             return
         }
+        const startedAt = performance.now()
         try {
             context.consumeInlineAsyncBudget()
             response = await context.systemEmailService.sendFromInvocation(args[0], result)
@@ -30,6 +31,11 @@ registerAsyncFunction('sendSystemEmail', {
             })
             response = { success: false, error: "Couldn't send the email. Try again later." }
         }
+        // HogWatcher charges execution cost from these timings.
+        result.invocation.state.timings.push({
+            kind: 'async_function',
+            duration_ms: Math.round(performance.now() - startedAt),
+        })
         result.invocation.state.vmState?.stack.push(response)
     },
 

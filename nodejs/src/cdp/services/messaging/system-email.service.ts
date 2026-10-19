@@ -20,6 +20,8 @@ export const SYSTEM_EMAIL_TEMPLATE_ID = 'template-posthog-email'
 export const SYSTEM_EMAIL_TRIGGER_EVENTS = new Set(['$data_warehouse_sync_failure_digest'])
 
 const SEND_CONCURRENCY = 10
+// The send runs inline in the hog worker batch, so a stalled SES connection must not hold it up.
+const SES_SEND_TIMEOUT_MS = 10_000
 
 type SystemEmailOutcome =
     | 'sent'
@@ -132,7 +134,9 @@ export class SesSystemEmailTransport implements SystemEmailTransport {
             params.ReplyToAddresses = [message.replyTo]
         }
 
-        const response = await this.client.send(new SendEmailCommand(params))
+        const response = await this.client.send(new SendEmailCommand(params), {
+            abortSignal: AbortSignal.timeout(SES_SEND_TIMEOUT_MS),
+        })
         if (!response.MessageId) {
             throw new Error('No messageId returned from SES')
         }
