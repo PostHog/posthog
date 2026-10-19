@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import psycopg
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -395,13 +397,20 @@ def queue_db_url(django_db_setup: None) -> str:
     return url
 
 
-def _run_states(url: str, run_uuid: str) -> list[tuple[int, bool, str]]:
+@frozen
+class _BatchState:
+    batch_index: int
+    is_final_batch: bool
+    latest_state: str
+
+
+def _run_states(url: str, run_uuid: str) -> list[_BatchState]:
     with psycopg.Connection.connect(url, autocommit=True) as conn:
         rows = conn.execute(
             f"SELECT batch_index, is_final_batch, latest_state FROM {BATCH_TABLE} WHERE run_uuid = %s ORDER BY batch_index",
             (run_uuid,),
         ).fetchall()
-    return [(row[0], row[1], row[2]) for row in rows]
+    return [_BatchState(batch_index=row[0], is_final_batch=row[1], latest_state=row[2]) for row in rows]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -432,8 +441,12 @@ class TestPostgresProducerNextAttempt:
         )
         next_attempt.close()
 
-        assert _run_states(queue_db_url, first_run) == [(0, False, "failed")]
-        assert _run_states(queue_db_url, next_run) == [(0, True, "pending")]
+        assert _run_states(queue_db_url, first_run) == [
+            _BatchState(batch_index=0, is_final_batch=False, latest_state="failed")
+        ]
+        assert _run_states(queue_db_url, next_run) == [
+            _BatchState(batch_index=0, is_final_batch=True, latest_state="pending")
+        ]
 
 
 async def _write_status(url: str, batch_id: str, job_state: str) -> None:
