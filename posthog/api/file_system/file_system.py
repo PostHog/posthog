@@ -31,6 +31,7 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -332,7 +333,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if team_access.has_project_access
         }
 
+    def _filter_by_product_visibility(self, queryset: QuerySet) -> QuerySet:
+        """Drop rows whose product hides the object from this person, beyond project RBAC.
+
+        A canvas follows its channel (personal, private or public), which the file system knows nothing
+        about, so its product registers a filter. Evaluated on every read, so a channel's type or
+        membership changing needs no resync.
+        """
+        return apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
+        queryset = self._filter_by_product_visibility(queryset)
         if not self.user_access_control:
             return queryset
         accessible_team_ids = self._accessible_team_ids
