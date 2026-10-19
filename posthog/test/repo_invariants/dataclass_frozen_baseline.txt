@@ -392,7 +392,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cloudbeds/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cloudflare/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cloudsmith/cloudsmith.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/cloudsmith/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cloudzero/cloudzero.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coassemble/coassemble.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coassemble/settings.py
