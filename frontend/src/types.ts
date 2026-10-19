@@ -1122,6 +1122,7 @@ export enum PropertyOperator {
     In = 'in',
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
+    IsCleanedPathNotExact = 'is_cleaned_path_not_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
     SemverEq = 'semver_eq',
     SemverNeq = 'semver_neq',
@@ -4569,7 +4570,6 @@ export interface FeatureFlagRulesV2PercentageRolloutRule
 
 export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'experiment'
-    experiment_id: number
     paused: boolean
     variants: { key: string; weight: number; value: JsonType }[]
     holdout?: { id: number; seed: string; exclusion_percentage: number }
@@ -5479,8 +5479,7 @@ export type GraphDataset = Partial<
         | 'compare'
         | 'compare_label'
         | 'status'
-        | 'action'
-        | 'actions'
+        | 'order'
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'
@@ -5504,8 +5503,6 @@ export type GraphDataset = Partial<
     pointValue?: number
     /** Value (count) for specific data point; only valid in the context of an xy intercept */
     personUrl?: string
-    /** Action/event filter defition */
-    action?: ActionFilter | null
     yAxisID?: string
 }
 

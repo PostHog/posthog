@@ -146,7 +146,7 @@ CiscoDuo not-checkable:no-request
 CiscoMeraki fail:stall-budget
 Clari fail:stall-budget
 Clarifai fail:stall-budget
-Clay not-checkable:schemas
+Clay fail:stall-budget
 Clerk fail:stall-budget
 Clever fail:stall-budget
 ClickHouse not-checkable:schemas
@@ -186,6 +186,7 @@ Convex not-checkable:schemas
 Copper fail:stall-budget
 Coralogix fail:stall-budget
 Cortex fail:stall-budget
+CosmosDB not-checkable:schemas
 Coupa fail:rate-limit-budget,stall-budget
 Courier fail:stall-budget
 Coveralls not-checkable:no-request
@@ -627,7 +628,7 @@ Salesflare fail:stall-budget
 Salesforce not-checkable:database
 SavvyCal fail:stall-budget
 ScaleAI fail:stall-budget
-Scaleway fail:rate-limit-budget,safe-point
+Scaleway fail:rate-limit-budget
 Scrunch fail:stall-budget
 Secoda fail:stall-budget
 Secureframe fail:stall-budget

@@ -141,6 +141,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
+                                    noPadding
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}

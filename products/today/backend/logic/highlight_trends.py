@@ -3,7 +3,7 @@ import math
 import statistics
 from datetime import date, timedelta
 
-from posthog.dataclasses import frozen
+from ..facade.contracts import HighlightDetection
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 BAD_METRIC = re.compile(
@@ -16,18 +16,6 @@ UNCLEAR_LABEL = re.compile(
 )
 MONEY = re.compile(r"(?i)(revenue|\barr\b|\bmrr\b|\bnrr\b|spend|cost|usd|\$(?![a-z_])|invoice)")
 MAX_FILLED_DAYS = 120
-
-
-@frozen
-class Detection:
-    kind: str
-    strength: float
-    direction: int
-    pct: float | None = None
-    now: float | None = None
-    usual: float | None = None
-    weekday: str | None = None
-    same_weekday: bool = False
 
 
 def complete(points: list[tuple[date, float]], period: str, today: date) -> list[tuple[date, float]]:
@@ -80,18 +68,18 @@ def zscore(last: float, prior: list[float]) -> float | None:
 
 def detect(
     points: list[tuple[date, float]], period: str, today: date, average: bool = False
-) -> tuple[list[Detection], list[float]]:
+) -> tuple[list[HighlightDetection], list[float]]:
     usable = complete(points, period, today)
-    found: list[Detection] = []
+    found: list[HighlightDetection] = []
     if period == "day":
         usable = fill_days(usable)
         daily = [v for _, v in usable]
         if len(daily) >= 17 and all(v == 0 for v in daily[-3:]) and statistics.mean(daily[-17:-3]) >= 100:
-            found.append(Detection(kind="went_quiet", strength=0.7, direction=-1))
+            found.append(HighlightDetection(kind="went_quiet", strength=0.7, direction=-1))
         found.extend(_same_weekday(usable))
     values = windows(usable, period, average)
     if len(values) >= 6 and all(v == 0 for v in values[-6:]) and any(v != 0 for v in values[:-6]):
-        found.append(Detection(kind="flatline", strength=0.6, direction=-1))
+        found.append(HighlightDetection(kind="flatline", strength=0.6, direction=-1))
     if len(values) < 4 or values[-1] == 0:
         return found, values
     last, previous = values[-1], values[-2]
@@ -99,7 +87,7 @@ def detect(
     change_z = zscore(changes[-1], changes[:-1]) if len(changes) >= 4 and previous else None
     if change_z is not None and abs(change_z) >= 2 and abs(changes[-1]) >= 0.1:
         found.append(
-            Detection(
+            HighlightDetection(
                 kind="spike",
                 strength=min(1.0, 0.6 + 0.1 * (abs(change_z) - 2)),
                 direction=1 if changes[-1] > 0 else -1,
@@ -115,14 +103,14 @@ def detect(
         history = [values[i] - values[i - 1] for i in range(max(1, len(values) - 9), len(values) - 3)]
         usual = (sum(1 for h in history if h > 0) - sum(1 for h in history if h < 0)) if len(history) >= 3 else 0
         if usual * direction <= 0:
-            found.append(Detection(kind="trend", strength=0.6, direction=direction))
+            found.append(HighlightDetection(kind="trend", strength=0.6, direction=direction))
     earlier = statistics.mean(values[:-1][-3:])
     if earlier > 0 and (last / earlier >= 3 or last / earlier <= 1 / 3) and max(last, earlier) >= 100:
-        found.append(Detection(kind="level_shift", strength=0.8, direction=1 if last > earlier else -1))
+        found.append(HighlightDetection(kind="level_shift", strength=0.8, direction=1 if last > earlier else -1))
     return found, values
 
 
-def _same_weekday(usable: list[tuple[date, float]]) -> list[Detection]:
+def _same_weekday(usable: list[tuple[date, float]]) -> list[HighlightDetection]:
     start = next((i for i, (_, v) in enumerate(usable) if v != 0), 0)
     days = usable[start:]
     if len(days) < 8:
@@ -137,7 +125,7 @@ def _same_weekday(usable: list[tuple[date, float]]) -> list[Detection]:
     if abs(last_value - mean) < max(5, 3 * math.sqrt(max(mean, 1))):
         return []
     return [
-        Detection(
+        HighlightDetection(
             kind="same_weekday",
             strength=0.7,
             direction=1 if last_value > mean else -1,

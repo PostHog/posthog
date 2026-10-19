@@ -536,6 +536,28 @@ class TestWebStatsTableQueryRunner(
             ["/cleaned/:id", (2, None), (2, None), 2 / 2, ""],
         ] == results
 
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_NOT_EXACT, value=["/cleaned/:id"]
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id/path/:id", (1, None), (1, None), 1 / 3, ""],
+            ["/not-cleaned", (1, None), (1, None), 1 / 3, ""],
+            ["/thing_c", (1, None), (1, None), 1 / 3, ""],
+        ] == results
+
     def test_path_cleaning_filters_with_cleanable_path_property(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))

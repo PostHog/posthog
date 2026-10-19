@@ -53,7 +53,7 @@ class RocketlaneSource(ResumableSource[RocketlaneSourceConfig, RocketlaneResumeC
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Rocketlane API key to pull your Rocketlane data into the PostHog Data warehouse.
 
-You can generate an API key under **Settings → API** in the [Rocketlane app](https://app.rocketlane.com/). This single key grants read access to your projects, tasks, time entries, users, and fields.
+You can generate an API key under **Settings → API** in the [Rocketlane app](https://app.rocketlane.com/). This single key grants read access to your projects, phases, tasks, time entries, users, fields, and invoices.
 """,
             iconPath="/static/services/rocketlane.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rocketlane",

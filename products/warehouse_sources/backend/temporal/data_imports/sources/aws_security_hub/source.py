@@ -127,12 +127,13 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
             name=ExternalDataSourceType.AWSSECURITYHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Security Hub",
-            caption="""Sync Security Hub CSPM findings, standards, controls, product integrations, member accounts, and custom insights from the configured AWS region.
+            caption="""Sync Security Hub CSPM findings, standards, controls, product integrations, member accounts, custom insights, and exposure remediations from the configured AWS region.
 
-Grant `securityhub:GetFindings`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, `securityhub:GetInsights`, `securityhub:DescribeStandardsControls`, `securityhub:ListSecurityControlDefinitions`, `securityhub:DescribeProducts`, and `securityhub:ListMembers` to the IAM user or role.
+Grant `securityhub:GetFindings`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, `securityhub:GetInsights`, `securityhub:DescribeStandardsControls`, `securityhub:ListSecurityControlDefinitions`, `securityhub:DescribeProducts`, `securityhub:ListMembers`, `securityhub:GetRemediationsV2`, and `securityhub:ListExposuresByRemediationV2` to the IAM user or role.
 Enter its access key ID and secret access key. Add a session token for temporary credentials.
 Enable Security Hub CSPM in the selected region.
-If you select an aggregation region, AWS can also return findings from linked regions.""",
+If you select an aggregation region, AWS can also return findings from linked regions.
+The remediation tables need Security Hub with exposure findings in the selected region.""",
             iconPath="/static/services/aws_security_hub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-security-hub",
             releaseStatus=ReleaseStatus.BETA,

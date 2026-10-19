@@ -1932,7 +1932,6 @@ export const EvaluationApiTargetConfigStrategy = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
  * * `system_one` - System One
  * * `openai_compatible` - OpenAI-compatible
  */
@@ -1947,7 +1946,6 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
     SystemOne: 'system_one',
     OpenaiCompatible: 'openai_compatible',
 } as const
@@ -3483,26 +3481,6 @@ export interface LLMModelsListResponseApi {
     providers: LLMProviderModelsSummaryApi[]
 }
 
-export interface OfflineExperimentItemsRequestApi {
-    /** `$ai_experiment_id` whose offline-evaluation items to return. */
-    experiment_id: string
-    /**
-     * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
-     * @nullable
-     */
-    date_from?: string | null
-    /**
-     * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
-     * @nullable
-     */
-    date_to?: string | null
-}
-
-export interface OfflineExperimentItemsResponseApi {
-    /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
-    results: unknown[][]
-}
-
 export interface ParserRecipeApi {
     readonly id: string
     /**
@@ -4493,7 +4471,6 @@ export interface TaggerConditionApi {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
  * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMCompletionProviderEnumApi =
@@ -4508,7 +4485,6 @@ export const LLMCompletionProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
     OpenaiCompatible: 'openai_compatible',
 } as const
 
@@ -4526,7 +4502,6 @@ export interface TaggerModelConfigurationApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
     provider: LLMCompletionProviderEnumApi
     /**
@@ -4581,7 +4556,6 @@ export interface TaggerModelConfigurationWriteApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
     provider: LLMCompletionProviderEnumApi
     /**
@@ -5285,12 +5259,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openrouter: 'openrouter',
     SystemOne: 'system_one',
     TogetherAi: 'together_ai',
-    Zeabur: 'zeabur',
 } as const
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsParserRecipesListParams = {
     /**

@@ -124,10 +124,12 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
+            # A lookback re-reads rows that are already stored, and append would duplicate them.
+            lookback = TRIGGER_DEV_ENDPOINTS[endpoint].incremental_lookback
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental,
-                supports_append=has_incremental,
+                supports_append=has_incremental and lookback is None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=TRIGGER_DEV_ENDPOINTS[endpoint].should_sync_default,
             )
