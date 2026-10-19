@@ -273,7 +273,6 @@ from products.workflows.backend.facade.validation import (
     is_duration,
     is_signed_duration,
     realtime_audience_cohort,
-    realtime_cohort_is_ready,
 )
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
@@ -1433,7 +1432,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         # reads the audience this way. An active flow keeps an audience it saved under the flag.
         realtime_cohort = find_realtime_behavioral_cohort(project_id, cohort_ids) if allow_realtime else None
         if realtime_cohort is not None and (
-            realtime_cohort.pk in (self.context.get("stored_realtime_audience_cohort_ids") or set())
+            realtime_cohort.id in (self.context.get("stored_realtime_audience_cohort_ids") or set())
             or self._cohort_conditions_enabled()
         ):
             if realtime_audience_cohort(project_id, filters) is None:
@@ -1446,7 +1445,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     }
                 )
-            if not realtime_cohort_is_ready(realtime_cohort):
+            if not realtime_cohort.ready:
                 raise serializers.ValidationError(
                     {
                         "filters": (
