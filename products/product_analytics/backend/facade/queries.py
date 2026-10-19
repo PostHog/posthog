@@ -16,6 +16,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from posthog.clickhouse.workload import Workload
+
 from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 
 _B = "products.product_analytics.backend.hogql_queries."
@@ -84,6 +86,7 @@ def run_cached_trends_query(
     max_execution_time_seconds: int,
     cache_age_seconds: int,
     ch_user: ClickHouseUser | None = None,
+    workload: Workload = Workload.DEFAULT,
 ) -> TrendsQueryRunResult:
     """Run a Trends query through the blocking recent-cache path."""
 
@@ -99,6 +102,7 @@ def run_cached_trends_query(
         team=team,
         hogql_settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
         ch_user=ch_user,
+        workload=workload,
     )
     runner.is_query_service = is_api_key_access_method(get_query_tag_value("access_method"))
     response = runner.run(

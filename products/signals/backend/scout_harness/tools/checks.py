@@ -378,9 +378,10 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     checks = list(
         SignalReportCheck.objects.for_team(report.team_id)
         .filter(report_id=report.id)
-        .select_related("report")
         .order_by("-created_at")[:MAX_CHECKS_LISTED]
     )
+    for check in checks:
+        check.report = report
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
     now = timezone.now()
     report_status = report.effective_status

@@ -19,6 +19,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -705,10 +706,11 @@ class TestReportCheckExecution(APIBaseTest):
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             patch("time.monotonic", return_value=100.0),
             patch(
-                "products.signals.backend.report_metric_refresh.run_cached_trends_query",
-                return_value=TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=now),
-            ) as run_query,
+                "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.TrendsQueryRunner",
+            ) as runner,
         ):
+            run_query = runner.return_value.run
+            run_query.return_value = TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=now)
             with patch("products.signals.backend.report_check_execution.CHECK_RUN_TIME_BUDGET_SECONDS", 1):
                 for _ in range(3):
                     run_due_report_checks(now=now)
@@ -720,6 +722,8 @@ class TestReportCheckExecution(APIBaseTest):
             assert not self.report.artefacts.filter(type="check_observation").exists()
             run_due_report_checks(now=now)
             run_query.assert_called_once()
+            assert runner.call_args.kwargs["workload"] == Workload.OFFLINE
+            assert runner.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
         check.refresh_from_db()
         assert check.consecutive_errors == 0
         content = json.loads(self.report.artefacts.get(type="check_observation").content)

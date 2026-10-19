@@ -6,6 +6,9 @@ from django.db import transaction
 
 import structlog
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckObservation
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
@@ -46,7 +49,14 @@ def measure_monitoring_check(check: SignalReportCheck, *, now: datetime, deadlin
         assert config.query is not None
         comparison = monitoring_comparison(config, now - start)
         query = monitoring_metric_query(config.query, start=start, cutoff=now)
-        measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
+        measurement = measure_metric(
+            query,
+            check.report.team,
+            deadline=deadline,
+            include_series=False,
+            ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.OFFLINE,
+        )
         verdict = evaluate_check_value(comparison=comparison, observed_value=measurement.value, subject=check.title)
         return CheckObservation(
             check_id=str(check.id),
