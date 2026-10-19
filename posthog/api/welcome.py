@@ -505,7 +505,8 @@ def _get_popular_dashboards(team_ids: list[int], user: User) -> list[dict[str, A
             visible_ids.update(
                 UserAccessControl(user=user, team=team)
                 .filter_queryset_by_access_level(
-                    Dashboard.objects.filter(id__in=candidate_ids_by_team[team.id]), include_all_if_admin=True
+                    Dashboard.objects.filter(team_id=team.id, id__in=candidate_ids_by_team[team.id]),
+                    include_all_if_admin=True,
                 )
                 .values_list("id", flat=True)
             )
