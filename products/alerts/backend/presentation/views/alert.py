@@ -170,23 +170,6 @@ class LLMDetectorUnavailable(APIException):
     default_code = "llm_detector_unavailable"
 
 
-def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
-    # Scope the flag to the alert's organization (via team scope), not the user's current
-    # organization — otherwise a user in multiple orgs could flip their current org to a
-    # flag-on org and create an alert in a team where the flag is disabled. get_organization is
-    # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
-    # invariant can't silently degrade to an unscoped check.
-    user = context["request"].user
-    org = context["get_organization"]()
-    return bool(
-        posthoganalytics.feature_enabled(
-            flag,
-            str(user.distinct_id),
-            groups={"organization": str(org.id)},
-        )
-    )
-
-
 MAX_DETECTOR_INSTRUCTIONS_CHARS = 2000
 
 
@@ -366,13 +349,10 @@ def _admit_llm_alert_write(
 
 def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> None:
     # Shared by create/update (AlertSerializer) and simulate (AlertSimulateSerializer), so a
-    # flag-gated insight kind gets the same rejection on every alerts entry point.
+    # non-alertable insight kind gets the same rejection on every alerts entry point.
     kind = insight.alertable_query_kind
     if kind is None:
         raise ValidationError("Alerts are not supported for this insight.")
-    # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
-    if kind == NodeKind.METRICS_QUERY and not _insight_alert_flag_enabled(context, "metrics"):
-        raise ValidationError("Metrics insight alerts are not enabled for your account.")
 
 
 def _token_lacks_metrics_scope(request) -> bool:
