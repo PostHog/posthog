@@ -394,20 +394,20 @@ UpdateItem  SET deleted = :true REMOVE wrapped_key, sealed_key, key_nonce
 v4 objects use the v3 `AISR03` frame.
 The additional authenticated data is the canonical JSON of `{"v": 4, "context": ...}`, so a v3 reader never opens a v4 object.
 
-| Object                 | Key            | `context`                                                                                         |
-| ---------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
-| Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "zstd"`, `ref` (the block object key) |
-| Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)               |
-| Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)       |
-| Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                       |
+| Object                 | Key            | `context`                                                                                           |
+| ---------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
+| Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "brotli"`, `ref` (the block object key) |
+| Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)                 |
+| Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)         |
+| Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                         |
 
 A sealed index value uses the v3 JSON envelope with `"v": 4`.
 `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector-v4.json` pins one frame of each sealed object kind, so a reader in another language can check its own bytes.
 
 ### Blocks
 
-A block holds the replay messages of one session from one Kafka partition in one flush, as JSON lines of `[window_id, event]`, compressed with zstd level 3.
-The recorder streams each block into the encoder, so the zstd frame does not state its decompressed size. Read a block as a stream.
+A block holds the replay messages of one session from one Kafka partition in one flush, as JSON lines of `[window_id, event]`, compressed with Brotli at quality 9 and a 22-bit window, as in v3.
+The recorder streams each block into the encoder. Read a block as a stream: a Brotli stream does not state its decompressed size.
 
 - posthog-js compresses some fields of an event and marks the event `cv: "2024-10"`. The recorder expands those fields to plain JSON and removes the `cv` key, as the replay player does, because the gzip strings do not compress again. An event that does not decode stays exactly as it arrived.
 - An inline image becomes `image:v4:{team_id}:{YYYY-MM}:{hash}` in the block, where the month is its key month.
