@@ -40,7 +40,7 @@ export interface RecordEventUsageInput {
         timestamp: string
         properties: Properties
     }
-    headers: Pick<EventHeaders, 'now'>
+    headers: Pick<EventHeaders, 'now' | 'historical_migration'>
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
     person?: Person
@@ -106,9 +106,12 @@ export interface EventUsageRecordContext {
  * separates, and it waits on the same acknowledgement: an event that never lands should not bill
  * for the person work either.
  *
- * Capture time assigns usage to the period that receives it, including historical imports.
- * Source event time cannot move newly received usage into a closed billing period.
- * The record ID retains the source date for event identity and comparison with legacy reports.
+ * Capture time assigns usage to the period that receives it. The record ID retains the source
+ * date for event identity and comparison with legacy reports.
+ *
+ * Historical analytics migrations are free. The preprocessing step validates their header
+ * against the event age. Separate usage keys retain these counts without adding them to the
+ * billable analytics or person-processing meters. Ordinary late events remain billable.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
@@ -128,7 +131,15 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
                 : analyticsRecordId(input.preparedEvent)
         const captureTimestampMs = input.headers.now?.getTime()
         const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
-        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]
+        const isHistoricalAnalytics = usageKey === EVENTS_USAGE_KEY && input.headers.historical_migration === true
+        const eventUsageRecords: EventUsageRecord[] = [
+            {
+                teamId,
+                usageKey: isHistoricalAnalytics ? 'historical_migration_events' : usageKey,
+                recordId,
+                timestampMs,
+            },
+        ]
         // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
         // filter, so an event billed under its own key is outside both. Reading the mode stored on
         // the event rather than `processPerson` keeps force upgrades counted.
@@ -136,7 +147,14 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
             usageKey === EVENTS_USAGE_KEY &&
             resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless'
         ) {
-            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId, timestampMs })
+            eventUsageRecords.push({
+                teamId,
+                usageKey: isHistoricalAnalytics
+                    ? 'historical_migration_enhanced_person_events'
+                    : 'enhanced_person_events',
+                recordId,
+                timestampMs,
+            })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))
     }
