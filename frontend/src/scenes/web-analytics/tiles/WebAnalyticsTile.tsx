@@ -12,6 +12,7 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -725,6 +726,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         url: {
             render: UrlValueCell,
+        },
+        'Last seen': {
+            render: ({ value }) => (typeof value === 'string' ? <TZLabel time={value} /> : <>{value}</>),
         },
         action_name: {
             title: 'Action',
