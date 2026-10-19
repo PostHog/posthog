@@ -51,7 +51,7 @@ function Arrow({ second = false }: { second?: boolean }): JSX.Element {
 export function LoopDiagram(): JSX.Element {
     return (
         // text-left so the mock UI stays left-aligned even inside a text-center hero (the intro modal)
-        <div className="@container/loop">
+        <div className="@container/loop w-full">
             <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 text-left @3xl/loop:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
                 <div className="flex flex-col gap-2">
                     <StageLabel>Signal sources</StageLabel>
