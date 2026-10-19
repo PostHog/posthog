@@ -105,15 +105,15 @@ def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> None:
         Q(team_id=saved_query.team_id)
         & (Q(source_table_name=saved_query.name) | Q(joining_table_name=saved_query.name))
     ).delete()
-    # 4. Revert materialization (drops schedule, soft-deletes the table)
+    # 3. Revert materialization (drops schedule, soft-deletes the table)
     table_to_delete = saved_query.table
     saved_query.revert_materialization()
-    # 5. Delete S3 data for the materialized view
+    # 4. Delete S3 data for the materialized view
     _delete_s3_data(saved_query)
-    # 6. Hard-delete the materialized table if it exists
+    # 5. Hard-delete the materialized table if it exists
     if table_to_delete is not None:
         table_to_delete.delete()
-    # 7. Hard-delete the saved query itself
+    # 6. Hard-delete the saved query itself
     saved_query.delete()
 
 

@@ -156,7 +156,7 @@ GET_PARENTS_TEST_CASES = [
 ]
 
 
-class TestModelPath(BaseTest):
+class TestGetParentsFromModelQuery(BaseTest):
     @parameterized.expand(GET_PARENTS_TEST_CASES)
     def test_get_parents_from_model_query(self, model_query: str, parents: set[str]):
         model_name = "test_model"

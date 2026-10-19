@@ -20,14 +20,6 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseCreden
 
 
 class TestRevertMaterialization(BaseTest):
-    """Tests for DataWarehouseSavedQuery.revert_materialization.
-
-    The method runs three DB operations (table soft-delete, saved_query save,
-    model paths delete) inside one transaction. If any of them fails, every
-    piece of state must be left as it was, so the next retry can converge on a
-    consistent state.
-    """
-
     def setUp(self):
         super().setUp()
         self.credential = DataWarehouseCredential.objects.create(
@@ -54,8 +46,6 @@ class TestRevertMaterialization(BaseTest):
         )
 
     def _assert_state_unchanged(self) -> None:
-        """A rollback must leave every piece of state (saved_query, table, model paths)
-        exactly as it was before revert_materialization was called."""
         self.saved_query.refresh_from_db()
         self.assertTrue(self.saved_query.is_materialized)
         self.assertEqual(self.saved_query.sync_frequency_interval, timedelta(hours=1))
