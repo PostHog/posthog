@@ -811,7 +811,7 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
         .max(metricsVariableOptionsCreateBodyRegexMax)
         .nullish()
         .describe(
-            'A regex that filters the options of a query, as `pattern` or `\/pattern\/flags`. With a capture group, each option is its first group.'
+            'A regex that filters the options of a query, as `pattern` or `\/pattern\/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.'
         ),
     variables: zod
         .array(

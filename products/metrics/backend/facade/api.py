@@ -69,7 +69,7 @@ from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.query_concurrency import query_concurrency_slots
-from products.metrics.backend.variable_options import check_options_window, list_variable_options
+from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
 
 logger = structlog.get_logger(__name__)
@@ -502,6 +502,11 @@ def list_metric_attribute_values(
         team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
     )
     return runner.run()
+
+
+def check_metric_variable_regex(regex: str | None) -> None:
+    """Raises `ValueError` for a variable regex that the options cannot use."""
+    compile_regex(regex)
 
 
 def list_metric_variable_options(

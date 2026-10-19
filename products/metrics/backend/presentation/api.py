@@ -38,6 +38,7 @@ from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
+    check_metric_variable_regex,
     get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
@@ -763,7 +764,7 @@ class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text=(
             "A regex that filters the options of a query, as `pattern` or `/pattern/flags`. "
-            "With a capture group, each option is its first group."
+            "With a capture group, each option is its first group. An invalid regex is rejected before any query runs."
         ),
     )
     variables = _MetricVariableSelectionSerializer(
@@ -789,6 +790,13 @@ class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text="End of the window that options come from, in the same format as dateFrom. Defaults to now.",
     )
+
+    def validate_regex(self, value: str | None) -> str | None:
+        try:
+            check_metric_variable_regex(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
 
 
 class _MetricVariableOptionsResponseSerializer(serializers.Serializer):

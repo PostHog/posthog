@@ -481,6 +481,7 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
             ("unknown_function", {"source": "promql", "query": "sum(up)"}, "label_values"),
             ("bad_label", {"source": "promql", "query": "label_values(up, 1abc)"}, "not a label name"),
             ("empty_query", {"source": "sql", "query": " "}, "Write a query"),
+            ("invalid_regex", {"source": "promql", "query": "label_values(job)", "regex": "("}, "regex cannot be used"),
         ]
     )
     def test_bad_queries_are_rejected_with_400(self, _name: str, body: dict, message: str) -> None:

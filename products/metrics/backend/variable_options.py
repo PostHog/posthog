@@ -166,19 +166,26 @@ def re2_pattern(regex: str | None) -> str:
     return f"(?{flags}){body}" if flags and body else body
 
 
-def apply_regex(options: list[str], regex: str | None) -> list[str]:
-    """Keep the options that match the variable's regex. With a capture group, the option is the first group.
+def compile_regex(regex: str | None) -> Any:
+    """The compiled variable regex, or None without one. Raises `ValueError` for a pattern that RE2 rejects.
 
     RE2 runs the pattern in linear time, so a user pattern cannot backtrack without end. A dot matches a newline,
     as in the ClickHouse functions that SQL queries use.
     """
     pattern = re2_pattern(regex)
-    if not pattern or not options:
-        return options
+    if not pattern:
+        return None
     try:
-        compiled = re2.compile(f"(?s){pattern}")
+        return re2.compile(f"(?s){pattern}")
     except re2.error as exc:
         raise ValueError(f"The variable regex cannot be used: {exc}") from exc
+
+
+def apply_regex(options: list[str], regex: str | None) -> list[str]:
+    """Keep the options that match the variable's regex. With a capture group, the option is the first group."""
+    compiled = compile_regex(regex) if options else None
+    if compiled is None:
+        return options
     matched: list[str] = []
     for option in options:
         match = compiled.search(option)
