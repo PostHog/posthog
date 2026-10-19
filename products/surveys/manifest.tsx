@@ -1,11 +1,9 @@
-import { combineUrl } from 'kea-router'
-
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, FileSystemListQuery, ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Surveys',
@@ -22,7 +20,8 @@ export const manifest: ProductManifest = {
             name: 'Survey',
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.surveys(), { search: query?.searchText }).url,
+            listHref: () => urls.surveys(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
         },

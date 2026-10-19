@@ -1,10 +1,8 @@
-import { combineUrl } from 'kea-router'
-
 import { toParams } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, ExperimentsTabs, FileSystemIconColor, FileSystemListQuery, ProductManifest } from '~/types'
+import { ActivityScope, ExperimentsTabs, FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
@@ -54,8 +52,8 @@ export const manifest: ProductManifest = {
             name: 'Experiment',
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
-            listHref: (query?: FileSystemListQuery) =>
-                combineUrl(urls.experiments(), { search: query?.searchText }).url,
+            listHref: () => urls.experiments(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },

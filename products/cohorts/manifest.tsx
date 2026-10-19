@@ -1,10 +1,8 @@
-import { combineUrl } from 'kea-router'
-
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, FileSystemListQuery, ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Cohorts',
@@ -35,7 +33,8 @@ export const manifest: ProductManifest = {
                 'var(--color-product-cohorts-dark)',
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.cohorts(), { search: query?.searchText }).url,
+            listHref: () => urls.cohorts(),
+            listSearchParam: 'search',
             filterKey: 'cohort',
         },
     },

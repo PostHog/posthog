@@ -98,11 +98,10 @@ The input is always in exactly one mode, decided from the token under the cursor
   4. **Ask PostHog AI**.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
-  - A list page that reads a search from its URL opens with the rest of the query. The type's `listHref` in its product manifest receives the search text and the full query without the `is:` chip, and builds the URL from them.
+  - A list page that reads a search from its URL opens with the rest of the query. The type's product manifest names the URL param in `listSearchParam`, and Command K adds the search text to `listHref()`.
   - Feature flags, experiments, cohorts, surveys, insights, and dashboards take the search text as `?search=`: the `name:` value, then the free text.
   - These lists match the search text as one phrase, in the order typed. So `?search=` leaves out what a phrase cannot express: excluded words (`-legacy`, `"-legacy"`, `!draft`, a lone `-`), an excluded `name:`, and the quotes that group words (`"checkout v2"`).
-  - `createdBy:` and `in:` do not carry over to `?search=` lists, because their own filters take user IDs and exact folders, not Command K's values.
-  - Workflows takes the full query as `?q=`, filters and `-` negations included (`createdBy:me -in:Growth welcome`). Only the workflows list v2 reads `q`. Until it ships, the link opens the unfiltered list.
+  - `createdBy:` and `in:` do not carry over, because the lists' own filters take user IDs and exact folders, not Command K's values.
   - Any other type opens its bare list page.
 
 ## Smart filters

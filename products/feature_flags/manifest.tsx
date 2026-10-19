@@ -1,11 +1,9 @@
-import { combineUrl } from 'kea-router'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { AnyPropertyFilter, FileSystemIconColor, FileSystemListQuery, ProductManifest } from '../../frontend/src/types'
+import { AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
@@ -76,8 +74,8 @@ export const manifest: ProductManifest = {
             name: 'Feature flag',
             iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
-            listHref: (query?: FileSystemListQuery) =>
-                combineUrl(urls.featureFlags(), { search: query?.searchText }).url,
+            listHref: () => urls.featureFlags(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
         },

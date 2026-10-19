@@ -7890,15 +7890,12 @@ export interface CoreMemory {
 
 export type FileSystemIconColor = [string] | [string, string]
 
-export interface FileSystemListQuery {
-    searchText?: string
-    queryWithoutType?: string
-}
-
 export interface FileSystemType {
     href?: (ref: string) => string
     // The product's own list page, which Library opens for this type instead of its generic table
-    listHref?: (query?: FileSystemListQuery) => string
+    listHref?: () => string
+    // The URL param the list page reads its search text from, so Command K's "View all" row can carry the search over
+    listSearchParam?: 'search'
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled

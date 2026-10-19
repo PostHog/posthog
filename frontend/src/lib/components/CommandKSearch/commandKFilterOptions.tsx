@@ -3,13 +3,12 @@ import { combineUrl } from 'kea-router'
 import { IconArrowRight } from '@posthog/icons'
 
 import { SearchItem } from 'lib/components/Search/searchItems'
-import { urls } from 'scenes/urls'
 
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { FileSystemListQuery, OrganizationMemberType, UserType } from '~/types'
+import { OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, QueryChip, ResolvedQuery, ValueOption, queryAsText, tokenize, unquote } from './commandKQuery'
+import { FilterOptions, ResolvedQuery, ValueOption, listSearchText } from './commandKQuery'
 import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
@@ -24,7 +23,8 @@ const TYPE_ALIASES: Record<string, string[]> = {
 interface FileSystemTypeDefinition {
     name?: string
     iconType?: string
-    listHref?: (query?: FileSystemListQuery) => string
+    listHref?: () => string
+    listSearchParam?: 'search'
 }
 
 const FILE_SYSTEM_TYPES = fileSystemTypes as Record<string, FileSystemTypeDefinition>
@@ -93,30 +93,32 @@ export function buildFilterOptions(
     }
 }
 
-/** List pages for types whose manifest registers no `listHref`. */
-const LIST_HREF_FALLBACKS: Record<string, (query: FileSystemListQuery) => string> = {
-    dashboard: ({ searchText }) => combineUrl(urls.dashboards(), { search: searchText }).url,
-    notebook: () => urls.notebooks(),
+interface ListPage {
+    href: string
+    searchParam?: 'search'
 }
 
-const isExcluded = (raw: string): boolean => raw.startsWith('-') || raw.startsWith('!')
+/** List pages for types whose manifest registers no `listHref`. */
+const LIST_PAGE_FALLBACKS: Record<string, ListPage> = {
+    dashboard: { href: '/dashboard', searchParam: 'search' },
+    notebook: { href: '/notebooks' },
+}
 
-const includedWords = (freeText: string): string[] =>
-    tokenize(freeText)
-        .map((token) => unquote(token.raw))
-        .filter((word) => word && !isExcluded(word))
+function listPageFor(type: string): ListPage | null {
+    const definition = typeDefinition(type)
+    if (definition?.listHref) {
+        return { href: definition.listHref(), searchParam: definition.listSearchParam }
+    }
+    return LIST_PAGE_FALLBACKS[type] ?? null
+}
 
-const includedNames = (filters: QueryChip[]): string[] =>
-    filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
-
-const listQueryFor = (typeChip: QueryChip, { filters, freeText }: ResolvedQuery): FileSystemListQuery => ({
-    searchText: [...includedNames(filters), ...includedWords(freeText)].join(' ') || undefined,
-    queryWithoutType:
-        queryAsText(
-            freeText,
-            filters.filter((filter) => filter !== typeChip)
-        ) || undefined,
-})
+function listHrefFor({ href, searchParam }: ListPage, resolved: ResolvedQuery): string {
+    if (!searchParam) {
+        return href
+    }
+    const search = listSearchText(resolved)
+    return search ? combineUrl(href, { [searchParam]: search }).url : href
+}
 
 // With only filters the list page is the likely target; once there is search text, the matches matter more.
 export function viewAllFor(resolved: ResolvedQuery): ViewAll | null {
@@ -124,11 +126,11 @@ export function viewAllFor(resolved: ResolvedQuery): ViewAll | null {
     if (!chip) {
         return null
     }
-    const listHref = typeDefinition(chip.value)?.listHref ?? LIST_HREF_FALLBACKS[chip.value]
-    if (!listHref) {
+    const listPage = listPageFor(chip.value)
+    if (!listPage) {
         return null
     }
-    const href = listHref(listQueryFor(chip, resolved))
+    const href = listHrefFor(listPage, resolved)
     const name = `View all ${pluralTypeName(chip.label)}`
     const item: SearchItem = {
         id: `view-all-${chip.value}`,
