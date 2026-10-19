@@ -74,6 +74,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         )
     }
 
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
+    const editUrl = scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -85,12 +88,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         <>
                             <Button
                                 variant="primary"
-                                render={
-                                    <LinkPrimitive
-                                        to={scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)}
-                                    />
-                                }
-                                disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                                render={<LinkPrimitive to={editDisabledReason ? undefined : editUrl} />}
+                                disabledReason={editDisabledReason}
                                 data-attr="vision-scanner-edit"
                                 data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                             >
@@ -103,8 +102,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                to={scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)}
-                                disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                                to={editUrl}
+                                disabledReason={editDisabledReason}
                                 data-attr="vision-scanner-edit"
                                 data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                             >
