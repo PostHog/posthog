@@ -80,6 +80,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
+from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -179,7 +180,6 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.exports.backend.facade.api import dashboard_ids_with_subscriptions
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -198,6 +198,7 @@ from products.product_analytics.backend.presentation.insight import (
     InsightViewSet,
     get_insight_type,
 )
+from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -3327,6 +3328,11 @@ class DashboardsViewSet(
                 tile.layouts.get(layout_size, {}).get("x", 100),
             ),
         )
+
+        # Each tile's query cache key reads the team's analytics configs. Read them here with the other
+        # database reads, so that the tiles reuse the configs this Team instance loaded and the stream
+        # below runs no queries for them.
+        team_configs_for_cache_key(self.team)
 
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:

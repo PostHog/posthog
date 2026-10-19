@@ -26,8 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
     TRINO_COLUMN_NOT_FOUND_ERROR,
     TRINO_KNOWN_ERROR_MESSAGES,
+    TRINO_QUERY_NOT_FOUND_ERROR,
     TRINO_SCHEMA_NOT_FOUND_ERROR,
     TRINO_TABLE_NOT_FOUND_ERROR,
+    TRINO_WORKER_NODE_ERROR,
     TrinoImplementation,
     TrinoSchemaDiscoveryError,
     connect_trino,
@@ -283,3 +285,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             "name=COLUMN_NOT_FOUND": TRINO_COLUMN_NOT_FOUND_ERROR,
             TrinoSchemaDiscoveryError.__name__: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Both are self-recovering vendor-side blips: the coordinator only raises the worker-node
+        # error after exhausting its own attempts to reach the worker, and a fresh attempt gets a
+        # new query ID, so a query the coordinator no longer holds ("Query not found") clears itself.
+        return {TRINO_WORKER_NODE_ERROR, TRINO_QUERY_NOT_FOUND_ERROR}

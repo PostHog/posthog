@@ -89,6 +89,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -621,7 +622,7 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -791,7 +792,7 @@ export interface LogsAlertConfigurationDetailApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -893,7 +894,7 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -1072,7 +1073,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minutes to wait after firing before sending another notification.
+     * Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number

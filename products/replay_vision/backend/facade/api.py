@@ -45,6 +45,10 @@ class StartedObservationRequest:
 
 # An experiment scan needs a saved scanner, so a workflow step can't run one inline.
 INLINE_SCAN_TYPES = (ScannerType.MONITOR, ScannerType.CLASSIFIER, ScannerType.SCORER, ScannerType.SUMMARIZER)
+# An experiment scanner samples the experiment's variants evenly, which one session from a workflow trigger can't do.
+WORKFLOW_EXPERIMENT_SCANNER_ERROR = (
+    "Experiment scanners can't run from a workflow. Choose another scanner or set up the scan in the step."
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -135,7 +139,15 @@ def fetch_page_session_observations(
             ),
         )
         .select_related("scanner")
-        .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
+        .only(
+            "id",
+            "session_id",
+            "scanner_result",
+            "created_at",
+            "session_started_at",
+            "scanner__name",
+            "scanner__scanner_type",
+        )
     )
     if prefer_summarizer:
         queryset = queryset.order_by(
@@ -234,6 +246,8 @@ def start_workflow_observation_request(
             raise ObservationRequestRejected("No scanner with this ID exists in this project.", "not_found")
         if not _can_scan_with(access, team.id, scanner):
             raise ObservationRequestRejected("The workflow's owner can't scan with this scanner.", "forbidden")
+        if scanner.scanner_type == ScannerType.EXPERIMENT:
+            raise ObservationRequestRejected(WORKFLOW_EXPERIMENT_SCANNER_ERROR, "invalid")
     elif inline is not None:
         if not access.check_access_level_for_resource("replay_scanner", required_level="editor"):
             raise ObservationRequestRejected(
@@ -306,6 +320,8 @@ def workflow_scan_editor_error(*, user: User, team: "Team", scanner_id: UUID | N
         return "No scanner with this ID exists in this project."
     if not _can_scan_with(access, team.id, scanner):
         return "You need edit access to this scanner to use it in a workflow."
+    if scanner.scanner_type == ScannerType.EXPERIMENT:
+        return WORKFLOW_EXPERIMENT_SCANNER_ERROR
     return None
 
 

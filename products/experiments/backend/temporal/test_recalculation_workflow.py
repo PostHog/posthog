@@ -38,7 +38,7 @@ _ACTIVITIES_MODULE = "products.experiments.backend.temporal.recalculation_activi
 
 
 def _metric(metric_uuid: str) -> ExperimentMetricToRecalculate:
-    return ExperimentMetricToRecalculate(experiment_id=1, metric_uuid=metric_uuid, metric_type="primary")
+    return ExperimentMetricToRecalculate(experiment_id=1, metric_uuid=metric_uuid, role="primary")
 
 
 def _make_mock_activities(
@@ -66,9 +66,9 @@ def _make_mock_activities(
         metric_uuid: str,
         recalculation_id: str,
         query_to: str,
-        metric_type: str = "primary",
+        role: str = "primary",
     ) -> MetricRecalculationResult:
-        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to, metric_type))
+        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to, role))
         return metric_results.get(metric_uuid, MetricRecalculationResult(metric_uuid=metric_uuid, success=True))
 
     activities = [mock_discover, mock_update_progress, mock_calculate]
@@ -185,7 +185,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             attempts[metric_uuid] = attempts.get(metric_uuid, 0) + 1
             if metric_uuid == "m2" and attempts[metric_uuid] <= 2:
@@ -219,7 +219,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str,
+            role: str,
             is_final_attempt: bool,
             attempt: int,
         ) -> MetricRecalculationResult:
@@ -252,7 +252,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             info = activity.info()
             timeouts.append((info.schedule_to_close_timeout, info.heartbeat_timeout))
@@ -292,7 +292,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             nonlocal attempts
             if metric_uuid == "m2":
@@ -309,7 +309,7 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         assert result == {"total": 2, "succeeded": 1, "failed": 1}
         assert attempts < MAX_METRIC_ATTEMPTS
-        assert [(f.experiment_id, f.metric_uuid, f.metric_type) for f in backstop_calls] == [(1, "m1", "primary")]
+        assert [(f.experiment_id, f.metric_uuid, f.role) for f in backstop_calls] == [(1, "m1", "primary")]
 
     async def test_workflow_cancel_reaches_the_running_calc_and_kills_its_query(self):
         activities, _progress, _calls = _make_mock_activities(metrics=[_metric("m1")])
@@ -385,7 +385,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -437,7 +437,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -471,7 +471,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -513,7 +513,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -548,7 +548,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 

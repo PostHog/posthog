@@ -93,9 +93,11 @@ class DocusignSource(ResumableSource[DocusignSourceConfig, DocusignResumeConfig]
             name=ExternalDataSourceType.DOCUSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="DocuSign",
-            caption="""Connect your DocuSign account to pull envelopes, recipients, documents, templates, users, and folders into the PostHog Data warehouse.
+            caption="""Connect your DocuSign account to pull envelopes, recipients, documents, form data, audit events, templates, bulk send batches, users, and folders into the PostHog Data warehouse.
 
-Create an integration key in [DocuSign Apps and Keys](https://apps.docusign.com/admin/apps-and-keys). JWT grant is the option to pick: add an RSA keypair to the key, grant consent once for the user you want to impersonate, and paste that user's API user ID. Production keys have to pass DocuSign's go-live review before they work outside the demo environment.""",
+Create an integration key in [DocuSign Apps and Keys](https://apps.docusign.com/admin/apps-and-keys). JWT grant is the option to pick: add an RSA keypair to the key, grant consent once for the user you want to impersonate, and paste that user's API user ID. Production keys have to pass DocuSign's go-live review before they work outside the demo environment.
+
+The form data, audit events, and envelope templates tables make one API request per envelope, which counts toward your DocuSign hourly API limit. Sync them incrementally. Form data also needs the "Allow sender to download form data" sending setting turned on.""",
             iconPath="/static/services/docusign.png",
             docsUrl="https://posthog.com/docs/cdp/sources/docusign",
             releaseStatus=ReleaseStatus.ALPHA,
