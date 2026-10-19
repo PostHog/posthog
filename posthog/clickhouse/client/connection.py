@@ -597,14 +597,15 @@ def default_client(
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
 
-    When the caller passes neither user nor password, the client authenticates as CLICKHOUSE_USER with the
-    token from CLICKHOUSE_PASSWORD_FILE, and falls back to the static CLICKHOUSE_PASSWORD the way the pool does.
+    When the caller passes neither user, password nor workload, the client authenticates as CLICKHOUSE_USER with
+    the token from CLICKHOUSE_PASSWORD_FILE, and falls back to the static CLICKHOUSE_PASSWORD the way the pool does.
+    A workload resolves its own identity and token for ch_user instead.
     The token is read once, so close the client after one short task: a retained client that reconnects
     after the token expires is rejected.
     user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
-    if user is None and password is None:
+    if user is None and password is None and workload is None:
         user = settings.CLICKHOUSE_USER
         password = ClickHouseCredentials(
             user=user, password=settings.CLICKHOUSE_PASSWORD, password_file=settings.CLICKHOUSE_PASSWORD_FILE
