@@ -360,7 +360,7 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
     """Persist a seed target on every schedulable node lacking one; never overwrites. Each seed is
     normalized (see `normalize_seed_target`) so the persisted target equals what the scheduler will
     run. `default` is the operator escape hatch for scheduled DAGs with no interval metadata
-    anywhere. `only_node_ids` limits the seeding to those nodes. Returns how many targets were written.
+    anywhere. Returns how many targets were written.
     """
     graph = build_frequency_graph(dag)
     floors = all_source_floors(graph.edges, graph.source_intervals)
