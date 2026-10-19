@@ -52,6 +52,7 @@ import {
     dashboardViewedProperties,
     eventUsageLogic,
     sanitizeDashboard,
+    filtersForAnalytics,
     sanitizeQuery,
 } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -90,6 +91,7 @@ import {
     DashboardFilter,
     DataVisualizationNode,
     HogQLVariable,
+    MetricsDashboardVariable,
     MetricsQueryFilter,
     NodeKind,
     RefreshType,
@@ -155,6 +157,8 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
+    combineSavedAndUrlFilters,
+    withCompactMetricVariables,
     encodeURLVariables,
     getDashboardWidgetType,
     getEffectiveDateOverride,
@@ -194,7 +198,7 @@ function reportDashboardTileRefreshed(
         was_cached: tile.is_cached,
         last_refreshed: insight?.last_refresh?.toString(),
         refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
-        filters,
+        filters: filtersForAnalytics(filters),
         variables,
         refresh_duration_ms: refreshDurationMs,
         individual_refresh: individualRefresh,
@@ -392,6 +396,7 @@ export interface dashboardLogicValues {
     filterEditModeActive: boolean
     filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
+    filtersOverrideForRequests: DashboardFilter
     hasInvalidDashboardId: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
@@ -993,6 +998,9 @@ export interface dashboardLogicActions {
     setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => {
         metricFilters: MetricsQueryFilter[] | null
     }
+    setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => {
+        metricVariables: MetricsDashboardVariable[] | null
+    }
     setPageVisibility: (visible: boolean) => {
         visible: boolean
     }
@@ -1219,6 +1227,10 @@ export interface dashboardLogicMeta {
         filtersOverrideForLoad: (
             externalFilters: DashboardFilter,
             currentDashboardSettings: DashboardSettings
+        ) => DashboardFilter
+        filtersOverrideForRequests: (
+            filtersOverrideForLoad: DashboardFilter,
+            savedDashboardSettings: DashboardSettings
         ) => DashboardFilter
         effectiveEditBarFilters: (
             externalFilters: DashboardFilter,
@@ -1570,6 +1582,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ changeType, properties }),
+        setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => ({ metricVariables }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
@@ -1721,7 +1734,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const apiUrl = values.apiUrl(
                             'force_cache',
-                            values.filtersOverrideForLoad,
+                            values.filtersOverrideForRequests,
                             values.currentDashboardVariables
                         )
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
@@ -1764,7 +1777,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         props.id,
                         {
                             layoutSize: values.currentLayoutSize,
-                            filtersOverride: values.filtersOverrideForLoad,
+                            filtersOverride: values.filtersOverrideForRequests,
                             variablesOverride: values.currentDashboardVariables,
                         },
                         // onMessage callback - handles both metadata and tiles
@@ -2183,6 +2196,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setFilterTestAccounts: () => false,
                 setCompareFilter: () => false,
                 setMetricFilters: () => false,
+                setMetricVariables: () => false,
                 overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
@@ -2900,7 +2914,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 draft: DashboardSettings | null
             ): DashboardSettings =>
                 draft || {
-                    filters: combineDashboardFilters(saved.filters, initialOverride.filters),
+                    filters: combineSavedAndUrlFilters(saved.filters, initialOverride.filters),
                     variables: { ...saved.variables, ...initialOverride.variables },
                 },
         ],
@@ -2912,7 +2926,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 previewed: DashboardSettings | null
             ): DashboardSettings =>
                 previewed || {
-                    filters: combineDashboardFilters(saved.filters, initialOverride.filters),
+                    filters: combineSavedAndUrlFilters(saved.filters, initialOverride.filters),
                     variables: { ...saved.variables, ...initialOverride.variables },
                 },
         ],
@@ -2952,6 +2966,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.externalFilters, s.currentDashboardSettings],
             (externalFilters: DashboardFilter, settings: DashboardSettings) =>
                 combineDashboardFilters(settings.filters, externalFilters),
+        ],
+        filtersOverrideForRequests: [
+            (s) => [s.filtersOverrideForLoad, s.savedDashboardSettings],
+            (filters: DashboardFilter, saved: DashboardSettings): DashboardFilter =>
+                withCompactMetricVariables(filters, saved.filters.metricVariables ?? []),
         ],
         effectiveEditBarFilters: [
             (s) => [s.externalFilters, s.currentDashboardSettings],
@@ -4429,6 +4448,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             // Cache values before the long-running await — the logic may unmount
             const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
+            const savedMetricVariables = values.savedDashboardSettings.filters.metricVariables ?? []
             const urlVariables = settingsForRefresh.variables
             const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
             const filterChange =
@@ -4453,7 +4473,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_blocking',
                     undefined,
-                    effectiveRefreshFilters,
+                    withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
                     urlVariables,
                     tile.filters_overrides
                 )
@@ -4560,6 +4580,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // only cancels on newer invocations, not on unmount).
                 const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
+                const savedMetricVariables = values.savedDashboardSettings.filters.metricVariables ?? []
                 const urlVariables = settingsToRefresh.variables
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
@@ -4580,7 +4601,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             queryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
-                            effectiveRefreshFilters,
+                            withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
                             urlVariables,
                             tile.filters_overrides
                         )
@@ -4660,7 +4681,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : tilesRefreshedCount === totalTileCount && tilesErroredCount === 0 && tilesAbortedCount === 0
                 posthog.capture(`dashboard refreshed`, {
                     dashboard_id: dashboardId,
-                    filters: urlFilters,
+                    filters: filtersForAnalytics(urlFilters),
                     variables: urlVariables,
                     last_refreshed: lastDashboardRefresh?.toString(),
                     refreshAge: lastDashboardRefresh ? now().diff(lastDashboardRefresh, 'seconds') : undefined,
@@ -5303,6 +5324,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setMetricVariables: ({ metricVariables }) => {
+            actions.setDashboardSettingsDraft({
+                ...values.currentDashboardSettings,
+                filters: { ...values.currentDashboardSettings.filters, metricVariables },
+            })
+            actions.reportDashboardFilterChange('metric_variables', {
+                metric_variable_count: metricVariables?.length ?? 0,
+                metric_variable_query_count:
+                    metricVariables?.filter((variable) => variable.source === 'promql' || variable.source === 'sql')
+                        .length ?? 0,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                    previewUnsavedFilters: true,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -5604,6 +5645,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 currentLocation.hashParams,
             ]
         },
+        setMetricVariables: ({ metricVariables }) => {
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                metricVariables,
+            }
+
+            return [
+                currentLocation.pathname,
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
+                currentLocation.hashParams,
+            ]
+        },
         overrideVariableValue: ({ variableId, value, isNull }) => {
             const { currentLocation } = router.values
 
@@ -5680,7 +5740,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (method === 'POP' && values.dashboard) {
                 const current = values.currentDashboardSettings
                 const settings: DashboardSettings = {
-                    filters: combineDashboardFilters(
+                    filters: combineSavedAndUrlFilters(
                         values.savedDashboardSettings.filters,
                         parseURLFilters(searchParams)
                     ),

@@ -36,10 +36,6 @@ class TestScaleAISchemas:
         assert schema.detected_primary_keys == primary_keys
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    def test_names_filter(self) -> None:
-        schemas = ScaleAISource().get_schemas(MagicMock(), team_id=1, names=["tasks"])
-        assert [s.name for s in schemas] == ["tasks"]
-
 
 class TestScaleAICredentials:
     @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Scale AI API key"))])

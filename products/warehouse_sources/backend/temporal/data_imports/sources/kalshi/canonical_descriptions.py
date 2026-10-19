@@ -132,4 +132,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "open_interest_fp": "Contracts outstanding at the end of the period.",
         },
     },
+    "weather_index": {
+        "description": "Kalshi-computed temperature index for each city, one row per minute. This is the series behind Kalshi's hourly temperature markets.",
+        "docs_url": "https://docs.kalshi.com/api-reference/live-data/get-weather-index",
+        "columns": {
+            "city": "Index city ID, for example miami.",
+            "t": "Event minute, as a Unix timestamp in milliseconds (UTC).",
+            "v": "Published index value in Fahrenheit, rounded to 0.01.",
+            "status": "normal when every member station contributed its primary observation, degraded when a member was absent, fell back, or was replaced by quality control. Both are settlement-eligible.",
+            "contributors": "Number of accepted member stations that back the point.",
+            "receipt_basis": "Set only on points from the historical backfill for the period before a city went live. These points are not settlement-eligible.",
+        },
+    },
 }

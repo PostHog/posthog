@@ -223,13 +223,10 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
@@ -303,6 +300,10 @@ from products.slack_app.backend.facade.temporal import (
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -458,6 +459,13 @@ _task_queue_specs = [
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,

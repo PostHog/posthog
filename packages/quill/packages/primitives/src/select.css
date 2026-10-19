@@ -163,6 +163,15 @@
         background-color: color-mix(in oklab, var(--border) 50%, transparent);
     }
 
+    /* A group pads itself, so a margin on the side that faces a group doubles the gap. */
+    .quill-select__group + .quill-select__separator {
+        margin-top: 0;
+    }
+
+    .quill-select__separator:has(+ .quill-select__group) {
+        margin-bottom: 0;
+    }
+
     .quill-select__scroll-button {
         top: 0;
         left: 50%;

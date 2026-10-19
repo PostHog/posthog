@@ -169,7 +169,7 @@ def _client_config(api_token: str, base_url: str) -> ClientConfig:
     }
 
 
-def probe_credentials(api_token: str, endpoint: str | None = None) -> int | None:
+def probe_credentials(api_token: str, api_version: str, endpoint: str | None = None) -> int | None:
     """Cheap probe of a Better Stack collection. Returns the HTTP status code, or None on a
     connection failure. Probes the given endpoint's path when set, else the monitors collection."""
     config = BETTER_STACK_ENDPOINTS.get(endpoint) if endpoint else None
@@ -178,7 +178,7 @@ def probe_credentials(api_token: str, endpoint: str | None = None) -> int | None
         # reachable thing to probe is the parent the child is enumerated from.
         config = BETTER_STACK_ENDPOINTS[config.fanout.parent_name]
     base_url = config.base_url if config else BETTER_STACK_BASE_URL
-    path = config.path if config else "/v2/monitors"
+    path = config.path_for_version(api_version) if config else "/v2/monitors"
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(capture=False, redact_values=(api_token,)),
         f"{base_url}{path}?per_page=1",
@@ -328,10 +328,12 @@ def better_stack_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BetterStackResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = BETTER_STACK_ENDPOINTS[endpoint]
+    base_config = BETTER_STACK_ENDPOINTS[endpoint]
+    config = dataclasses.replace(base_config, path=base_config.path_for_version(api_version))
     build = _fanout_source if config.fanout is not None else _top_level_source
     return build(
         api_token,

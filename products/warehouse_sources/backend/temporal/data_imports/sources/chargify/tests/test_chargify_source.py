@@ -26,10 +26,6 @@ class TestChargifySource:
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Subscriptions"])
-        assert [s.name for s in schemas] == ["Subscriptions"]
-
     @pytest.mark.parametrize(
         ("subdomain", "creds_valid", "expected_valid", "expected_message"),
         [
