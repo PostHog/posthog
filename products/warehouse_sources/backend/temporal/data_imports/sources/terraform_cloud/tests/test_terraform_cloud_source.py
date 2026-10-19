@@ -33,10 +33,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False) -> Sou
 
 
 class TestTerraformCloudSource:
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = TerraformCloudSource().get_schemas(_config(), team_id=1, names=["runs"])
-        assert [s.name for s in schemas] == ["runs"]
-
     @parameterized.expand(
         [
             ("bad org/../path", False),

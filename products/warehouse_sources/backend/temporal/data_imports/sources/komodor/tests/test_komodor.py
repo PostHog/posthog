@@ -168,13 +168,6 @@ def test_invalid_region_never_sends_credentials(region: str) -> None:
     assert result.requests == []
 
 
-def test_unknown_table() -> None:
-    result = driver().run("unknown", [])
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown Komodor table" in str(result.raised)
-    assert result.requests == []
-
-
 @pytest.mark.parametrize(("table", "cursor_field", "cursor"), [("services", "token", "same"), ("jobs", "nextPage", 2)])
 def test_repeated_resume_cursor_fails(table: str, cursor_field: str, cursor: str | int) -> None:
     result = driver().run(

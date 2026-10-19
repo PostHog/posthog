@@ -26,8 +26,8 @@ import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
-const TodayViewsSidebar = lazyWithRetry(() =>
-    import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
+const TodayAnalyticsSidebar = lazyWithRetry(() =>
+    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
 )
 const TodayProductsSidebar = lazyWithRetry(() =>
     import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
@@ -43,7 +43,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
+    // Records the tools visited while other panes are open, so the Tools pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
@@ -94,8 +94,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
-            ) : activePane === 'views' ? (
-                <TodayViewsSidebar />
+            ) : activePane === 'analytics' ? (
+                <TodayAnalyticsSidebar />
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
@@ -189,7 +189,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-[var(--scene-layout-background)]"
+                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
                             aria-label={paneTitle}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}

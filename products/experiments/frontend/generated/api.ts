@@ -724,6 +724,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * the caller's own assignment). A pin to a variant with 0% in the split adds an info,
  * because that variant's results show only the pinned users, unless the experiment
  * excludes the variant from the analysis.
+ *
+ * Two findings say that the variants are assigned outside PostHog, as info. A running
+ * experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
+ * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
+ * flag version that are no local evaluation, from an hour after the window starts. When
+ * every condition that includes users pins the variant whose key one property holds,
+ * `assigned_by_property` replaces `all_conditions_pinned`.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,

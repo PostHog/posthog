@@ -26781,6 +26781,11 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface CreateStaticCohortForFlagResponse {
+      /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
+      readonly cohort: Cohort;
+    }
+
     /**
      * * `try_next` - try_next
      * * `consider` - consider
@@ -31319,6 +31324,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -32717,6 +32723,7 @@ export namespace Schemas {
       Plaid: 'Plaid',
       SurveyMonkey: 'SurveyMonkey',
       Eventbrite: 'Eventbrite',
+      Everflow: 'Everflow',
       RingCentral: 'RingCentral',
       Twilio: 'Twilio',
       Freshsales: 'Freshsales',
@@ -34129,6 +34136,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -36793,6 +36801,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -43055,7 +43064,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly system_one_model_display: string | null;
-      /** Azure OpenAI endpoint URL */
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
       azure_endpoint?: string;
       /**
          * Azure OpenAI API version
@@ -45571,6 +45580,8 @@ export namespace Schemas {
       calls: number;
       /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
       remotely_evaluated_calls: number;
+      /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
+      people_assigned_outside: number;
     }
 
     export interface ExperimentHealthInputsReaderAccess {
@@ -49005,6 +49016,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -50437,6 +50449,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -78259,6 +78272,28 @@ export namespace Schemas {
 
     export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
 
+    /**
+     * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
+     */
+    export type WarehouseSuggestionEvidenceRequestsBySurface = {[key: string]: number};
+
+    export interface WarehouseSuggestionEvidence {
+      /** Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any project, so it shows how much history exists, not how active this project is. */
+      days_with_data?: number;
+      /** Queries people ran that read the subject in the usage window. */
+      human_requests?: number;
+      /** Distinct people who ran those queries. */
+      human_users?: number;
+      /** Days on which people read the subject. */
+      human_days?: number;
+      /** Queries PostHog ran on its own that read the subject, such as cache warming and alerts. */
+      background_requests?: number;
+      /** Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp. */
+      requests_by_surface?: WarehouseSuggestionEvidenceRequestsBySurface;
+      /** When any query last read the subject, including queries PostHog ran on its own. */
+      last_read_at?: string;
+    }
+
     export interface WarehouseSuggestionReviewer {
       /** User id. */
       id: number;
@@ -78327,11 +78362,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * The usage numbers that led to this suggestion.
-     */
-    export type WarehouseSuggestionEvidence = { [key: string]: unknown };
-
-    /**
      * What accepting this suggestion created. Null until accepted.
      * @nullable
      */
@@ -78340,7 +78370,7 @@ export namespace Schemas {
     export interface WarehouseSuggestion {
       /** What accepting this suggestion would create or change. Shape depends on kind. */
       readonly payload: WarehouseSuggestionPayload;
-      /** The usage numbers that led to this suggestion. */
+      /** The read counts that led to this suggestion. A field is missing when the subject had no reads. */
       evidence: WarehouseSuggestionEvidence;
       /**
          * What accepting this suggestion created. Null until accepted.
@@ -78392,8 +78422,6 @@ export namespace Schemas {
       evidence_window_end: string;
       /** When the daily job last found evidence for this suggestion. */
       last_seen_at: string;
-      /** How strongly the evidence supports the suggestion. Higher comes first. */
-      score: number;
       /**
          * When the suggestion was first shown. Null while it waits for a slot.
          * @nullable
@@ -83290,7 +83318,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly system_one_model_display?: string | null;
-      /** Azure OpenAI endpoint URL */
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
       azure_endpoint?: string;
       /**
          * Azure OpenAI API version
@@ -104543,6 +104571,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -106006,6 +106035,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -107436,6 +107466,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -126544,6 +126575,10 @@ export namespace Schemas {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean;
+    /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean;
     /**
      * Number of results to return per page.
      */

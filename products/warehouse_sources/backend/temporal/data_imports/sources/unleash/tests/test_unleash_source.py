@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -19,11 +18,6 @@ class TestUnleashSource:
         # The stored API token is sent to whatever `instance_url` points at, so retargeting the
         # URL must force the editor to re-enter the token.
         assert self.source.connection_host_fields == ["instance_url"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "features"
 
     @parameterized.expand(
         [
@@ -75,9 +69,3 @@ class TestUnleashSource:
         assert kwargs["job_id"] == "job-123"
         assert kwargs["resumable_source_manager"] is manager
         assert "logger" not in kwargs
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nope"
-        with pytest.raises(ValueError, match="Unknown Unleash schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

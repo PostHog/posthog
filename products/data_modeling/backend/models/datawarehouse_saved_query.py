@@ -326,11 +326,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         node: Node | None = None
         try:
-            # If this query's DAG runs on cadence tiers, those tiers materialize it. A bare whole-DAG
-            # schedule does not count: reconcile refuses to add tiers beside one, so bootstrap sweeps it.
+            # If this query's DAG runs on cadence tiers, those tiers materialize it.
             # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
             # contract below rather than leaving is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id], tiered_only=True)
+            on_v2 = self.id in get_v2_saved_query_ids([self.id])
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
