@@ -63,7 +63,6 @@ import {
     ExperimentIdType,
     ExperimentStatsMethod,
     FunnelCorrelation,
-    OnboardingStepKey,
     ProductTour,
     PropertyFilterType,
     InsightModel,
@@ -437,15 +436,6 @@ export type SDKSetupInstructionsSurface =
     | 'settings_sdk_setup'
     | 'settings_reverse_proxy_setup'
     | 'onboarding_ai_observability'
-
-// pinned: event property values. Onboarding funnel insights filter and break down on these, so
-// they keep the values the flow sent while it was one of two experiment arms. `entry_point` rides
-// along with every funnel event, not only `started`, so a breakdown by it stays populated.
-const ONBOARDING_EVENT_PROPS = {
-    version: 1,
-    flow_variant: 'legacy',
-    entry_point: 'product_selection',
-} as const
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1400,42 +1390,6 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingCompleted: (productKey: string) => {
-        productKey: string
-    }
-    reportOnboardingProductToggled: (
-        productKey: string,
-        selected: boolean,
-        recommendationSource: string
-    ) => {
-        productKey: string
-        recommendationSource: string
-        selected: boolean
-    }
-    reportOnboardingStarted: () => {
-        value: true
-    }
-    reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
-    ) => {
-        productKey: string | undefined
-        stepKey: OnboardingStepKey
-    }
-    reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
-    ) => {
-        productKey: string | undefined
-        stepKey: OnboardingStepKey
-    }
-    reportOnboardingUseCaseSelected: (
-        useCase: string,
-        recommendedProducts: readonly string[]
-    ) => {
-        recommendedProducts: readonly string[]
-        useCase: string
-    }
     reportPersonOpenedFromNewlySeenPersonsList: () => {
         value: true
     }
@@ -2005,25 +1959,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStarted: true,
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
-            stepKey,
-            productKey,
-        }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
-            stepKey,
-            productKey,
-        }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
-        reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
-            useCase,
-            recommendedProducts,
-        }),
-        reportOnboardingProductToggled: (productKey: string, selected: boolean, recommendationSource: string) => ({
-            productKey,
-            selected,
-            recommendationSource,
-        }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -2762,47 +2697,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('product unsubscribed', {
                 product,
                 $set: { [property_key]: true },
-            })
-        },
-        // onboarding
-        reportOnboardingStarted: () => {
-            posthog.capture('onboarding started', ONBOARDING_EVENT_PROPS)
-        },
-        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
-            posthog.capture('onboarding step completed', {
-                step_key: stepKey,
-                // Optional — only set when the caller knows which product owns the step.
-                // Lets dashboards split step funnels by product without joining elsewhere.
-                ...(productKey ? { product_key: productKey } : {}),
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
-            posthog.capture('onboarding step skipped', {
-                step_key: stepKey,
-                ...(productKey ? { product_key: productKey } : {}),
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingCompleted: ({ productKey }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
-            posthog.capture('onboarding use case selected', {
-                use_case: useCase,
-                recommended_products: recommendedProducts,
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
-            posthog.capture('onboarding product toggled', {
-                product_key: productKey,
-                selected,
-                recommendation_source: recommendationSource,
-                ...ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {
