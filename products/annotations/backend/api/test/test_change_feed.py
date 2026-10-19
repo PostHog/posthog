@@ -134,6 +134,7 @@ class TestChangeFeed(APIBaseTest):
         [
             ("repeated_keys", ["feature_flag", "experiment"]),
             ("json_encoded_array", '["feature_flag", "experiment"]'),
+            ("comma_separated", "feature_flag,experiment"),
         ]
     )
     @time_machine.travel(NOW, tick=False)
