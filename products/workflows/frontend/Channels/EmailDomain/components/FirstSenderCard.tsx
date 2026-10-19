@@ -75,7 +75,7 @@ export function FirstSenderCard(): JSX.Element {
                         id="email-domain-sender-address"
                         className="font-mono"
                         value={fromAddress ?? ''}
-                        disabledReason="The address is fixed. Add another sender for a different one."
+                        disabledReason="The address is fixed. To send from another address, set up a new sender and type the full address."
                     />
                 </div>
             </div>

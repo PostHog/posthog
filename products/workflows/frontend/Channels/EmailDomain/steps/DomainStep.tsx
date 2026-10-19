@@ -48,7 +48,7 @@ function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
     const disabledReason = createdSenderLoading
         ? 'Creating the sender'
         : existingSender
-          ? 'A sender for this domain already exists'
+          ? 'A sender with this address already exists'
           : !bouncePrefix
             ? 'Type a bounce subdomain'
             : undefined
@@ -56,9 +56,8 @@ function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
         <>
             {existingSender && (
                 <p className="m-0 text-sm text-center text-secondary">
-                    A sender for this domain already exists in this project.{' '}
-                    <Link to={urls.workflowsEmailDomain(existingSender.id)}>Open it</Link> to add settings or check its
-                    status.
+                    A sender with this address already exists in this project.{' '}
+                    <Link to={urls.workflowsEmailDomain(existingSender.id)}>Open it</Link> to check its status.
                 </p>
             )}
             {submitError && <p className="m-0 text-sm text-center text-danger">{submitError}</p>}
