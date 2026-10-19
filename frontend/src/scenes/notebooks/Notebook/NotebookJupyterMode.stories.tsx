@@ -10,6 +10,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
 import { notebookJupyterLogic } from './notebookJupyterLogic'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const SHORT_ID = 'jupyter-mode'
 
@@ -125,10 +126,26 @@ type Story = StoryObj<{}>
 
 export const JupyterModeOff: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('.MarkdownNotebook__jupyter-cell')) {
+                    throw new Error('Jupyter cells have not rendered yet')
+                }
+            },
+            { timeout: 30000 }
+        )
+        notebookSettingsLogic.actions.setIsJupyterMode(false)
+        await waitFor(() => {
+            if (canvasElement.querySelector('.MarkdownNotebook__jupyter-cell')) {
+                throw new Error('Jupyter cells remain after disabling the user preference')
+            }
+        })
+    },
 }
 
 export const JupyterMode: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS, FEATURE_FLAGS.NOTEBOOK_JUPYTER_MODE] },
+    parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] },
     play: async ({ canvasElement }) => {
         await waitFor(
             () => {

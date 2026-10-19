@@ -2987,13 +2987,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'notebook',
         href: urls.notebooks(),
         searchKeywords: ['documents', 'scratchpad'],
-        searchTabs: [
-            {
-                name: 'Reusable widgets',
-                href: urls.notebooks('widgets'),
-                flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
-            },
-        ],
+        searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
     },

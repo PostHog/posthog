@@ -68443,7 +68443,7 @@ export namespace Schemas {
     }
 
     export interface NotebookRunStartRequest {
-      /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+      /** Include prepared embedded insights when refreshing a dashboard widget. */
       include_prepared_insights?: boolean;
       /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
       variables?: NotebookVariable[];
