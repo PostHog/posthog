@@ -21,6 +21,9 @@ import { ReactRouterLogo } from '../logos/ReactRouterLogo'
 import svelteImage from '../logos/svelte.svg'
 import vueImage from '../logos/vue.svg'
 
+/** The hedgehog beside the wizard's content; `null` drops it, e.g. when an outer shell already shows one. */
+export type WizardShellHog = ComponentType<{ className?: string }> | null
+
 /** One "Supports:" chip; icon-less items (e.g. "+ 30 more") render as text only. */
 export interface WizardBadgeItem {
     name: string
@@ -94,20 +97,17 @@ export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: W
 export function WizardModeShell({
     children,
     hogCastKey = 0,
-    hideHog = false,
     hog: Hog = WizardHog,
     'data-attr': dataAttr,
 }: {
     children: ReactNode
     hogCastKey?: number
-    /** Drop the hedgehog, e.g. when an outer shell already shows one. */
-    hideHog?: boolean
-    hog?: ComponentType<{ className?: string }>
+    hog?: WizardShellHog
     'data-attr'?: string
 }): JSX.Element {
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
-            {!hideHog && (
+            {Hog && (
                 <Hog
                     key={`hog-${hogCastKey}`}
                     className={cn(

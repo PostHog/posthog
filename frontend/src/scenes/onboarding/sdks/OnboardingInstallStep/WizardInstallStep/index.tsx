@@ -38,7 +38,7 @@ function OnboardingInstallOptions({
             // so a dedicated-program step neither offers a run nor lets one queued elsewhere take over.
             offerCloudRun={!wizardOverrides}
             ignoreActiveCloudRun={!!wizardOverrides}
-            hideHog={compact}
+            hog={compact ? null : undefined}
             badges={
                 wizardOverrides?.supports ? (
                     <WizardFrameworkBadges items={wizardOverrides.supports} />
@@ -53,7 +53,7 @@ function OnboardingInstallOptions({
                         wizardOverrides?.description ??
                         (compact ? 'Run this in your project folder. No API key needed.' : undefined)
                     }
-                    hideHog={compact}
+                    hog={compact ? null : undefined}
                 />
             }
         />

@@ -72,6 +72,7 @@ export interface onboardingLogicValues {
     currentStepProductKey: ProductKey | null
     flow: OnboardingStepDescriptor[]
     flowIndex: number
+    flowUrl: string
     flowVariant: OnboardingFlowVariant
     hasNextStep: boolean
     hasPreviousStep: boolean
@@ -234,7 +235,12 @@ export interface onboardingLogicMeta {
             currentFlowStep: OnboardingStepDescriptor | null,
             secondaryProductKeys: ProductKey[]
         ) => Breadcrumb[]
-        installStepReturnUrl: (flowVariant: OnboardingFlowVariant, currentStepProductKey: ProductKey | null) => string
+        flowUrl: (flowVariant: OnboardingFlowVariant, productKey: ProductKey | null) => string
+        installStepReturnUrl: (
+            flowVariant: OnboardingFlowVariant,
+            flowUrl: string,
+            currentStepProductKey: ProductKey | null
+        ) => string
         onCompleteOnboardingRedirectUrl: (
             flowVariant: OnboardingFlowVariant,
             productKey: ProductKey | null,
@@ -668,13 +674,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 ]
             },
         ],
+        // The flow's path without a query. Step changes and OAuth round trips build on it.
+        flowUrl: [
+            (s) => [s.flowVariant, s.productKey],
+            (flowVariant: OnboardingFlowVariant, productKey: ProductKey | null): string =>
+                flowVariant === 'simple'
+                    ? urls.simpleOnboarding()
+                    : urls.onboarding({ productKey: productKey ?? undefined }),
+        ],
         // Where an OAuth round trip started from the install step returns to, so the user lands back in
         // the same flow instead of the default per-product one.
         installStepReturnUrl: [
-            (s) => [s.flowVariant, s.currentStepProductKey],
-            (flowVariant: OnboardingFlowVariant, currentStepProductKey: ProductKey | null): string => {
+            (s) => [s.flowVariant, s.flowUrl, s.currentStepProductKey],
+            (flowVariant: OnboardingFlowVariant, flowUrl: string, currentStepProductKey: ProductKey | null): string => {
                 if (flowVariant === 'simple') {
-                    return combineUrl(urls.simpleOnboarding(), {
+                    return combineUrl(flowUrl, {
                         step: `${OnboardingStepKey.INSTALL}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
                     }).url
                 }
@@ -1056,10 +1070,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // string concatenation (`path + '?' + search`), so a query embedded here would get a
             // second `?` appended for `passthrough` — parsed back, the extra params fuse into the
             // step value (`step=configure:x?integration_id=14`) and the step never resolves.
-            const url =
-                values.flowVariant === 'simple'
-                    ? urls.simpleOnboarding()
-                    : urls.onboarding({ productKey: values.productKey ?? undefined })
+            const url = values.flowUrl
             const searchParams: Record<string, any> = {
                 ...passthrough,
                 ...(stepResolves && stepId ? { step: stepId } : {}),
