@@ -24,6 +24,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPanel } from '../../components/FilterPanel'
 import { HeatmapHeader } from '../../components/HeatmapHeader'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
+import { HeatmapsForbiddenURL } from '../../components/HeatmapsForbiddenURL'
 import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { PageHistoryDateControls } from '../../history/PageHistoryDateControls'
 import { pageHistoryLogic } from '../../history/pageHistoryLogic'
@@ -47,6 +48,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         name,
         loading,
         displayUrl,
+        dataUrl,
+        isBrowserUrlAuthorized,
         widthOverride,
         heightOverride,
         screenshotUrl,
@@ -215,12 +218,19 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     }
                 />
                 <HeatmapsPricingNotice />
-                <HeatmapHeader />
-                <FilterPanel
-                    lockedWidth={lockedWidth ?? undefined}
-                    previewUnavailable={previewUnavailable}
-                    dateControl={historySelectionActive ? <PageHistoryDateControls id={id} /> : undefined}
-                />
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <div className="flex-1 basis-64 min-w-0">
+                        <HeatmapHeader />
+                    </div>
+                    <div className="min-w-0">
+                        <FilterPanel
+                            lockedWidth={lockedWidth ?? undefined}
+                            previewUnavailable={previewUnavailable}
+                            dateControl={historySelectionActive ? <PageHistoryDateControls id={id} /> : undefined}
+                        />
+                    </div>
+                </div>
+                {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
                 {isHeightCapped && (
                     <LemonBanner type="info" className="mb-2">
                         This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast,
@@ -235,19 +245,18 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         {pageHistoryEnabled && heatmapId && previewType === 'screenshot' && source === 'server' ? (
                             <PageHistoryStrip id={id} />
                         ) : null}
-                        <div className="p-2 border-b text-muted-foreground gap-2 flex flex-wrap items-center">
-                            <IconBrowser />{' '}
-                            <span className="min-w-0 flex-1 truncate" title={displayUrl ?? undefined}>
-                                {displayUrl}
-                            </span>
-                            {previewScale < 1 ? (
+                        {previewScale < 1 ? (
+                            <div className="flex justify-end px-2 py-1 border-b">
                                 <Tooltip
                                     title={`Scaled from ${widthOverride}px to ${Math.round(effectiveWidth as number)}px to fit the preview`}
                                 >
-                                    <span className="text-xs text-muted">{scalePercent}%</span>
+                                    <span className="text-xs text-muted">
+                                        <span>Fit to width · </span>
+                                        <span>{scalePercent}%</span>
+                                    </span>
                                 </Tooltip>
-                            ) : null}
-                        </div>
+                            </div>
+                        ) : null}
                         {previewError ? (
                             <div
                                 className="min-h-80 flex flex-col items-center justify-center gap-3 p-6 text-center"

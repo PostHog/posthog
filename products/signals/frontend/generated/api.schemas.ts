@@ -1107,6 +1107,88 @@ export interface SignalReportDeletionStatusApi {
     report_id: string
 }
 
+/**
+ * * `get_it_merged` - Get it merged
+ * * `suggested_prompt` - Suggested prompt
+ */
+export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[keyof typeof ReportTaskActionKindEnumApi]
+
+export const ReportTaskActionKindEnumApi = {
+    GetItMerged: 'get_it_merged',
+    SuggestedPrompt: 'suggested_prompt',
+} as const
+
+/**
+ * One report action that starts an agent run, with whether the report offers it now.
+ */
+export interface SignalReportTaskActionApi {
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /** Whether a run of this action can start now. */
+    available: boolean
+    /**
+     * Why the action cannot start now. Null when `available` is true.
+     * @nullable
+     */
+    disabled_reason: string | null
+    /**
+     * Position of the prompt in the report's suggested prompts. Null for other actions.
+     * @nullable
+     */
+    suggested_prompt_index: number | null
+    /** The message the run gets as its first request. */
+    text: string
+}
+
+export interface SignalReportTaskActionListResponseApi {
+    /** Every action the report has, available or not, in a stable order. */
+    results: SignalReportTaskActionApi[]
+}
+
+export interface SignalReportTaskActionRunRequestApi {
+    /** The action to run. Use a value from the actions list.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /**
+     * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
+     * @minimum 0
+     */
+    suggested_prompt_index?: number
+}
+
+export interface SignalReportTaskActionRunResponseApi {
+    /** The task the action created. It is linked to the report. */
+    task_id: string
+    /**
+     * The background run that started, if one did.
+     * @nullable
+     */
+    run_id: string | null
+    /** Link to the task in PostHog. */
+    task_url: string
+    /**
+     * Why the run did not start. Null when it started. The task exists either way.
+     * @nullable
+     */
+    run_error: string | null
+}
+
+export interface SignalReportTaskActionErrorApi {
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error message. */
+    detail: string
+    /** For `report_action_run_active`: the task of the run that is still working. */
+    task_id?: string
+    /** For `report_action_run_active`: the run that is still working. */
+    run_id?: string
+}
+
 export interface SignalReportClaimApi {
     /** Active claim ID returned by an earlier call. Stale claims are rejected. */
     claim_id?: string

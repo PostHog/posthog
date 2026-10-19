@@ -41,6 +41,7 @@ describe('broadcasts routes', () => {
         ['/broadcasts/suppression', 'Broadcasts'],
         ['/broadcasts/reputation', 'Broadcasts'],
         ['/broadcasts/settings', 'Broadcasts'],
+        ['/broadcasts/calendar', 'Broadcasts'],
         ['/broadcasts/new', 'Broadcast'],
         ['/broadcasts/01a05e5e-38c2-0000-b81a-21fe48581914', 'Broadcast'],
     ])('opens %s in the %s scene', (url, scene) => {

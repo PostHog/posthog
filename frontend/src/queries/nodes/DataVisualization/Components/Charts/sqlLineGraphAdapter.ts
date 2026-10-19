@@ -350,8 +350,18 @@ function buildXAxisConfig(
     return {
         label: chartSettings.xAxisLabel,
         timezone: isDateAxis ? timezone : undefined,
-        tickLabelRotation: isDateAxis ? undefined : tickLabelRotation,
-        hide: chartSettings.showXAxisTicks === false,
+        hide: false,
+        tickLabelRotation: chartSettings.xAxisTickRotation ?? (isDateAxis ? undefined : tickLabelRotation),
+        tickFormatter:
+            chartSettings.showXAxisTicks === false
+                ? () => ''
+                : isDateAxis && chartSettings.xAxisDateFormat
+                  ? (label) =>
+                        (/^\d{4}-\d{2}-\d{2}$/.test(label)
+                            ? dayjs.tz(label, timezone)
+                            : dayjs(label).tz(timezone)
+                        ).format(chartSettings.xAxisDateFormat)
+                  : undefined,
     }
 }
 
@@ -380,8 +390,8 @@ function buildYAxisConfig(
         label: yAxis?.label,
         scale: isLog ? 'log' : 'linear',
         showGrid: yAxis?.showGridLines ?? true,
-        hide: yAxis?.showTicks === false,
-        tickFormatter,
+        hide: false,
+        tickFormatter: yAxis?.showTicks === false ? () => '' : tickFormatter,
         // Quill ignores startAtZero on a log scale; floatBaseline (the false case) is line-only, so
         // bars/combo keep their zero baseline regardless.
         startAtZero: forceLinear || !isLog ? (yAxis?.startAtZero ?? yAxisAtZero ?? true) : undefined,
@@ -425,6 +435,10 @@ function buildValueLabelsConfig(
         return undefined
     }
     return {
+        position: chartSettings.valueLabelPosition,
+        background: chartSettings.valueLabelBackground,
+        fontSize: chartSettings.valueLabelFontSize,
+        rotation: chartSettings.valueLabelRotation,
         formatter: (_value, seriesIndex, _dataIndex, context) =>
             formatSqlSeriesValue(context.rawValue, ySeriesData?.[seriesIndex]?.settings),
     }
@@ -510,6 +524,8 @@ export function buildBarChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         showAxisLines: buildAxisLinesConfig(chartSettings),
         barLayout,
+        bandPadding: chartSettings.barGap,
+        barCornerRadius: chartSettings.barGap === 0 ? 0 : undefined,
         // Stacked bars must preserve negative values (SQL results can be negative) so they render
         // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
         divergingStack: barLayout === 'stacked',
@@ -535,7 +551,7 @@ export function buildBarValueChartConfig({
     legendRenderItem,
     embedded,
 }: BuildBarConfigArgs): SqlBarGraphConfig {
-    const categoryAxis = buildXAxisConfig(xData, chartSettings, timezone)
+    const categoryAxis = buildXAxisConfig(xData, { ...chartSettings, showXAxisTicks: true }, timezone)
     const valueAxis = buildYAxisConfig(chartSettings.leftYAxisSettings, ySeriesData ?? [], chartSettings.yAxisAtZero)
     const dateLabelFormatter = buildSqlDateLabelFormatter(xData, timezone)
     const categoryLabelFormatter = (label: string): string => {
@@ -548,7 +564,9 @@ export function buildBarValueChartConfig({
             return '[No value]'
         }
         const stringValue = String(value)
-        return dateLabelFormatter?.(stringValue) ?? stringValue
+        return chartSettings.xAxisDateFormat
+            ? (categoryAxis.tickFormatter?.(stringValue, index) ?? stringValue)
+            : (dateLabelFormatter?.(stringValue) ?? stringValue)
     }
     const referenceLines = goalLinesToReferenceLines(goalLines, series ?? [], 'horizontal')
     const referenceLineValues = referenceLines.flatMap((line) => (typeof line.value === 'number' ? [line.value] : []))
@@ -556,9 +574,9 @@ export function buildBarValueChartConfig({
     return {
         axisOrientation: 'horizontal',
         barLayout: 'grouped',
-        barCornerRadius: 4,
+        barCornerRadius: chartSettings.barGap === 0 ? 0 : 4,
         referenceLines,
-        xTickFormatter: categoryLabelFormatter,
+        xTickFormatter: chartSettings.showXAxisTicks === false ? () => '' : categoryLabelFormatter,
         yTickFormatter: valueAxis.tickFormatter,
         yScaleType: valueAxis.scale,
         hideXAxis: valueAxis.hide,
@@ -570,6 +588,7 @@ export function buildBarValueChartConfig({
         maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
         bars: {
             fitToHeight: embedded,
+            bandPadding: chartSettings.barGap,
             valueDomain: referenceLineValues.length ? { include: referenceLineValues } : undefined,
         },
         legend: buildLegendConfig(chartSettings, legendRenderItem),
@@ -618,6 +637,8 @@ export function buildComboChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         showAxisLines: buildAxisLinesConfig(chartSettings),
         barLayout,
+        bandPadding: chartSettings.barGap,
+        barCornerRadius: chartSettings.barGap === 0 ? 0 : undefined,
         // Stacked bars must preserve negative values (SQL results can be negative) so they render
         // below the zero baseline instead of being clamped to 0 — mirrors buildBarChartConfig.
         divergingStack: barLayout === 'stacked',

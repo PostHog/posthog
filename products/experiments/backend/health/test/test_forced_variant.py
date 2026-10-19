@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +12,7 @@ from products.experiments.backend.health.checks.forced_variant import (
     needs_condition_set_traffic,
 )
 from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, parse_flag_state
+from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 
 EVEN_SPLIT = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 SHIPPED_SPLIT = [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
@@ -25,31 +27,21 @@ IOS: dict[str, Any] = {
     "rollout_percentage": 100,
 }
 
-RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
-ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
-DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
-
 
 def _context(
     groups: list[dict[str, Any]],
     *,
-    status: dict[str, bool] = RUNNING,
+    status: Status = RUNNING,
     variants: list[dict[str, Any]] = EVEN_SPLIT,
     deleted: bool = False,
     early_exit: bool = False,
     traffic: ConditionSetTraffic | None = None,
     excluded: frozenset[str] = frozenset(),
 ) -> HealthContext:
-    return HealthContext(
+    return replace(
+        RUNNING_CONTEXT,
         **status,
-        is_paused=False,
-        archived=False,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
-        baseline_variant_key=None,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
-        split_history=None,
         condition_set_traffic=traffic,
         excluded_variant_keys=excluded,
     )
