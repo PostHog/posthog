@@ -86,7 +86,11 @@ export function EarlyAccessFeatures(): JSX.Element {
                         {todayRailNav ? (
                             <Button
                                 variant="primary"
-                                render={<LinkPrimitive to={urls.earlyAccessFeature('new')} />}
+                                render={
+                                    <LinkPrimitive
+                                        to={accessControlDisabledReason ? undefined : urls.earlyAccessFeature('new')}
+                                    />
+                                }
                                 tooltip="New feature"
                                 data-attr="create-feature"
                                 disabledReason={accessControlDisabledReason}
