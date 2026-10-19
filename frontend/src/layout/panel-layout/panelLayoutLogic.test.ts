@@ -87,7 +87,7 @@ describe('panelLayoutLogic', () => {
             jest.advanceTimersByTime(500)
             expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1100)
             document.body.classList.remove('is-resizing')
-            jest.advanceTimersByTime(100)
+            jest.advanceTimersByTime(16)
             expect(panelLayoutLogic.values.mainContentRect?.width).toBe(900)
 
             document.body.classList.add('is-resizing')

@@ -25,13 +25,13 @@ describe('useDashboardContainerWidth', () => {
             for (const width of [1100, 1000, 900.4]) {
                 act(() => {
                     notify([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver)
-                    jest.advanceTimersByTime(50)
+                    jest.advanceTimersByTime(8)
                 })
                 expect(result.current.width).toBe(1200)
             }
             act(() => {
                 notify([{ contentRect: { width: 900.49 } } as ResizeObserverEntry], {} as ResizeObserver)
-                jest.advanceTimersByTime(50)
+                jest.advanceTimersByTime(8)
             })
             expect(result.current.width).toBe(900)
             act(() => notify([{ contentRect: { width: 800 } } as ResizeObserverEntry], {} as ResizeObserver))
@@ -39,7 +39,7 @@ describe('useDashboardContainerWidth', () => {
             act(() => jest.advanceTimersByTime(500))
             expect(result.current.width).toBe(900)
             document.body.classList.remove('is-resizing')
-            act(() => jest.advanceTimersByTime(100))
+            act(() => jest.advanceTimersByTime(16))
             expect(result.current.width).toBe(800)
             act(() => notify([{ contentRect: { width: 700 } } as ResizeObserverEntry], {} as ResizeObserver))
             unmount()

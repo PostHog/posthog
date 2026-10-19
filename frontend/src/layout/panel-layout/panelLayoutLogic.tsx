@@ -353,7 +353,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                             clearTimeout(resizeTimer)
                             // Keep sidebar drags from rendering navigation again for each scene measurement.
                             if (document.body.classList.contains('is-resizing')) {
-                                resizeTimer = setTimeout(updateRect, 100)
+                                resizeTimer = setTimeout(updateRect, 16)
                                 return
                             }
                             if (ref.current) {

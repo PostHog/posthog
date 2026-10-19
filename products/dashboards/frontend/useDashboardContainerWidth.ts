@@ -15,7 +15,7 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
         let timer: ReturnType<typeof setTimeout> | undefined
         const commitWidth = (): void => {
             if (document.body.classList.contains('is-resizing')) {
-                timer = setTimeout(commitWidth, 100)
+                timer = setTimeout(commitWidth, 16)
                 return
             }
             setWidth(Math.round(pendingWidth))
@@ -33,7 +33,7 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
             // Commit after resize settles so sidebar drags do not render every dashboard tile each frame.
             clearTimeout(timer)
             pendingWidth = nextWidth
-            timer = setTimeout(commitWidth, 100)
+            timer = setTimeout(commitWidth, 16)
         })
         observer.observe(container)
 
