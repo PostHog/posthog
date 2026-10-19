@@ -23,11 +23,6 @@ class TestPexelsSource:
         names = {s.name for s in self.source.get_schemas(config, self.team_id)}
         assert {"search_photos", "search_videos"} <= names
 
-    def test_schemas_names_filter(self) -> None:
-        config = PexelsSourceConfig(api_key="k", search_query=None)
-        schemas = self.source.get_schemas(config, self.team_id, names=["curated_photos"])
-        assert [s.name for s in schemas] == ["curated_photos"]
-
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_valid: bool) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=None)

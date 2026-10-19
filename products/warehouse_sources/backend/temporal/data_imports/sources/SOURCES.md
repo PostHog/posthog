@@ -336,6 +336,7 @@ the row lists both.
 | eventbrite                       | HTTP                        | requests                                                        | ✅                          |
 | eventee                          | HTTP                        | requests                                                        | ✅                          |
 | eventzilla                       | HTTP                        | requests                                                        | ✅                          |
+| everflow                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | everhour                         | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api               | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory                | HTTP                        | requests                                                        | ✅                          |
@@ -518,6 +519,7 @@ the row lists both.
 | linkedin_ads                     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner                       | HTTP                        | requests                                                        | ✅                          |
 | linode                           | HTTP                        | requests                                                        | ✅                          |
+| livestorm                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
 | lodgify                          | HTTP                        | requests                                                        | ✅                          |
@@ -1208,6 +1210,7 @@ doesn't conflict with concurrent PRs.
 - gojiberry
 - goldcast
 - google_ad_manager
+- google_admob
 - google_adsense
 - google_analytics
 - google_business_profile
