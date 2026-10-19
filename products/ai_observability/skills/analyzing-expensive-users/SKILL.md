@@ -274,9 +274,10 @@ posthog:query-llm-trace
 
 To list the user's traces with `posthog:query-llm-traces-list`, pass the
 `person_uuid` from step 1 as `personId`. Do not pass the `distinct_id`.
-`personId` accepts only a full person UUID, so a `distinct_id` fails validation.
+`personId` accepts only a full person UUID, so a `distinct_id` fails the query.
 Set `filterTestAccounts` to `false` so the list matches the SQL ranking, which
-has no test-account filter.
+has no test-account filter. The list also includes traces from the person's
+other distinct IDs, so its totals can differ from the SQL ranking.
 
 ```json
 posthog:query-llm-traces-list
@@ -304,11 +305,9 @@ ORDER BY generations DESC
 ```
 
 If this returns more than one row, the `distinct_id` maps to more than one
-person. Use the row with the most generations and say so in the caveats. A
-`personId` filter also returns traces from other distinct IDs of that person, so
-its totals can differ from the SQL ranking. If it returns no row, do not continue with
-`query-llm-traces-list`. Use the SQL trace ranking above and open each trace
-with `posthog:query-llm-trace` instead.
+person. Use the row with the most generations and say so in the caveats. If it
+returns no row, do not continue with `query-llm-traces-list`. Use the SQL trace
+ranking above and open each trace with `posthog:query-llm-trace` instead.
 
 Look for the first concrete pattern that explains the aggregate:
 
