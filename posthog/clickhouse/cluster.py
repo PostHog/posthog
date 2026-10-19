@@ -782,6 +782,8 @@ class MutationNotFound(Exception):
 # period before such a read, not a guarantee: a replica that lags longer still shows the rows.
 PATCH_PART_REPLICATION_GRACE_SECONDS = 0 if settings.TEST else 60
 
+MUTATION_POLL_INTERVAL_SECONDS = 0.1 if settings.TEST else 15.0
+
 
 def wait_for_patch_part_replication() -> None:
     time.sleep(PATCH_PART_REPLICATION_GRACE_SECONDS)
@@ -833,7 +835,7 @@ class MutationWaiter:
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
-            time.sleep(15.0)
+            time.sleep(MUTATION_POLL_INTERVAL_SECONDS)
 
 
 @dataclass
