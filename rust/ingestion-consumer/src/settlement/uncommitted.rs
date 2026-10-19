@@ -14,6 +14,9 @@ const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
 /// Counts each partition's charge from poll until the consumer makes the Kafka
 /// commit call that covers it: first in the ledger's window, then in the pacer.
 /// That call is asynchronous, and nothing here waits for Kafka to confirm it.
+///
+/// Every call runs on the consumer loop task, one at a time, so a move between
+/// the ledger and the pacer never interleaves with a read of both.
 pub(super) struct Uncommitted {
     ledger: Arc<TopicOffsetLedger>,
     pacer: Mutex<CommitPacer>,
@@ -125,7 +128,7 @@ fn publish(topic_partition: &TopicPartition, uncommitted: Held) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
     use super::*;
 
@@ -148,11 +151,25 @@ mod tests {
         }
     }
 
-    fn uncommitted_every_hour() -> Uncommitted {
-        Uncommitted::new(
-            Arc::new(TopicOffsetLedger::new()),
-            CommitPacer::every(Duration::from_secs(3600)),
-        )
+    fn uncommitted() -> Uncommitted {
+        Uncommitted::new(Arc::new(TopicOffsetLedger::new()), CommitPacer::immediate())
+    }
+
+    fn published(snapshotter: &Snapshotter) -> Held {
+        let mut published = Held::default();
+        for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+            let DebugValue::Gauge(value) = value else {
+                continue;
+            };
+            let value = value.into_inner();
+            match key.key().name() {
+                UNCOMMITTED_OFFSETS => published.offsets = value as usize,
+                UNCOMMITTED_EVENTS => published.charge.events = value as u64,
+                UNCOMMITTED_BYTES => published.charge.bytes = value as u64,
+                _ => {}
+            }
+        }
+        published
     }
 
     fn charge(uncommitted: &Uncommitted, generation: u64, offset: i64) -> Held {
@@ -170,7 +187,7 @@ mod tests {
 
     #[test]
     fn a_take_stays_uncommitted_until_the_pacer_hands_it_out() {
-        let uncommitted = uncommitted_every_hour();
+        let uncommitted = uncommitted();
         charge(&uncommitted, 0, 10);
         settled(&uncommitted, &[10]);
 
@@ -182,7 +199,7 @@ mod tests {
 
     #[test]
     fn takes_since_the_last_commit_add_up() {
-        let uncommitted = uncommitted_every_hour();
+        let uncommitted = uncommitted();
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
         settled(&uncommitted, &[10]);
@@ -193,7 +210,7 @@ mod tests {
 
     #[test]
     fn a_forgotten_partition_drops_its_window_and_its_pending_take() {
-        let uncommitted = uncommitted_every_hour();
+        let uncommitted = uncommitted();
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
         settled(&uncommitted, &[10]);
@@ -202,5 +219,50 @@ mod tests {
 
         assert!(uncommitted.take_all().is_none());
         assert_eq!(charge(&uncommitted, 1, 10), held(1));
+    }
+
+    #[test]
+    fn a_take_over_a_gap_moves_the_gap_offsets_to_the_pacer() {
+        let uncommitted = uncommitted();
+        charge(&uncommitted, 0, 10);
+        let window = charge(&uncommitted, 0, 12);
+        assert_eq!(
+            window,
+            Held {
+                offsets: 3,
+                charge: EACH + EACH
+            }
+        );
+
+        settled(&uncommitted, &[10, 12]);
+
+        assert_eq!(
+            charge(&uncommitted, 0, 13),
+            Held {
+                offsets: 4,
+                charge: EACH + EACH + EACH
+            }
+        );
+    }
+
+    #[test]
+    fn the_gauges_follow_the_charge_until_the_frontier_is_handed_out() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let uncommitted = uncommitted();
+
+        charge(&uncommitted, 0, 10);
+        charge(&uncommitted, 0, 11);
+        assert_eq!(published(&snapshotter), held(2));
+
+        settled(&uncommitted, &[10]);
+        assert_eq!(published(&snapshotter), held(2), "a take moves the charge");
+
+        uncommitted.take_due(Instant::now()).expect("due");
+        assert_eq!(published(&snapshotter), held(1));
+
+        uncommitted.forget_partitions(&[p0()]);
+        assert_eq!(published(&snapshotter), Held::default());
     }
 }
