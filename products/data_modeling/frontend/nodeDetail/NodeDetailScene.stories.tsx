@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,6 +7,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { NodeDetailScene } from './NodeDetailScene'
 
@@ -279,6 +282,15 @@ export const PaginatedColumns: Story = {
                 },
             },
         },
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            async () => {
+                await userEvent.click(within(canvasElement).getByText('Columns (11)'))
+                expect(within(canvasElement).getByText('column_1')).toBeTruthy()
+            },
+            { timeout: 15_000 }
+        )
     },
 }
 

@@ -328,7 +328,7 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.tableDetailsError).toBe(true)
     })
 
-    it('shows ten columns on each query page', async () => {
+    it('hides columns until expanded, then shows ten on each page', async () => {
         savedQuery = {
             ...savedQuery,
             columns: Array.from({ length: 11 }, (_, index) => ({
@@ -341,6 +341,9 @@ describe('nodeDetailSceneLogic', () => {
         await mountScene(urls.nodeDetail(NODE_ID, 'query'))
 
         render(createElement(NodeDetailQuery, { id: NODE_ID }))
+
+        expect(screen.queryByText('column_1')).toBeNull()
+        fireEvent.click(screen.getByText('Columns (11)'))
 
         expect(screen.getByText('column_10')).toBeTruthy()
         expect(screen.queryByText('column_11')).toBeNull()
