@@ -1710,10 +1710,12 @@ export class AgentServer {
             // delivery path — the HTTP caller only handles reactions. Echo the
             // initiating message's id so the backend can attribute the answer,
             // and the turn's trace id so a rating on the reply names the turn.
-            void this.relayAgentResponse(
+            this.relayAgentResponse(
               commandSession.payload,
               messageId,
               turnTraceId,
+            ).catch((err) =>
+              this.logger.debug("Failed to relay follow-up response", err),
             );
           }
 
