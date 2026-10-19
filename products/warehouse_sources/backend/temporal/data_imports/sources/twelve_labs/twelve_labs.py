@@ -430,4 +430,6 @@ def twelve_labs_source(
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        # The two-level item tags fan-out saves no checkpoint, so a shutdown cannot resume it.
+        supports_resume=config.fan_out_over != "knowledge_store_items",
     )

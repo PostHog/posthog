@@ -208,6 +208,8 @@ class TestFanOut:
         ]
         assert result.requests[1].param("sort_option") == "asc"
         assert result.requests[3].param("knowledge_store_id") is None
+        assert result.response is not None
+        assert result.response.supports_resume is False
 
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the
