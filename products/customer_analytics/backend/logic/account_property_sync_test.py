@@ -1,3 +1,5 @@
+import io
+import hashlib
 from collections.abc import AsyncIterator
 from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
@@ -163,6 +165,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
     def _fanout_boundaries(self, fake: "_FakeS3") -> ExitStack:
         stack = ExitStack()
         stack.enter_context(_fake_s3_patch(fake))
+        stack.enter_context(patch(f"{_MODULE}.get_s3_client", return_value=fake))
         stack.enter_context(patch(f"{_MODULE}._matching_account_ids", side_effect=_match_known_accounts))
         stack.enter_context(patch(f"{_MODULE}._apply_source_values", side_effect=_apply_all_values))
         return stack
@@ -423,7 +426,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
             workflow_run_id="00000000-0000-4000-8000-000000000001",
         )
 
-        async def batches(*args):
+        async def batches(*args: object, **_kwargs: object) -> AsyncIterator[list[dict[str, Any]]]:
             yield [{"external_id": "acme", "plan": "enterprise"}]
 
         with (
@@ -467,7 +470,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         client._ls = AsyncMock(return_value=[{"Key": "prefix/deleted.parquet", "type": "file"}])
         client._cat_file = AsyncMock(side_effect=FileNotFoundError())
 
-        async def no_batches(*args: object) -> AsyncIterator[list[dict[str, Any]]]:
+        async def no_batches(*args: object, **_kwargs: object) -> AsyncIterator[list[dict[str, Any]]]:
             for _ in range(0):
                 yield []
 
@@ -565,7 +568,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         source.is_enabled = False
         source.save(update_fields=["is_enabled"])
 
-        async def no_batches(*args):
+        async def no_batches(*args: object, **_kwargs: object) -> AsyncIterator[list[dict[str, Any]]]:
             for _ in range(0):
                 yield []
 
@@ -635,7 +638,7 @@ async def test_each_staged_batch_is_shared_across_sources(source_columns: tuple[
         sources.append(source)
     batch_calls = 0
 
-    async def batches(*args):
+    async def batches(*args: object, **_kwargs: object) -> AsyncIterator[list[dict[str, Any]]]:
         nonlocal batch_calls
         batch_calls += 1
         yield [{"organization_id": "org-1", "value_0": 1, "value_1": 2}]
@@ -672,7 +675,7 @@ async def test_sync_records_each_phase_duration(invalid_source_values: bool) -> 
     source.source_column = "value"
     phase_duration_recorder = MagicMock()
 
-    async def batches(*args):
+    async def batches(*args: object, **_kwargs: object) -> AsyncIterator[list[dict[str, Any]]]:
         yield [{"organization_id": "org-1", "value": 1}, {"organization_id": "org-2", "value": "invalid"}]
 
     with (
@@ -725,27 +728,49 @@ async def test_sync_records_each_phase_duration(invalid_source_values: bool) -> 
     ]
 
 
+class _ReadTrackingFile(io.BytesIO):
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.bytes_read = 0
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        data = super().read(size)
+        self.bytes_read += len(data)
+        return data
+
+
 @pytest.mark.asyncio
-async def test_staged_parquet_is_decoded_in_bounded_batches() -> None:
+@pytest.mark.parametrize("columns", [None, ["organization_id", "plan"], ["organization_id", "missing"]])
+async def test_staged_parquet_is_decoded_in_bounded_batches(columns: list[str] | None) -> None:
     binding = saved_query_binding("019f0000-0000-7000-8000-000000000001")
-    table = pa.table({"organization_id": [f"org-{index}" for index in range(50_001)]})
+    table = pa.table(
+        {
+            "organization_id": [f"org-{index}" for index in range(50_001)],
+            "plan": ["gold"] * 50_001,
+            "unused": [hashlib.sha256(str(index).encode()).digest() for index in range(50_001)],
+        }
+    )
     buffer = pa.BufferOutputStream()
     pq.write_table(table, buffer)
+    data = buffer.getvalue().to_pybytes()
+    projected_file = _ReadTrackingFile(data)
     client = MagicMock()
     client._ls = AsyncMock(return_value=[{"Key": "prefix/chunk.parquet", "type": "file"}])
-    client._cat_file = AsyncMock(return_value=buffer.getvalue().to_pybytes())
+    client._cat_file = AsyncMock(return_value=data)
+    client.open.return_value = projected_file
 
-    with patch(f"{_MODULE}.aget_s3_client", return_value=_S3ClientContext(client)):
-        batch_sizes = [
-            len(rows)
-            async for rows in _iter_parquet_row_batches(
-                7,
-                binding,
-                "job-1",
-            )
-        ]
+    with (
+        patch(f"{_MODULE}.aget_s3_client", return_value=_S3ClientContext(client)),
+        patch(f"{_MODULE}.get_s3_client", return_value=client),
+    ):
+        batches = [rows async for rows in _iter_parquet_row_batches(7, binding, "job-1", columns=columns)]
 
-    assert batch_sizes == [50_000, 1]
+    assert [len(rows) for rows in batches] == [50_000, 1]
+    expected_columns = set(table.column_names) if columns is None else set(columns) & set(table.column_names)
+    assert [set(rows[0]) for rows in batches] == [expected_columns, expected_columns]
+    if columns is not None:
+        client._cat_file.assert_not_awaited()
+        assert 0 < projected_file.bytes_read < len(data)
 
 
 @pytest.mark.asyncio
@@ -798,6 +823,9 @@ class _FakeS3:
         if key not in self.store:
             raise FileNotFoundError(path)
         return self.store[key]
+
+    def open(self, path: str, mode: str, *, cache_type: str) -> io.BytesIO:
+        return io.BytesIO(self.store[aps._s3_key(path)])
 
     async def _pipe_file(self, path: str, data: bytes) -> None:
         self._clock += 1

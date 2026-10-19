@@ -7,7 +7,7 @@ from dataclasses import field
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -38,13 +38,16 @@ from products.customer_analytics.backend.models.custom_property_sync_run import 
     SyncSegment as AccountPropertySyncSegment,
     SyncStatus,
 )
-from products.data_warehouse.backend.facade.api import aget_s3_client
+from products.data_warehouse.backend.facade.api import aget_s3_client, get_s3_client
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding
 from products.warehouse_sources.backend.facade.temporal import (
     account_property_completion_prefix,
     account_property_job_staged_prefix,
     account_property_snapshot_prefix,
 )
+
+if TYPE_CHECKING:
+    from s3fs import S3FileSystem
 
 logger = structlog.get_logger(__name__)
 
@@ -178,8 +181,14 @@ def _parquet_batches(data: bytes) -> Iterator[pa.RecordBatch]:
     return pq.ParquetFile(io.BytesIO(data)).iter_batches(batch_size=_PARQUET_BATCH_SIZE)
 
 
+def _projected_parquet_batches(s3_client: "S3FileSystem", path: str, columns: list[str]) -> Iterator[pa.RecordBatch]:
+    # Read-ahead can fetch unselected column chunks, which defeats per-source projection.
+    with s3_client.open(path, "rb", cache_type="none") as file:
+        yield from pq.ParquetFile(file, pre_buffer=False).iter_batches(batch_size=_PARQUET_BATCH_SIZE, columns=columns)
+
+
 async def _iter_parquet_row_batches(
-    team_id: int, binding: WarehouseBinding, job_id: str
+    team_id: int, binding: WarehouseBinding, job_id: str, *, columns: list[str] | None = None
 ) -> AsyncIterator[list[dict[str, Any]]]:
     prefix = account_property_job_staged_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
@@ -190,8 +199,11 @@ async def _iter_parquet_row_batches(
         entries = listing.values() if isinstance(listing, dict) else listing
         file_paths = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
         for file_path in file_paths:
-            data = await s3_client._cat_file(_s3_uri(file_path))
-            batches = await asyncio.to_thread(_parquet_batches, data)
+            if columns is None:
+                data = await s3_client._cat_file(_s3_uri(file_path))
+                batches = await asyncio.to_thread(_parquet_batches, data)
+            else:
+                batches = _projected_parquet_batches(get_s3_client(), _s3_uri(file_path), columns)
             while (batch := await asyncio.to_thread(next, batches, None)) is not None:
                 yield await asyncio.to_thread(batch.to_pylist)
 
@@ -476,9 +488,10 @@ async def _apply_staged_rows(
     states: list[SourceSyncState],
     counts: dict[str, int],
     log: FilteringBoundLogger,
+    columns: list[str] | None = None,
 ) -> None:
     batch_index = 0
-    batches = aiter(_iter_parquet_row_batches(team_id, binding, job_id))
+    batches = aiter(_iter_parquet_row_batches(team_id, binding, job_id, columns=columns))
     while True:
         phase_started_at = asyncio.get_running_loop().time()
         try:
@@ -728,7 +741,16 @@ async def run_account_property_source_sync(
             states = [state]
             await _load_prior_hashes(team_id=team_id, binding=binding, segment=segment, states=states, log=log)
             await _apply_staged_rows(
-                team_id=team_id, binding=binding, job_id=job_id, segment=segment, states=states, counts=counts, log=log
+                team_id=team_id,
+                binding=binding,
+                job_id=job_id,
+                segment=segment,
+                states=states,
+                counts=counts,
+                log=log,
+                columns=list(
+                    dict.fromkeys(column for column in (source.key_column, source.source_column) if column is not None)
+                ),
             )
             await _persist_states(
                 team_id=team_id, binding=binding, job_id=job_id, segment=segment, states=states, counts=counts, log=log

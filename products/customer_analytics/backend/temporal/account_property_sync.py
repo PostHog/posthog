@@ -32,7 +32,7 @@ with workflow.unsafe.imports_passed_through():
     import structlog
     from prometheus_client import Counter, Histogram
 
-    from posthog.sync import database_sync_to_async
+    from posthog.sync import database_sync_to_async, database_sync_to_async_pool
     from posthog.temporal.common.client import async_connect
 
     from products.customer_analytics.backend.logic.account_property_fanout_flags import (
@@ -290,7 +290,7 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
     )
     # Evaluated once per dispatch so both segments of this attempt start the same workflow type. A flag
     # change only affects segments that are not started yet, because both types share one workflow ID.
-    use_fanout = await database_sync_to_async(account_property_sync_fanout_enabled)(input.team_id)
+    use_fanout = await database_sync_to_async_pool(account_property_sync_fanout_enabled)(input.team_id)
     workflow_name = ACCOUNT_PROPERTY_SYNC_FANOUT_WORKFLOW_NAME if use_fanout else ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME
     path: _SyncPath = "fanout" if use_fanout else "legacy"
     client = await async_connect()
