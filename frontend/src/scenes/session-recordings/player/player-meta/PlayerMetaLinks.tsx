@@ -14,7 +14,6 @@ import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems }
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { getVideoExportDisabledReason } from 'lib/components/ExportButton/exportStatus'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -129,8 +128,6 @@ export const MenuActions = ({
         useActions(sessionRecordingPlayerLogic)
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
-    // NotebookSelectButton renders nothing under the rail redesign, so the menu drops its row instead of showing it empty.
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -164,7 +161,9 @@ export const MenuActions = ({
 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
-            ...(todayRailNav ? [] : [{ label: () => <AddToNotebookButton fullWidth={true} /> }]),
+            {
+                label: () => <AddToNotebookButton fullWidth={true} />,
+            },
             ...extraItems,
             {
                 label: 'Skip inactivity',
@@ -242,7 +241,6 @@ export const MenuActions = ({
         hasReachedExportFullVideoLimit,
         tooLongToExportReason,
         exportAccessControlDisabledReason,
-        todayRailNav,
     ])
 
     return (
