@@ -16,6 +16,7 @@ from products.signals.backend.report_checks import (
     MetricThresholdConfig,
     monitoring_comparison,
     monitoring_interval_minutes,
+    monitoring_window_end,
     parse_check_config,
     validate_metric_check_for_write,
 )
@@ -26,10 +27,18 @@ logger = structlog.get_logger(__name__)
 MONITORING_ERROR_RETRY_AFTER = timedelta(hours=6)
 
 
+class MonitoringWindowClosed(Exception):
+    pass
+
+
 def measure_monitoring_check(check: SignalReportCheck, *, now: datetime, deadline: float) -> CheckObservation:
     start = check.report.monitoring_started_at
     assert start is not None
+    end = monitoring_window_end(start, check.soak_minutes)
+    if now >= end:
+        raise MonitoringWindowClosed
     comparison = None
+    config = None
     try:
         config = parse_check_config(check.kind, check.config)
         assert isinstance(config, MetricThresholdConfig)
@@ -44,10 +53,13 @@ def measure_monitoring_check(check: SignalReportCheck, *, now: datetime, deadlin
             title=check.title,
             monitoring_started_at=start,
             measured_at=now,
+            monitoring_ends_at=end,
+            value_format=config.value_format if isinstance(config, MetricThresholdConfig) else None,
+            unit=config.unit if isinstance(config, MetricThresholdConfig) else None,
             comparison=comparison,
             observed_value=measurement.value,
             matches=verdict.outcome == "passed",
-            explanation=f"Interim measurement: {verdict.explanation}",
+            explanation=verdict.explanation,
         )
     except MetricQueryBudgetExhausted:
         raise
@@ -60,6 +72,9 @@ def measure_monitoring_check(check: SignalReportCheck, *, now: datetime, deadlin
             title=check.title,
             monitoring_started_at=start,
             measured_at=now,
+            monitoring_ends_at=end,
+            value_format=config.value_format if isinstance(config, MetricThresholdConfig) else None,
+            unit=config.unit if isinstance(config, MetricThresholdConfig) else None,
             comparison=comparison,
             error=errored_check_explanation(error, subject=check.title),
             explanation=errored_check_explanation(error, subject=check.title),
@@ -94,6 +109,12 @@ def record_monitoring_observation(check: SignalReportCheck, observation: CheckOb
             or current.last_run_at != check.last_run_at
             or current.measurement_start_at != observation.monitoring_started_at
             or current.expires_at <= observation.measured_at
+            or observation.measured_at >= monitoring_window_end(observation.monitoring_started_at, current.soak_minutes)
+            or (
+                observation.monitoring_ends_at is not None
+                and observation.monitoring_ends_at
+                != monitoring_window_end(observation.monitoring_started_at, current.soak_minutes)
+            )
         ):
             return False
         current.last_run_at = observation.measured_at
@@ -107,6 +128,9 @@ def record_monitoring_observation(check: SignalReportCheck, observation: CheckOb
             current.next_run_at = observation.measured_at + timedelta(
                 minutes=monitoring_interval_minutes(current.run_interval_minutes)
             )
+        current.next_run_at = min(
+            current.next_run_at, monitoring_window_end(observation.monitoring_started_at, current.soak_minutes)
+        )
         current.save(update_fields=["last_run_at", "consecutive_errors", "next_run_at", "status", "updated_at"])
         SignalReportArtefact.add_log(
             team_id=current.team_id,

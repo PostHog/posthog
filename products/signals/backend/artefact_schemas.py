@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, f
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -1040,6 +1041,9 @@ class CheckObservation(BaseModel):
     title: str
     monitoring_started_at: datetime
     measured_at: datetime
+    monitoring_ends_at: datetime | None = None
+    value_format: ReportMetricValueFormat | None = None
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH)
     comparison: CheckComparison | None = None
     observed_value: float | None = Field(default=None, allow_inf_nan=False)
     matches: bool | None = None
@@ -1049,6 +1053,8 @@ class CheckObservation(BaseModel):
     def measurement_is_complete(self) -> CheckObservation:
         if self.measured_at <= self.monitoring_started_at:
             raise ValueError("An observation must end after Monitoring starts.")
+        if self.monitoring_ends_at is not None and self.measured_at >= self.monitoring_ends_at:
+            raise ValueError("An interim observation must precede the Monitoring deadline.")
         if self.error is None:
             if self.observed_value is None or self.matches is None or self.comparison is None:
                 raise ValueError("A measured observation needs its value, comparison, and match result.")

@@ -36,7 +36,7 @@ from django.db.models import (
     When,
     Window,
 )
-from django.db.models.functions import Coalesce, Greatest, RowNumber
+from django.db.models.functions import Coalesce, Greatest, Least, RowNumber
 from django.utils import timezone
 
 import structlog
@@ -57,7 +57,11 @@ from products.signals.backend.report_check_evaluation import (
     errored_check_explanation,
     evaluate_check_value,
 )
-from products.signals.backend.report_check_monitoring import measure_monitoring_check, record_monitoring_observation
+from products.signals.backend.report_check_monitoring import (
+    MonitoringWindowClosed,
+    measure_monitoring_check,
+    record_monitoring_observation,
+)
 from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
@@ -610,6 +614,13 @@ def park_checks_on_unresolved_reports(
     return parked
 
 
+def _monitoring_window_end_expression() -> ExpressionWrapper:
+    return ExpressionWrapper(
+        F("report__monitoring_started_at") + Coalesce("soak_minutes", Value(0)) * Value(timedelta(minutes=1)),
+        output_field=DateTimeField(),
+    )
+
+
 def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset[UUID]) -> None:
     cadence = ExpressionWrapper(
         Greatest(
@@ -624,21 +635,25 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
             _monitoring_metric_filter(disabled_organizations),
             status=SignalReportCheck.Status.ACTIVE,
         )
+        .annotate(_monitoring_ends_at=_monitoring_window_end_expression())
         .annotate(
-            _monitoring_next_run_at=ExpressionWrapper(
-                Greatest(
-                    Coalesce("last_run_at", F("report__monitoring_started_at")), F("report__monitoring_started_at")
-                )
-                + Case(
-                    When(
-                        last_run_at__gte=F("report__monitoring_started_at"),
-                        consecutive_errors__gt=0,
-                        then=Value(CHECK_ERROR_RETRY_AFTER),
+            _monitoring_next_run_at=Least(
+                F("_monitoring_ends_at"),
+                ExpressionWrapper(
+                    Greatest(
+                        Coalesce("last_run_at", F("report__monitoring_started_at")), F("report__monitoring_started_at")
+                    )
+                    + Case(
+                        When(
+                            last_run_at__gte=F("report__monitoring_started_at"),
+                            consecutive_errors__gt=0,
+                            then=Value(CHECK_ERROR_RETRY_AFTER),
+                        ),
+                        default=cadence,
+                        output_field=DurationField(),
                     ),
-                    default=cadence,
-                    output_field=DurationField(),
+                    output_field=DateTimeField(),
                 ),
-                output_field=DateTimeField(),
             ),
             _monitoring_expires_at=ExpressionWrapper(
                 F("report__monitoring_started_at") + Value(MAX_CHECK_HORIZON), output_field=DateTimeField()
@@ -688,7 +703,8 @@ def collect_due_checks(
     if disabled_monitoring_organization_ids is None:
         disabled_monitoring_organization_ids = check_monitoring_disabled_organizations(eligible_checks)
     candidates = (
-        eligible_checks.filter(
+        eligible_checks.annotate(_monitoring_ends_at=_monitoring_window_end_expression())
+        .filter(
             report_status_filter(
                 [SignalReport.Status.RESOLVED],
                 field="report__status",
@@ -696,7 +712,7 @@ def collect_due_checks(
             )
             | (
                 _monitoring_metric_filter(disabled_monitoring_organization_ids)
-                & Q(report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON)
+                & Q(report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON, _monitoring_ends_at__gt=now)
             ),
             # Agent and legacy metric checks must stay dormant until the report resolves.
         )
@@ -797,7 +813,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
             try:
                 observation = measure_monitoring_check(check, now=now, deadline=deadline)
                 counts["observed"] += int(record_monitoring_observation(check, observation))
-            except MetricQueryBudgetExhausted:
+            except (MetricQueryBudgetExhausted, MonitoringWindowClosed):
                 counts["deferred"] += 1
             except Exception:
                 logger.exception(

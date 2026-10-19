@@ -267,6 +267,10 @@ class MetricThresholdConfig(BaseModel):
 DEFAULT_MONITORING_INTERVAL_MINUTES = 24 * 60
 
 
+def monitoring_window_end(start: datetime, soak_minutes: int | None) -> datetime:
+    return start + timedelta(minutes=soak_minutes or 0)
+
+
 def monitoring_interval_minutes(run_interval_minutes: int | None) -> int:
     return max(MIN_CHECK_INTERVAL_MINUTES, run_interval_minutes or DEFAULT_MONITORING_INTERVAL_MINUTES)
 

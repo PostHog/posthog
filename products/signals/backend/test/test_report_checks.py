@@ -652,6 +652,37 @@ class TestReportCheckExecution(APIBaseTest):
         assert self._results() == []
         assert SignalReport.objects.filter(team_id=self.team.id).count() == 1
 
+    @parameterized.expand([("sampled", 720), ("shorter_than_cadence", 180), ("no_soak", None)])
+    @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
+    def test_interim_samples_stop_at_the_soak_deadline_without_a_final_outcome(
+        self, _name: str, soak: int | None
+    ) -> None:
+        start = timezone.now()
+        end = start + timedelta(minutes=soak or 0)
+        check = self._monitoring_check(start=start, soak_minutes=soak, run_interval_minutes=360)
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch(
+                "products.signals.backend.report_check_monitoring.measure_metric",
+                return_value=MetricMeasurement(value=8, measured_at=start, series=None),
+            ) as measure,
+        ):
+            if soak == 720:
+                run_due_report_checks(now=end - timedelta(minutes=1))
+                content = json.loads(self.report.artefacts.get(type="check_observation").content)
+                assert datetime.fromisoformat(content["monitoring_ends_at"]) == end
+                assert content["observed_value"] == 8
+            run_due_report_checks(now=end)
+            run_due_report_checks(now=end + timedelta(days=1))
+        assert measure.call_count == (1 if soak == 720 else 0)
+        check.refresh_from_db()
+        self.report.refresh_from_db()
+        assert check.next_run_at == end
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.last_outcome is None and check.runs_remaining == 1
+        assert self.report.status == SignalReport.Status.MONITORING
+        assert self._results() == []
+
     @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
     def test_tick_budget_exhaustion_defers_without_spending_the_query_error_budget(self) -> None:
         now = timezone.now()
@@ -695,7 +726,16 @@ class TestReportCheckExecution(APIBaseTest):
         assert content["observed_value"] == 2 and content["error"] is None
 
     @parameterized.expand(
-        [("duplicate",), ("cancelled",), ("new_period",), ("resolved",), ("flag_off",), ("config_changed",)]
+        [
+            ("duplicate",),
+            ("cancelled",),
+            ("new_period",),
+            ("resolved",),
+            ("flag_off",),
+            ("config_changed",),
+            ("soak_elapsed",),
+            ("soak_changed",),
+        ]
     )
     @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
     def test_stale_monitoring_observations_are_not_saved(self, race: str) -> None:
@@ -717,6 +757,10 @@ class TestReportCheckExecution(APIBaseTest):
         elif race == "resolved":
             SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(
                 status=SignalReport.Status.RESOLVED
+            )
+        elif race in {"soak_elapsed", "soak_changed"}:
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                soak_minutes=1440 if race == "soak_elapsed" else 2880
             )
         elif race == "config_changed":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(config=_threshold_config())
@@ -819,11 +863,11 @@ class TestReportCheckExecution(APIBaseTest):
                 assert check.status == SignalReportCheck.Status.EXPIRED
                 assert not self.report.artefacts.filter(type="check_observation").exists()
             else:
-                measure.assert_called_once()
+                measure.assert_not_called()
                 assert check.status == SignalReportCheck.Status.ACTIVE
-                assert self.report.artefacts.filter(type="check_observation").count() == 1
+                assert not self.report.artefacts.filter(type="check_observation").exists()
 
-    def test_reenabling_monitoring_after_a_legacy_error_resumes_sampling(self) -> None:
+    def test_reenabling_monitoring_after_a_legacy_error_does_not_sample_past_the_soak(self) -> None:
         now = datetime(2026, 10, 1, 12, tzinfo=UTC)
         start = now - timedelta(days=3)
         with time_machine.travel(now, tick=False):
@@ -848,11 +892,11 @@ class TestReportCheckExecution(APIBaseTest):
         ):
             run_due_report_checks()
             run_due_report_checks(now=sample_at + timedelta(minutes=1))
-        measure.assert_called_once()
+        measure.assert_not_called()
         check.refresh_from_db()
         assert check.measurement_start_at == start
-        assert check.next_run_at == sample_at + timedelta(days=1)
-        assert self.report.artefacts.filter(type="check_observation").count() == 1
+        assert check.next_run_at == start + timedelta(days=14)
+        assert not self.report.artefacts.filter(type="check_observation").exists()
 
     @parameterized.expand(
         [
@@ -1875,7 +1919,8 @@ class TestReportCheckAPI(APIBaseTest):
             }
         check_id = str(self._create(title="Enterprise pageviews stay low", config=config).id)
         if artefact_type == "check_observation":
-            start = timezone.now() - timedelta(days=32)
+            start = timezone.now() - timedelta(days=2)
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(soak_minutes=3 * 1440)
             SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(
                 status=SignalReport.Status.MONITORING, monitoring_started_at=start
             )

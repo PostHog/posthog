@@ -45,6 +45,7 @@ from products.signals.backend.report_checks import (
     MetricThresholdConfig,
     check_schedule_expires_at,
     monitoring_interval_minutes,
+    monitoring_window_end,
     parse_check_config,
     soak_minutes_from_gap,
     validate_metric_check_for_write,
@@ -518,7 +519,10 @@ def _arm_pending_checks(
         )
         if interim:
             last_sample_at = max(resolved_at, check.last_run_at or resolved_at)
-            next_run_at = last_sample_at + timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes))
+            next_run_at = min(
+                last_sample_at + timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes)),
+                monitoring_window_end(resolved_at, check.soak_minutes),
+            )
         elif check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             try:
                 config = parse_check_config(check.kind, check.config)

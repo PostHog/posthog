@@ -56,6 +56,37 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText('The measurement window cannot fit before expiry.')).toBeInTheDocument()
     })
 
+    it.each([
+        [true, 8, 'on track'],
+        [false, 35, 'not on track'],
+    ])('shows the goal and the time remaining when an observation was taken (matches=%s)', (matches, value, status) => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            title: 'Checkout errors stay low',
+                            observed_value: value,
+                            comparison: { operator: 'lte', value: 30 },
+                            matches,
+                            unit: 'errors',
+                            measured_at: '2026-10-04T12:00:00Z',
+                            monitoring_ends_at: '2026-10-05T00:00:00Z',
+                            explanation: 'Interim measurement: legacy wording',
+                        },
+                        'check_observation'
+                    ),
+                ]}
+            />
+        )
+        expect(screen.getByText(status).tagName).toBe('STRONG')
+        expect(screen.getByText(`Measured ${value} errors against a goal of at most 30 errors.`)).toBeInTheDocument()
+        expect(screen.getByText('12h of monitoring remained at this measurement.')).toBeInTheDocument()
+        expect(screen.getAllByText('Interim measurement')).toHaveLength(1)
+        expect(screen.queryByText(/legacy wording/)).not.toBeInTheDocument()
+    })
+
     it('links the selected predecessors when a replacement starts', () => {
         const oldPr = 'https://github.com/example/repo/pull/1'
         render(
