@@ -220,7 +220,7 @@ DigitalOcean fail:stall-budget
 DingConnect fail:stall-budget
 Discourse fail:safe-point
 Dixa fail:rate-limit-budget,safe-point,stall-budget
-DoIt not-checkable:schemas
+DoIt fail:stall-budget
 Dockerhub fail:rate-limit-budget,safe-point,stall-budget
 Docuseal fail:stall-budget
 Docusign not-checkable:no-request
