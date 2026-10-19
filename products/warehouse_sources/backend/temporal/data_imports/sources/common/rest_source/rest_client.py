@@ -24,7 +24,9 @@ from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     RequestTimeout,
+    current_request_deadline,
     make_tracked_session,
+    request_deadline,
     suspend_adapter_retries,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
@@ -175,7 +177,10 @@ def _safe_url(url: str) -> str:
     return f"{parts.scheme}://{host}{parts.path}"
 
 
-_monotonic = time.monotonic
+def _monotonic() -> float:
+    # Read at each call, so a fake clock that replaces `time.monotonic` reaches the deadline too.
+    return time.monotonic()
+
 
 # Attempts for the default sync path. The inline preview overrides this to 1 so a
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
@@ -292,11 +297,6 @@ def _retry_after_exceeds_limit(client: Any, exc: Optional[BaseException]) -> boo
     return exc.retry_after > (max_retry_after_seconds() if limit is None else limit)
 
 
-def _start_retry_budget(state: RetryCallState) -> None:
-    if state.attempt_number == 1:
-        state.retry_object.statistics["budget_started_at"] = _monotonic()
-
-
 def _stop_after_client_attempts(state: RetryCallState) -> bool:
     # tenacity passes the wrapped call's positional args; for the bound
     # `_send_request(self, ...)` that's `(client, request, hooks)`, so the
@@ -315,10 +315,8 @@ def _stop_retrying(state: RetryCallState) -> bool:
     exc = state.outcome.exception() if state.outcome is not None and state.outcome.failed else None
     if _retry_after_exceeds_limit(client, exc):
         return True
-    # No try starts after the budget, and no wait starts that would end after it.
-    budget = getattr(client, "_retry_budget", None)
-    elapsed = _monotonic() - state.retry_object.statistics.get("budget_started_at", _monotonic())
-    return elapsed + state.upcoming_sleep > (retry_budget_seconds() if budget is None else budget)
+    # No wait starts that would end at or after the deadline, because no time is left for a try then.
+    return _monotonic() + state.upcoming_sleep >= state.kwargs["deadline"]
 
 
 def _retry_wait_seconds(state: RetryCallState) -> float:
@@ -390,9 +388,10 @@ class RESTClient:
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
         self._retry_backoff_max = retry_backoff_max_seconds
-        # Longest time one request may spend on retries, and longest server-provided delay the
-        # client waits for. Left None, the settings apply. A source whose vendor has a longer rate
-        # limit window raises both, so the client waits the window out and does not fail the run.
+        # Longest time one request may take with all of its tries and waits, and longest
+        # server-provided delay the client waits for. Left None, the settings apply. A source whose
+        # vendor has a longer rate limit window raises both, so the client waits the window out and
+        # does not fail the run.
         self._retry_budget = retry_budget_seconds
         self._retry_after_max = retry_after_max_seconds
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
@@ -549,7 +548,9 @@ class RESTClient:
 
         while True:
             try:
-                response, body = self._send_request(request, hooks, body_check=malformed_check)
+                response, body = self._send_request(
+                    request, hooks, body_check=malformed_check, deadline=self._request_deadline()
+                )
             except IgnoreResponseException:
                 break
 
@@ -578,6 +579,11 @@ class RESTClient:
             if paginator is None or not paginator.has_next_page:
                 break
 
+    def _request_deadline(self) -> float:
+        deadline = _monotonic() + (retry_budget_seconds() if self._retry_budget is None else self._retry_budget)
+        outer = current_request_deadline()
+        return deadline if outer is None else min(deadline, outer)
+
     def _send(self, prepared: PreparedRequest) -> Response:
         if self._max_retry_attempts <= 1:
             # This client does not retry, so the adapter keeps its own retries.
@@ -591,14 +597,22 @@ class RESTClient:
         retry=retry_if_exception_type(RESTClientRetryableError),
         stop=_stop_retrying,
         wait=_retry_wait_seconds,
-        before=_start_retry_budget,
         before_sleep=_reach_safe_point_before_retry_wait,
         sleep=_wait_before_retry,
         reraise=True,
     )
     def _send_request(
-        self, request: Request, hooks: Hooks, body_check: Optional[Callable[[Any], None]] = None
+        self,
+        request: Request,
+        hooks: Hooks,
+        body_check: Optional[Callable[[Any], None]] = None,
+        *,
+        deadline: float,
     ) -> tuple[Response, Any]:
+        """Send `request` with retries. All tries end by `deadline`, a `time.monotonic()` value.
+
+        The caller sets the deadline one time, before the first try, so the retries share it.
+        """
         prepared = self.session.prepare_request(request)
         # Fail loud on a pagination/resume URL that points off the expected host before the
         # request (and its Authorization header) ever leaves the process. Raised outside the
@@ -611,7 +625,8 @@ class RESTClient:
         # truncated/partial body below rather than letting them skip this retry loop and fail the
         # whole sync on one bad connection attempt.
         try:
-            response = self._send(prepared)
+            with request_deadline(deadline):
+                response = self._send(prepared)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
         except RequestsConnectionError as e:
