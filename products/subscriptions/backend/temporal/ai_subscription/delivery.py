@@ -9,7 +9,6 @@ from django.db.models import Q
 import nh3
 import structlog
 from markdown_it import MarkdownIt
-from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
@@ -53,7 +52,6 @@ logger = structlog.get_logger(__name__)
 
 
 _MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable("table")
-_SLACK_CONVERTER = SlackMarkdownConverter()
 
 # defense-in-depth on top of html=False: allow only the tags commonmark emits
 _ALLOWED_EMAIL_TAGS = {
@@ -88,6 +86,7 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
+SLACK_MARKDOWN_MESSAGE_LIMIT = 12000
 SLACK_IMAGE_TITLE_LIMIT = 2000
 
 TEAMS_TEXT_BLOCK_LIMIT = 3000
@@ -374,13 +373,13 @@ def _build_ai_slack_message(
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = channel_id_from_target(subscription.target_value)
-    sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
+    sections = _split_text_into_chunks(strip_external_links_markdown(markdown), SLACK_MARKDOWN_MESSAGE_LIMIT)
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
 
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
+        {"type": "markdown", "text": first_section},
     ]
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
         caption = chart.get("title") or "Chart"
@@ -439,9 +438,7 @@ def _build_ai_slack_message(
         blocks.append({"type": "divider"})
         blocks.extend(footer_blocks)
 
-    thread_messages = [
-        {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
-    ]
+    thread_messages = [{"blocks": [{"type": "markdown", "text": section}]} for section in sections[1:]]
     # unfurl=False: report content is LLM-generated; never let Slack auto-fetch a link it contains.
     return SlackMessage(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
 

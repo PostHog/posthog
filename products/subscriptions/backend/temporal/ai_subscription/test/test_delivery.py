@@ -18,6 +18,7 @@ from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.activities import _deliver_ai_subscription
 from products.subscriptions.backend.temporal.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
+    SLACK_MARKDOWN_MESSAGE_LIMIT,
     SLACK_MRKDWN_SECTION_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
@@ -137,60 +138,60 @@ class TestExternalUrlExfilGuard:
 
     def test_slack_strips_external_link(self) -> None:
         message = _build_message("See [details](https://attacker.example/exfil?p=secret)")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "attacker.example" not in all_text
         assert "details" in all_text
 
     def test_slack_keeps_posthog_link(self) -> None:
         message = _build_message("Open [dashboard](https://app.posthog.com/insights/abc)")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "app.posthog.com/insights/abc" in all_text
 
     def test_slack_defangs_bare_external_url(self) -> None:
         # a bare (non-markdown) URL still gets linkified/unfurled by Slack — must be defanged
         message = _build_message("Visit https://attacker.example/exfil?p=secret now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`https://attacker.example/exfil?p=secret`" in all_text
 
     def test_slack_defangs_autolink(self) -> None:
         message = _build_message("See <https://attacker.example/exfil> here")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`https://attacker.example/exfil`" in all_text
 
     def test_slack_keeps_bare_posthog_url(self) -> None:
         message = _build_message("Open https://app.posthog.com/insights/abc now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "https://app.posthog.com/insights/abc" in all_text
         assert "`https://app.posthog.com" not in all_text  # PostHog hosts stay live, not defanged
 
     def test_slack_defangs_scheme_less_www_url(self) -> None:
         # Slack also linkifies scheme-less www. URLs — those must be defanged too
         message = _build_message("Visit www.attacker.example/exfil now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`www.attacker.example/exfil`" in all_text
 
     def test_slack_keeps_www_posthog_url(self) -> None:
         message = _build_message("Docs at www.posthog.com/docs here")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "www.posthog.com/docs" in all_text
         assert "`www.posthog.com" not in all_text
 
     def test_slack_does_not_mangle_email_addresses(self) -> None:
         message = _build_message("Reach me@www.example.com for access")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "me@www.example.com" in all_text
         assert "`www.example.com" not in all_text
 
     def test_slack_defangs_parenthetical_external_url(self) -> None:
         # a URL inside plain parentheses is preceded by `(` but is not a markdown link — still defang it
         message = _build_message("Revenue event (https://attacker.example/track) spiked")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`https://attacker.example/track`" in all_text
 
     def test_slack_defangs_uppercase_scheme_autolink(self) -> None:
         # URL schemes are case-insensitive — an uppercase scheme must not slip past the matcher
         message = _build_message("See <HTTPS://attacker.example/exfil> now")
-        all_text = " ".join(b["text"]["text"] for b in message.blocks if b["type"] == "section")
+        all_text = " ".join(b["text"] for b in message.blocks if b["type"] == "markdown")
         assert "`HTTPS://attacker.example/exfil`" in all_text
 
     def test_email_defangs_uppercase_autolink(self) -> None:
@@ -260,8 +261,8 @@ class TestChartsOnSlackMessages:
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
         )
 
-        assert [block["type"] for block in message.blocks[:3]] == ["section", "section", "image"]
-        assert message.blocks[1]["text"]["text"] == "A short report."
+        assert [block["type"] for block in message.blocks[:3]] == ["section", "markdown", "image"]
+        assert message.blocks[1]["text"] == "A short report."
         assert message.blocks[2]["image_url"] == _CHART["image_url"]
         assert message.blocks[2]["alt_text"] == "signups by day"
         assert message.blocks[2]["title"] == {"type": "plain_text", "text": "signups by day"}
@@ -303,7 +304,7 @@ class TestChartsOnSlackMessages:
         assert len(sent) == 2
         assert any(block["type"] == "image" for block in sent[0])
         assert all(block["type"] != "image" for block in sent[1])
-        assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
+        assert {"type": "markdown", "text": "A short report."} in sent[1]
 
     async def test_a_hidden_chart_does_not_trigger_the_resend(self) -> None:
         # A report that hides its charts already sends a payload with no image block, so the
@@ -367,13 +368,30 @@ class TestBuildAISlackMessage:
         section_texts = [b["text"]["text"] for b in message.blocks if b["type"] == "section"]
         assert all(text.strip() for text in section_texts), "no empty section text allowed"
 
+    @pytest.mark.parametrize(
+        "markdown",
+        [
+            "## Weekly report\n\n| Day | Sessions |\n|---|---|\n| Monday | **42** |",
+            "**Bold** and *italic* with [dashboard](https://app.posthog.com/insights/abc)",
+            "```\n| Day | Sessions |\n| Monday | 42 |\n```",
+            "x" * SLACK_MARKDOWN_MESSAGE_LIMIT,
+            "",
+        ],
+    )
+    def test_preserves_report_markdown(self, markdown: str) -> None:
+        message = _build_message(markdown)
+        assert message.blocks[1] == {"type": "markdown", "text": markdown or "_No report content was generated._"}
+        assert message.thread_messages == []
+
     def test_long_report_overflows_into_thread(self) -> None:
-        long_markdown = ("para\n\n" * 1).join("x" * (SLACK_MRKDWN_SECTION_LIMIT - 50) for _ in range(3))
+        long_markdown = ("para\n\n" * 1).join("x" * (SLACK_MARKDOWN_MESSAGE_LIMIT - 50) for _ in range(3))
         message = _build_message(long_markdown)
         assert len(message.thread_messages) >= 1
         for thread_msg in message.thread_messages:
             for block in thread_msg["blocks"]:
-                assert block["text"]["text"].strip(), "thread section text must be non-empty"
+                assert block["type"] == "markdown"
+                assert block["text"].strip(), "thread text must be non-empty"
+                assert len(block["text"]) <= SLACK_MARKDOWN_MESSAGE_LIMIT
 
     def test_minimal_delivery_keeps_only_the_title_and_report(self) -> None:
         subscription = _mock_subscription()
@@ -392,8 +410,8 @@ class TestBuildAISlackMessage:
             charts=[_CHART],
         )
 
-        assert [block["type"] for block in message.blocks] == ["section", "section"]
-        assert message.blocks[1]["text"]["text"] == "A short report."
+        assert [block["type"] for block in message.blocks] == ["section", "markdown"]
+        assert message.blocks[1]["text"] == "A short report."
 
     def test_with_images_delivery_keeps_charts_without_posthog_controls(self) -> None:
         subscription = _mock_subscription()
@@ -412,7 +430,7 @@ class TestBuildAISlackMessage:
             charts=[_CHART],
         )
 
-        assert [block["type"] for block in message.blocks] == ["section", "section", "image"]
+        assert [block["type"] for block in message.blocks] == ["section", "markdown", "image"]
         assert message.blocks[2]["image_url"] == _CHART["image_url"]
 
 
