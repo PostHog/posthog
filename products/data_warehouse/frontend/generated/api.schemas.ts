@@ -2552,6 +2552,7 @@ export interface CredentialApi {
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `Plane` - Plane
+ * * `Scarf` - Scarf
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -3740,6 +3741,10 @@ export interface CredentialApi {
  * * `Northbeam` - Northbeam
  * * `NaverAds` - NaverAds
  * * `ChannelIO` - ChannelIO
+ * * `Airship` - Airship
+ * * `Creem` - Creem
+ * * `Leantime` - Leantime
+ * * `Testomatio` - Testomatio
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3944,6 +3949,7 @@ export const ExternalDataSourceTypeEnumApi = {
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
     Plane: 'Plane',
+    Scarf: 'Scarf',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -5132,6 +5138,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Northbeam: 'Northbeam',
     NaverAds: 'NaverAds',
     ChannelIO: 'ChannelIO',
+    Airship: 'Airship',
+    Creem: 'Creem',
+    Leantime: 'Leantime',
+    Testomatio: 'Testomatio',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

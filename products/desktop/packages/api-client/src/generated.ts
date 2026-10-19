@@ -9158,7 +9158,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
@@ -9171,7 +9170,6 @@ export namespace Schemas {
         | "azure_openai"
         | "together_ai"
         | "minimax"
-        | "zeabur"
         | "system_one"
         | "openai_compatible";
     /**
@@ -11133,6 +11131,7 @@ export namespace Schemas {
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -12321,6 +12320,10 @@ export namespace Schemas {
      * * `Northbeam` - Northbeam
      * * `NaverAds` - NaverAds
      * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12522,6 +12525,7 @@ export namespace Schemas {
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
         | "Plane"
+        | "Scarf"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -13709,7 +13713,11 @@ export namespace Schemas {
         | "LaravelCloud"
         | "Northbeam"
         | "NaverAds"
-        | "ChannelIO";
+        | "ChannelIO"
+        | "Airship"
+        | "Creem"
+        | "Leantime"
+        | "Testomatio";
     /**
      * * `web` - web
      * * `api` - api
@@ -13919,6 +13927,7 @@ export namespace Schemas {
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
          * * `Plane` - Plane
+         * * `Scarf` - Scarf
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob
@@ -15107,6 +15116,10 @@ export namespace Schemas {
          * * `Northbeam` - Northbeam
          * * `NaverAds` - NaverAds
          * * `ChannelIO` - ChannelIO
+         * * `Airship` - Airship
+         * * `Creem` - Creem
+         * * `Leantime` - Leantime
+         * * `Testomatio` - Testomatio
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

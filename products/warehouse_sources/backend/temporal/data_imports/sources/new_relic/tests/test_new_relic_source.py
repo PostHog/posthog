@@ -20,6 +20,7 @@ class TestNewRelicSource:
             ("eu_unauthorized", "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com/graphql"),
             ("us_forbidden", "403 Client Error: Forbidden for url: https://api.newrelic.com/graphql"),
             ("eu_forbidden", "403 Client Error: Forbidden for url: https://api.eu.newrelic.com/graphql"),
+            ("graphql_access_denied", "New Relic GraphQL error: Access denied."),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):

@@ -52,6 +52,7 @@ import type {
     HogFlowsProposalsListParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogFlowsSendCalendarRetrieveParams,
     HogInvocationCancelRequestApi,
     HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
@@ -71,6 +72,7 @@ import type {
     PatchedHogFlowUpdateApi,
     PeopleImportApi,
     PeopleImportCreateApi,
+    SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -78,6 +80,7 @@ import type {
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowSetupStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -1322,6 +1325,37 @@ export const hogFlowsReputationRetrieve = async (
     })
 }
 
+export const getHogFlowsSendCalendarRetrieveUrl = (projectId: string, params: HogFlowsSendCalendarRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/send_calendar/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/send_calendar/`
+}
+
+/**
+ * Active batch and schedule workflows with an email step that is not transactional, and that have a schedule with sends to come or a batch run inside the range. Each carries only the fields a calendar card shows. Read a single workflow for its full configuration.
+ * @summary List the scheduled sends for the send calendar
+ */
+export const hogFlowsSendCalendarRetrieve = async (
+    projectId: string,
+    params: HogFlowsSendCalendarRetrieveParams,
+    options?: RequestInit
+): Promise<SendCalendarFlowApi[]> => {
+    return apiMutator<SendCalendarFlowApi[]>(getHogFlowsSendCalendarRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
 }
@@ -1474,6 +1508,23 @@ export const workflowPeopleImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowSetupStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_setup/status/`
+}
+
+/**
+ * Whether a project is set up to send messages from workflows.
+ */
+export const workflowSetupStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSetupStatusApi> => {
+    return apiMutator<WorkflowSetupStatusApi>(getWorkflowSetupStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -7,12 +7,16 @@ ENDPOINTS = (
     "Estimates",
     "CreditNotes",
     "Incomings",
+    "InvoicePayments",
+    "ClientContacts",
+    "Confirmations",
+    "Recurrings",
 )
 
 # Billomat's `from`/`to` list filters apply to the document `date`, not a last-modified
 # timestamp, so this only catches new documents within a synced date window, not edits to
-# existing ones (the API has no `updated_since`-style filter at all). Clients and Suppliers
-# have no date filter, so they stay full-refresh only.
+# existing ones (the API has no `updated_since`-style filter at all). Clients, Suppliers,
+# ClientContacts and Recurrings have no date filter, so they stay full-refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "Invoices": [
         {
@@ -39,6 +43,22 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         },
     ],
     "Incomings": [
+        {
+            "label": "date",
+            "type": IncrementalFieldType.Date,
+            "field": "date",
+            "field_type": IncrementalFieldType.Date,
+        },
+    ],
+    "InvoicePayments": [
+        {
+            "label": "date",
+            "type": IncrementalFieldType.Date,
+            "field": "date",
+            "field_type": IncrementalFieldType.Date,
+        },
+    ],
+    "Confirmations": [
         {
             "label": "date",
             "type": IncrementalFieldType.Date,
