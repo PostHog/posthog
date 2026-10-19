@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # also downgrades the scheme), so keep each path as the spec writes it.
 
 
-@dataclass
+@dataclass(frozen=True)
 class UnstructuredEndpointConfig:
     name: str
     path: str

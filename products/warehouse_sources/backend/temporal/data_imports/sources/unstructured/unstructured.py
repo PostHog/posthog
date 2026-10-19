@@ -58,7 +58,7 @@ class UnstructuredRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class UnstructuredResumeConfig:
     # 1-based index of the next /workflows/ page to fetch.
     next_page: int = 1
@@ -189,7 +189,6 @@ def _get_job_details(
     config: UnstructuredEndpointConfig,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[UnstructuredResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     for job in _fetch(session, f"{origin}{JOBS_PATH}", headers, None, logger):
         job_id = job.get("id")
@@ -199,8 +198,6 @@ def _get_job_details(
         details = _fetch_json(session, url, headers, None, logger, allow_not_found=True)
         if isinstance(details, dict):
             yield [{**details, **_job_fields(job)}]
-        else:
-            resumable_source_manager.safe_point()
 
 
 def _get_job_failed_files(
@@ -209,7 +206,6 @@ def _get_job_failed_files(
     config: UnstructuredEndpointConfig,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[UnstructuredResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     for job in _fetch(session, f"{origin}{JOBS_PATH}", headers, None, logger):
         job_id = job.get("id")
@@ -224,7 +220,6 @@ def _get_job_failed_files(
             params = {"limit": FAILED_FILES_PAGE_SIZE, "offset": offset}
             data = _fetch_json(session, url, headers, params, logger, allow_not_found=True)
             if not isinstance(data, dict):
-                resumable_source_manager.safe_point()
                 break
 
             rows = [
@@ -239,8 +234,6 @@ def _get_job_failed_files(
             ]
             if rows:
                 yield rows
-            else:
-                resumable_source_manager.safe_point()
 
             next_offset = data.get("next_offset")
             if not isinstance(next_offset, int) or next_offset <= offset:
@@ -319,7 +312,7 @@ def get_rows(
 
     if config.fan_out_jobs:
         fan_out = _get_job_details if endpoint == "job_details" else _get_job_failed_files
-        yield from fan_out(session, origin, config, headers, logger, resumable_source_manager)
+        yield from fan_out(session, origin, config, headers, logger)
         return
 
     if endpoint == "notifications":
@@ -402,6 +395,8 @@ def unstructured_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        # The per-job walks keep no job or offset checkpoint, so a handoff would repeat every request.
+        supports_resume=not config.fan_out_jobs,
     )
 
 
