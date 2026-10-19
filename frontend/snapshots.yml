@@ -9838,6 +9838,18 @@ snapshots:
         hash: v1.k794b7964.7fa7e81fab1b2ac257a56f5de295c6c246b18fe9f6ba8118810302b067f411e0.lOycFI8S9f4jdww5-Xm8rjXVf3DlBEVxtsmkXIxVl_0
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--light:
         hash: v1.k794b7964.c4c5b22777e20c8dc6a83392026100523aba4c228073174cfb956552629e7975.Jrjh7qB_BVDY0MTQeRAXv5lkTsQtY0jgQO6wEZUPpAQ
+    scenes-app-data-warehouse-warehouse-home--new-team--dark:
+        hash: v1.k794b7964.af46abfb58e1aeb26df6fc6670743aee68e8d29e898ede981171ab0700010662.CXytqvsv9rWwe29oJUwJwO30H6BRCIYJ09AAwOaDu28
+    scenes-app-data-warehouse-warehouse-home--new-team--light:
+        hash: v1.k794b7964.c2b9754b24284db36c12350c5065487492db512f53d3ef8504f1a6afd6814e9e.JkNx9TTRToQYoYV0V2tgeE3_8SNN84IoRvByPU39wK8
+    scenes-app-data-warehouse-warehouse-home--populated--dark:
+        hash: v1.k794b7964.7d30d5998755370fef7cf779ee1b66cc925e5fe09bb53a9c0e3e570a1c33769f.pW0ctMaN7IhBof1XLPqaUsLDStJuac2jI-MDAmcE-xI
+    scenes-app-data-warehouse-warehouse-home--populated--light:
+        hash: v1.k794b7964.87091200dd9f065bc67ab311735d4f159a69e94beb4feb0fbb3b40e34472c832.XTtOu-MtjQuMVguEkQzE6exJFYJ2fuZ4At5VvCMW4Go
+    scenes-app-data-warehouse-warehouse-home--section-errors--dark:
+        hash: v1.k794b7964.96664c7be960fddf99861ab3a15fcce4eea5e164b2bcc0d42f98aba8e29426fa.NDTBJYrar8DS8g0lNfx3Kku5VH-krWZcL8gnbjH3alQ
+    scenes-app-data-warehouse-warehouse-home--section-errors--light:
+        hash: v1.k794b7964.771ebd5de39823bc4afca55b13b45c5169244f5c56ff885853be44a10a068de3.pbPy2XT7aza-1NTACI9_jQ0i9k-jdFSPvbABfL__0n8
     scenes-app-discussions--replying-to-thread--dark:
         hash: v1.k794b7964.c2c9d9beff1e3fa0fc6a314aa073610d674eb9cd4af235b31a81e09462b5b58e.-fbBmBjOrnXiwY_8KrKftI-k7wWP9L77S8rFDSiiI3U
     scenes-app-discussions--replying-to-thread--light:
