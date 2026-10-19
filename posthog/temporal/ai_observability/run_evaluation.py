@@ -24,6 +24,8 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     ExecuteLLMJudgeInputs,
+    backfill_retry_policy,
+    backfill_timeout,
     build_system_prompt,
     execute_llm_judge_activity,
     get_output_type_config,
@@ -46,6 +48,11 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import increment_errors
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -265,6 +272,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
+        recover_backfill = inputs.backfill_id is not None and temporalio.workflow.patched(
+            "evaluation-backfill-extended-retries"
+        )
 
         # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
         # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
@@ -287,12 +297,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         start_time=start_time,
                         backfill_id=inputs.backfill_id,
                     ),
-                    start_to_close_timeout=timedelta(seconds=120),
+                    start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
                     # Total deadline including queue wait: without it a task stuck in the queue
                     # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
                     # trigger for this (evaluation, event) pair.
-                    schedule_to_close_timeout=timedelta(minutes=8),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=backfill_timeout(
+                        recover_backfill, HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT
+                    ),
+                    # A hog or sentiment run is local and deterministic, so repeating it on the emit schedule is cheap.
+                    retry_policy=backfill_retry_policy(recover_backfill, EMIT_EVENT_RETRY_POLICY),
                 )
             except temporalio.exceptions.ActivityError as e:
                 if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
@@ -332,9 +345,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 try:
                     result = await temporalio.workflow.execute_activity(
                         execute_llm_judge_activity,
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data),
-                        schedule_to_close_timeout=timedelta(minutes=6),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        ExecuteLLMJudgeInputs(
+                            evaluation=evaluation,
+                            event_data=event_data,
+                            backfill_id=inputs.backfill_id if recover_backfill else None,
+                        ),
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=6)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
@@ -376,9 +393,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # The activity reads the generation itself when it was handed a reference, and
                     # that event can run to several MiB, so it gets the same budget as the local
                     # evaluation activity rather than the 30s a capture call alone would need.
-                    start_to_close_timeout=timedelta(seconds=120),
-                    schedule_to_close_timeout=timedelta(minutes=8),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+                    schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    retry_policy=EMIT_EVENT_RETRY_POLICY,
                 )
             except Exception:
                 increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))

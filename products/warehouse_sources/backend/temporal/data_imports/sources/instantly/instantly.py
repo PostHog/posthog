@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.
     DEFAULT_PAGE_SIZE,
     EMAILS_REQUEST_INTERVAL_SECONDS,
     INSTANTLY_ENDPOINTS,
+    WARMUP_ANALYTICS_BATCH_SIZE,
     WEBHOOK_EVENTS_ENDPOINT,
     InstantlyEndpointConfig,
 )
@@ -149,12 +150,13 @@ def get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointR
     else:
         endpoint_config["paginator"] = _make_paginator(config)
         params: dict[str, Any] = {**config.params, "limit": DEFAULT_PAGE_SIZE}
-        if config.supports_incremental and should_use_incremental_field:
-            params["min_timestamp_created"] = {
+        incremental_filter = config.incremental_filter
+        if incremental_filter is not None and should_use_incremental_field:
+            params[incremental_filter.param] = {
                 "type": "incremental",
-                "cursor_path": "timestamp_created",
-                "initial_value": "1970-01-01T00:00:00.000Z",
-                "convert": _format_incremental_timestamp,
+                "cursor_path": incremental_filter.cursor_field,
+                "initial_value": incremental_filter.initial_value,
+                "convert": _format_incremental_date if incremental_filter.date_only else _format_incremental_timestamp,
             }
         endpoint_config["params"] = params
 
@@ -207,9 +209,12 @@ def instantly_source(
 
     config = INSTANTLY_ENDPOINTS[endpoint]
 
-    if config.campaign_fanout is not None:
+    if config.fanout is not None:
         fanout_client = _make_client(api_key)
-        return _source_response(config, lambda: _campaign_fanout_pages(fanout_client, config), supports_resume=False)
+        return _source_response(config, lambda: _fanout_pages(fanout_client, config), supports_resume=False)
+    if config.account_email_batches:
+        batch_client = _make_client(api_key)
+        return _source_response(config, lambda: _account_email_batch_pages(batch_client, config), supports_resume=False)
     if config.date_windowed:
         windowed_client = _make_client(api_key)
         start_date = (
@@ -269,7 +274,7 @@ def _source_response(
         items=items,
         supports_resume=supports_resume,
         primary_keys=config.primary_keys,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         partition_count=1 if config.partition_key else None,
         partition_size=1 if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
@@ -293,35 +298,65 @@ def _list_request(config: InstantlyEndpointConfig) -> tuple[dict[str, Any], Base
     return {**config.params, "limit": DEFAULT_PAGE_SIZE}, InstantlyCursorPaginator()
 
 
-def _campaign_fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
-    """Walk every campaign and fetch the endpoint once per campaign.
+def _fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """Walk every parent (campaign or inbox placement test) and fetch the endpoint once per parent.
 
-    Fan-out endpoints don't resume: a retry re-walks the campaigns from scratch.
+    Fan-out endpoints don't resume: a retry re-walks the parents from scratch.
     """
-    fanout = config.campaign_fanout
+    fanout = config.fanout
     assert fanout is not None
-    campaigns = INSTANTLY_ENDPOINTS["campaigns"]
-    for campaign_page in client.paginate(
-        path=f"/api/v2{campaigns.path}",
+    for parent_page in client.paginate(
+        path=f"/api/v2{fanout.parent_path}",
         params={"limit": DEFAULT_PAGE_SIZE},
         paginator=InstantlyCursorPaginator(),
-        data_selector=campaigns.data_selector,
+        data_selector="items",
     ):
-        for campaign in campaign_page:
-            campaign_id = campaign.get("id")
-            if not campaign_id:
+        for parent in parent_page:
+            parent_id = parent.get("id")
+            if not parent_id:
                 continue
             params, paginator = _list_request(config)
             for page in client.paginate(
                 path=f"/api/v2{config.path}",
-                params={**params, fanout.param: campaign_id},
+                params={**params, fanout.param: parent_id},
                 paginator=paginator,
                 data_selector=config.data_selector,
             ):
                 if fanout.stamp_field:
-                    page = [{**row, fanout.stamp_field: campaign_id} for row in page]
+                    page = [{**row, fanout.stamp_field: parent_id} for row in page]
                 if page:
                     yield page
+
+
+def _account_email_batch_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """POST the sending account emails in batches and flatten the per-email stats map into rows."""
+    accounts = INSTANTLY_ENDPOINTS["accounts"]
+    for account_page in client.paginate(
+        path=f"/api/v2{accounts.path}",
+        params={"limit": DEFAULT_PAGE_SIZE},
+        paginator=InstantlyCursorPaginator(),
+        data_selector=accounts.data_selector,
+    ):
+        emails = [account["email"] for account in account_page if account.get("email")]
+        for start in range(0, len(emails), WARMUP_ANALYTICS_BATCH_SIZE):
+            for page in client.paginate(
+                path=f"/api/v2{config.path}",
+                method="post",
+                json={"emails": emails[start : start + WARMUP_ANALYTICS_BATCH_SIZE]},
+                paginator=SinglePagePaginator(),
+                data_selector=config.data_selector,
+            ):
+                # aggregate_data is one object keyed by email, not a row list.
+                stats_maps = page if isinstance(page, list) else [page]
+                rows = [
+                    {**stats, "email": email}
+                    for stats_by_email in stats_maps
+                    if isinstance(stats_by_email, dict)
+                    for email, stats in stats_by_email.items()
+                    if isinstance(stats, dict)
+                ]
+                if rows:
+                    yield rows
 
 
 def _today() -> date:
@@ -391,6 +426,9 @@ def _probe_endpoint(session: requests.Session, endpoint: str) -> requests.Respon
         return session.get(f"{BASE_URL}/api/v2/webhooks", params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
 
     config = INSTANTLY_ENDPOINTS[endpoint]
+    if config.account_email_batches:
+        # Same accounts:read scope as /accounts, which needs no email list in the request.
+        return session.get(f"{BASE_URL}/api/v2/accounts", params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
     url = f"{BASE_URL}/api/v2{config.path}"
     if config.method == "POST":
         return session.post(url, json={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)

@@ -43,7 +43,9 @@ Pass the same fields to `posthog:autoresearch-validate-create` and `posthog:auto
 | `training_population`                 | Who can be a training example. `{}` means all identified users.                                                                                                                                                      |
 | `inference_population`                | Who gets scored. Defaults to the training population. Keep the two consistent unless there is a clear reason.                                                                                                        |
 | `cadence_days`                        | Rescore every N days. Default 1.                                                                                                                                                                                     |
-| `iteration_budget`                    | The model's total experiment budget across all training runs. Default 50. Each scheduled retrain takes at most 10 from what remains, and a run started by hand can set its own budget.                               |
+| `iterations_per_run`                  | The experiments in each training run, 1 to 50. Default 5. Scheduled runs and a run started by hand use it, and a run started by hand can override it.                                                                |
+| `research_interval_days`              | How often scheduled research runs once the first burst ends: 7, 14, 30, 60 or 90 days, or null for only when asked. Default 7.                                                                                       |
+| `iteration_budget`                    | Deprecated. Scheduled training no longer reads or spends it.                                                                                                                                                         |
 | `output_person_property`              | Optional. Derived from the target and horizon when omitted.                                                                                                                                                          |
 
 ### Population shapes

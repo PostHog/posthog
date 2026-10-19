@@ -310,16 +310,10 @@ def _hogql_column_names(table: Table) -> set[str]:
 
 
 # _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
-# The person columns stay hidden until every stored row carries the values the producer writes.
-# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
-# test-account filters and keep lifecycle from counting anyone as new.
 _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
     "_timestamp",
     "_offset",
     "_partition",
-    "person_properties",
-    "person_created_at",
-    "person_mode",
     *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES,
 }
 

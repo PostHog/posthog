@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -6,21 +7,23 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthFlagChangeKind,
 )
+from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.context import (
+    FlagHistoryNotCheckedReason,
     HealthContext,
     SplitChange,
-    SplitHistory,
-    SplitHistoryNotChecked,
-    SplitHistoryNotCheckedReason,
     parse_flag_state,
     parse_variants,
 )
+from products.experiments.backend.health.test.factories import ENDED, RUNNING, RUNNING_CONTEXT, Status, flag_history
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
@@ -31,9 +34,6 @@ MIXED_ASSIGNMENTS = "A sample ratio mismatch or users in more than one variant c
 
 EVERYONE = [{"properties": [], "rollout_percentage": 100}]
 TARGETED = [{"properties": [{"key": "plan", "value": "pro", "type": "person"}], "rollout_percentage": 100}]
-
-RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
-ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
 
 
 def _split(*variants: tuple[str, float]) -> list[dict[str, Any]]:
@@ -49,7 +49,7 @@ SHIPPED = _split(("control", 0), ("test", 100))
 
 def _context(
     *splits: list[dict[str, Any]],
-    status: dict[str, bool] = RUNNING,
+    status: Status = RUNNING,
     groups: list[dict[str, Any]] = EVERYONE,
     exposed_before_first: bool | None = True,
     exposed_between: bool | None = None,
@@ -57,37 +57,34 @@ def _context(
     first_change_at: datetime = FIRST_CHANGE_AT,
     archived: bool = False,
     deleted: bool = False,
-    not_checked: SplitHistoryNotCheckedReason | None = None,
+    not_checked: FlagHistoryNotCheckedReason | None = None,
 ) -> HealthContext:
-    changes = tuple(
+    changes = [
         SplitChange(
             changed_at=first_change_at + timedelta(minutes=17 * index),
             before=parse_variants(before),
             after=parse_variants(after),
         )
         for index, (before, after) in enumerate(zip(splits, splits[1:]))
-    )
-    return HealthContext(
+    ]
+    return replace(
+        RUNNING_CONTEXT,
         **status,
-        is_paused=False,
         archived=archived,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=splits[-1]),
-        baseline_variant_key=None,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
-        split_history=SplitHistory(
+        flag_history=flag_history(
+            changes,
             launched_at=launched_at,
-            team_timezone="Europe/Berlin",
-            counted_changes=changes,
             exposed_before_first=exposed_before_first,
-            exposed_between=exposed_between,
-        )
-        if not_checked is None
-        else SplitHistoryNotChecked(
-            reason=not_checked, launched_at=launched_at, team_timezone="Europe/Berlin", changes=changes
+            exposed_between={ExperimentHealthFlagChangeKind.SPLIT: exposed_between},
+            not_checked=not_checked,
         ),
     )
+
+
+def _split_code_finding(ctx: HealthContext) -> ExperimentHealthFinding | None:
+    # The registry runs both checks, and a history the reader can't view gets the split check's code.
+    return flag_history_not_readable(ctx) or split_changed_mid_run(ctx)
 
 
 class TestSplitChangedMidRun(TestCase):
@@ -245,7 +242,7 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "not_checked",
-                _context(EVEN, UNEVEN, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
                 {
                     "reason": "exposure_filters",
                     "change_count": 1,
@@ -259,13 +256,13 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "not_checked_without_history_access",
-                _context(EVEN, not_checked=SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
                 {"reason": "no_history_access"},
             ),
         ]
     )
     def test_evidence(self, _name: str, ctx: HealthContext, expected: dict[str, Any]) -> None:
-        finding = split_changed_mid_run(ctx)
+        finding = _split_code_finding(ctx)
 
         assert finding is not None
         self.assertEqual(finding.evidence, expected)
@@ -274,7 +271,7 @@ class TestSplitChangedMidRun(TestCase):
         [
             (
                 "exposure_filters",
-                _context(EVEN, UNEVEN, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
                 f"The variant split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "This check can't tell whether anyone was exposed before the change, because the exposure criteria "
                 "filter by properties. Review the change in the flag history.",
@@ -285,7 +282,7 @@ class TestSplitChangedMidRun(TestCase):
                     EVEN,
                     _split(("control", 70), ("test", 30)),
                     UNEVEN,
-                    not_checked=SplitHistoryNotCheckedReason.EXPOSURE_ACTION,
+                    not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
                 ),
                 "The variant split changed 2 times after launch, from control 50% / test 50% to control 80% / "
                 f"test 20%, last on {SECOND_CHANGE}. This check can't tell whether anyone was exposed before the "
@@ -293,26 +290,26 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "exposure_criteria_after_a_split_set_back",
-                _context(EVEN, SHIPPED, EVEN, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_CRITERIA),
+                _context(EVEN, SHIPPED, EVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
                 "The variant split changed 2 times after launch and was set back to control 50% / test 50% on "
                 f"{SECOND_CHANGE}. This check can't tell whether anyone was exposed before the changes, because the "
                 "exposure criteria can't be read. Review the changes in the flag history.",
             ),
             (
                 "no_query_access",
-                _context(EVEN, UNEVEN, not_checked=SplitHistoryNotCheckedReason.NO_QUERY_ACCESS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
                 f"The variant split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "This check can't tell whether anyone was exposed before the change, because this API key can't "
                 "query events. Add the query:read scope to this API key, or review the change in the flag history.",
             ),
             (
                 "no_history_access",
-                _context(EVEN, not_checked=SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
-                "This check can't see whether the variant split changed after launch, because you can't view the "
-                "linked feature flag's history. Viewing the history needs viewer access to the flag and, with an API "
-                "key, the activity_log:read scope.",
+                _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                "This check can't see whether the flag's variant split, key or bucketing changed after launch, because "
+                "you can't view the linked feature flag's history. Viewing the history needs viewer access to the "
+                "flag and, with an API key, the activity_log:read scope.",
                 (),
-                "The variant split history was not checked",
+                "The flag history was not checked",
             ),
         ]
     )
@@ -326,7 +323,7 @@ class TestSplitChangedMidRun(TestCase):
         ),
         expected_title: str = "Variant split changes were not checked",
     ) -> None:
-        finding = split_changed_mid_run(ctx)
+        finding = _split_code_finding(ctx)
 
         assert finding is not None
         self.assertEqual(
@@ -351,12 +348,12 @@ class TestSplitChangedMidRun(TestCase):
             ("flag_without_variants_reported_by_flag_variants_mismatch", _context(EVEN, [])),
             (
                 "not_checked_on_an_ended_experiment",
-                _context(EVEN, status=ENDED, not_checked=SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                _context(EVEN, status=ENDED, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
             ),
         ]
     )
     def test_no_finding(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(split_changed_mid_run(ctx))
+        self.assertIsNone(_split_code_finding(ctx))
 
     @parameterized.expand(
         [
@@ -369,7 +366,7 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "rollout_not_checked",
-                _context(EVEN, SHIPPED, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, SHIPPED, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
                 FIRST_CHANGE,
                 "control 50% / test 50%",
             ),
