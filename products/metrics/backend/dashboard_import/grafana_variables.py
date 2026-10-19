@@ -24,7 +24,6 @@ from products.metrics.backend.variables import (
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
 _PROMQL_VARIABLE_QUERY = re.compile(r"^\s*(label_values|label_names|metrics|query_result)\s*\(", re.IGNORECASE)
-_PROMQL_ESCAPE = re.compile(r"\\(.)")
 # Macros such as $__rate_interval, which only resolve inside a panel.
 _RANGE_MACRO = re.compile(r"\$\{?__|\[\[__")
 # The limits of the variable options endpoint, so that each live variable can load its options.
@@ -93,6 +92,10 @@ def _live_definition(
     custom_values: list[str] | None = None
     query: str | None = None
     all_value = variable.all_value
+    # A live all value is regex text that gets the escapes of its string. Grafana's text already has the escapes of the
+    # string it was written for, and with a backslash that differs between a quoted and a backtick string.
+    if all_value is not None and "\\" in all_value:
+        return None
     include_all = bool(item.get("includeAll"))
     if kind == "query":
         query = _query_text(item)
@@ -145,12 +148,15 @@ def _live_definition(
 
 
 def _size_bound(variable: Variable) -> int:
-    """The most characters that a reference to the variable becomes, with escapes and the regex alternation."""
+    """The most characters that a reference to the variable becomes, with the regex alternation.
+
+    A regex escape doubles a character, and the string escape doubles that backslash again, so `.` becomes `\\\\.`.
+    """
     if variable.is_all and variable.all_value is not None:
         parts: tuple[str, ...] = (variable.all_value,)
     else:
         parts = variable.options if variable.is_all else variable.values
-    return 2 * sum(len(part) for part in parts) + len(parts) + 2
+    return 4 * sum(len(part) for part in parts) + len(parts) + 2
 
 
 def _resolvable(
@@ -172,12 +178,13 @@ def _resolvable(
     soft: dict[str, list[str]] = {}
     references: dict[str, Counter[str]] = {}
     size: dict[str, int] = {}
+    bounds = {name: _size_bound(variable) for name, variable in variables.items()}
     static: list[str] = []
     for name, definition in live.items():
         substitution = substitute_promql(definition.query or "", stand_ins)
         references[name] = Counter(markers[char] for char in substitution.text if char in markers)
         size[name] = len(definition.query or "") + sum(
-            count * _size_bound(variables[other]) for other, count in references[name].items() if other not in live
+            count * bounds[other] for other, count in references[name].items() if other not in live
         )
         if any(other not in live for other in substitution.unresolved) or size[name] > MAX_QUERY_LENGTH:
             static.append(name)
@@ -196,7 +203,7 @@ def _resolvable(
         static.extend(hard.get(name, ()))
         # A variable that becomes static puts its saved values into the queries that refer to it.
         for dependent in soft.get(name, ()):
-            size[dependent] += references[dependent][name] * _size_bound(variables[name])
+            size[dependent] += references[dependent][name] * bounds[name]
             if size[dependent] > MAX_QUERY_LENGTH:
                 static.append(dependent)
     return {name: definition for name, definition in live.items() if name not in removed}
@@ -234,9 +241,6 @@ class TemplateVariables:
                 if isinstance(option, dict) and option.get("value") not in (None, ALL_VALUE)
             )
             all_value = item.get("allValue") if isinstance(item.get("allValue"), str) else None
-            if all_value:
-                # Grafana puts allValue into the query as it is, so it is written with PromQL string escapes.
-                all_value = _PROMQL_ESCAPE.sub(r"\1", all_value)
             is_all = ALL_VALUE in values or (current.get("text") == "All" and bool(item.get("includeAll")))
             selected = tuple(value for value in values if value != ALL_VALUE)
             # Grafana puts the value of a text box into a regex matcher as it is, so it can hold a regex.
@@ -247,6 +251,7 @@ class TemplateVariables:
                 all_value=all_value or None,
                 options=options,
                 default_format="raw" if as_written else None,
+                all_value_as_written=True,
             )
             variables[item["name"]] = variable
             definition = _live_definition(item["name"], kind, item, variable, datasource_type(item.get("datasource")))
