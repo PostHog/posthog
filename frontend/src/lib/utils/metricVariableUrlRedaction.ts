@@ -1,37 +1,21 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-// The value of a dashboard filter parameter in a URL, wherever the URL appears in the text.
-const FILTER_PARAM = /\b(filters_override|query_filters)=([^&#"'\s;]*)/g
 const MAX_DEPTH = 6
 
-function redactFilters(encoded: string): string {
-    try {
-        const filters = JSON.parse(decodeURIComponent(encoded.replace(/\+/g, ' ')))
-        if (!Array.isArray(filters?.metricVariables)) {
-            return encoded
-        }
-        filters.metricVariables = filters.metricVariables.map((variable: Record<string, unknown> | null) => ({
-            name: variable?.name,
-        }))
-        return encodeURIComponent(JSON.stringify(filters))
-    } catch {
-        return ''
-    }
-}
-
-/** Metric variables in a dashboard or insight URL keep only their names, so their queries, options and selected values
- * stay out of analytics. The text can be a URL or hold one, such as an element chain. */
+/** A URL that holds metric variables, in any parameter or encoding, keeps only its path, so the queries, options and
+ * selected values of the variables stay out of analytics. Other text that holds them is dropped. */
 export function redactMetricVariableUrl(text: string): string {
     if (!text.includes('metricVariables')) {
         return text
     }
-    return text.replace(FILTER_PARAM, (match, param: string, value: string) =>
-        value.includes('metricVariables') ? `${param}=${redactFilters(value)}` : match
-    )
+    if (text.startsWith('/') || /^https?:\/\/\S+$/.test(text)) {
+        return text.split(/[?#]/)[0]
+    }
+    return ''
 }
 
-/** Every property that holds a URL, such as `$current_url`, `$session_entry_url` or the `href` of an autocaptured
- * element, so a new one in the SDK is covered too. */
+/** Every property, such as `$current_url`, `$session_entry_url` or the `href` of an autocaptured element, so a new
+ * one in the SDK is covered too. */
 function redactValue(value: unknown, depth: number): unknown {
     if (typeof value === 'string') {
         return redactMetricVariableUrl(value)

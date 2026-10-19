@@ -1,29 +1,26 @@
 import { redactMetricVariableUrl, redactMetricVariableUrls } from './metricVariableUrlRedaction'
 
+const filters = encodeURIComponent(
+    JSON.stringify({ metricVariables: [{ name: 'env', query: "SELECT 'private_value'", current: { values: ['a'] } }] })
+)
+
 describe('redactMetricVariableUrl', () => {
     it.each([
-        ['filters_override', '/insights/abc'],
-        ['query_filters', '/dashboard/1'],
-    ])('keeps only the names of metric variables in %s', (param, path) => {
-        const filters = {
-            date_from: '-7d',
-            metricVariables: [
-                { name: 'env', source: 'sql', query: 'SELECT private_value', current: { values: ['a'] } },
-            ],
-        }
-        const url = `https://us.posthog.com${path}?${param}=${encodeURIComponent(JSON.stringify(filters))}`
-
-        const redacted = new URL(redactMetricVariableUrl(url))
-
-        expect(JSON.parse(redacted.searchParams.get(param)!)).toEqual({
-            date_from: '-7d',
-            metricVariables: [{ name: 'env' }],
-        })
+        ['an insight link', `https://us.posthog.com/insights/abc?filters_override=${filters}#x`, 'https://us.posthog.com/insights/abc'],
+        ['a dashboard', `https://us.posthog.com/dashboard/1?query_filters=${filters}`, 'https://us.posthog.com/dashboard/1'],
+        [
+            'a login redirect',
+            `https://us.posthog.com/login?next=${encodeURIComponent(`/dashboard/1?query_filters=${filters}`)}`,
+            'https://us.posthog.com/login',
+        ],
+        ['a relative link', `/insights/abc?filters_override=${filters}`, '/insights/abc'],
+        ['an element chain', `a:attr__href="/insights/abc?filters_override=${filters}"`, ''],
+    ])('keeps only the path of %s', (_name, text, expected) => {
+        expect(redactMetricVariableUrl(text)).toBe(expected)
     })
 
-    it('redacts every URL property of an event', () => {
-        const filters = { metricVariables: [{ name: 'env', query: 'SELECT private_value' }] }
-        const url = `https://us.posthog.com/dashboard/1?query_filters=${encodeURIComponent(JSON.stringify(filters))}`
+    it('redacts every property of an event', () => {
+        const url = `https://us.posthog.com/dashboard/1?query_filters=${filters}`
 
         const event = redactMetricVariableUrls({
             event: '$pageview',
