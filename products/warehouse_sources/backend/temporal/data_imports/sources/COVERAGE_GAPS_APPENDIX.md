@@ -2077,13 +2077,16 @@ Note: Fetched the official Markdown reference and checked all six resource opera
 
 ## Buzzsprout — adequate
 
-Today (2): `episodes`, `podcasts`
+Today (6): `contributors`, `downloads`, `episodes`, `fan_mail`, `listings`, `podcasts`
 
 Diffed against: <https://github.com/Buzzsprout/buzzsprout-api/blob/master/README.md>
 
-No material gaps found.
+- [x] `/api/:podcast_id/downloads` — daily download totals per episode, requested one podcast-local date at a time (high)
+- [x] `/api/:podcast_id/contributors` — on-show credits (hosts, guests, producers) for the podcast (medium)
+- [x] `/api/:podcast_id/fan_mail` — inbound listener messages (medium)
+- [x] `/api/:podcast_id/listings` — directory listing status per podcast directory (low)
 
-Note: The vendor's official API repo (github.com/Buzzsprout/buzzsprout-api) contains exactly two resource sections — sections/podcasts.md and sections/episodes.md, confirmed via the GitHub contents API. Both are already exposed. There is no publicly documented downloads/analytics endpoint; I found no spec for one and did not want to invent it.
+Note: The vendor's API repo later added more resource sections (stats, contributors, fan mail, listings and others). The per-episode `/api/:podcast_id/:episode_id/downloads` detail route is not synced: it needs a request per episode per day.
 
 ## CalCom — gaps
 
