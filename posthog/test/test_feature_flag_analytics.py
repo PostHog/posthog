@@ -1105,7 +1105,7 @@ class TestEnrichedAnalytics(BaseTest):
         flag.refresh_from_db()
         self.assertEqual(flag.has_enriched_analytics, True)
 
-    @parameterized.expand([("short_row", (1,)), ("non_sequence_row", 1), ("missing_team", (999999, "test_flag"))])
+    @parameterized.expand([("empty_row", ()), ("non_sequence_row", 1), ("missing_team", (999999, "test_flag"))])
     def test_bad_row_does_not_stop_later_rows(self, _name: str, bad_row: object) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="test_flag", created_by=self.user)
 

@@ -273,7 +273,6 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
     result = sync_execute(_build_enriched_analytics_query(), {"begin": begin, "end": end})
 
     for row in result:
-        # Log only the shape of a malformed row, so the next occurrence shows where it came from.
         if not isinstance(row, tuple | list) or len(row) < 2:
             logger.warning(
                 "find_flags_with_enriched_analytics_malformed_row",
