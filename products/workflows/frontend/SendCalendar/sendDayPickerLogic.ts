@@ -25,6 +25,8 @@ import {
     calendarDays,
     calendarRange,
     calendarSendsForFlow,
+    mergeCalendarFlows,
+    splitRange,
     groupSendsByDay,
     shiftAnchor,
 } from './sendCalendarUtils'
@@ -159,6 +161,12 @@ export type sendDayPickerLogicType = MakeLogicType<
     sendDayPickerLogicMeta
 >
 
+// Kept in step with SEND_CALENDAR_MAX_RANGE_DAYS on the server, which rejects longer ranges.
+const SEND_CALENDAR_MAX_RANGE_DAYS = 92
+// The calendar shows 200 sends of a schedule at most, but the cap counts every send. An hourly schedule over
+// the whole range of the picker stays below this.
+const MAX_COUNTED_SENDS_PER_SCHEDULE = 5000
+
 export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
     props({} as BroadcastWizardLogicProps),
     key((props) => props.id),
@@ -188,10 +196,16 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
                 loadScheduledFlows: async (_: void, breakpoint) => {
                     let flows: SendCalendarFlowApi[]
                     try {
-                        flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
-                            start: values.loadRange.start.toISOString(),
-                            end: values.loadRange.end.toISOString(),
-                        })
+                        // The range runs past the endpoint's limit, so it loads in pieces.
+                        const loads = await Promise.all(
+                            splitRange(values.loadRange, SEND_CALENDAR_MAX_RANGE_DAYS).map((piece) =>
+                                hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
+                                    start: piece.start.toISOString(),
+                                    end: piece.end.toISOString(),
+                                })
+                            )
+                        )
+                        flows = mergeCalendarFlows(loads)
                     } catch (error) {
                         // A failed request for a month the person already left must not show the error.
                         breakpoint()
@@ -271,7 +285,7 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
                 const now = dayjs()
                 return (scheduledFlows ?? [])
                     .filter((flow) => flow.id !== id)
-                    .flatMap((flow) => calendarSendsForFlow(flow, loadRange, now))
+                    .flatMap((flow) => calendarSendsForFlow(flow, loadRange, now, MAX_COUNTED_SENDS_PER_SCHEDULE))
                     .filter((send) => send.state !== 'paused' && send.state !== 'failed')
             },
         ],
