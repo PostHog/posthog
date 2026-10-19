@@ -1421,7 +1421,7 @@ class ChartFromTypedQuery(Scorer):
         return Score(name=self._name(), score=0.0, metadata={"paths": paths})
 
 
-_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$")
+_TABLE_SEPARATOR_RE = re.compile(r"^(?=.*\|)\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 
 
 def markdown_table_row_counts(text: str) -> list[int]:
