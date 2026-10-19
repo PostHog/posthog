@@ -4,6 +4,10 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
+from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
@@ -28,6 +32,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_supported_reasoning_efforts,
     get_task_run_actor_user,
     get_task_run_credential_user,
+    get_user_github_integration,
     get_user_mcp_server_configs,
     is_bot_authorship_fallback,
     is_caller_token_run,
@@ -955,6 +960,33 @@ class TestSlackTaskRunActorUser(TestCase):
         state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id}
 
         assert get_task_run_credential_user(task, state) == creator
+
+
+class TestGetUserGithubIntegration(TestCase):
+    def test_a_flagged_install_is_skipped_for_a_healthy_one(self) -> None:
+        user = User.objects.create(email="two-installs@example.com")
+        flagged = UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111"},
+            sensitive_config={"user_access_token": "gho_a", "user_refresh_token": "ghr_a"},
+        )
+        UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="222",
+            config={"installation_id": "222"},
+            sensitive_config={"user_access_token": "gho_b", "user_refresh_token": "ghr_b"},
+        )
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._mark_needs_reauthorization(
+            "refresh rejected by GitHub: bad_refresh_token"
+        )
+
+        resolved = get_user_github_integration(user)
+
+        assert resolved is not None
+        assert resolved.integration.integration_id == "222"
 
 
 class TestGetSandboxGitHubToken(SimpleTestCase):
