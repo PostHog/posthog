@@ -2221,12 +2221,17 @@ describe('CDP API', () => {
 
         // Raw audience literal and Python claim names: the wire contract with Django's
         // WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.
+        const mintBatchResumeToken = (
+            claims: Record<string, unknown>,
+            { secret = 'local-dev-workflows-step-resume-jwt', audience = 'posthog:workflows:resume_batch' } = {}
+        ) => jwt.sign(claims, secret, { audience, expiresIn: '2m' })
         const resumeAuth = (teamId: number, claims: Record<string, unknown> = {}) => ({
-            Authorization: `Bearer ${jwt.sign(
-                { team_id: teamId, hog_flow_id: flowId, batch_job_id: batchJobId, ...claims },
-                'local-dev-workflows-step-resume-jwt',
-                { audience: 'posthog:workflows:resume_batch', expiresIn: '2m' }
-            )}`,
+            Authorization: `Bearer ${mintBatchResumeToken({
+                team_id: teamId,
+                hog_flow_id: flowId,
+                batch_job_id: batchJobId,
+                ...claims,
+            })}`,
         })
 
         beforeEach(() => {
