@@ -38,10 +38,12 @@ from products.workflows.backend.services.data_suggestions.service import (
     _build_key,
     _build_lock_key,
     _cache_key,
+    _event_build_lock_key,
     _generation_lock_key,
     _to_cache,
     build_caller,
     run_data_suggestions,
+    run_event_workflows,
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
@@ -516,6 +518,27 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert [(draft.status, draft.trigger["filters"]["events"][0]["id"]) for draft in drafts] == [
             ("draft", "signed_up")
         ]
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_batch_that_lost_its_lock_makes_no_model_calls(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        events = ("signed_up",)
+        cache.set(_event_build_lock_key(self.team.id, self.user.id, events), "newer-run", 60)
+        save_draft = MagicMock()
+
+        run_event_workflows(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            events=events,
+            lock_token="older-run",
+            validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
+            save_draft=save_draft,
+        )
+
+        assert (suggest_ideas.call_count, plan_steps.call_count, save_draft.call_count) == (0, 0, 0)
+        assert cache.get(_event_build_lock_key(self.team.id, self.user.id, events)) == "newer-run"
 
     def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self, _flag) -> None:
         built = build_workflow(

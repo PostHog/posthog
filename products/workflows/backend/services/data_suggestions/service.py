@@ -366,6 +366,9 @@ def _build_event_workflows(
     all_counts = weekly_counts(team)
     # A step can wait on any busy event, not only the picked ones.
     planning_events = tuple(name for name, _ in select_prompt_events(all_counts, limit=_PROMPT_EVENTS_LIMIT))
+    # A batch that waited in the queue past its lock is replaced by a newer one, so it stops before any model call.
+    if not still_owns_lock():
+        return _EVENTS_FAILED
     with _analytics_client() as analytics_client:
         ideas = suggest_ideas(
             team=team,
@@ -386,6 +389,9 @@ def _build_event_workflows(
         # The model can only pick from the listed events; anything else is a made-up name.
         if idea.trigger_event not in events or idea.trigger_event in seen_events or not outline:
             continue
+        # Each plan is a call to the stronger model, so a batch that lost its lock does not pay for the rest.
+        if not still_owns_lock():
+            break
         seen_events.add(idea.trigger_event)
         suggestion = DataSuggestion(
             id=str(uuid.uuid4()),
