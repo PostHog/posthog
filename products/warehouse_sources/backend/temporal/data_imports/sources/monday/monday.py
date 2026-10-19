@@ -15,14 +15,17 @@ MONDAY_API_URL = "https://api.monday.com/v2"
 # `API-Version` header; "v2" predates dated labels and keeps sending the header it shipped with.
 MONDAY_VERSION_V2 = "v2"
 MONDAY_VERSION_2026_07 = "2026-07"
+MONDAY_VERSION_2026_10 = "2026-10"
 MONDAY_API_VERSION_HEADERS: dict[str, str] = {
     MONDAY_VERSION_V2: "2024-10",
     MONDAY_VERSION_2026_07: "2026-07",
+    MONDAY_VERSION_2026_10: "2026-10",
 }
 # 2024-10 serves column settings as `settings_str`; 2026-07 documents only the `settings` JSON field.
 MONDAY_COLUMN_SETTINGS_FIELDS: dict[str, str] = {
     MONDAY_VERSION_V2: "settings_str",
     MONDAY_VERSION_2026_07: "settings",
+    MONDAY_VERSION_2026_10: "settings",
 }
 # Boards/users/folders page size; items_page caps at 500.
 PAGE_SIZE = 100
@@ -69,6 +72,29 @@ query ($limit: Int!, $page: Int!) {
   }
 }
 """
+
+# 2026-10 removes the `enabled`/`is_admin`/`is_guest`/`is_pending` booleans; `status` and `kind` replace them.
+_USERS_QUERY_2026_10 = """
+query ($limit: Int!, $page: Int!) {
+  users (limit: $limit, page: $page) {
+    id
+    name
+    email
+    kind
+    status
+    title
+    location
+    created_at
+    last_activity
+  }
+}
+"""
+
+MONDAY_USERS_QUERIES: dict[str, str] = {
+    MONDAY_VERSION_V2: _USERS_QUERY,
+    MONDAY_VERSION_2026_07: _USERS_QUERY,
+    MONDAY_VERSION_2026_10: _USERS_QUERY_2026_10,
+}
 
 _WORKSPACES_QUERY = """
 query ($limit: Int!, $page: Int!) {
@@ -327,7 +353,7 @@ def get_rows(
         return
 
     if endpoint == "users":
-        yield from iterate_paged(_USERS_QUERY, "users")
+        yield from iterate_paged(MONDAY_USERS_QUERIES[api_version], "users")
         return
 
     if endpoint == "workspaces":

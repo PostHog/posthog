@@ -66,6 +66,7 @@ from .evaluation_errors import (
 )
 from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
+    BACKFILL_ACTIVITY_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
@@ -1024,7 +1025,9 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
 
 
-def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) -> EvaluationActivityResult:
+def _call_openai_compatible_judge(
+    resolved_ips: set[IPv4Address | IPv6Address], backfill: bool = False
+) -> EvaluationActivityResult:
     key = MagicMock(
         provider="openai_compatible",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -1041,6 +1044,7 @@ def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) 
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
+            backfill=backfill,
         )
 
 
@@ -1053,13 +1057,13 @@ def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
     assert "Base URL must be a public https:// URL" in result["reasoning"]
 
 
-@pytest.mark.parametrize("attempt", [1, 2])
-def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int) -> None:
+@pytest.mark.parametrize("attempt,backfill", [(1, False), (2, False), (3, True), (5, True)])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int, backfill: bool) -> None:
     env = ActivityEnvironment()
     env.info = dataclasses.replace(env.info, attempt=attempt)
 
     with pytest.raises(TransientJudgeError):
-        env.run(_call_openai_compatible_judge, set())
+        env.run(_call_openai_compatible_judge, set(), backfill)
 
 
 def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
@@ -1121,17 +1125,27 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     ],
 )
 @pytest.mark.parametrize(
-    "attempt,reportable",
+    "attempt,backfill,reportable",
     [
-        pytest.param(1, False, id="first attempt"),
-        pytest.param(3, True, id="last attempt"),
+        pytest.param(1, False, False, id="first attempt"),
+        pytest.param(3, False, True, id="last attempt"),
+        pytest.param(3, True, False, id="backfill third attempt"),
+        pytest.param(5, True, True, id="backfill last attempt"),
     ],
 )
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
-    provider: str, success_payload: dict[str, Any], status: int, retry_after: int, attempt: int, reportable: bool
+    provider: str,
+    success_payload: dict[str, Any],
+    status: int,
+    retry_after: int,
+    attempt: int,
+    backfill: bool,
+    reportable: bool,
 ) -> None:
     env = ActivityEnvironment()
-    env.info = dataclasses.replace(env.info, attempt=attempt)
+    env.info = dataclasses.replace(
+        env.info, attempt=attempt, retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY, schedule_to_close_timeout=None
+    )
     evaluation = {
         "team_id": 1,
         "evaluation_config": {"prompt": "Polite?", **({"judge_method": "decision"} if provider == "openai" else {})},
@@ -1169,6 +1183,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
                     system_prompt="",
                     user_prompt="Hello!",
                     allows_na=False,
+                    backfill=backfill,
                 )
             )
         assert not error.value.non_retryable

@@ -375,13 +375,14 @@ export const FEATURE_FLAGS = {
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
-    INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the staff-only ranking model sort options and the probability tag on inbox cards
+    INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
     INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
+    INSIGHT_DATA_CHECKS: 'insight-data-checks', // owner: @sampennington #team-product-analytics, checks the events behind an insight and shows the result on the insight page
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
@@ -530,7 +531,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_SCANNER_DASHBOARD: 'replay-vision-scanner-dashboard', // owner: #team-replay, one-click dashboard offer on the scanner overview and its MCP tool
-    REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT: 'replay-vision-watch-in-list-experiment', // owner: #team-replay multivariate=control,in-list,watch-tab,both. Compare the variant string, a truthy check turns on for control too
+    REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT: 'replay-vision-watch-in-list-experiment-v2', // owner: #team-replay multivariate=control,in-list. Compare the variant string, a truthy check turns on for control too
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
@@ -569,7 +570,9 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_EVENT_MATCH: 'taxonomic-filter-event-match', // owner: @pauldambra multivariate=control,test, experiment: test asks the decision model which core events an events search with no results describes, then suggests them or says why there are none; control asks nothing
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. control changes nothing, banner suggests the right tab, promote moves the predicted group to the top of the All tab
+    TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
+    TODAY_PULSE_RANKING: 'today-pulse-ranking',
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics

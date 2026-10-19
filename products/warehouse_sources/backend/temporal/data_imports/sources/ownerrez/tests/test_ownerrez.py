@@ -68,6 +68,13 @@ def _page(items: list[dict[str, Any]], *, next_page_url: str | None = None) -> S
 
 
 class TestOwnerrezSourceTransport:
+    @parameterized.expand([("unpinned", None), ("v1", "v1"), ("v2", "v2")])
+    def test_every_version_calls_v2_paths(self, _name: str, api_version: str | None) -> None:
+        result = _driver().run("Properties", [_page([{"id": 1}])], api_version=api_version)
+
+        assert result.raised is None
+        assert result.paths == ["/v2/properties"]
+
     def test_follows_next_page_url_until_null(self) -> None:
         result = _driver().run(
             "Properties",

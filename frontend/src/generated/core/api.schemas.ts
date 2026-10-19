@@ -1366,6 +1366,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -6268,6 +6269,13 @@ export interface UserGitHubIntegrationItemApi {
      * * `connected` - connected
      * * `unavailable` - unavailable */
     installation_status: InstallationStatusEnumApi
+    /** True when GitHub rejected the stored credentials and PostHog dropped them. The installation is still on GitHub, but PostHog cannot act as the user until they authorize it again. */
+    needs_reauthorization: boolean
+    /**
+     * When the stored credentials stopped working, or null while they still work.
+     * @nullable
+     */
+    needs_reauthorization_at: string | null
     /** When this integration row was created. */
     created_at: string
 }
