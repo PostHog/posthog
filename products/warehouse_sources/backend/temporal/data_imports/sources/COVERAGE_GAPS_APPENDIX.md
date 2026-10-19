@@ -4220,10 +4220,10 @@ Today (2): `carbon_intensity`, `power_breakdown`
 
 Diffed against: <https://api.electricitymap.org/v3/openapi.json>
 
-- [ ] `Zones (GET /v3/zones)` — resolve zone identifiers into names, countries, and parent regions for existing carbon and power records (high)
-- [ ] `Carbon intensity forecast (GET /v3/carbon-intensity/forecast)` — compare predicted emissions with actual emissions and choose cleaner times for electricity use (high)
-- [ ] `Day-ahead price, past range (GET /v3/price-day-ahead/past-range)` — join electricity prices to carbon intensity for cost and emissions analysis (high)
-- [ ] `Day-ahead locational marginal price, past range (GET /v3/locational-marginal-price-day-ahead/past-range)` — measure electricity costs at United States pricing nodes alongside regional emissions (high)
+- [x] `Zones (GET /v3/zones)` — resolve zone identifiers into names, countries, and parent regions for existing carbon and power records (high)
+- [x] `Carbon intensity forecast (GET /v3/carbon-intensity/forecast)` — compare predicted emissions with actual emissions and choose cleaner times for electricity use (high)
+- [x] `Day-ahead price, past range (GET /v3/price-day-ahead/past-range)` — join electricity prices to carbon intensity for cost and emissions analysis (high)
+- [x] `Day-ahead locational marginal price, past range (GET /v3/locational-marginal-price-day-ahead/past-range)` — measure electricity costs at United States pricing nodes alongside regional emissions (high)
 - [ ] `Power breakdown forecast (GET /v3/power-breakdown/forecast)` — compare predicted generation and consumption mixes with actual power records (medium)
 - [ ] `Fossil-only carbon intensity, past range (GET /v3/carbon-intensity-fossil-only/past-range)` — analyze emissions intensity from fossil electricity separately from the complete grid mix (medium)
 - [ ] `Total reported load, past range (GET /v3/total-reported-load/past-range)` — compare reported electricity demand with consumption estimates and identify demand trends (medium)
