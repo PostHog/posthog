@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 MAX_INPUT_BYTES = 8192
-MAX_TOTAL_BYTES = 2 * 1024 * 1024
+MAX_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_BATCH_BYTES = 32768
 
 
@@ -188,7 +188,7 @@ class PromptJevRunner:
         return decisions
 
     async def _batches(self, spec: PromptJevCall, batches: list[list[str]]) -> list[dict[str, object]]:
-        semaphore = asyncio.Semaphore(4)
+        semaphore = asyncio.Semaphore(max(1, settings.HOGQL_JEV_CONCURRENCY))
 
         async def evaluate_batch(batch: list[str]) -> dict[str, object]:
             async with semaphore:

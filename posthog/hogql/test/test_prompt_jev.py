@@ -39,7 +39,12 @@ def gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
     return httpx.Response(200, json={"model": "jevk5-0.2", "answers": answers, "usage": {"input_tokens": 10}})
 
 
-@override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+@override_settings(
+    AI_GATEWAY_URL="https://gateway.example.com/v1",
+    AI_GATEWAY_API_KEY="test-key",
+    HOGQL_JEV_MAX_ROWS=1000,
+    HOGQL_JEV_MAX_DECISIONS=1000,
+)
 class TestPromptJev(SimpleTestCase):
     @parameterized.expand(
         [
@@ -132,6 +137,7 @@ class TestPromptJev(SimpleTestCase):
         ):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), ["refund"])
 
+    @override_settings(HOGQL_JEV_CONCURRENCY=4)
     def test_deadline_cancels_inflight_requests_and_pending_batches(self) -> None:
         node = parse_expr("jev(body, 'Refund?', batch_size := 1)")
         assert isinstance(node, ast.Call)
@@ -178,7 +184,12 @@ class TestPromptJev(SimpleTestCase):
         post.assert_not_called()
 
 
-@override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+@override_settings(
+    AI_GATEWAY_URL="https://gateway.example.com/v1",
+    AI_GATEWAY_API_KEY="test-key",
+    HOGQL_JEV_MAX_ROWS=1000,
+    HOGQL_JEV_MAX_DECISIONS=1000,
+)
 class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
