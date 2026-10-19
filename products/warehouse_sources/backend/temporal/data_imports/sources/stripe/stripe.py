@@ -506,9 +506,11 @@ class StripeResumeConfig:
     ordering, so it cannot carry over to a warehouse parent scan (and vice versa). The
     warehouse fields are the `ScanPosition` triple; a run that finds the wrong kind of state,
     or state from another table, version or filter, discards it and starts the sweep over.
+    `incremental_listing` names the incremental listing that `starting_after` belongs to.
     """
 
     starting_after: str | None = None
+    incremental_listing: Literal["earliest", "latest"] | None = None
     nested_parent_id: str | None = None
     nested_starting_after: str | None = None
     warehouse_fragment_index: int | None = None
@@ -720,6 +722,47 @@ def _batch_and_yield(
 
     while batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+
+
+def _resumable_incremental_listing(
+    resource: StripeResource,
+    params: dict[str, Any],
+    listing: Literal["earliest", "latest"],
+    resume_config: Optional[StripeResumeConfig],
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    batcher: Batcher,
+    incremental_field_name: Optional[str] = None,
+    stop_at_or_before: Optional[int] = None,
+) -> Iterator[pa.Table]:
+    """List one side of the stored watermark, and stage a cursor before each table it yields.
+
+    The watermark moves only when the whole job completes, so an attempt that starts again after a
+    worker shutdown reads from the same watermark. The cursor lets that attempt continue the listing
+    instead of reading every row since the watermark again.
+    """
+    resume_params: dict[str, Any] = {}
+    if resume_config is not None and resume_config.incremental_listing == listing and resume_config.starting_after:
+        resume_params = {"starting_after": resume_config.starting_after}
+    try:
+        objects = _call_stripe(resource.method, params={**params, **resume_params})
+        for table in _batch_and_yield(
+            objects.auto_paging_iter(),
+            batcher,
+            incremental_field_name=incremental_field_name,
+            stop_at_or_before=stop_at_or_before,
+        ):
+            resumable_source_manager.save_state(
+                StripeResumeConfig(starting_after=table.column("id")[-1].as_py(), incremental_listing=listing)
+            )
+            yield table
+    except stripe_lib.InvalidRequestError as e:
+        if not (resume_params and _is_stripe_resource_missing_error(e)):
+            raise
+        # The earlier attempts of this job already queued the rows before the cursor, so a restart of
+        # the listing here would load them twice. Without the cursor, the next attempt reads from the
+        # watermark as a fresh attempt, and the append rollback removes the rows of the earlier attempts.
+        resumable_source_manager.clear_state()
+        raise
 
 
 def _build_resources(
@@ -1141,36 +1184,34 @@ def get_rows(
 
         return
 
+    # The earliest listing runs first, so a cursor in the latest listing means it already finished.
+    earliest_listing_done = resume_config is not None and resume_config.incremental_listing == "latest"
+
     # check for any objects less than the minimum object we already have
-    if db_incremental_field_earliest_value is not None:
+    if db_incremental_field_earliest_value is not None and not earliest_listing_done:
         logger.debug(
             f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
         )
 
-        stripe_objects = _call_stripe(
-            resource.method,
-            params={
-                **default_params,
-                **resource.params,
-                f"created[lt]": db_incremental_field_earliest_value,
-            },
+        yield from _resumable_incremental_listing(
+            resource,
+            {**default_params, **resource.params, f"created[lt]": db_incremental_field_earliest_value},
+            "earliest",
+            resume_config,
+            resumable_source_manager,
+            batcher,
         )
-        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = _call_stripe(
-            resource.method,
-            params={
-                **default_params,
-                **resource.params,
-                f"created[gt]": db_incremental_field_last_value,
-            },
-        )
-        yield from _batch_and_yield(
-            stripe_objects.auto_paging_iter(),
+        yield from _resumable_incremental_listing(
+            resource,
+            {**default_params, **resource.params, f"created[gt]": db_incremental_field_last_value},
+            "latest",
+            resume_config,
+            resumable_source_manager,
             batcher,
             incremental_field_name=incremental_field_name,
             stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),

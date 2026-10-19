@@ -1,6 +1,7 @@
 import functools
 import threading
 import contextvars
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -26,6 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
@@ -220,6 +227,88 @@ class TestStripeGetRowsIncrementalCursor:
         rows = [row for table in tables for row in table.to_pylist()]
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
+
+
+def _charge_list_api(charges: list[dict[str, Any]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        newer_than, older_than = request.param("created[gt]"), request.param("created[lt]")
+        rows = [
+            charge
+            for charge in charges
+            if (newer_than is None or charge["created"] > int(newer_than))
+            and (older_than is None or charge["created"] < int(older_than))
+        ]
+        starting_after = request.param("starting_after")
+        if starting_after is not None:
+            ids = [charge["id"] for charge in rows]
+            if starting_after not in ids:
+                return ScriptedResponse(
+                    status=404,
+                    json={
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "resource_missing",
+                            "param": "starting_after",
+                            "message": f"No such charge: '{starting_after}'",
+                        }
+                    },
+                )
+            rows = rows[ids.index(starting_after) + 1 :]
+        limit = int(request.param("limit") or DEFAULT_LIMIT)
+        return ScriptedResponse(
+            json={"object": "list", "url": "/v1/charges", "data": rows[:limit], "has_more": len(rows) > limit}
+        )
+
+    return respond
+
+
+class TestStripeIncrementalListingResume:
+    # Newest first, as Stripe lists them: three rows above the last value and three below the earliest.
+    CHARGES = [
+        {"id": f"ch_{created}", "object": "charge", "created": created} for created in (1006, 1005, 1004, 994, 993, 992)
+    ]
+
+    def _run(self, resume_state: Optional[Any] = None) -> DriveResult:
+        with patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2):
+            return SourceDriver(
+                StripeSource(),
+                StripeSourceConfig(
+                    auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+                ),
+            ).run(
+                CHARGE_RESOURCE_NAME,
+                _charge_list_api(self.CHARGES),
+                resume_state=resume_state,
+                incremental_field="created",
+                db_incremental_field_last_value=1000,
+                db_incremental_field_earliest_value=995,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+    @staticmethod
+    def _ids(result: DriveResult) -> list[str]:
+        return [row["id"] for table in result.items for row in table.to_pylist()]
+
+    @pytest.mark.parametrize("listing", ["earliest", "latest"])
+    def test_an_interrupted_listing_resumes_without_losing_or_repeating_rows(self, listing):
+        full = self._run()
+        cursor = next(state for state in full.committed_states if state.incremental_listing == listing)
+
+        resumed = self._run(resume_state=cursor)
+
+        assert full.raised is None and resumed.raised is None
+        ids = self._ids(full)
+        loaded_before = ids[: ids.index(cursor.starting_after) + 1]
+        assert loaded_before + self._ids(resumed) == ids
+
+    def test_a_gone_cursor_fails_the_attempt_and_drops_the_cursor(self):
+        result = self._run(
+            resume_state=stripe_module.StripeResumeConfig(starting_after="ch_gone", incremental_listing="latest")
+        )
+
+        assert isinstance(result.raised, stripe_lib.InvalidRequestError)
+        assert self._ids(result) == []
+        assert result.final_state is None
 
 
 class TestStripeFlatResourceResumeCursor:
