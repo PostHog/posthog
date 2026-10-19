@@ -609,7 +609,7 @@ class HogQLQueryExecutor:
         select = next(extract_select_queries(self.select_query), None)
         if select is None or len(select.select) != len(self.print_columns):
             return None
-        formats = []
+        formats: list[str | None] = []
         for expression in select.select:
             if isinstance(expression, ast.Alias):
                 expression = expression.expr
