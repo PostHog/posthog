@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
 __all__ = [
@@ -13,6 +15,7 @@ __all__ = [
     "IneligibleSessionError",
     "IneligibleSessionKind",
     "ScannerFailureError",
+    "TransientScannerFailureError",
 ]
 
 # Strings survive Temporal's ActivityError wrapping via ApplicationError.type, so the
@@ -47,6 +50,13 @@ class ScannerFailureError(_KindedApplicationError):
 
     def __init__(self, message: str, *, kind: FailureKind) -> None:
         super().__init__(message, kind=kind, type=SCANNER_FAILURE_ERROR_TYPE, non_retryable=not kind.is_retryable)
+
+
+class TransientScannerFailureError(ScannerFailureError, NonReportableError):
+    """An expected INFRA_TRANSIENT wait that the retry policy resolves. Kept out of error tracking."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, kind=FailureKind.INFRA_TRANSIENT)
 
 
 class _ConsentKind(StrEnum):
