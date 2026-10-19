@@ -87,9 +87,10 @@ tools:
             reads the chart. State what it shows in one sentence, normally 25 words or fewer. Add a second sentence only
             for a limitation that changes interpretation. Omit the description if the title is sufficient. Exclude query
             construction, tool names, maintenance instructions, and reasons for creating the chart. Keep technical terms
-            only when the reader needs them. Preserve required metric definitions, units, exclusions, and limitations. State required time boundaries explicitly. During unrelated
-            edits, omit the description field to preserve existing text. Never truncate descriptions to meet a length
-            target or field limit. Example: "Percentage of visitors who complete signup. Excludes test accounts."
+            only when the reader needs them. Preserve required metric definitions, units, exclusions, and limitations.
+            State required time boundaries explicitly. During unrelated edits, omit the description field to preserve
+            existing text. Never truncate descriptions to meet a length target or field limit. Example: "Percentage of
+            visitors who complete signup. Excludes test accounts."
         agent_note: >
             When you tell the user about this insight, name the display you chose and one or two other displays that
             also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
@@ -235,9 +236,10 @@ tools:
             one sentence, normally 25 words or fewer. Add a second sentence only for a limitation that changes
             interpretation. Omit the description if the title is sufficient. Exclude query construction, tool names,
             maintenance instructions, and reasons for creating the chart. Keep technical terms only when the reader
-            needs them. Preserve required metric definitions, units, exclusions, and limitations. State required time boundaries explicitly. During unrelated edits, omit the
-            description field to preserve existing text. Never truncate descriptions to meet a length target or field
-            limit. Example: "Percentage of visitors who complete signup. Excludes test accounts."
+            needs them. Preserve required metric definitions, units, exclusions, and limitations. State required time
+            boundaries explicitly. During unrelated edits, omit the description field to preserve existing text. Never
+            truncate descriptions to meet a length target or field limit. Example: "Percentage of visitors who complete
+            signup. Excludes test accounts."
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
