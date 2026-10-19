@@ -289,6 +289,12 @@ class TestDataSuggestions(SimpleTestCase):
                 lambda inputs: inputs["text"]["value"],
                 "{person",
             ),
+            (
+                "a placeholder for a property the trigger event does not carry",
+                step(email_paragraphs=["You left [[secret|an item]] behind"]),
+                lambda inputs: inputs["email"]["value"]["html"],
+                "secret",
+            ),
         ]
     )
     def test_build_workflow_strips_template_tags_from_model_copy(
@@ -299,6 +305,25 @@ class TestDataSuggestions(SimpleTestCase):
         copy = copy_of(built.workflow["actions"][1]["config"]["inputs"])
         assert leftover not in copy
         assert "{%" not in copy
+
+    def test_build_workflow_shows_trigger_event_properties_through_liquid(self) -> None:
+        planned = step(
+            email_subject="You left [[product_name|something]] behind",
+            email_paragraphs=["Your [[product_name|items]] cost [[price|less than you think]]."],
+        )
+
+        built = build_workflow(IDEA, plan(planned), context(event_properties=frozenset({"product_name"})))
+
+        assert built is not None
+        email = built.workflow["actions"][1]
+        assert email["config"]["inputs"]["email"]["value"]["subject"] == (
+            "You left {{ event.properties.product_name | default: 'something' }} behind"
+        )
+        assert (
+            "Your {{ event.properties.product_name | default: 'items' }} cost less than you think."
+            in (email["config"]["inputs"]["email"]["value"]["html"])
+        )
+        assert email["name"] == "You left something behind"
 
     @parameterized.expand(
         [

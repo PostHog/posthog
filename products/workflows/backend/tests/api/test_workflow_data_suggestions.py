@@ -954,6 +954,27 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_plan_that_links_to_a_missing_step_is_planned_again(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.side_effect = [
+            PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome", next="never_written")]),
+            PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")]),
+        ]
+        suggestion_id = self._list()["suggestions"][0]["id"]
+
+        built = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
+            {"suggestion_id": suggestion_id},
+            format="json",
+        ).json()
+
+        assert built["status"] == "ready"
+        assert plan_steps.call_count == 2
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
     def test_a_saved_build_is_read_again_from_its_draft(
         self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
     ) -> None:

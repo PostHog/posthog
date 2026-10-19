@@ -84,6 +84,7 @@ FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
+_PLAN_ATTEMPTS = 2
 # The workflows editor builds without saving, and is the only caller whose build is kept on the idea.
 _EDITOR_CALLER = EventSource.WEB.value
 MAX_SUGGESTIONS = 3
@@ -347,36 +348,44 @@ def _plan_and_build(
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
     channels = team_context.channels(team)
-    with _analytics_client() as analytics_client:
-        plan = plan_steps(
-            team=team,
-            user=user,
-            context=StepsContext(
-                idea=idea,
-                email_templates=email_templates,
-                step_templates=step_templates,
-                events=events,
-                channels=channels,
-                has_slack=slack_integration_id is not None,
-            ),
-            analytics_client=analytics_client,
-        )
-    if plan is None:
-        return _BUILD_FAILED, None
-
-    built = build_workflow(
-        idea,
-        plan,
-        BuildContext(
-            allowed_events=frozenset({suggestion.trigger_event, *events}),
-            step_template_ids=frozenset(template.template_id for template in step_templates),
-            channels=channels,
-            email_templates=_chosen_template_bodies(team, plan, email_templates),
-            sender=team_context.email_sender(team),
-            slack_integration_id=slack_integration_id,
-            once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
-        ),
+    event_properties = team_context.event_property_names(team, suggestion.trigger_event)
+    context = BuildContext(
+        allowed_events=frozenset({suggestion.trigger_event, *events}),
+        step_template_ids=frozenset(template.template_id for template in step_templates),
+        channels=channels,
+        email_templates={},
+        sender=team_context.email_sender(team),
+        slack_integration_id=slack_integration_id,
+        once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
+        event_properties=frozenset(event_properties),
     )
+    built = None
+    # The model now and then links a step to an id it never wrote. A second plan almost always holds up.
+    for _ in range(_PLAN_ATTEMPTS):
+        with _analytics_client() as analytics_client:
+            plan = plan_steps(
+                team=team,
+                user=user,
+                context=StepsContext(
+                    idea=idea,
+                    email_templates=email_templates,
+                    step_templates=step_templates,
+                    events=events,
+                    channels=channels,
+                    has_slack=slack_integration_id is not None,
+                    event_properties=event_properties,
+                ),
+                analytics_client=analytics_client,
+            )
+        if plan is None:
+            return _BUILD_FAILED, None
+        built = build_workflow(
+            idea,
+            plan,
+            dataclasses.replace(context, email_templates=_chosen_template_bodies(team, plan, email_templates)),
+        )
+        if built is not None:
+            break
     if built is None:
         return _BUILD_FAILED, None
     validated = validate_draft(team, built.workflow)
