@@ -5,6 +5,7 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -221,28 +222,39 @@ def test_repo_less_report_run_follows_the_integration_the_create_path_attached(
     assert token == expected
 
 
+@pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize(
     "error, expected_error",
     [
         (ReauthorizationRequired("relink GitHub"), CredentialUnavailableError),
+        (CredentialUnavailableError("missing repository", {"repositories": ["acme/repo"]}), CredentialUnavailableError),
         (GitHubRateLimitError("limited", retry_after=30), GitHubRateLimitedError),
         (requests.ConnectionError("reset"), ProcessTaskTransientError),
         (GitHubIntegrationError("bad gateway", status_code=502), ProcessTaskTransientError),
         (GitHubIntegrationError("not accessible", status_code=422), GitHubAuthenticationError),
     ],
-    ids=["reauthorization", "rate_limited", "connection_error", "server_error", "rejected_mint"],
+    ids=[
+        "reauthorization",
+        "unavailable_credential",
+        "rate_limited",
+        "connection_error",
+        "server_error",
+        "rejected_mint",
+    ],
 )
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
-def test_github_token_failure_maps_to_run_error(
-    mock_full: MagicMock, _mock_log: MagicMock, error: Exception, expected_error: type[Exception]
+async def test_github_token_failure_maps_to_run_error(
+    mock_full: MagicMock, _mock_log: MagicMock, error: Exception, expected_error: type[Exception], resume: bool
 ) -> None:
     # ReauthorizationRequired is a user-actionable "re-link your GitHub account" signal, not a
     # system fault. Provisioning must surface it as CredentialUnavailableError (fatal, non-retryable,
     # not captured to error tracking) rather than wrapping it in GitHubAuthenticationError, which
     # captures the raw exception and floods error tracking with noise.
     from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        InjectFreshTokensOnResumeInput,
         _resolve_sandbox_github_token,
+        inject_fresh_tokens_on_resume,
     )
 
     mock_full.side_effect = error
@@ -258,9 +270,21 @@ def test_github_token_failure_maps_to_run_error(
         state={},
     )
 
-    with pytest.raises(expected_error) as raised:
-        _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+    with (
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
+        pytest.raises(expected_error) as raised,
+    ):
+        if resume:
+            await ActivityEnvironment().run(
+                inject_fresh_tokens_on_resume,
+                InjectFreshTokensOnResumeInput(context=ctx, sandbox_id="sandbox-id", repository="acme/repo"),
+            )
+        else:
+            _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
     assert type(raised.value) is expected_error
+    if isinstance(error, CredentialUnavailableError):
+        assert raised.value is error
 
 
 @pytest.mark.parametrize(

@@ -407,6 +407,8 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
 
 
 def _github_token_error(error: Exception, message: str, context: dict[str, Any]) -> ProcessTaskError:
+    if isinstance(error, CredentialUnavailableError):
+        return error
     if isinstance(error, GitHubRateLimitError | GitHubEgressBudgetExhausted):
         retry_after = getattr(error, "retry_after", None) or DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS
         return GitHubRateLimitedError(f"{message}; retrying in {retry_after}s", context, retry_after=retry_after)
