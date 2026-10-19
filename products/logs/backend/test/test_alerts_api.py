@@ -1183,6 +1183,40 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "password" not in body
         assert "token=secret" not in body
 
+    def test_reading_an_alert_marks_only_the_destination_with_a_customized_function(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids_by_url = {}
+        for url in (
+            "https://stock.example.com/hook",
+            "https://edited.example.com/hook",
+            "https://refused.example.com/hook",
+        ):
+            response = self.client.post(
+                self._destinations_url(created["id"]), {"type": "webhook", "webhook_url": url}, format="json"
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            ids_by_url[url] = set(response.json()["hog_function_ids"])
+        edited = HogFunction.objects.get(id=sorted(ids_by_url["https://edited.example.com/hook"])[0])
+        edited.masking = {"ttl": 3600, "hash": "{event.event}", "threshold": None}
+        edited.save(update_fields=["masking"])
+        for refused in HogFunction.objects.filter(id__in=ids_by_url["https://refused.example.com/hook"]):
+            inputs = refused.inputs or {}
+            inputs["url"]["value"] = "http://refused.example.com/hook"
+            refused.inputs = inputs
+            refused.save(update_fields=["inputs"])
+
+        customized_by_ids = {
+            frozenset(destination["hog_function_ids"]): destination["message_customized"]
+            for destination in self._read_destinations(created["id"])
+        }
+
+        assert customized_by_ids == {
+            frozenset(str(i) for i in ids_by_url["https://stock.example.com/hook"]): False,
+            frozenset(str(i) for i in ids_by_url["https://edited.example.com/hook"]): True,
+            frozenset(str(i) for i in ids_by_url["https://refused.example.com/hook"]): False,
+        }
+
     def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()

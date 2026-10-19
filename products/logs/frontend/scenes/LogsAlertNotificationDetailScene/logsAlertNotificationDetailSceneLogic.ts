@@ -33,7 +33,7 @@ export interface LogsAlertNotificationDetailSceneLogicProps {
 export interface logsAlertNotificationDetailSceneLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
-    alert: LogsAlertConfigurationApi | null
+    alert: LogsAlertConfigurationDetailApi | null
     alertId: string
     alertLoading: boolean
     breadcrumbs: Breadcrumb[]
@@ -45,6 +45,7 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     hogFunctionsError: string | null
     hogFunctionsLoading: boolean
     isDeleting: boolean
+    messageCustomized: boolean
     togglingHogFunctionIds: string[]
 }
 
@@ -103,6 +104,10 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         hogFunctionId: (arg: any) => string
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
+        messageCustomized: (
+            alert: LogsAlertConfigurationApi | null,
+            destinationGroup: LogsAlertDestinationGroup | null
+        ) => boolean
         breadcrumbs: (
             alert: LogsAlertConfigurationApi | null,
             destinationGroup: LogsAlertDestinationGroup | null,
@@ -176,7 +181,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
 
     loaders(({ values, props }) => ({
         alert: [
-            null as LogsAlertConfigurationApi | null,
+            null as LogsAlertConfigurationDetailApi | null,
             {
                 loadAlert: async () => {
                     if (!values.currentTeamId) {
@@ -216,6 +221,16 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
             (hogFunctions: HogFunctionType[], hogFunctionId: string): LogsAlertDestinationGroup | null => {
                 const groups = groupLogsAlertDestinations(hogFunctions, () => null)
                 return groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
+            },
+        ],
+        messageCustomized: [
+            (s) => [s.alert, s.destinationGroup],
+            (alert: LogsAlertConfigurationDetailApi | null, group: LogsAlertDestinationGroup | null): boolean => {
+                const groupIds = new Set(group?.hogFunctions.map((hogFunction) => hogFunction.id))
+                return (alert?.destinations ?? []).some(
+                    (destination) =>
+                        destination.message_customized && destination.hog_function_ids.some((id) => groupIds.has(id))
+                )
             },
         ],
         breadcrumbs: [
