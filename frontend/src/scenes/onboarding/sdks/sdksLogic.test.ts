@@ -2,9 +2,13 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { onboardingLogic } from '../onboardingLogic'
+import { ALL_SDKS } from './allSDKs'
 import {
     ErrorTrackingSDKDocsLinkOverrides,
     ErrorTrackingSDKInstructions,
@@ -48,5 +52,14 @@ describe('sdksLogic', () => {
         }
 
         expect(logic.values.selectedSDK?.docsLink).toBe('https://posthog.com/docs/libraries/convex')
+    })
+
+    it('reports the onboarding product key with the selected SDK', async () => {
+        onboardingLogic.actions.setProductKey(ProductKey.LOGS)
+        const sdk = ALL_SDKS[0]
+
+        await expectLogic(logic, () => {
+            logic.actions.selectSDK(sdk)
+        }).toDispatchActions([eventUsageLogic.actionCreators.reportSDKSelected(sdk, ProductKey.LOGS)])
     })
 })

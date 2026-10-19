@@ -1515,8 +1515,12 @@ export interface eventUsageLogicActions {
     reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     }
-    reportSDKSelected: (sdk: SDK) => {
+    reportSDKSelected: (
+        sdk: SDK,
+        productKey?: string | null
+    ) => {
         sdk: SDK
+        productKey: string | null | undefined
     }
     reportSDKSetupInstructionsSDKSelected: (
         sdkKey: string,
@@ -2100,7 +2104,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
-        reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        reportSDKSelected: (sdk: SDK, productKey?: string | null) => ({ sdk, productKey }),
         reportSDKSetupInstructionsSDKSelected: (sdkKey: string, surface: SDKSetupInstructionsSurface) => ({
             sdkKey,
             surface,
@@ -2986,9 +2990,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...ONBOARDING_EVENT_PROPS,
             })
         },
-        reportSDKSelected: ({ sdk }) => {
+        reportSDKSelected: ({ sdk, productKey }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
         reportSDKSetupInstructionsSDKSelected: ({ sdkKey, surface }) => {
