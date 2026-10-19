@@ -5,29 +5,23 @@ import { ConversionRecommendationCard } from './ConversionRecommendationCard'
 const meta: Meta<typeof ConversionRecommendationCard> = {
     title: 'Scenes-App/Marketing Analytics/Conversion recommendation card',
     component: ConversionRecommendationCard,
+    decorators: [
+        (Story) => (
+            <div className="w-240 max-w-full">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         recommendation: {
             source_ref: 'action:1',
             name: 'Qualified requests',
             reason: 'This action may represent qualified requests. Review its existing filters.',
             intent: 'conversion',
-            state: 'needs_decision',
+            amount_property: null,
             questions: ['Does this action exclude test and duplicate requests?'],
             candidate: { source_ref: 'action:1', name: 'Qualified requests', kind: 'ActionsNode', action_id: 1 },
-            draft: {
-                goal: {
-                    kind: 'ActionsNode',
-                    id: 1,
-                    conversion_goal_id: 'preview',
-                    conversion_goal_name: 'Qualified requests',
-                    schema_map: {},
-                    math: 'total',
-                },
-                date_from: '2026-09-01T00:00:00Z',
-                date_to: '2026-10-01T00:00:00Z',
-            },
         },
-        onReview: () => {},
     },
 }
 export default meta

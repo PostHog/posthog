@@ -15,7 +15,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { ConversionGoalDetails } from '../common/ConversionGoalDetails'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import {
     MarketingAnalyticsValidationWarningBanner,
@@ -71,19 +70,15 @@ function CountsAsToggles({
 export function ConversionGoalsConfiguration({
     hideTitle = false,
     hideDescription = false,
-    initialEditingGoalId,
 }: {
     hideTitle?: boolean
     hideDescription?: boolean
-    initialEditingGoalId?: string
 }): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState)
-    const [editingGoalId, setEditingGoalId] = useState<string | null>(initialEditingGoalId ?? null)
-    const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(
-        () => conversion_goals.find((goal) => goal.conversion_goal_id === initialEditingGoalId) ?? null
-    )
+    const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
+    const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -259,11 +254,7 @@ export function ConversionGoalsConfiguration({
                                         />
                                     )
                                 }
-                                return goal.kind === NodeKind.EventsNode ? (
-                                    <ConversionGoalDetails goal={goal} />
-                                ) : (
-                                    goal.custom_name || goal.name || 'No name'
-                                )
+                                return goal.custom_name || goal.name || 'No name'
                             },
                         },
                         {

@@ -6,12 +6,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { ConversionGoalFilter, MarketingAnalyticsOverviewMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
-import { DEFAULT_OVERVIEW_METRICS } from './utils'
 
 jest.mock('posthog-js')
 
@@ -159,66 +158,6 @@ describe('marketing settings project changes', () => {
             expect(logic.values.conversion_goals).toEqual(goals)
             expect(logic.values.savedMarketingAnalyticsConfig.conversion_goals).toEqual(goals)
         }
-        logic.unmount()
-    })
-
-    it('persists chosen overview metrics and reads an unset project as the default set', async () => {
-        const logic = marketingAnalyticsSettingsLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        const picked = [
-            MarketingAnalyticsOverviewMetric.Sessions,
-            MarketingAnalyticsOverviewMetric.BounceRate,
-            MarketingAnalyticsOverviewMetric.ReturnRate7d,
-            MarketingAnalyticsOverviewMetric.Conversions,
-            MarketingAnalyticsOverviewMetric.Revenue,
-        ]
-
-        await expectLogic(logic, () => logic.actions.updateOverviewMetrics(picked))
-            .toDispatchActions([
-                teamLogic.actionCreators.updateCurrentTeam({
-                    marketing_analytics_config: { overview_metrics: picked },
-                }),
-            ])
-            .toFinishAllListeners()
-
-        await expectLogic(logic, () =>
-            teamLogic.actions.loadCurrentTeamSuccess({
-                ...teamLogic.values.currentTeam!,
-                marketing_analytics_config: { overview_metrics: [] },
-            } as TeamType)
-        ).toFinishAllListeners()
-
-        expect(logic.values.overview_metrics).toEqual([])
-        expect(logic.values.overviewMetrics).toEqual(DEFAULT_OVERVIEW_METRICS)
-        logic.unmount()
-    })
-
-    // A metric that a slot stopped offering must not leave that card blank.
-    it('falls back per slot when a stored metric no longer belongs to its slot', async () => {
-        const logic = marketingAnalyticsSettingsLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        await expectLogic(logic, () =>
-            teamLogic.actions.loadCurrentTeamSuccess({
-                ...teamLogic.values.currentTeam!,
-                marketing_analytics_config: {
-                    // Revenue is not an acquisition metric, and the list is one slot short.
-                    overview_metrics: [
-                        MarketingAnalyticsOverviewMetric.Revenue,
-                        MarketingAnalyticsOverviewMetric.BounceRate,
-                    ],
-                },
-            } as TeamType)
-        ).toFinishAllListeners()
-
-        expect(logic.values.overviewMetrics).toEqual([
-            MarketingAnalyticsOverviewMetric.Visitors,
-            MarketingAnalyticsOverviewMetric.BounceRate,
-            ...DEFAULT_OVERVIEW_METRICS.slice(2),
-        ])
         logic.unmount()
     })
 })

@@ -122,7 +122,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
-            and not self.query.includeSessionDuration
             and not self.query.conversionGoal
         )
 
@@ -250,11 +249,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # session id. Conversion-goal columns are event-derived too.
         # Session-entry breakdowns (Initial*), session-property filters, and
         # bounce variants keep the join.
-        no_join = (
-            not self.query.includeBounceRate
-            and not self.query.includeSessionDuration
-            and not self._uses_session_fields()
-        )
+        no_join = not self.query.includeBounceRate and not self._uses_session_fields()
 
         if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
             return NoJoinFirstPageviewAttributionStrategy(self) if no_join else FirstPageviewAttributionStrategy(self)
@@ -306,8 +301,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 column = "context.columns.clicks"
             elif field == WebAnalyticsOrderByFields.BOUNCE_RATE:
                 column = "context.columns.bounce_rate"
-            elif field == WebAnalyticsOrderByFields.SESSION_DURATION:
-                column = "context.columns.session_duration"
             elif field == WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE:
                 column = "context.columns.average_scroll_percentage"
             elif field == WebAnalyticsOrderByFields.SCROLL_GT80_PERCENTAGE:

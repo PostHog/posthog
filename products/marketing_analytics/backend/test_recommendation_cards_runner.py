@@ -53,7 +53,7 @@ def provider_response(
 
 @override_settings(AI_GATEWAY_URL="https://synthetic-gateway.example.com/v1", AI_GATEWAY_API_KEY="synthetic-test-key")
 class TestRecommendationCardsRunner(SimpleTestCase):
-    def test_real_gateway_request_parser_and_action_draft(self) -> None:
+    def test_real_gateway_request_parser_and_action_identity(self) -> None:
         requests: list[httpx.Request] = []
 
         def transport(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
@@ -78,11 +78,11 @@ class TestRecommendationCardsRunner(SimpleTestCase):
         assert trial["request_model"] == body["model"]
         assert trial["response_model"] == "effective-provider-model"
         assert trial["usage"]["output_tokens"] == 30
-        draft = trial["results"].recommendations[0].draft
-        assert draft is not None
-        assert draft.goal.kind == "ActionsNode"
-        assert str(draft.goal.id) == "4101"
-        assert draft.goal.counts_as_customer is False
+        recommendation = trial["results"].recommendations[0]
+        assert recommendation.candidate.kind == "ActionsNode"
+        assert recommendation.candidate.action_id == 4101
+        assert recommendation.intent == "conversion"
+        assert recommendation.amount_property is None
 
     def test_wrong_customer_intent_fails_contract_gate(self) -> None:
         with patch.object(httpx.HTTPTransport, "handle_request", return_value=provider_response(intent="customer")):
@@ -92,7 +92,6 @@ class TestRecommendationCardsRunner(SimpleTestCase):
         assert report["contract_passed"] is False
         assert report["semantic_review_status"] == "pending"
         assert "action:4101: incorrect intent" in report["trials"][0]["failures"]
-        assert "action:4101: incorrect customer flag" in report["trials"][0]["failures"]
 
     @parameterized.expand(
         [

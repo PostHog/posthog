@@ -9,8 +9,6 @@ import { ExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marke
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { SetupSection } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
-import { OverviewMetricsConfiguration } from 'products/marketing_analytics/frontend/setup/OverviewMetricsConfiguration'
-
 import { SECTION_LABEL } from './sectionRouting'
 import { SuggestedActions } from './SuggestedActions'
 
@@ -73,12 +71,6 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
         label: SECTION_LABEL[SetupSection.ATTRIBUTION],
         description: 'Attribution mode and lookback window.',
         content: <AttributionSettings />,
-    },
-    {
-        key: SetupSection.OVERVIEW_METRICS,
-        label: SECTION_LABEL[SetupSection.OVERVIEW_METRICS],
-        description: 'Which metric the Overview shows for each group.',
-        content: <OverviewMetricsConfiguration />,
     },
     {
         key: SetupSection.GENERAL,

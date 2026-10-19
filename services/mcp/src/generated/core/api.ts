@@ -2714,38 +2714,6 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence.'
                     ),
-                overview_metrics: zod
-                    .array(
-                        zod
-                            .enum([
-                                'visitors',
-                                'new_visitors',
-                                'new_visitor_share',
-                                'sessions',
-                                'pageviews',
-                                'session_duration',
-                                'pages_per_session',
-                                'pages_per_visitor',
-                                'sessions_per_visitor',
-                                'bounce_rate',
-                                'returning_visitors',
-                                'return_rate_7d',
-                                'return_rate_30d',
-                                'median_return_days',
-                                'conversions',
-                                'conversion_rate',
-                                'conversion_value',
-                                'avg_conversion_value',
-                                'revenue',
-                            ])
-                            .describe(
-                                '\* `visitors` - visitors\n\* `new_visitors` - new_visitors\n\* `new_visitor_share` - new_visitor_share\n\* `sessions` - sessions\n\* `pageviews` - pageviews\n\* `session_duration` - session_duration\n\* `pages_per_session` - pages_per_session\n\* `pages_per_visitor` - pages_per_visitor\n\* `sessions_per_visitor` - sessions_per_visitor\n\* `bounce_rate` - bounce_rate\n\* `returning_visitors` - returning_visitors\n\* `return_rate_7d` - return_rate_7d\n\* `return_rate_30d` - return_rate_30d\n\* `median_return_days` - median_return_days\n\* `conversions` - conversions\n\* `conversion_rate` - conversion_rate\n\* `conversion_value` - conversion_value\n\* `avg_conversion_value` - avg_conversion_value\n\* `revenue` - revenue'
-                            )
-                    )
-                    .optional()
-                    .describe(
-                        'Metric cards the marketing analytics Overview shows: exactly five, one per slot, in the order acquisition, engagement, retention, conversion, other. A metric may repeat, because the other slot can hold one another slot already shows. Send an empty list to restore the default. Reads always return the effective list.'
-                    ),
             })
             .optional(),
         customer_analytics_config: zod
@@ -5517,38 +5485,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence.'
-                    ),
-                overview_metrics: zod
-                    .array(
-                        zod
-                            .enum([
-                                'visitors',
-                                'new_visitors',
-                                'new_visitor_share',
-                                'sessions',
-                                'pageviews',
-                                'session_duration',
-                                'pages_per_session',
-                                'pages_per_visitor',
-                                'sessions_per_visitor',
-                                'bounce_rate',
-                                'returning_visitors',
-                                'return_rate_7d',
-                                'return_rate_30d',
-                                'median_return_days',
-                                'conversions',
-                                'conversion_rate',
-                                'conversion_value',
-                                'avg_conversion_value',
-                                'revenue',
-                            ])
-                            .describe(
-                                '\* `visitors` - visitors\n\* `new_visitors` - new_visitors\n\* `new_visitor_share` - new_visitor_share\n\* `sessions` - sessions\n\* `pageviews` - pageviews\n\* `session_duration` - session_duration\n\* `pages_per_session` - pages_per_session\n\* `pages_per_visitor` - pages_per_visitor\n\* `sessions_per_visitor` - sessions_per_visitor\n\* `bounce_rate` - bounce_rate\n\* `returning_visitors` - returning_visitors\n\* `return_rate_7d` - return_rate_7d\n\* `return_rate_30d` - return_rate_30d\n\* `median_return_days` - median_return_days\n\* `conversions` - conversions\n\* `conversion_rate` - conversion_rate\n\* `conversion_value` - conversion_value\n\* `avg_conversion_value` - avg_conversion_value\n\* `revenue` - revenue'
-                            )
-                    )
-                    .optional()
-                    .describe(
-                        'Metric cards the marketing analytics Overview shows: exactly five, one per slot, in the order acquisition, engagement, retention, conversion, other. A metric may repeat, because the other slot can hold one another slot already shows. Send an empty list to restore the default. Reads always return the effective list.'
                     ),
             })
             .optional(),

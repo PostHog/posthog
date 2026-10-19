@@ -125,7 +125,6 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
-                              |ConversionGoalPreviewEvidence
                               |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
@@ -598,7 +597,6 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
-                        |ConversionGoalPreviewEvidence
                         |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery

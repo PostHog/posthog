@@ -3,7 +3,7 @@
 Run with ``python -m products.marketing_analytics.evals.recommendation_cards_runner``.
 The default dry run replaces HTTP responses and proves wiring only. ``--live`` uses
 the production Go gateway configuration and can incur charges. Discovery, access
-checks, persistence, Celery, and journey previews are outside this evaluation.
+checks, persistence, and Celery are outside this evaluation.
 """
 
 from __future__ import annotations
@@ -99,41 +99,30 @@ def _bootstrap() -> None:
 def _contract_failures(case: RecommendationCardCase, results: ConversionRecommendationResults) -> list[str]:
     expected = {item.source_ref: item for item in case.expected}
     actual = {item.source_ref: item for item in results.recommendations}
+    candidates = {item["source_ref"]: item for item in case.candidates}
     failures = []
     if set(actual) != set(expected):
         failures.append("Recommended sources differ from the expected business outcomes")
     if len(actual) != len(results.recommendations):
-        failures.append("Duplicate sources survived draft generation")
+        failures.append("Duplicate sources survived recommendation generation")
     for source_ref, recommendation in actual.items():
         spec = expected.get(source_ref)
         if spec is None:
             continue
         if recommendation.intent != spec.intent:
             failures.append(f"{source_ref}: incorrect intent")
-        draft = recommendation.draft
-        if draft is None:
-            failures.append(f"{source_ref}: missing supported draft")
-            continue
-        goal = draft.goal
-        if goal.counts_as_revenue != (spec.intent == "revenue"):
-            failures.append(f"{source_ref}: incorrect revenue flag")
-        if goal.counts_as_customer != (spec.intent == "customer"):
-            failures.append(f"{source_ref}: incorrect customer flag")
-        if goal.math != ("sum" if spec.intent == "revenue" else "total"):
-            failures.append(f"{source_ref}: incorrect counting math")
-        if getattr(goal, "math_property", None) != spec.amount_property:
+        if recommendation.amount_property != spec.amount_property:
             failures.append(f"{source_ref}: incorrect amount mapping")
         candidate = recommendation.candidate
-        if goal.kind != candidate.kind:
+        original = candidates[source_ref]
+        if candidate.kind != original["kind"]:
             failures.append(f"{source_ref}: source kind changed")
-        if candidate.kind == "ActionsNode" and str(getattr(goal, "id", None)) != str(candidate.action_id):
+        if candidate.kind == "ActionsNode" and candidate.action_id != original.get("action_id"):
             failures.append(f"{source_ref}: action identity lost")
-        if candidate.kind == "EventsNode" and getattr(goal, "event", None) != candidate.event:
+        if candidate.kind == "EventsNode" and candidate.event != original.get("event"):
             failures.append(f"{source_ref}: event identity lost")
-        if not draft.filter_test_accounts:
-            failures.append(f"{source_ref}: test-account filtering disabled")
-        if spec.intent in ("revenue", "customer") and recommendation.state != "needs_decision":
-            failures.append(f"{source_ref}: unresolved business checks presented as ready")
+        if spec.intent in ("revenue", "customer") and not recommendation.questions:
+            failures.append(f"{source_ref}: missing business questions")
     return failures
 
 
@@ -207,13 +196,12 @@ def run_card_evaluation(
         "completed_trials": 0,
         "contract_passed": None,
         "semantic_review_status": "not_applicable" if dry_run else "pending",
-        "coverage": "Production generate/suggest, Go gateway client, tool schema/parser, and draft builder",
+        "coverage": "Production generate/suggest, Go gateway client, tool schema/parser, and source validation",
         "excluded": [
             "discovery queries",
             "permissions and AI consent",
             "persistence",
             "Celery",
-            "preview",
             "semantic prose grading",
         ],
         "source_sha256": {

@@ -3441,7 +3441,6 @@ export enum WebAnalyticsOrderByFields {
     Visitors = 'Visitors',
     Views = 'Views',
     AvgTimeOnPage = 'AvgTimeOnPage',
-    SessionDuration = 'SessionDuration',
     Clicks = 'Clicks',
     BounceRate = 'BounceRate',
     AverageScrollPercentage = 'AverageScrollPercentage',
@@ -4136,8 +4135,6 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     includeAvgTimeOnPage?: boolean
-    /** Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal. */
-    includeSessionDuration?: boolean
     includeHost?: boolean
     limit?: integer
     offset?: integer
@@ -8254,10 +8251,6 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
     results: MarketingAnalyticsRetentionRow[]
     /** Only populated in summary mode. Rates use the corresponding eligible population. */
     summary?: MarketingAnalyticsRetentionSummaryRow[]
-    /** Median over all observed returners, before grouping into breakdowns. Only populated in summary mode. */
-    overallMedianReturnDays?: number | null
-    /** Overall median for the previous acquisition period. Only populated when comparing in summary mode. */
-    previousOverallMedianReturnDays?: number | null
     /** Column count. Every row's values array has this length. */
     intervalCount: integer
     interval: MarketingAnalyticsRetentionInterval
@@ -8517,31 +8510,6 @@ export interface CampaignFieldPreference {
     match_field: MatchField
 }
 
-/** Metric cards the marketing analytics Overview can show. Declaration order is the default card order. */
-/** The Overview shows one card per slot: acquisition, engagement, retention, conversion, other.
- * `overview_metrics` is a list of five, one per slot in that order. */
-export enum MarketingAnalyticsOverviewMetric {
-    Visitors = 'visitors',
-    NewVisitors = 'new_visitors',
-    NewVisitorShare = 'new_visitor_share',
-    Sessions = 'sessions',
-    Pageviews = 'pageviews',
-    SessionDuration = 'session_duration',
-    PagesPerSession = 'pages_per_session',
-    PagesPerVisitor = 'pages_per_visitor',
-    SessionsPerVisitor = 'sessions_per_visitor',
-    BounceRate = 'bounce_rate',
-    ReturningVisitors = 'returning_visitors',
-    ReturnRate7d = 'return_rate_7d',
-    ReturnRate30d = 'return_rate_30d',
-    MedianReturnDays = 'median_return_days',
-    Conversions = 'conversions',
-    ConversionRate = 'conversion_rate',
-    ConversionValue = 'conversion_value',
-    AvgConversionValue = 'avg_conversion_value',
-    Revenue = 'revenue',
-}
-
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
@@ -8551,8 +8519,6 @@ export interface MarketingAnalyticsConfig {
     campaign_name_mappings?: Record<string, Record<string, string[]>>
     custom_source_mappings?: Record<string, string[]>
     campaign_field_preferences?: Record<string, CampaignFieldPreference>
-    /** Ordered Overview cards. Empty or unset means the default set: every metric, in enum order. */
-    overview_metrics?: MarketingAnalyticsOverviewMetric[]
 }
 
 export enum MarketingAnalyticsDrillDownLevel {

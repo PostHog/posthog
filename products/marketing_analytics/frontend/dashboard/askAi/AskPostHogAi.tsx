@@ -11,12 +11,10 @@ import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-ana
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { MARKETING_AI_QUESTIONS } from './marketingAiQuestions'
 
 export function AskPostHogAi(): JSX.Element {
-    const { dashboardBreakdown, dashboardView, dateFilter } = useValues(marketingAnalyticsLogic)
-    const { selectedConversionGoal } = useValues(marketingDashboardLogic)
+    const { dashboardBreakdown, dashboardView, dateFilter, draftConversionGoal } = useValues(marketingAnalyticsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
@@ -29,7 +27,7 @@ export function AskPostHogAi(): JSX.Element {
             `Dashboard section: ${dashboardView}`,
             `Date range: ${dateFilter.dateFrom ?? 'all time'} to ${dateFilter.dateTo ?? 'today'}`,
             `Breakdown: ${dashboardBreakdown}`,
-            selectedConversionGoal ? `Conversion goal: ${selectedConversionGoal.conversion_goal_name}` : null,
+            draftConversionGoal ? `Conversion goal: ${draftConversionGoal.conversion_goal_name}` : null,
         ].filter(Boolean)
 
         openSidePanel(
@@ -55,12 +53,11 @@ export function AskPostHogAi(): JSX.Element {
                         key={question}
                         type="secondary"
                         size="small"
-                        className="max-w-full"
                         onClick={() => ask(question)}
                         disabledReason={disabledReason}
                         data-attr="marketing-dashboard-ask-ai"
                     >
-                        <span className="whitespace-normal">{question}</span>
+                        {question}
                     </LemonButton>
                 ))}
             </div>

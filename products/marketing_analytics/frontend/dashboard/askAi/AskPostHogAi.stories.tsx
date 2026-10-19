@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
@@ -7,11 +7,9 @@ import { useState } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { defaultConversionGoalFilter } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/constants'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { PropertyFilterType, PropertyOperator, SidePanelTab } from '~/types'
@@ -21,10 +19,7 @@ import { AskPostHogAi } from './AskPostHogAi'
 function AskPostHogAiStory({ approved = true }: { approved?: boolean }): JSX.Element {
     const [ready, setReady] = useState(false)
     const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
-    const { setDashboardProperties, setDates } = useActions(marketingAnalyticsLogic)
-
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
-    const { loadMarketingAnalyticsConfig } = useActions(marketingAnalyticsSettingsLogic)
+    const { setDashboardProperties, setDates, setDraftConversionGoal } = useActions(marketingAnalyticsLogic)
 
     useOnMountEffect(() => {
         loadCurrentOrganizationSuccess({
@@ -32,20 +27,11 @@ function AskPostHogAiStory({ approved = true }: { approved?: boolean }): JSX.Ele
             is_ai_data_processing_approved: approved,
         })
         setDates('-30d', '2026-09-24')
-        loadCurrentTeamSuccess({
-            ...MOCK_DEFAULT_TEAM,
-            marketing_analytics_config: {
-                ...MOCK_DEFAULT_TEAM.marketing_analytics_config,
-                conversion_goals: [
-                    {
-                        ...defaultConversionGoalFilter,
-                        conversion_goal_id: 'storybook-purchase',
-                        conversion_goal_name: 'Purchase',
-                    },
-                ],
-            },
+        setDraftConversionGoal({
+            ...defaultConversionGoalFilter,
+            conversion_goal_id: 'storybook-purchase',
+            conversion_goal_name: 'Purchase',
         })
-        loadMarketingAnalyticsConfig()
         setDashboardProperties([
             {
                 type: PropertyFilterType.Session,

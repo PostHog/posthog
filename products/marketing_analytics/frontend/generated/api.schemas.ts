@@ -109,6 +109,17 @@ export interface ConversionGoalSummaryApi {
     approximation_reason: string | null
 }
 
+export interface ConversionGoalsListResponseApi {
+    /** One summary entry per configured conversion goal */
+    goals: ConversionGoalSummaryApi[]
+    /** The team's configured attribution window in days */
+    attribution_window_days: number
+    /** The team's attribution model (e.g. last_touch, first_touch, linear) */
+    attribution_mode: string
+    /** True if any goal is misconfigured */
+    has_misconfigured: boolean
+}
+
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -981,6 +992,11 @@ export interface ConversionGoalFilter3Api {
 }
 
 /**
+ * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
+ */
+export type ConversionGoalApi = ConversionGoalFilter1Api | ConversionGoalFilter2Api | ConversionGoalFilter3Api
+
+/**
  * List wrapper for OpenAPI schema generation - the response carries every configured goal.
  */
 export type ConversionGoalWrittenListApi = (
@@ -988,28 +1004,6 @@ export type ConversionGoalWrittenListApi = (
     | ConversionGoalFilter2Api
     | ConversionGoalFilter3Api
 )[]
-
-export interface ConversionGoalsListResponseApi {
-    /** One summary entry per configured conversion goal */
-    goals: ConversionGoalSummaryApi[]
-    /** The team's configured attribution window in days */
-    attribution_window_days: number
-    /** The team's configured attribution model */
-    attribution_mode: string
-    /** True if any goal is misconfigured */
-    has_misconfigured: boolean
-    /** Saved goal definitions, including filters and revenue/customer flags. Use these to review or verify a saved goal. */
-    conversion_goals: ConversionGoalWrittenListApi
-    /** Whether Marketing analytics excludes configured test accounts by default. */
-    filter_test_accounts: boolean
-    /** Project base currency used for revenue conversion. */
-    base_currency: string
-}
-
-/**
- * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
- */
-export type ConversionGoalApi = ConversionGoalFilter1Api | ConversionGoalFilter2Api | ConversionGoalFilter3Api
 
 export interface ConversionGoalWriteResponseApi {
     /** The goal as stored after the write */
@@ -1320,124 +1314,9 @@ export interface PatchedConversionGoalUpdateApi {
     goal?: ConversionGoalPatchApi
 }
 
-export interface ConversionGoalApplyApi {
-    /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
-    goal: ConversionGoalApi
-    /** Unexpired preview reference issued for this user and project. Retries with the same reference return the same saved goal. */
-    preview_ref: string
-    /** Explicit confirmation that the business definition and source limitations have been reviewed. */
-    definition_confirmed: boolean
-}
-
 export interface ConversionGoalWriteApi {
     /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
     goal: ConversionGoalApi
-}
-
-export interface InitialConversionGoalsResponseApi {
-    /** Initial goals that have not been deleted, with their current values */
-    initial_goals: ConversionGoalWrittenListApi
-    /** Whether initial setup completed or existing goals were preserved */
-    initialized: boolean
-}
-
-export interface ConversionGoalPreviewApi {
-    /** The unsaved event, action, or warehouse goal to evaluate. conversion_goal_id is ignored. No goal is saved. */
-    goal: ConversionGoalApi
-    /** Inclusive start of a preview period of at most 31 days. */
-    date_from: string
-    /** Inclusive end of the preview period. Include the time zone offset. */
-    date_to: string
-    /**
-     * Days before a conversion in which sessions can earn credit. Defaults to the project setting.
-     * @minimum 1
-     * @maximum 90
-     */
-    lookback_window_days?: number
-    /** Count repeat conversions. Defaults to false for unique-user math and true otherwise. */
-    allow_multiple_conversions_per_visitor?: boolean
-    /** Apply configured test-account filters. Defaults to the project setting. */
-    filter_test_accounts?: boolean
-    /** Exclude direct sessions before calculating attribution coverage. */
-    exclude_direct_traffic?: boolean
-    /** Exclude sessions whose channel is empty or unknown before calculating coverage. */
-    exclude_unattributed?: boolean
-}
-
-export interface ConversionGoalPreviewResponseApi {
-    /**
-     * Reference for validated application of this exact event/action preview by this user. Null for warehouse previews or service credentials.
-     * @nullable
-     */
-    preview_ref: string | null
-    /**
-     * When this preview must be refreshed before applying the goal.
-     * @nullable
-     */
-    expires_at: string | null
-    /** The unsaved goal evaluated by this preview. Its ID is a temporary placeholder. */
-    goal: ConversionGoalApi
-    /** When the preview completed. This is not the source sync time. */
-    observed_at: string
-    /** Resolved inclusive start of the conversion period. */
-    date_from: string
-    /** Resolved inclusive end of the conversion period. */
-    date_to: string
-    /** Project time zone used by attribution. */
-    timezone: string
-    /** Resolved session lookback window in days. */
-    attribution_window_days: number
-    /** Whether repeat conversions count. */
-    allows_multiple_conversions_per_visitor: boolean
-    /** Whether configured test-account filters were requested. */
-    filter_test_accounts: boolean
-    /** Whether direct sessions were excluded from attribution. */
-    exclude_direct_traffic: boolean
-    /** Whether sessions with an unknown channel were excluded. */
-    exclude_unattributed: boolean
-    /** Conversion count before per-person evaluation limits. */
-    total_conversions: number
-    /** Conversions evaluated after per-person limits. */
-    evaluated_conversions: number
-    /** Evaluated conversions with at least one eligible session. */
-    attributed_conversions: number
-    /** Total minus attributed conversions, including conversions excluded by evaluation limits. */
-    unattributed_conversions: number
-    /**
-     * Summed value, null for count goals or incomplete/invalid values.
-     * @nullable
-     */
-    total_value: number | null
-    /**
-     * Value of evaluated conversions, null for count goals or invalid values.
-     * @nullable
-     */
-    evaluated_value: number | null
-    /**
-     * Evaluated value with an eligible session, null for count goals or invalid values.
-     * @nullable
-     */
-    attributed_value: number | null
-    /**
-     * Total minus attributed value, null if the total is unavailable.
-     * @nullable
-     */
-    unattributed_value: number | null
-    /**
-     * Project base currency for revenue goals; null for other goals.
-     * @nullable
-     */
-    currency: string | null
-    /** Whether the per-person conversion limit excluded conversions. */
-    conversion_limit_reached: boolean
-    /** Whether any person reached the touchpoint limit; older sessions may be excluded. */
-    touchpoint_limit_reached: boolean
-    /** Whether evaluation limits or invalid values affect the result. This does not certify source quality. */
-    is_approximate: boolean
-    /** Limitations to consider when interpreting the result. */
-    warnings: string[]
-    /** Quality checks this preview has not performed. Do not treat them as passed. */
-    checks_not_performed: string[]
 }
 
 /**
@@ -1476,14 +1355,6 @@ export const IntentEnumApi = {
     Revenue: 'revenue',
 } as const
 
-export type ConversionRecommendationStateEnumApi =
-    (typeof ConversionRecommendationStateEnumApi)[keyof typeof ConversionRecommendationStateEnumApi]
-
-export const ConversionRecommendationStateEnumApi = {
-    NeedsDecision: 'needs_decision',
-    NeedsPreview: 'needs_preview',
-} as const
-
 export type ConversionCandidateKindEnumApi =
     (typeof ConversionCandidateKindEnumApi)[keyof typeof ConversionCandidateKindEnumApi]
 
@@ -1506,22 +1377,15 @@ export interface ConversionCandidateApi {
     already_configured?: boolean
 }
 
-export interface ConversionRecommendationDraftApi {
-    goal: ConversionGoalFilter1Api | ConversionGoalFilter2Api | ConversionGoalFilter3Api
-    date_from: string
-    date_to: string
-    filter_test_accounts?: boolean
-}
-
 export interface ConversionRecommendationApi {
     source_ref: string
     name: string
     reason: string
     intent: IntentEnumApi
     questions: string[]
-    state: ConversionRecommendationStateEnumApi
     candidate: ConversionCandidateApi
-    draft: ConversionRecommendationDraftApi | null
+    /** Observed numeric property proposed for revenue. Confirm its units and currency. */
+    amount_property?: string | null
 }
 
 export interface ConversionRecommendationResultsApi {
@@ -1539,7 +1403,7 @@ export interface ConversionRecommendationStateApi {
     latest_run: ConversionRecommendationRunApi | null
     /** Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure. */
     result_run: ConversionRecommendationRunApi | null
-    /** Persisted proposals and measured evidence. A proposal needs a fresh preview and explicit confirmation before saving. */
+    /** Suggested event or action goals with source evidence and business questions. Configure reviewed goals with the existing editor. */
     results: ConversionRecommendationResultsApi
     /** Whether this user can request or initialize project recommendations. */
     can_generate: boolean
@@ -2357,17 +2221,6 @@ export interface IntegrationDiagnosticApi {
     recommended_actions: RecommendedActionApi[]
 }
 
-export interface ConversionGoalsSummaryResponseApi {
-    /** One summary entry per configured conversion goal */
-    goals: ConversionGoalSummaryApi[]
-    /** The team's configured attribution window in days */
-    attribution_window_days: number
-    /** The team's configured attribution model */
-    attribution_mode: string
-    /** True if any goal is misconfigured */
-    has_misconfigured: boolean
-}
-
 export interface MarketingDiagnosticResponseApi {
     /** Per-integration cross-domain diagnostics */
     integrations: IntegrationDiagnosticApi[]
@@ -2376,7 +2229,7 @@ export interface MarketingDiagnosticResponseApi {
     /** One-line plain-English summary of the diagnostic */
     summary: string
     /** Conversion goal summary, when requested */
-    conversion_goals?: ConversionGoalsSummaryResponseApi | null
+    conversion_goals?: ConversionGoalsListResponseApi | null
     /** Top global recommended actions across all integrations */
     recommended_actions: RecommendedActionApi[]
 }

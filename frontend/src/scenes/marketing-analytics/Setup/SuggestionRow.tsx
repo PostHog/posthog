@@ -12,7 +12,6 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 
 import { CAPABILITY_COPY } from './ReadinessHeader'
 import { SECTION_BY_KIND, SECTION_LABEL } from './sectionRouting'
-import { SourceEventExample } from './SourceEventExample'
 import { SuggestionIcon } from './SuggestionIcon'
 
 function findOp(ops: ApplyOp[], op: string): ApplyOp | undefined {
@@ -109,7 +108,6 @@ export function SuggestionRow({
                 </div>
 
                 <div className="text-sm text-secondary">{suggestion.evidence}</div>
-                {suggestion.kind === 'connect_source' && <SourceEventExample integration={suggestion.integration} />}
 
                 {suggestion.unlocks.length > 0 && (
                     <div className="flex items-center gap-1 flex-wrap text-xs text-secondary">

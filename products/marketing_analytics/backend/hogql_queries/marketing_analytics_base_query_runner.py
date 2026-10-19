@@ -790,10 +790,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         return "; ".join(skipped.message for skipped in self._skipped_conversion_goals)
 
     def _filter_invalid_conversion_goals(
-        self,
-        conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3],
-        *,
-        require_utm_columns: bool = True,
+        self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
     ) -> tuple[
         list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3], list[SkippedConversionGoal]
     ]:
@@ -843,7 +840,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     ("utm_source_name", "utm_source"),
                 ]:
                     col_name = schema_map.get(schema_key) or default_col
-                    if require_utm_columns and col_name not in table_columns:
+                    if col_name not in table_columns:
                         missing_cols.append(col_name)
 
                 if missing_cols:

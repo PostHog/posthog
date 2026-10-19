@@ -86,6 +86,7 @@ from products.marketing_analytics.backend.services.setup_types import (
     Severity,
     Suggestion,
     SuggestionKind,
+    UpdateConversionGoal,
     sort_suggestions,
 )
 from products.marketing_analytics.backend.services.types import TeamMappings
@@ -558,12 +559,12 @@ def _create_goal_suggestions(candidates: EventSuggestionsResponse | None) -> lis
             kind=SuggestionKind.CREATE_CONVERSION_GOAL,
             severity=Severity.WARNING,
             confidence=0.75,
-            title=f"Review '{top.event_name}' as a conversion goal",
+            title=f"Make '{top.event_name}' a conversion goal",
             evidence=(
                 f"No conversion goals are configured. '{top.event_name}' fired {top.last_30d_count:,} times "
                 f"in the last 30 days across {top.distinct_users_30d:,} users, and "
-                f"{top.pct_with_utm_source:.0f}% carry a utm_source. "
-                "Review whether this event represents a business outcome. Volume and UTM coverage do not establish that."
+                f"{top.pct_with_utm_source:.0%} of those carry a utm_source — the best-attributable "
+                "candidate in your data."
             ),
             unlocks=[Capability.ROAS, Capability.CAC],
             apply=OpenSettings(anchor=MARKETING_SETTINGS_ANCHOR),
@@ -599,29 +600,29 @@ def _missing_flag_suggestion(
     Which goal deserves the flag is a business call, so this links out rather than
     picking one.
     """
-    if not goals:
+    candidate = max(goals, key=lambda g: g.last_30d_count, default=None)
+    if candidate is None:
         return None
 
     kind = SuggestionKind.MARK_GOAL_AS_REVENUE if revenue else SuggestionKind.MARK_GOAL_AS_CUSTOMER
     metric = "ROAS" if revenue else "cost per customer"
+    flag = "counts_as_revenue" if revenue else "counts_as_customer"
     return Suggestion(
         id=f"{kind.value}:any",
         kind=kind,
         severity=Severity.WARNING,
         confidence=0.7,
-        title="Choose a revenue goal" if revenue else "Choose a customer goal",
+        title=f"Mark a conversion goal as {'revenue-bearing' if revenue else 'customer-defining'}",
         evidence=(
-            f"No goal is marked as {'revenue' if revenue else 'a customer conversion'}, so {metric} is unavailable. "
-            + (
-                "Choose a goal that measures revenue, then check its amount, currency and refund rules."
-                if revenue
-                else "Choose the conversion that defines a customer for your business."
-            )
+            f"{len(goals)} conversion goal(s) are configured but none has `{flag}` set, so the "
+            f"{metric} column stays empty. '{candidate.name}' is the highest-volume candidate "
+            f"({candidate.last_30d_count:,} in 30 days)."
         ),
         unlocks=[Capability.ROAS if revenue else Capability.CAC],
         # Which goal counts as revenue is a business decision, not a config fix.
-        apply=OpenSettings(anchor=MARKETING_SETTINGS_ANCHOR),
+        apply=UpdateConversionGoal(conversion_goal_id=candidate.conversion_goal_id, patch={flag: True}),
         safe_to_batch=False,
+        event_volume=candidate.last_30d_count,
     )
 
 

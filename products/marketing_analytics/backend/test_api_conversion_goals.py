@@ -22,7 +22,6 @@ from products.marketing_analytics.backend.services.conversion_goals_inspector im
     ConversionGoalsListResponse,
     ConversionGoalSummary,
 )
-from products.marketing_analytics.backend.services.event_suggestions import CandidateEvent, EventSuggestionsResponse
 
 SCHEMA_MAP = {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"}
 
@@ -82,59 +81,14 @@ class TestConversionGoalWrites(APIBaseTest):
         self.assertTrue(stale_config.filter_test_accounts)
         self.assertEqual(stale_config.conversion_goals, goals)
 
-    def test_initial_goals_are_created_once_and_deleted_goals_stay_deleted(self) -> None:
-        candidates = EventSuggestionsResponse(
-            candidates=[
-                CandidateEvent(name, 100, 80, 70, 60, [], False, 0.9, "Observed event")
-                for name in ["sign_up", "purchase", "demo_booked", "trial_started"]
-            ]
-        )
-        with patch(
-            "products.marketing_analytics.backend.api.suggest_conversion_goals", new=AsyncMock(return_value=candidates)
-        ):
-            response = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-            assert response.status_code == 200, response.json()
-            initial = response.json()["initial_goals"]
-            assert len(initial) == 3
-            assert all(not goal.get("counts_as_revenue") for goal in initial)
-            repeated = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-            assert repeated.json()["initial_goals"] == initial
-            for goal in initial:
-                self.client.delete(f"{self.base_url}/{goal['conversion_goal_id']}/delete")
-            deleted = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-            assert deleted.json() == {"initial_goals": [], "initialized": True}
-            assert self.stored_goals() == []
-
-    def test_initial_goals_preserve_existing_configuration(self) -> None:
-        existing = self.create_goal("Sign ups").json()["goal"]
-        response = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-        assert response.status_code == 200, response.json()
-        assert response.json() == {"initial_goals": [], "initialized": True}
-        assert self.stored_goals() == [existing]
-
-    def test_initial_goals_wait_for_events(self) -> None:
-        with patch(
-            "products.marketing_analytics.backend.api.suggest_conversion_goals",
-            new=AsyncMock(return_value=EventSuggestionsResponse()),
-        ):
-            response = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-        assert response.status_code == 200, response.json()
-        assert response.json() == {"initial_goals": [], "initialized": False}
-
-    def test_create_appends_without_touching_existing_goals_with_ai_disabled(self) -> None:
-        assert self.team.marketing_analytics_config.conversion_goals == []
-        with patch("products.marketing_analytics.backend.api.feature_enabled_or_false", return_value=False):
-            first = self.create_goal("Sign ups").json()["goal"]
-            response = self.create_goal("Purchases", event="purchase")
+    def test_create_appends_without_touching_existing_goals(self):
+        first = self.create_goal("Sign ups").json()["goal"]
+        response = self.create_goal("Purchases", event="purchase")
 
         assert response.status_code == 201, response.json()
         goals = self.stored_goals()
         assert [g["conversion_goal_name"] for g in goals] == ["Sign ups", "Purchases"]
         assert goals[0]["conversion_goal_id"] == first["conversion_goal_id"]
-
-        project = self.client.get(f"/api/projects/{self.team.pk}/")
-        assert project.status_code == 200, project.json()
-        assert project.json()["marketing_analytics_config"]["conversion_goals"] == goals
 
     def test_create_assigns_a_server_side_id_and_ignores_a_client_supplied_one(self):
         response = self.create_goal("Sign ups", conversion_goal_id="pick-me")
@@ -204,13 +158,7 @@ class TestConversionGoalWrites(APIBaseTest):
         )
         delete = self.client.delete(f"{self.base_url}/{existing['conversion_goal_id']}/delete")
 
-        initialize = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-        assert (create.status_code, update.status_code, delete.status_code, initialize.status_code) == (
-            403,
-            403,
-            403,
-            403,
-        )
+        assert (create.status_code, update.status_code, delete.status_code) == (403, 403, 403)
         assert [g["conversion_goal_name"] for g in self.stored_goals()] == ["Sign ups"]
         # reads stay open to every member
         assert self.client.get(self.base_url).status_code == 200
@@ -459,13 +407,7 @@ class TestConversionGoalWrites(APIBaseTest):
             format="json",
         )
 
-        initialize = self.client.post(f"{self.base_url}/initialize", {}, format="json")
-        assert (create.status_code, update.status_code, delete.status_code, initialize.status_code) == (
-            403,
-            403,
-            403,
-            403,
-        )
+        assert (create.status_code, update.status_code, delete.status_code) == (403, 403, 403)
         assert legacy.status_code == 403, legacy.json()
         assert [g["conversion_goal_name"] for g in self.stored_goals()] == ["Sign ups"]
         assert self.client.get(self.base_url).status_code == 200
@@ -506,9 +448,6 @@ class TestConversionGoalIdIsOneName(APIBaseTest):
         assert response.status_code == 200, response.json()
         # The name every downstream endpoint asks for, so a caller can chain them.
         assert response.json()["goals"][0]["conversion_goal_id"] == created["conversion_goal_id"]
-        assert response.json()["conversion_goals"] == [created]
-        assert response.json()["base_currency"] == self.team.base_currency
-        assert response.json()["filter_test_accounts"] == self.team.marketing_analytics_config.filter_test_accounts
 
     def test_explain_takes_conversion_goal_id(self):
         response = self.client.get(self.explain_url, {"conversion_goal_id": "does-not-exist"})

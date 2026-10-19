@@ -3572,16 +3572,15 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             return frozenset()
         return WAREHOUSE_ACCESS_SCOPES
 
-    def get_access_controlled_resources(self) -> set[str] | None:
-        return queried_access_controlled_resources(self.query, self.team, bypassed_scopes=self._bypassed_access_scopes)
-
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = self.get_access_controlled_resources()
+        queried_resources = queried_access_controlled_resources(
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+        )
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL

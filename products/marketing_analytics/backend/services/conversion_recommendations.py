@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Literal
 
 from django.db import transaction
@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -25,7 +25,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.marketing_analytics.backend.hogql_queries.attribution_base import ConversionGoal
 from products.marketing_analytics.backend.models.conversion_setup import ConversionRecommendationRun
 from products.marketing_analytics.backend.services.event_suggestions import DEFAULT_EXCLUDED_EVENTS
 
@@ -65,22 +64,16 @@ class ConversionSuggestions(BaseModel):
     recommendations: list[ConversionSuggestion] = Field(max_length=3)
 
 
-class ConversionRecommendationDraft(BaseModel):
-    goal: ConversionGoal
-    date_from: datetime
-    date_to: datetime
-    filter_test_accounts: bool = True
-
-
 class ConversionRecommendation(BaseModel):
     source_ref: str
     name: str
     reason: str
     intent: Literal["conversion", "customer", "revenue"]
     questions: list[str]
-    state: Literal["needs_decision", "needs_preview"]
     candidate: ConversionCandidate
-    draft: ConversionRecommendationDraft | None
+    amount_property: str | None = Field(
+        default=None, description="Observed numeric property proposed for revenue. Confirm its units and currency."
+    )
 
 
 class ConversionRecommendationResults(BaseModel):
@@ -336,58 +329,39 @@ class ConversionRecommendationService:
                 continue
             seen.add(candidate.source_ref)
             questions = [question[:300] for question in suggestion.questions]
-            goal: dict[str, JsonValue] = {
-                "conversion_goal_id": "preview",
-                "kind": candidate.kind,
-                "conversion_goal_name": suggestion.name,
-                "schema_map": {},
-                "math": "total",
-                "counts_as_revenue": False,
-                "counts_as_customer": False,
-            }
-            if candidate.kind == "EventsNode":
-                goal["event"] = candidate.event
-            else:
-                goal["id"] = candidate.action_id
-            if suggestion.intent == "revenue":
+            intent = suggestion.intent
+            amount_property = None
+            if intent == "revenue":
                 if suggestion.amount_property and suggestion.amount_property in candidate.numeric_properties:
-                    goal.update(math="sum", math_property=suggestion.amount_property, counts_as_revenue=True)
+                    amount_property = suggestion.amount_property
                 else:
-                    goal = {}
+                    intent = "conversion"
+                    questions.append(
+                        "Identify an observed numeric amount property before using this source as revenue."
+                    )
                 questions.append(
                     "Confirm payment status, amount units, currency, refunds, and one event per transaction."
                 )
-            elif suggestion.intent == "customer":
-                goal["counts_as_customer"] = True
+            elif intent == "customer":
                 questions.append(
                     "Confirm whether customers mean people or accounts, and whether first-ever history is required."
                 )
             recommendations.append(
-                ConversionRecommendation.model_validate(
-                    {
-                        "source_ref": candidate.source_ref,
-                        "name": suggestion.name,
-                        "reason": suggestion.reason,
-                        "intent": suggestion.intent,
-                        "questions": questions,
-                        "state": "needs_decision" if questions or not goal else "needs_preview",
-                        "candidate": candidate.model_dump(),
-                        "draft": {
-                            "goal": goal,
-                            "date_from": run.date_from.isoformat(),
-                            "date_to": run.date_to.isoformat(),
-                            "filter_test_accounts": True,
-                        }
-                        if goal
-                        else None,
-                    }
+                ConversionRecommendation(
+                    source_ref=candidate.source_ref,
+                    name=suggestion.name,
+                    reason=suggestion.reason,
+                    intent=intent,
+                    questions=questions,
+                    candidate=candidate,
+                    amount_property=amount_property,
                 )
             )
         return ConversionRecommendationResults(
             recommendations=recommendations,
             limitations=[
                 "Discovery considers up to 20 active custom events and 20 recently updated actions.",
-                "Event counts exclude configured test accounts. Action volumes and filters need a preview.",
+                "Event counts exclude configured test accounts. Action volumes and filters need review.",
                 "Recommendations use metadata and aggregate counts. Business definitions and source quality need review.",
             ],
         )

@@ -192,7 +192,6 @@ from posthog.schema_enums import (
     MarketingAnalyticsConstants as MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
-    MarketingAnalyticsOverviewMetric as MarketingAnalyticsOverviewMetric,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
     MarketingAnalyticsSchemaFieldTypes as MarketingAnalyticsSchemaFieldTypes,
     MatchedOn as MatchedOn,
@@ -14465,18 +14464,6 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         ...,
         description=("How many breakdown values were folded into 'Other', so the table can say so."),
     )
-    overallMedianReturnDays: float | None = Field(
-        default=None,
-        description=(
-            "Median over all observed returners, before grouping into breakdowns. Only populated in summary mode."
-        ),
-    )
-    previousOverallMedianReturnDays: float | None = Field(
-        default=None,
-        description=(
-            "Overall median for the previous acquisition period. Only populated when comparing in summary mode."
-        ),
-    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -20475,18 +20462,6 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         ...,
         description=("How many breakdown values were folded into 'Other', so the table can say so."),
     )
-    overallMedianReturnDays: float | None = Field(
-        default=None,
-        description=(
-            "Median over all observed returners, before grouping into breakdowns. Only populated in summary mode."
-        ),
-    )
-    previousOverallMedianReturnDays: float | None = Field(
-        default=None,
-        description=(
-            "Overall median for the previous acquisition period. Only populated when comparing in summary mode."
-        ),
-    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22396,18 +22371,6 @@ class QueryResponseAlternative35(BaseModel):
     otherBreakdownCount: int = Field(
         ...,
         description=("How many breakdown values were folded into 'Other', so the table can say so."),
-    )
-    overallMedianReturnDays: float | None = Field(
-        default=None,
-        description=(
-            "Median over all observed returners, before grouping into breakdowns. Only populated in summary mode."
-        ),
-    )
-    previousOverallMedianReturnDays: float | None = Field(
-        default=None,
-        description=(
-            "Overall median for the previous acquisition period. Only populated when comparing in summary mode."
-        ),
     )
     query_status: QueryStatus | None = Field(
         default=None,
@@ -26493,14 +26456,6 @@ class WebStatsTableQuery(BaseModel):
     includeHost: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
-    includeSessionDuration: bool | None = Field(
-        default=None,
-        description=(
-            "Adds an average session duration column: the mean of each session's"
-            " $session_duration across the row's sessions. Honoured for simple"
-            " breakdowns, including alongside a conversionGoal."
-        ),
-    )
     includeTrafficMetrics: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -29217,10 +29172,6 @@ class MarketingAnalyticsConfig(BaseModel):
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
     filter_test_accounts: bool | None = None
-    overview_metrics: list[MarketingAnalyticsOverviewMetric] | None = Field(
-        default=None,
-        description=("Ordered Overview cards. Empty or unset means the default set: every metric, in enum order."),
-    )
     sources_map: dict[str, SourceMap] | None = None
 
 

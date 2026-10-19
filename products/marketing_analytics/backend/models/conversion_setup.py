@@ -27,18 +27,3 @@ class ConversionRecommendationRun(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         indexes = [models.Index(fields=["team", "-created_at"], name="ma_conversion_run_recent")]
-
-
-class ConversionGoalPreviewEvidence(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    requested_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    goal = models.JSONField()
-    context_hash = models.CharField(max_length=64)
-    applied_goal = models.JSONField(null=True)
-
-    class Meta:
-        indexes = [models.Index(fields=["team", "expires_at"], name="ma_goal_preview_expiry")]

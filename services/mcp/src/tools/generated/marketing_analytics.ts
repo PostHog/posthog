@@ -3,44 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/marketing_analytics/api'
-import { MarketingConversionGoalSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const MarketingAnalyticsApplyConversionGoalSchema = () => {
-    const MarketingAnalyticsConversionGoalsApplyCreateBody =
-        orvalSchemas.MarketingAnalyticsConversionGoalsApplyCreateBody()
-    return MarketingAnalyticsConversionGoalsApplyCreateBody.extend({ goal: MarketingConversionGoalSchema })
-}
-
-const marketingAnalyticsApplyConversionGoal = (): ToolBase<
-    ReturnType<typeof MarketingAnalyticsApplyConversionGoalSchema>,
-    Schemas.ConversionGoalWriteResponse
-> => ({
-    name: 'marketing-analytics-apply-conversion-goal',
-    schema: MarketingAnalyticsApplyConversionGoalSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof MarketingAnalyticsApplyConversionGoalSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.goal !== undefined) {
-            body['goal'] = params.goal
-        }
-        if (params.preview_ref !== undefined) {
-            body['preview_ref'] = params.preview_ref
-        }
-        if (params.definition_confirmed !== undefined) {
-            body['definition_confirmed'] = params.definition_confirmed
-        }
-        const result = await context.api.request<Schemas.ConversionGoalWriteResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/apply/`,
-            body,
-        })
-        return result
-    },
-})
 
 const MarketingAnalyticsConversionGoalsSchema = () => z.object({})
 
@@ -55,27 +18,6 @@ const marketingAnalyticsConversionGoals = (): ToolBase<
         const result = await context.api.request<Schemas.ConversionGoalsListResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/`,
-        })
-        return result
-    },
-})
-
-const MarketingAnalyticsConversionRecommendationsSchema = () => z.object({})
-
-const marketingAnalyticsConversionRecommendations = (): ToolBase<
-    ReturnType<typeof MarketingAnalyticsConversionRecommendationsSchema>,
-    Schemas.ConversionRecommendationState
-> => ({
-    name: 'marketing-analytics-conversion-recommendations',
-    schema: MarketingAnalyticsConversionRecommendationsSchema(),
-    handler: async (
-        context: Context,
-        _params: z.infer<ReturnType<typeof MarketingAnalyticsConversionRecommendationsSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ConversionRecommendationState>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_recommendations/`,
         })
         return result
     },
@@ -217,57 +159,6 @@ const marketingAnalyticsExplainConversionGoal = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsPreviewConversionGoalSchema = () => {
-    const MarketingAnalyticsConversionGoalsPreviewCreateBody =
-        orvalSchemas.MarketingAnalyticsConversionGoalsPreviewCreateBody()
-    return MarketingAnalyticsConversionGoalsPreviewCreateBody.extend({ goal: MarketingConversionGoalSchema })
-}
-
-const marketingAnalyticsPreviewConversionGoal = (): ToolBase<
-    ReturnType<typeof MarketingAnalyticsPreviewConversionGoalSchema>,
-    Schemas.ConversionGoalPreviewResponse
-> => ({
-    name: 'marketing-analytics-preview-conversion-goal',
-    schema: MarketingAnalyticsPreviewConversionGoalSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof MarketingAnalyticsPreviewConversionGoalSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.goal !== undefined) {
-            body['goal'] = params.goal
-        }
-        if (params.date_from !== undefined) {
-            body['date_from'] = params.date_from
-        }
-        if (params.date_to !== undefined) {
-            body['date_to'] = params.date_to
-        }
-        if (params.lookback_window_days !== undefined) {
-            body['lookback_window_days'] = params.lookback_window_days
-        }
-        if (params.allow_multiple_conversions_per_visitor !== undefined) {
-            body['allow_multiple_conversions_per_visitor'] = params.allow_multiple_conversions_per_visitor
-        }
-        if (params.filter_test_accounts !== undefined) {
-            body['filter_test_accounts'] = params.filter_test_accounts
-        }
-        if (params.exclude_direct_traffic !== undefined) {
-            body['exclude_direct_traffic'] = params.exclude_direct_traffic
-        }
-        if (params.exclude_unattributed !== undefined) {
-            body['exclude_unattributed'] = params.exclude_unattributed
-        }
-        const result = await context.api.request<Schemas.ConversionGoalPreviewResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/preview/`,
-            body,
-        })
-        return result
-    },
-})
-
 const MarketingAnalyticsSetupPlanSchema = () => {
     const MarketingAnalyticsSetupPlanRetrieveQueryParams = orvalSchemas.MarketingAnalyticsSetupPlanRetrieveQueryParams()
     return MarketingAnalyticsSetupPlanRetrieveQueryParams
@@ -288,36 +179,6 @@ const marketingAnalyticsSetupPlan = (): ToolBase<
                 date_from: params.date_from,
                 refresh: params.refresh,
             },
-        })
-        return result
-    },
-})
-
-const MarketingAnalyticsStartConversionRecommendationsSchema = () => {
-    const MarketingAnalyticsConversionRecommendationsStartCreateBody =
-        orvalSchemas.MarketingAnalyticsConversionRecommendationsStartCreateBody()
-    return MarketingAnalyticsConversionRecommendationsStartCreateBody
-}
-
-const marketingAnalyticsStartConversionRecommendations = (): ToolBase<
-    ReturnType<typeof MarketingAnalyticsStartConversionRecommendationsSchema>,
-    Schemas.ConversionRecommendationState
-> => ({
-    name: 'marketing-analytics-start-conversion-recommendations',
-    schema: MarketingAnalyticsStartConversionRecommendationsSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof MarketingAnalyticsStartConversionRecommendationsSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.refresh !== undefined) {
-            body['refresh'] = params.refresh
-        }
-        const result = await context.api.request<Schemas.ConversionRecommendationState>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_recommendations/start/`,
-            body,
         })
         return result
     },
@@ -440,20 +301,69 @@ const marketingAnalyticsUtmAudit = (): ToolBase<
     },
 })
 
+const MarketingAnalyticsConversionRecommendationsSchema = () => z.object({})
+
+const marketingAnalyticsConversionRecommendations = (): ToolBase<
+    ReturnType<typeof MarketingAnalyticsConversionRecommendationsSchema>,
+    Schemas.ConversionRecommendationState
+> => ({
+    name: 'marketing-analytics-conversion-recommendations',
+    schema: MarketingAnalyticsConversionRecommendationsSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof MarketingAnalyticsConversionRecommendationsSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ConversionRecommendationState>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_recommendations/`,
+        })
+        return result
+    },
+})
+
+const MarketingAnalyticsStartConversionRecommendationsSchema = () => {
+    const MarketingAnalyticsConversionRecommendationsStartCreateBody =
+        orvalSchemas.MarketingAnalyticsConversionRecommendationsStartCreateBody()
+    return MarketingAnalyticsConversionRecommendationsStartCreateBody
+}
+
+const marketingAnalyticsStartConversionRecommendations = (): ToolBase<
+    ReturnType<typeof MarketingAnalyticsStartConversionRecommendationsSchema>,
+    Schemas.ConversionRecommendationState
+> => ({
+    name: 'marketing-analytics-start-conversion-recommendations',
+    schema: MarketingAnalyticsStartConversionRecommendationsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsStartConversionRecommendationsSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.refresh !== undefined) {
+            body['refresh'] = params.refresh
+        }
+        const result = await context.api.request<Schemas.ConversionRecommendationState>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_recommendations/start/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'marketing-analytics-apply-conversion-goal': marketingAnalyticsApplyConversionGoal,
     'marketing-analytics-conversion-goals': marketingAnalyticsConversionGoals,
-    'marketing-analytics-conversion-recommendations': marketingAnalyticsConversionRecommendations,
     'marketing-analytics-create-conversion-goal': marketingAnalyticsCreateConversionGoal,
     'marketing-analytics-data-sources': marketingAnalyticsDataSources,
     'marketing-analytics-delete-conversion-goal': marketingAnalyticsDeleteConversionGoal,
     'marketing-analytics-diagnose': marketingAnalyticsDiagnose,
     'marketing-analytics-explain-conversion-goal': marketingAnalyticsExplainConversionGoal,
-    'marketing-analytics-preview-conversion-goal': marketingAnalyticsPreviewConversionGoal,
     'marketing-analytics-setup-plan': marketingAnalyticsSetupPlan,
-    'marketing-analytics-start-conversion-recommendations': marketingAnalyticsStartConversionRecommendations,
     'marketing-analytics-suggest-conversion-goals': marketingAnalyticsSuggestConversionGoals,
     'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,
     'marketing-analytics-update-conversion-goal': marketingAnalyticsUpdateConversionGoal,
     'marketing-analytics-utm-audit': marketingAnalyticsUtmAudit,
+    'marketing-analytics-conversion-recommendations': marketingAnalyticsConversionRecommendations,
+    'marketing-analytics-start-conversion-recommendations': marketingAnalyticsStartConversionRecommendations,
 }

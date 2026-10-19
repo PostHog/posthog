@@ -13,7 +13,7 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DashboardSetupSuggestions } from './DashboardSetupSuggestions'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
     VariationCell: () => () => null,
@@ -67,7 +67,7 @@ describe('Dashboard goal suggestions', () => {
         localStorage.removeItem('marketing-goal-suggestions-expanded')
         const unmountMarketing = marketingAnalyticsLogic.mount()
         const unmountSetup = setupPlanLogic.mount()
-        const view = render(<DashboardSetupSuggestions />)
+        const view = render(<NewMarketingAnalyticsDashboard />)
         try {
             await screen.findByText('Suggested conversion goals (1)')
             expect(
@@ -81,7 +81,7 @@ describe('Dashboard goal suggestions', () => {
             fireEvent.click(screen.getByText('Suggested conversion goals (1)'))
             expect(localStorage.getItem('marketing-goal-suggestions-expanded')).toBe('false')
             view.unmount()
-            render(<DashboardSetupSuggestions />)
+            render(<NewMarketingAnalyticsDashboard />)
             expect(
                 screen
                     .getByText('Suggested conversion goals (1)')

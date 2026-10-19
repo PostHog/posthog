@@ -12,9 +12,6 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
 `SandboxedPublicEval` sets `no_send_logs=False` and uploads to Braintrust, plus PostHog when the suite has offline publishing configured.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
-The CLI flag `--no-send-logs` forces this setting for every selected suite, including public suites, and disables the harness's scorer and agent trace reporting.
-This mode does not require `BRAINTRUST_API_KEY`.
-Agent and judge model calls still use the configured providers and require their credentials.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.

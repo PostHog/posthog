@@ -93,7 +93,7 @@ export function RetentionReturnTable({
             })
         ),
         {
-            title: <span className="whitespace-normal">Median days to return</span>,
+            title: <span className="whitespace-normal">Days to return</span>,
             dataIndex: 'medianReturnDays',
             align: 'right',
             tooltip:

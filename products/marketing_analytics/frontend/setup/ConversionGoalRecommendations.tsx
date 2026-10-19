@@ -1,57 +1,35 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
-import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import {
+    SetupSection,
+    marketingAnalyticsLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
-
-import { ConversionGoalDraftCard } from './ConversionGoalDraftCard'
-import { conversionGoalDraftLogic } from './conversionGoalDraftLogic'
 import { ConversionRecommendationCard } from './ConversionRecommendationCard'
 import { conversionRecommendationsLogic } from './conversionRecommendationsLogic'
-
-const REQUEST =
-    'Review this project’s events, actions, and existing goals for Marketing analytics. Recommend up to three business-relevant conversion goals for the last 14 days, excluding configured test accounts. Discover this organization’s definitions and distinguish engagement, customers, and revenue. Explain the counting entity, source evidence, and unresolved decisions. Preview supported drafts. Keep unsupported or unverified definitions conditional. Do not create or modify goals, actions, views, or settings.'
 
 export function ConversionGoalRecommendations(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const logic = conversionGoalDraftLogic({ projectId: currentTeamId ?? -1 })
-    const {
-        draft,
-        draftValidated,
-        pendingDraft,
-        preview,
-        busy,
-        error,
-        definitionConfirmed,
-        saveStatus,
-        saveDisabledReason,
-    } = useValues(logic)
-    const { receiveDraft, reviewPendingDraft, editGoal, confirmDefinition, previewDraft, saveDraft, verifySave } =
-        useActions(logic)
-    const recommendationsLogic = conversionRecommendationsLogic({
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openSetup } = useActions(marketingAnalyticsLogic)
+    const enabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]
+    const logic = conversionRecommendationsLogic({
         projectId: currentTeamId ?? -1,
-        enabled: sceneIntegrationEnabled,
+        enabled,
         userId: user?.uuid,
     })
-    const { state, stateLoading, isAnalyzing, error: discoveryError } = useValues(recommendationsLogic)
-    const { requestAnalysis, loadRecommendations } = useActions(recommendationsLogic)
-    const restrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-    const active = sceneIntegrationEnabled && currentTeamId !== null
-    if (!active) {
+    const { state, stateLoading, isAnalyzing, error } = useValues(logic)
+    const { requestAnalysis, loadRecommendations } = useActions(logic)
+
+    if (!enabled || currentTeamId === null) {
         return null
     }
     return (
@@ -59,8 +37,8 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
             <LemonCard className="space-y-3">
                 <h3 className="mb-0">Conversion recommendations</h3>
                 <p className="mb-0 text-secondary">
-                    Review events and actions against your business goals. PostHog AI explains the evidence, previews
-                    supported definitions, and asks about missing information.
+                    Find events and actions that could measure business outcomes. Review the evidence and business
+                    questions before configuring a goal.
                 </p>
                 <div className="flex flex-wrap gap-2">
                     <LemonButton
@@ -79,11 +57,10 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
                     </LemonButton>
                     <LemonButton
                         type="secondary"
-                        icon={<IconSparkles />}
-                        onClick={() => openSidePanel(SidePanelTab.Max, REQUEST)}
-                        data-attr="marketing-conversion-ask-ai"
+                        onClick={() => openSetup(SetupSection.CONVERSION_GOALS, 'conversion_recommendations')}
+                        data-attr="marketing-conversion-configure-goals"
                     >
-                        Ask PostHog AI
+                        Configure goals
                     </LemonButton>
                 </div>
             </LemonCard>
@@ -95,10 +72,10 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
                 <LemonBanner type="info">
                     {state?.result_run
                         ? 'Updating recommendations from the last 14 days. Your previous results remain available below.'
-                        : 'Analyzing events and actions from the last 30 days. You can keep using the dashboard.'}
+                        : 'Analyzing events and actions from the last 30 days. You can leave Setup while this runs.'}
                 </LemonBanner>
             )}
-            {discoveryError && (
+            {error && (
                 <LemonBanner
                     type="error"
                     action={{
@@ -107,7 +84,7 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
                         disabledReason: stateLoading ? 'Wait for the current request.' : undefined,
                     }}
                 >
-                    {discoveryError}
+                    {error}
                 </LemonBanner>
             )}
             {state?.latest_run?.status === 'failed' && (
@@ -115,32 +92,21 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
             )}
             {state?.result_run && (
                 <p className="text-secondary mb-0">
-                    Analysis period: {state.result_run.date_from.slice(0, 10)} to{' '}
-                    {state.result_run.date_to.slice(0, 10)}. Results stay here until you request an update.
+                    <span>Analysis period: </span>
+                    <TZLabel time={state.result_run.date_from} timestampStyle="absolute" />
+                    <span> to </span>
+                    <TZLabel time={state.result_run.date_to} timestampStyle="absolute" />
+                    <span>. Results stay here until you request an update.</span>
                 </p>
             )}
             {state?.result_run && (state.results.recommendations?.length ?? 0) === 0 && (
                 <LemonBanner type="info">
-                    No suitable conversion goals were found in this analysis. Review your events with PostHog AI,
-                    configure a goal manually, or update after more data arrives.
+                    No suitable conversion goals were found in this analysis. Configure a goal manually, or update
+                    recommendations after more data arrives.
                 </LemonBanner>
             )}
             {state?.results.recommendations?.map((recommendation) => (
-                <ConversionRecommendationCard
-                    key={recommendation.source_ref}
-                    recommendation={recommendation}
-                    disabledReason={
-                        busy || saveStatus === 'unknown'
-                            ? 'Finish the current request or verify the save first.'
-                            : undefined
-                    }
-                    onReview={() => {
-                        if (recommendation.draft) {
-                            receiveDraft(recommendation.draft)
-                            reviewPendingDraft()
-                        }
-                    }}
-                />
+                <ConversionRecommendationCard key={recommendation.source_ref} recommendation={recommendation} />
             ))}
             {!!state?.results.limitations?.length && (
                 <details>
@@ -151,53 +117,6 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
                         ))}
                     </ul>
                 </details>
-            )}
-            {pendingDraft && (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Review draft',
-                        onClick: reviewPendingDraft,
-                        disabledReason:
-                            busy || saveStatus === 'unknown'
-                                ? 'Finish the current request or verify the save first.'
-                                : undefined,
-                    }}
-                >
-                    PostHog AI previewed a draft. Load it here to review and adjust it.
-                </LemonBanner>
-            )}
-            {!draftValidated && busy === 'preview' && (
-                <LemonBanner type="info">Loading a fresh preview for this project…</LemonBanner>
-            )}
-            {!draftValidated && error && (
-                <LemonBanner
-                    type="error"
-                    action={{
-                        children: 'Retry preview',
-                        onClick: previewDraft,
-                        disabledReason: busy ? 'Wait for the current request.' : undefined,
-                    }}
-                >
-                    {error}
-                </LemonBanner>
-            )}
-            {draft && draftValidated && (
-                <ConversionGoalDraftCard
-                    draft={draft}
-                    preview={preview}
-                    busy={busy}
-                    error={error}
-                    confirmed={definitionConfirmed}
-                    saveStatus={saveStatus}
-                    saveDisabledReason={saveDisabledReason}
-                    restrictionReason={restrictionReason}
-                    onChange={editGoal}
-                    onConfirm={confirmDefinition}
-                    onPreview={previewDraft}
-                    onSave={saveDraft}
-                    onVerify={verifySave}
-                />
             )}
         </div>
     )

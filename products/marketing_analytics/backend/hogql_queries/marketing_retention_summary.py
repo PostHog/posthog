@@ -110,13 +110,7 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
         SELECT acquisition.actor_id AS actor_id, acquisition.breakdown_value AS breakdown_value,
             acquisition.previous AS previous, acquisition.first_session_at AS first_session_at,
             toDateTime(acquisition.observation_end) AS observation_end,
-            activity.returned_at AS returned_at,
-            if(countIf(activity.returned_at > acquisition.first_session_at)
-                    OVER (PARTITION BY acquisition.previous) > 0,
-                medianIf(dateDiff('day', acquisition.first_session_at, activity.returned_at),
-                    activity.returned_at > acquisition.first_session_at)
-                    OVER (PARTITION BY acquisition.previous),
-                NULL) AS overall_median_return_days
+            activity.returned_at AS returned_at
         FROM acquisition
         LEFT JOIN activity ON acquisition.actor_id = activity.actor_id
             AND acquisition.previous = activity.previous
@@ -126,7 +120,6 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
     query = parse_select(
         """
         SELECT
-            any(overall_median_return_days) AS overallMedianReturnDays,
             if(breakdown_value IN (
                 SELECT breakdown_value FROM people GROUP BY breakdown_value
                 ORDER BY countIf(NOT previous) DESC, count() DESC, breakdown_value ASC LIMIT {limit}

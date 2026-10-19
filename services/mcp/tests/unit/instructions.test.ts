@@ -144,7 +144,6 @@ describe('buildToolDomainsBlock', () => {
             'move',
             'patch',
             'pause',
-            'preview',
             'publish',
             'record',
             'rename',

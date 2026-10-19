@@ -13,19 +13,12 @@ from parameterized import parameterized
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value
 from posthog.constants import AvailableFeature
-from posthog.models import Team, User
+from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.marketing_analytics.backend.api import ConversionGoalPreviewSerializer
-from products.marketing_analytics.backend.models.conversion_setup import (
-    ConversionGoalPreviewEvidence,
-    ConversionRecommendationRun,
-)
-from products.marketing_analytics.backend.services.conversion_goal_evidence import ConversionGoalEvidenceService
+from products.marketing_analytics.backend.models.conversion_setup import ConversionRecommendationRun
 from products.marketing_analytics.backend.services.conversion_recommendations import ConversionRecommendationService
 
 QUEUE = (
@@ -40,7 +33,12 @@ class TestConversionRecommendations(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.base = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_recommendations"
-        self.flags = patch("products.marketing_analytics.backend.api.feature_enabled_or_false", return_value=True)
+        self.flags = patch(
+            "products.marketing_analytics.backend.api.feature_enabled_or_false",
+            side_effect=lambda flag, *_args, **_kwargs: (
+                flag in ("marketing-analytics-setup", "marketing-analytics-conversion-setup-ai")
+            ),
+        )
         self.flags.start()
         self.addCleanup(self.flags.stop)
         self.organization.is_ai_data_processing_approved = True
@@ -177,7 +175,7 @@ class TestConversionRecommendations(APIBaseTest):
 
     @parameterized.expand([("amount", True), ("invented_amount", False)])
     def test_revenue_proposal_requires_observed_amount_and_keeps_business_questions(
-        self, amount: str, has_draft: bool
+        self, amount: str, has_amount: bool
     ) -> None:
         now = timezone.now()
         run = ConversionRecommendationRun.objects.for_team(self.team.pk).create(
@@ -233,9 +231,9 @@ class TestConversionRecommendations(APIBaseTest):
         run.refresh_from_db()
         self.assertEqual(run.status, "completed")
         proposal = run.results["recommendations"][0]
-        self.assertEqual(proposal["draft"] is not None, has_draft)
+        self.assertEqual(proposal["amount_property"], amount if has_amount else None)
+        self.assertEqual(proposal["intent"], "revenue" if has_amount else "conversion")
         self.assertEqual(proposal["candidate"]["count"], 20)
-        self.assertEqual(proposal["state"], "needs_decision")
         self.assertTrue(proposal["questions"])
         self.assertEqual(self.team.marketing_analytics_config.conversion_goals, [])
 
@@ -297,118 +295,3 @@ class TestConversionRecommendations(APIBaseTest):
         else:
             self.assertEqual(run.results, {})
             self.assertTrue(run.error)
-
-
-@time_machine.travel("2026-10-01T12:00:00Z", tick=False)
-class TestValidatedConversionApplication(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.base = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals/apply"
-        self.flags = patch("products.marketing_analytics.backend.api.feature_enabled_or_false", return_value=True)
-        self.flags.start()
-        self.addCleanup(self.flags.stop)
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.worker_flags = patch(
-            "products.marketing_analytics.backend.services.conversion_recommendations.feature_enabled_or_false",
-            return_value=True,
-        )
-        self.worker_flags.start()
-        self.addCleanup(self.worker_flags.stop)
-        self.config = get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
-        now = timezone.now()
-        serializer = ConversionGoalPreviewSerializer(
-            data={
-                "goal": {
-                    "kind": "EventsNode",
-                    "event": "order_settled",
-                    "conversion_goal_name": "Settled orders",
-                    "schema_map": {},
-                    "math": "total",
-                },
-                "date_from": (now - timedelta(days=14)).isoformat(),
-                "date_to": now.isoformat(),
-            }
-        )
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        goal = serializer.validated_data["goal"]
-        service = ConversionGoalEvidenceService(self.team, self.user)
-        self.evidence = service.record(goal, service.context_hash(goal))
-        self.payload = {"goal": self.evidence.goal, "preview_ref": str(self.evidence.id), "definition_confirmed": True}
-
-    def test_record_cleans_expired_unused_evidence_and_preserves_applied_receipts(self) -> None:
-        records = ConversionGoalPreviewEvidence.objects.for_team(self.team.pk)
-        records.filter(pk=self.evidence.pk).update(expires_at=timezone.now() - timedelta(minutes=1))
-        applied = records.create(
-            team_id=self.team.pk,
-            requested_by=self.user,
-            goal=self.evidence.goal,
-            context_hash=self.evidence.context_hash,
-            expires_at=timezone.now() - timedelta(minutes=1),
-            applied_goal=self.evidence.goal,
-        )
-        serializer = ConversionGoalPreviewSerializer(
-            data={
-                "goal": self.evidence.goal,
-                "date_from": (timezone.now() - timedelta(days=14)).isoformat(),
-                "date_to": timezone.now().isoformat(),
-            }
-        )
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        service = ConversionGoalEvidenceService(self.team, self.user)
-        goal = serializer.validated_data["goal"]
-        fresh = service.record(goal, service.context_hash(goal))
-        self.assertFalse(records.filter(pk=self.evidence.pk).exists())
-        self.assertTrue(records.filter(pk=applied.pk).exists())
-        self.assertTrue(records.filter(pk=fresh.pk).exists())
-
-    def test_retry_after_lost_response_returns_one_goal_even_after_expiry(self) -> None:
-        first = self.client.post(self.base, self.payload).json()
-        ConversionGoalPreviewEvidence.objects.for_team(self.team.pk).filter(pk=self.evidence.pk).update(
-            expires_at=timezone.now() - timedelta(seconds=1)
-        )
-        retry = self.client.post(self.base, self.payload)
-        self.assertEqual(retry.status_code, 200, retry.json())
-        self.assertEqual(retry.json(), first)
-        self.assertEqual(len(first["conversion_goals"]), 1)
-        config = self.team.marketing_analytics_config
-        config._conversion_goals = []
-        config.save()
-        self.assertEqual(self.client.post(self.base, self.payload).status_code, 409)
-        config.refresh_from_db()
-        self.assertEqual(config.conversion_goals, [])
-
-    @parameterized.expand(
-        [("edited",), ("expired",), ("config",), ("confirmation",), ("other_project",), ("other_user",)]
-    )
-    def test_rejects_unreviewed_or_stale_application(self, change: str) -> None:
-        expected = 409
-        if change == "edited":
-            self.payload["goal"] = {**self.payload["goal"], "event": "another_event"}
-        elif change == "expired":
-            self.evidence.expires_at = timezone.now() - timedelta(seconds=1)
-            self.evidence.save(update_fields=["expires_at"])
-        elif change == "config":
-            config = self.team.marketing_analytics_config
-            config.attribution_window_days = 7
-            config.save()
-        elif change == "confirmation":
-            self.payload["definition_confirmed"] = False
-            expected = 400
-        elif change == "other_project":
-            other = Team.objects.create(organization=self.organization)
-            self.base = f"/api/projects/{other.pk}/marketing_analytics/conversion_goals/apply"
-            expected = 404
-        elif change == "other_user":
-            self.evidence.requested_by = User.objects.create_and_join(
-                self.organization, "second@example.com", "password"
-            )
-            self.evidence.save(update_fields=["requested_by"])
-            expected = 404
-        response = self.client.post(self.base, self.payload)
-        self.assertEqual(response.status_code, expected, response.json())
-        config = self.team.marketing_analytics_config
-        config.refresh_from_db()
-        self.assertEqual(config.conversion_goals, [])
