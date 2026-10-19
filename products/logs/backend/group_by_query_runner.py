@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from functools import cached_property
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -15,7 +16,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
 
