@@ -7,7 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON } from './constants'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -17,7 +17,7 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-function buildFilters(): FeatureFlagType['filters'] {
+function buildFilters(): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
         properties: [],
         rollout_percentage: 100,

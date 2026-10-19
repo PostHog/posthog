@@ -162,6 +162,10 @@ def post_reply_to_teams(
         logger.warning("teams_reply_untrusted_service_url", ticket_id=ticket_id, service_url=teams_service_url)
         return
 
+    if not Ticket.objects.filter(team_id=team_id, id=ticket_id).exists():
+        logger.info("teams_reply_ticket_gone", ticket_id=ticket_id)
+        return
+
     if not Team.objects.filter(id=team_id).exists():
         logger.warning("teams_reply_team_not_found", team_id=team_id)
         return
@@ -245,6 +249,10 @@ def post_reply_to_teams_via_graph(
     team = Team.objects.filter(id=team_id).first()
     if not team:
         logger.warning("teams_graph_reply_team_not_found", team_id=team_id)
+        return
+
+    if not Ticket.objects.filter(team_id=team_id, id=ticket_id).exists():
+        logger.info("teams_graph_reply_ticket_gone", ticket_id=ticket_id)
         return
 
     reply_html = build_teams_reply_html(rich_content, content, author_name)

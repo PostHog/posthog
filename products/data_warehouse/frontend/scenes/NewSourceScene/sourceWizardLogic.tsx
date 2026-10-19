@@ -12,6 +12,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,7 +53,7 @@ import type { WebhookCreateResult } from '../../shared/components/forms/WebhookS
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
 import { MANUAL_LINK_SOURCE_LABELS } from '../../shared/storageProvider'
-import { shouldShowDestinationStep } from './components/destinationStepUtils'
+import { destinationStepBlockReason, shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
@@ -263,6 +264,19 @@ export function resolveCreateDirectQueryEnabled(
     return sourceValues.direct_query_enabled !== false
 }
 
+export function buildCreateSourcePayload(
+    sourceValues: { access_method?: string; direct_query_enabled?: boolean },
+    connectorName: string
+): Record<string, any> {
+    const isDirectQueryMode = supportsDirectQuery(connectorName) && sourceValues.access_method === 'direct'
+    return {
+        ...sourceValues,
+        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
+        direct_query_enabled: resolveCreateDirectQueryEnabled(sourceValues, connectorName),
+        source_type: connectorName,
+    }
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -298,6 +312,15 @@ export class UnusableUploadedFileError extends Error {
 
 export const WRONG_UPLOADED_FILE_MESSAGE =
     'This JSON file is missing the fields PostHog needs. Upload the key file exactly as it was generated, without editing its contents.'
+
+// Mirrors the backend `prefix_required` check: a second unprefixed source of the same type would
+// write to the same table names, so the API rejects it.
+export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sourceType: string | undefined): boolean {
+    if (!sourceType || !sources) {
+        return false
+    }
+    return sources.some((source) => source.source_type === sourceType && !source.prefix)
+}
 
 export function resolveConnectErrorMessage(e: any): string {
     const detail = e?.detail === GENERIC_SERVER_ERROR_DETAIL ? undefined : e?.detail
@@ -365,6 +388,15 @@ export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[])
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
 
+// An incremental sync merges rows on a primary key, and source creation rejects an incremental
+// table whose introspected columns have no key and no `id` column to fall back to. A table with
+// no introspected columns resolves its key at sync time, so it needs no key here.
+const hasIncrementalMergeKey = (schema: ExternalDataSourceSyncSchema): boolean =>
+    !schema.available_columns?.length ||
+    !!schema.primary_key_columns?.length ||
+    !!schema.detected_primary_keys?.length ||
+    schema.available_columns.some((column) => column.field.toLowerCase() === 'id')
+
 // Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
 // rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
 // (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
@@ -428,6 +460,7 @@ export interface sourceWizardLogicValues {
     cdcSelfManagedVerifyResultLoading: boolean
     configuredSchemaName: string | null
     connectError: string | null
+    connectorSelectionCount: number
     connectors: SourceConfigResponseApi[]
     currentStep: number
     currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
@@ -466,8 +499,10 @@ export interface sourceWizardLogicValues {
         | 'Tables ready to query'
     nextButtonDisabledReason: string | null
     nextButtonText: string
+    prefixRequired: boolean
     requiredTables: any
     returnConfig: {
+        entryPoint?: string
         returnLabel: string
         returnUrl: string
     } | null
@@ -512,6 +547,7 @@ export interface sourceWizardLogicValues {
     webhookFieldInputsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
     webhookResult: WebhookCreateResult | null
     webhookStepComplete: boolean
+    wizardAvailableDestinationCount: number
     wizardDestinationIds: string[]
 }
 
@@ -688,8 +724,10 @@ export interface sourceWizardLogicActions {
     }
     setReturnConfig: (
         returnUrl: string,
-        returnLabel: string
+        returnLabel: string,
+        entryPoint?: string
     ) => {
+        entryPoint: string | undefined
         returnLabel: string
         returnUrl: string
     }
@@ -744,6 +782,9 @@ export interface sourceWizardLogicActions {
     }
     setWebhookResult: (result: WebhookCreateResult | null) => {
         result: WebhookCreateResult | null
+    }
+    setWizardAvailableDestinationCount: (count: number) => {
+        count: number
     }
     setWizardDestinationIds: (destinationIds: string[]) => {
         destinationIds: string[]
@@ -903,14 +944,18 @@ export interface sourceWizardLogicMeta {
             isManualLinkingSelected: boolean,
             databaseSchema: ExternalDataSourceSyncSchema[],
             isDirectQueryMode: boolean,
-            webhookStepComplete: boolean
+            webhookStepComplete: boolean,
+            wizardAvailableDestinationCount: number,
+            wizardDestinationIds: string[]
         ) => boolean
         nextButtonDisabledReason: (
             currentStep: number,
             isManualLinkingSelected: boolean,
             databaseSchema: ExternalDataSourceSyncSchema[],
             isDirectQueryMode: boolean,
-            webhookStepComplete: boolean
+            webhookStepComplete: boolean,
+            wizardAvailableDestinationCount: number,
+            wizardDestinationIds: string[]
         ) => string | null
         showSkipButton: (currentStep: number) => boolean
         nextButtonText: (
@@ -921,6 +966,7 @@ export interface sourceWizardLogicMeta {
             showDestinationStep: boolean,
             arg: any,
             returnConfig: {
+                entryPoint?: string
                 returnLabel: string
                 returnUrl: string
             } | null,
@@ -930,6 +976,10 @@ export interface sourceWizardLogicMeta {
             selectedConnector: SourceConfigResponseApi | null,
             isManualLinkFormVisible: boolean
         ) => boolean | SourceConfigResponseApi
+        prefixRequired: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            selectedConnector: SourceConfigResponseApi | null
+        ) => boolean
         connectors: (
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
@@ -1010,13 +1060,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             source,
             searchParams,
         }),
-        setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        setReturnConfig: (returnUrl: string, returnLabel: string, entryPoint?: string) => ({
+            returnUrl,
+            returnLabel,
+            entryPoint,
+        }),
         clearReturnConfig: true,
         onClear: true,
         onBack: true,
         onNext: true,
         onSubmit: true,
         setWizardDestinationIds: (destinationIds: string[]) => ({ destinationIds }),
+        setWizardAvailableDestinationCount: (count: number) => ({ count }),
         resetSourceForm: (accessMethod?: 'warehouse' | 'direct') => ({ accessMethod }),
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
             schemas,
@@ -1141,6 +1196,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setWizardDestinationIds: (_, { destinationIds }) => destinationIds,
                 onClear: () => [],
+            },
+        ],
+        // Reported by the destination step once its list resolves. The Import button needs it to
+        // tell "turned every destination off" apart from "this team has no destinations yet".
+        wizardAvailableDestinationCount: [
+            0,
+            {
+                setWizardAvailableDestinationCount: (_, { count }) => count,
+                onClear: () => 0,
             },
         ],
         currentStep: [
@@ -1291,6 +1355,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
+                selectConnector: () => false,
+            },
+        ],
+        // Counts selections rather than comparing connector objects, so picking the same source
+        // again (A, then B, then A) still marks an earlier in-flight probe as stale.
+        connectorSelectionCount: [
+            0,
+            {
+                selectConnector: (count) => count + 1,
             },
         ],
         // The toast that also carries this message is gone in a few seconds, so people retry the
@@ -1314,9 +1387,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         returnConfig: [
-            null as { returnUrl: string; returnLabel: string } | null,
+            null as { returnUrl: string; returnLabel: string; entryPoint?: string } | null,
             {
-                setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                setReturnConfig: (_, { returnUrl, returnLabel, entryPoint }) => ({
+                    returnUrl,
+                    returnLabel,
+                    entryPoint,
+                }),
                 clearReturnConfig: () => null,
             },
         ],
@@ -1553,13 +1630,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.databaseSchema,
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
+                s.wizardAvailableDestinationCount,
+                s.wizardDestinationIds,
             ],
             (
                 currentStep: number,
                 isManualLinkingSelected: boolean,
                 databaseSchema: ExternalDataSourceSyncSchema[],
                 isDirectQueryMode: boolean,
-                webhookStepComplete: boolean
+                webhookStepComplete: boolean,
+                wizardAvailableDestinationCount: number,
+                wizardDestinationIds: string[]
             ): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
@@ -1581,6 +1662,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return webhookStepComplete
                 }
 
+                if (currentStep === WIZARD_DESTINATION_STEP) {
+                    return destinationStepBlockReason(wizardAvailableDestinationCount, wizardDestinationIds) === null
+                }
+
                 return true
             },
         ],
@@ -1591,13 +1676,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.databaseSchema,
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
+                s.wizardAvailableDestinationCount,
+                s.wizardDestinationIds,
             ],
             (
                 currentStep: number,
                 isManualLinkingSelected: boolean,
                 databaseSchema: ExternalDataSourceSyncSchema[],
                 isDirectQueryMode: boolean,
-                webhookStepComplete: boolean
+                webhookStepComplete: boolean,
+                wizardAvailableDestinationCount: number,
+                wizardDestinationIds: string[]
             ): string | null => {
                 if (!isManualLinkingSelected && currentStep === 3) {
                     const tablesToSync = databaseSchema.filter((n) => n.should_sync)
@@ -1612,6 +1701,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 if (currentStep === 4 && !webhookStepComplete) {
                     return 'Finish setting up the webhook to continue'
+                }
+
+                if (currentStep === WIZARD_DESTINATION_STEP) {
+                    return destinationStepBlockReason(wizardAvailableDestinationCount, wizardDestinationIds)
                 }
 
                 return null
@@ -1692,6 +1785,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
             (selectedConnector: SourceConfigResponseApi | null, isManualLinkFormVisible: boolean) =>
                 selectedConnector || isManualLinkFormVisible,
+        ],
+        prefixRequired: [
+            (s) => [s.dataWarehouseSources, s.selectedConnector],
+            (
+                sources: PaginatedResponse<ExternalDataSource> | null,
+                selectedConnector: SourceConfigResponseApi | null
+            ): boolean => isPrefixRequired(sources?.results, selectedConnector?.name),
         ],
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
@@ -2202,6 +2302,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            const crossSellAttribution =
+                values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true &&
+                values.selectedConnector.category === 'Advertising' &&
+                values.currentTeamId
+                    ? getMarketingCrossSellAttribution(values.currentTeamId)
+                    : null
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -2225,9 +2332,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // this measures true connect completion — use it for the real onboarding funnel.
                 posthog.capture('warehouse source connect completed', {
                     sourceType: values.selectedConnector.name,
+                    returnLabel: values.returnConfig?.returnLabel,
+                    entry_point: values.returnConfig?.entryPoint,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
+
+                if (crossSellAttribution) {
+                    captureMarketingCrossSellSourceCreated(crossSellAttribution, id, values.selectedConnector.name)
+                }
 
                 tryShowMCPHint('data_warehouse_sources.create', {
                     derivedPrompt: `Connect a ${values.selectedConnector.name} source`,
@@ -2241,8 +2354,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         props.onComplete()
                     }
                 } else if (values.hasWebhookSchemas) {
-                    // Go to webhook setup step (4)
-                    actions.onNext()
+                    // Absolute: createSource also runs from WIZARD_DESTINATION_STEP, where onNext would overshoot.
+                    actions.setStep(4)
                 } else {
                     // Skip webhook step, go directly to progress (5)
                     actions.setStep(5)
@@ -2324,11 +2437,32 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(true)
 
+            const sourceType = values.selectedConnector.name
+            // The logic is not keyed per connector, so a slow probe can finish after the user picks
+            // another source. Its result then belongs to no visible form and must not reach the UI.
+            const selection = values.connectorSelectionCount
+            const connectorChanged = (): boolean => values.connectorSelectionCount !== selection
+            const startedAt = performance.now()
+            const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
+                posthog.capture('source wizard schemas loaded', {
+                    sourceType,
+                    success,
+                    schema_count: schemaCount,
+                    duration_ms: Math.round(performance.now() - startedAt),
+                })
+            }
+
             try {
-                const schemas = await api.externalDataSources.database_schema(
-                    values.selectedConnector.name,
-                    getDatabaseSchemaPayload(values.source)
-                )
+                const schemas = await api.externalDataSources
+                    .database_schema(sourceType, getDatabaseSchemaPayload(values.source))
+                    .catch((e) => {
+                        captureSchemasLoaded(false, null)
+                        throw e
+                    })
+                captureSchemasLoaded(true, schemas.length)
+                if (connectorChanged()) {
+                    return
+                }
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
@@ -2363,6 +2497,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
+                        } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
+                            schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const resolvedField =
@@ -2462,6 +2598,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
+                if (connectorChanged()) {
+                    return
+                }
                 const apiMessage = e.data?.message ?? e.detail
                 const errorMessage = resolveConnectErrorMessage(e)
                 actions.setConnectError(errorMessage)
@@ -2527,7 +2666,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const returnLabel = searchParams.returnLabel
 
             if (returnUrl && returnLabel) {
-                actions.setReturnConfig(returnUrl, returnLabel)
+                actions.setReturnConfig(returnUrl, returnLabel, searchParams.entry_point)
             } else {
                 actions.clearReturnConfig()
             }
@@ -2627,17 +2766,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
-                    const isDirectQueryMode =
-                        supportsDirectQuery(values.selectedConnector.name) && sourceValues.access_method === 'direct'
-                    const payload: Record<string, any> = {
-                        ...sourceValues,
-                        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
-                        direct_query_enabled: resolveCreateDirectQueryEnabled(
-                            sourceValues,
-                            values.selectedConnector.name
-                        ),
-                        source_type: values.selectedConnector.name,
-                    }
+                    const payload = buildCreateSourcePayload(sourceValues, values.selectedConnector.name)
+                    const isDirectQueryMode = payload.access_method === 'direct'
                     actions.setIsLoading(true)
 
                     try {

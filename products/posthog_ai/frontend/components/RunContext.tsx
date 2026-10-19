@@ -4,6 +4,9 @@ import { IconGitBranch } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { QuillRunContextRow } from './quill/QuillRunContextRow'
+import { useQuillThread } from './quill/quillThreadContext'
+
 /**
  * Pre-turn header for a sandbox coding run: a one-line "Working on <repo> · <branch> → <base>"
  * summary. Plain props, `React.memo`'d — `branch` is required, so the caller decides whether to mount
@@ -21,6 +24,9 @@ export const RunContext = memo(function RunContext({
     repo?: string
     className?: string
 }): JSX.Element {
+    if (useQuillThread()) {
+        return <QuillRunContextRow branch={branch} baseBranch={baseBranch} repo={repo} />
+    }
     return (
         <div
             className={cn(

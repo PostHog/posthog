@@ -23,17 +23,17 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 # Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
 # without dragging this module onto the ``django.setup()`` path.
 from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 
-class DesktopAccessReason(StrEnum):
-    STARTUP_PLAN = "startup_plan"
-    PREPAID_CREDITS = "prepaid_credits"
-
-
-DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
+# Each label repeats its value, because the API documents these choices as plain values.
+class DesktopAccessReason(LabeledStrEnum):
+    STARTUP_PLAN = "startup_plan", "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,38 @@ class TaskDTO:
     created_by_id: int | None = None
     task_number: int | None = None
     slug: str = ""
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskAccessScope:
+    """Task IDs a user can or cannot access through channel visibility rules."""
+
+    user_id: int
+    has_resource_access: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentTaskRunDTO:
+    """Identity and workflow handle for a newly dispatched agent task."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    workflow_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class SessionFile:
+    """A text file a custom-prompt session puts in the sandbox before its first turn.
+
+    The agent server writes it under the run's attachments directory and lists its path in the
+    first prompt, so the agent and any sub-agent it starts can read it from disk.
+    """
+
+    name: str
+    content: str
 
 
 @dataclass(frozen=True)
@@ -96,6 +128,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunTokenUsage:
+    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+
+    cost_microusd: int | None
+    complete: bool
 
 
 @dataclass(frozen=True)
@@ -193,6 +233,21 @@ class TaskSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskArtifactSlackUnfurlDTO:
+    """The task run artifact metadata needed to build a Slack unfurl."""
+
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: datetime | None
+    task_id: UUID
+    task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -233,11 +288,25 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+    client_provenance: str | None = None
 
 
 @dataclass(frozen=True)
 class TaskCreateResponseDTO(TaskDetailDTO):
     run_error: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunResponseDTO(TaskCreateResponseDTO):
+    """The task ``run`` action's response: the refreshed task detail plus the run this call made.
+
+    ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+    from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+    Set on every 200; when ``run_error`` is also set, the run exists but its workflow did not
+    start.
+    """
+
+    run: "TaskRunDetailDTO | None" = None
 
 
 @dataclass(frozen=True)
@@ -254,6 +323,14 @@ class ChannelDTO:
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
     system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ChannelContributorsDTO:
+    """The people who own at least one task or canvas in a channel, most recently active first."""
+
+    channel: UUID
+    people: list["TaskUserBasicInfo"]
 
 
 @dataclass(frozen=True)
@@ -332,7 +409,7 @@ class TaskActivityDTO:
     """
 
     id: UUID
-    task_id: UUID
+    task_id: UUID | None
     task_title: str
     channel_id: UUID | None
     channel_name: str | None
@@ -360,6 +437,17 @@ class TaskArtifactDTO:
     id: str
     type: str
     name: str
+
+
+@dataclass(frozen=True)
+class TaskRunInputFile:
+    """An existing server-owned object attached before a task run starts."""
+
+    id: str
+    name: str
+    storage_path: str
+    size_bytes: int
+    content_type: str
 
 
 @dataclass(frozen=True)
@@ -467,11 +555,14 @@ class TaskRunResult:
 
     Exactly one of ``task`` / ``error`` is set. ``task`` is the refreshed task detail DTO with
     its new latest run; ``error`` carries the structured error the original view returned inline.
+    ``run_id`` names the run this call created or activated, so the view does not have to infer
+    it from ``task.latest_run`` (which a concurrent run creation can race past).
     """
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
     run_error: str | None = None
+    run_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -682,6 +773,8 @@ class TaskRunSandboxConnectionDTO:
 
     Carries the sandbox URL and connect token parsed off the run state plus a freshly-minted
     connection token. ``sandbox_url`` is ``None`` when the run has no active sandbox.
+    ``run_is_terminal`` disambiguates that case: a terminal run's sandbox is cleaned up and
+    never comes back, while a non-terminal run's sandbox may simply not be reachable yet.
     """
 
     sandbox_url: str | None
@@ -689,6 +782,7 @@ class TaskRunSandboxConnectionDTO:
     connection_token: str | None = None
     # Query-param name the transport token travels under (provider-specific).
     sandbox_token_param: str = "_modal_connect_token"
+    run_is_terminal: bool = False
 
 
 SPACE_SETUP_SCOPES = (
@@ -994,3 +1088,39 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionContent:
+    name: str
+    content_type: str
+    content: bytes
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionPreview:
+    name: str
+    content_type: str
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionDownload:
+    url: str | None
+    error: Literal["not_found", "not_stored", "unavailable"] | None
+
+
+class SandboxRunStartDenial(StrEnum):
+    """Why a task sandbox cannot start a run."""
+
+    NO_ACTOR = "no_actor"
+    NESTED = "nested"
+
+
+@dataclass(frozen=True)
+class SandboxRunStarter:
+    """The task and run whose sandbox starts a run for the task's owner."""
+
+    parent_task_id: UUID
+    parent_run_id: UUID

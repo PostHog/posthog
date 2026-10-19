@@ -5,8 +5,10 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withToolHooks } from '@/tools/tool-hooks'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
@@ -113,6 +115,112 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 body,
             })
             return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+        },
+    })
+
+const WorkflowsDataSuggestionsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildBody = orvalSchemas.WorkflowDataSuggestionsBuildBody()
+    return WorkflowDataSuggestionsBuildBody
+}
+
+const workflowsDataSuggestionsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>,
+    Schemas.DataSuggestionBuildResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-create',
+        schema: WorkflowsDataSuggestionsCreateSchema(),
+        handler: withToolHooks(
+            hooks_workflowsDataSuggestionsCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.suggestion_id !== undefined) {
+                    body['suggestion_id'] = params.suggestion_id
+                }
+                if (params.retry !== undefined) {
+                    body['retry'] = params.retry
+                }
+                body['save_draft'] = true
+                const result = await context.api.request<Schemas.DataSuggestionBuildResponse>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
+                    body,
+                })
+                const filtered = pickResponseFields(result, [
+                    'status',
+                    'workflow_id',
+                    'missing_inputs',
+                    'uses_saved_template',
+                ]) as typeof result
+                return filtered
+            }
+        ),
+    })
+
+const WorkflowsDataSuggestionsGetSchema = () => z.object({})
+
+const workflowsDataSuggestionsGet = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsGetSchema>,
+    Schemas.DataSuggestionsResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-get',
+        schema: WorkflowsDataSuggestionsGetSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.DataSuggestionsResponse>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/current/`,
+            })
+            const filtered = pickResponseFields(result, [
+                'status',
+                'suggestions.*.id',
+                'suggestions.*.name',
+                'suggestions.*.description',
+                'suggestions.*.reason',
+                'suggestions.*.trigger_event',
+                'suggestions.*.weekly_count',
+                'email_sender_ready',
+            ]) as typeof result
+            return filtered
+        },
+    })
+
+const WorkflowsDataSuggestionsListSchema = () => {
+    const WorkflowDataSuggestionsGenerateBody = orvalSchemas.WorkflowDataSuggestionsGenerateBody()
+    return WorkflowDataSuggestionsGenerateBody
+}
+
+const workflowsDataSuggestionsList = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsListSchema>,
+    Schemas.DataSuggestionsResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-list',
+        schema: WorkflowsDataSuggestionsListSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsListSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.refresh !== undefined) {
+                body['refresh'] = params.refresh
+            }
+            const result = await context.api.request<Schemas.DataSuggestionsResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/generate/`,
+                body,
+            })
+            const filtered = pickResponseFields(result, [
+                'status',
+                'suggestions.*.id',
+                'suggestions.*.name',
+                'suggestions.*.description',
+                'suggestions.*.reason',
+                'suggestions.*.trigger_event',
+                'suggestions.*.weekly_count',
+                'email_sender_ready',
+            ]) as typeof result
+            return filtered
         },
     })
 
@@ -243,6 +351,7 @@ const workflowsList = (): ToolBase<
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
@@ -348,6 +457,32 @@ const workflowsListRevisions = (): ToolBase<
     name: 'workflows-list-revisions',
     schema: WorkflowsListRevisionsSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListRevisionsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const WorkflowsListVersionsSchema = () => {
+    const HogFlowsRevisionsListParams = orvalSchemas.HogFlowsRevisionsListParams()
+    const HogFlowsRevisionsListQueryParams = orvalSchemas.HogFlowsRevisionsListQueryParams()
+    return HogFlowsRevisionsListParams.omit({ project_id: true }).extend(HogFlowsRevisionsListQueryParams.shape)
+}
+
+const workflowsListVersions = (): ToolBase<
+    ReturnType<typeof WorkflowsListVersionsSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
+> => ({
+    name: 'workflows-list-versions',
+    schema: WorkflowsListVersionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListVersionsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
             method: 'GET',
@@ -482,6 +617,22 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
         return result
     },
 })
+
+const WorkflowsSetupStatusSchema = () => z.object({})
+
+const workflowsSetupStatus = (): ToolBase<ReturnType<typeof WorkflowsSetupStatusSchema>, Schemas.WorkflowSetupStatus> =>
+    withUiApp('workflow-setup-status', {
+        name: 'workflows-setup-status',
+        schema: WorkflowsSetupStatusSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsSetupStatusSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.WorkflowSetupStatus>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_setup/status/`,
+            })
+            return result
+        },
+    })
 
 const WorkflowsStatsSchema = () => {
     const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
@@ -667,9 +818,46 @@ const workflowsUpdateSchedule = (): ToolBase<
     },
 })
 
+const WorkflowsVersionStatsSchema = () => {
+    const HogFlowsMetricsVersionRetrieveParams = orvalSchemas.HogFlowsMetricsVersionRetrieveParams()
+    const HogFlowsMetricsVersionRetrieveQueryParams = orvalSchemas.HogFlowsMetricsVersionRetrieveQueryParams()
+    return HogFlowsMetricsVersionRetrieveParams.omit({ project_id: true }).extend(
+        HogFlowsMetricsVersionRetrieveQueryParams.shape
+    )
+}
+
+const workflowsVersionStats = (): ToolBase<
+    ReturnType<typeof WorkflowsVersionStatsSchema>,
+    Schemas.AppMetricsResponse
+> => ({
+    name: 'workflows-version-stats',
+    schema: WorkflowsVersionStatsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsVersionStatsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AppMetricsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/metrics/version/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                breakdown_by: params.breakdown_by,
+                instance_id: params.instance_id,
+                interval: params.interval,
+                kind: params.kind,
+                name: params.name,
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
     'workflows-create': workflowsCreate,
+    'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
+    'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
+    'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
@@ -680,14 +868,17 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-list-proposals': workflowsListProposals,
     'workflows-list-revisions': workflowsListRevisions,
+    'workflows-list-versions': workflowsListVersions,
     'workflows-logs': workflowsLogs,
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
+    'workflows-setup-status': workflowsSetupStatus,
     'workflows-stats': workflowsStats,
     'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
     'workflows-update-schedule': workflowsUpdateSchedule,
+    'workflows-version-stats': workflowsVersionStats,
 }

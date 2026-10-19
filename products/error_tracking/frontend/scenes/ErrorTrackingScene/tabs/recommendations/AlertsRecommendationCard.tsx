@@ -67,7 +67,7 @@ export function AlertsRecommendationCard({
                         type="secondary"
                         onClick={() => {
                             posthog.capture('error_tracking_alert_creation_started', {
-                                source: 'recommendation_modal',
+                                ui_source: 'recommendation_modal',
                                 trigger_key: alert.key,
                             })
                             setOpenAlertTriggerKey(alert.key)
@@ -145,7 +145,7 @@ function AlertsRecommendationWizardContent({ onClose }: { onClose: () => void })
                 }}
                 onSwitchToTraditional={() => {
                     posthog.capture('error_tracking_alert_creation_switched_to_traditional', {
-                        source: 'recommendation_modal',
+                        ui_source: 'recommendation_modal',
                     })
                     resetWizard()
                     onClose()

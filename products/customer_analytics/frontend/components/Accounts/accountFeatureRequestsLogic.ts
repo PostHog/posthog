@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { featureRequestsList, featureRequestsUpdate } from '../../generated/api'
 import type { FeatureRequestApi, PaginatedFeatureRequestListApi } from '../../generated/api.schemas'
+import { getTileString, type AccountViewTileLogicProps } from './accountViewTileConfig'
 
 export const ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE = 5
 const AVAILABLE_REQUESTS_LIMIT = 50
@@ -18,7 +19,7 @@ const EMPTY_REQUESTS_RESPONSE: PaginatedFeatureRequestListApi = {
     results: [],
 }
 
-export interface AccountFeatureRequestsLogicProps {
+export interface AccountFeatureRequestsLogicProps extends AccountViewTileLogicProps {
     accountId: string
 }
 
@@ -121,7 +122,7 @@ export type accountFeatureRequestsLogicType = MakeLogicType<
 
 export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>([
     props({} as AccountFeatureRequestsLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     path((key) => ['products', 'customerAnalytics', 'accountFeatureRequestsLogic', key]),
     connect(() => ({ values: [teamLogic, ['currentTeam']] })),
     actions({
@@ -170,7 +171,7 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         requestPickerOpen: [false, { openRequestPicker: () => true, closeRequestPicker: () => false }],
         selectedRequestId: [
             null as string | null,
@@ -188,7 +189,10 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
                 setAccountRequestsSearch: () => 1,
             },
         ],
-        accountRequestsSearch: ['', { setAccountRequestsSearch: (_, { search }) => search }],
+        accountRequestsSearch: [
+            getTileString(props.initialConfig, 'searchTerm'),
+            { setAccountRequestsSearch: (_, { search }) => search },
+        ],
         requestSearch: [
             '',
             {
@@ -215,7 +219,7 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
                 closeRequestPicker: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         candidateOptions: [
             (selectors) => [selectors.availableRequests],
@@ -228,6 +232,7 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
         setAccountRequestsPage: () => actions.loadAccountRequests(),
         setAccountRequestsSearch: async (_, breakpoint) => {
             await breakpoint(300)
+            props.onConfigChange?.({ searchTerm: values.accountRequestsSearch })
             actions.loadAccountRequests()
         },
         setRequestSearch: async (_, breakpoint) => {

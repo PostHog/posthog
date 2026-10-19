@@ -65,6 +65,8 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "epik",  # pinterest
     "qclid",  # quora
     "sccid",  # snapchat
+    "oppref",  # openai ads
+    "bfcid",  # freebuff
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -183,9 +185,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_called": {
             "label": "Feature flag called",
-            "description": (
-                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
-            ),
+            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.",
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "hidden_in_query_builders": True,
@@ -569,7 +569,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflows_email_bounced": {
             "label": "Workflow email bounced",
-            "description": "Fires when a workflow email bounces.",
+            "description": 'Fires when a workflow email bounces. The `$bounce_type` property holds `hard` when the address will never accept mail (it is also added to the suppression list), `soft` when the failure is temporary such as a full mailbox, and `unknown` when the provider could not tell. `$bounce_sub_type` holds the provider\'s own reason, such as "MailboxFull". Bounces recorded before these properties shipped carry neither.',
         },
         "$workflows_email_blocked": {
             "label": "Workflow email marked as spam",
@@ -813,6 +813,20 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Go version",
             "description": "The Go version that was used to capture the event.",
             "examples": ["go1.23.0"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$react_native_version": {
+            "label": "React Native version",
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$flutter_version": {
+            "label": "Flutter version",
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
             "system": True,
             "ignored_in_assistant": True,
         },
@@ -2064,6 +2078,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "sccid",
             "description": "Snapchat Click ID",
         },
+        "oppref": {
+            "label": "oppref",
+            "description": "OpenAI Ads Click ID",
+        },
+        "bfcid": {
+            "label": "bfcid",
+            "description": "Freebuff Click ID",
+        },
         "irclid": {
             "label": "irclid",
             "description": "Impact Click ID",
@@ -2546,6 +2568,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
         },
+        "$ai_evaluation_probability": {
+            "label": "AI evaluation probability",
+            "description": "The probability of a true verdict for a boolean evaluation.",
+            "examples": [0.9],
+            "type": "Numeric",
+        },
         "$ai_evaluation_categorical_result": {
             "label": "AI evaluation categorical result",
             "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
@@ -2740,28 +2768,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
             "description": "The type of evaluation that was run.",
             "examples": ["llm_judge", "hog"],
         },
-        "$ai_expected": {
-            "label": "AI expected output (LLM)",
-            "description": "The expected output for comparison in this evaluation.",
-        },
         "$ai_experiment_id": {
             "label": "AI experiment ID (LLM)",
             "description": "The unique identifier of the experiment this event belongs to.",
-        },
-        "$ai_experiment_item_id": {
-            "label": "AI experiment item ID (LLM)",
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-        },
-        "$ai_experiment_item_name": {
-            "label": "AI experiment item name (LLM)",
-            "description": "The name of the individual item being evaluated in an experiment.",
         },
         "$ai_experiment_name": {
             "label": "AI experiment name (LLM)",
@@ -2799,10 +2815,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [1024, 4096],
             "type": "Numeric",
         },
-        "$ai_metric_version": {
-            "label": "AI metric version (LLM)",
-            "description": "The version of the metric used for evaluation.",
-        },
         "$ai_output": {
             "label": "AI output (LLM)",
             "description": "The output text from a generation or the text being evaluated.",
@@ -2810,26 +2822,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_project_name": {
             "label": "AI project name (LLM)",
             "description": "The project name associated with this AI event.",
-        },
-        "$ai_result_type": {
-            "label": "AI result type (LLM)",
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-        },
-        "$ai_score": {
-            "label": "AI score (LLM)",
-            "description": "The numeric score assigned by this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_max": {
-            "label": "AI score max (LLM)",
-            "description": "The maximum possible score for this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_min": {
-            "label": "AI score min (LLM)",
-            "description": "The minimum possible score for this evaluation metric.",
-            "type": "Numeric",
         },
         "$ai_span_type": {
             "label": "AI span type (LLM)",
@@ -2941,6 +2933,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
+        "$mcp_validation_fields": {
+            "label": "MCP validation fields",
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": ["id:invalid_type", "filters.groups:required"],
+        },
+        "$mcp_input_keys": {
+            "label": "MCP input keys",
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares, including its aliases, capped at 20. Undeclared names become one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
+            "examples": ["id", "experimentId", "filters, key, name"],
+        },
+        "$mcp_input_aliases_used": {
+            "label": "MCP input aliases used",
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": ["experimentId:id", "flagKey:key"],
+        },
+        "$mcp_exec_verb": {
+            "label": "MCP exec verb",
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": ["call", "info", "unrecognized"],
+        },
+        "$mcp_exec_target_tool": {
+            "label": "MCP exec target tool",
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": ["experiment-get", "unrecognized"],
+        },
         "$mcp_auth_method": {
             "label": "MCP auth method",
             "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",
@@ -2970,6 +2987,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP server name",
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": ["PostHog"],
+        },
+        "$mcp_server_build": {
+            "label": "MCP server build",
+            "description": "The exact immutable build identifier that the MCP host supplies, such as a Git commit SHA or container image digest. Use it to connect an event to deployed code when one server version has multiple builds.",
+            "examples": ["b3b941584bae0123"],
         },
         "$mcp_server_version": {
             "label": "MCP server version",
@@ -3066,8 +3088,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_protocol_version": {
             "label": "MCP protocol version",
-            "description": "The MCP protocol version negotiated between client and server during initialize.",
-            "examples": ["2025-11-25", "2025-06-18"],
+            "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
         },
         "$mcp_transport": {
             "label": "MCP transport",
@@ -3363,6 +3385,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {
@@ -3416,6 +3444,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_cache_read_audio_tokens": {
             "label": "AI cache read audio tokens (LLM)",
             "description": "The number of audio tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
             "examples": [16],
             "type": "Numeric",
         },
@@ -3892,6 +3926,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$group_key": {
             "label": "Group key",
             "description": "Specified group key",
+            "type": "String",
+            # Not a row in the group's property JSON — it is the group's key column. Marked
+            # virtual so the property definitions API still offers it as a selectable filter.
+            "virtual": True,
         },
         "$virt_revenue": {
             "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",

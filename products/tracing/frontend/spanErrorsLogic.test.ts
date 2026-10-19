@@ -33,6 +33,12 @@ function spanWithSession(uuid: string, sessionId: string | null): Span {
     })
 }
 
+// Stored trace and span ids are hex, and `usableId` drops anything else.
+const TRACE_A = 'a'.repeat(32)
+const SPAN_1 = 'd'.repeat(16)
+const SPAN_THROWER = 'b'.repeat(16)
+const SPAN_QUIET = 'c'.repeat(16)
+
 function spanWithIds(uuid: string, traceId: string, spanId: string, sessionId?: string): Span {
     return makeSpan({
         uuid,
@@ -114,14 +120,14 @@ describe('spanErrorsLogic', () => {
 
     it('badges the most precise join each row has', async () => {
         mockCountsCreate.mockResolvedValue({
-            traceResults: [{ trace_id: 'trace-a', exceptions: 4 }],
-            spanResults: [{ span_id: 'span-thrower', exceptions: 1 }],
+            traceResults: [{ trace_id: TRACE_A, exceptions: 4 }],
+            spanResults: [{ span_id: SPAN_THROWER, exceptions: 1 }],
             sessionResults: [{ session_id: 'session-c', exceptions: 7 }],
         })
 
         await loadFirstPage([
-            spanWithIds('row-span', 'trace-a', 'span-thrower'),
-            spanWithIds('row-trace', 'trace-a', 'span-quiet'),
+            spanWithIds('row-span', TRACE_A, SPAN_THROWER),
+            spanWithIds('row-trace', TRACE_A, SPAN_QUIET),
             spanWithSession('row-session', 'session-c'),
         ])
 
@@ -146,7 +152,7 @@ describe('spanErrorsLogic', () => {
         mockCountsCreate.mockImplementation(async (_teamId, body) =>
             body.sessionIds?.length
                 ? { ...NO_COUNTS, sessionResults: [{ session_id: 'session-a', exceptions: session }] }
-                : { ...NO_COUNTS, traceResults: [{ trace_id: 'trace-a', exceptions: trace }] }
+                : { ...NO_COUNTS, traceResults: [{ trace_id: TRACE_A, exceptions: trace }] }
         )
     }
 
@@ -158,7 +164,7 @@ describe('spanErrorsLogic', () => {
     ])('carries the session total beside the trace count when %s', async (_name, trace, session, expected) => {
         mockTraceAndSession(trace, session)
 
-        await loadFirstPage([spanWithIds('row-1', 'trace-a', 'span-1', 'session-a')])
+        await loadFirstPage([spanWithIds('row-1', TRACE_A, SPAN_1, 'session-a')])
 
         expect(asked('sessionIds')).toEqual([['session-a']])
         expect(logic.values.errorBadgeByRow.get('row-1')).toEqual(expected)
@@ -178,10 +184,10 @@ describe('spanErrorsLogic', () => {
 
     // Span rows read their ids back as uppercase hex while the SDKs write them lowercase.
     it('asks about ids in the case the events are stored in', async () => {
-        await loadFirstPage([spanWithIds('row-1', 'TRACE-A', 'SPAN-1')])
+        await loadFirstPage([spanWithIds('row-1', TRACE_A.toUpperCase(), SPAN_1.toUpperCase())])
 
-        expect(asked('traceIds')).toEqual([['trace-a']])
-        expect(asked('spanIds')).toEqual([['span-1']])
+        expect(asked('traceIds')).toEqual([[TRACE_A]])
+        expect(asked('spanIds')).toEqual([[SPAN_1]])
     })
 
     it('records a zero for every id it looked up, so the next page only asks about new ones', async () => {
@@ -218,7 +224,7 @@ describe('spanErrorsLogic', () => {
         ['session', 'sessionIds' as const, '2026-06-02T02:00:00.000Z', '2026-06-02T14:00:00.000Z'],
     ])('asks the %s join over its own window', async (_name, field, dateFrom, dateTo) => {
         const span =
-            field === 'traceIds' ? spanWithIds('span-1', 'trace-a', 'span-1') : spanWithSession('span-1', 'session-a')
+            field === 'traceIds' ? spanWithIds('span-1', TRACE_A, SPAN_1) : spanWithSession('span-1', 'session-a')
 
         await loadFirstPage([{ ...span, timestamp: '2026-06-02T08:00:00Z' }])
 
@@ -241,7 +247,7 @@ describe('spanErrorsLogic', () => {
         ],
     ])('queries nothing and scans no rows while %s', async (_name, disable) => {
         disable()
-        await loadFirstPage([spanWithIds('span-1', 'trace-a', 'span-1', 'session-a')])
+        await loadFirstPage([spanWithIds('span-1', TRACE_A, SPAN_1, 'session-a')])
 
         expect(mockCountsCreate).not.toHaveBeenCalled()
         expect(logic.values.errorCounts.session).toEqual({})

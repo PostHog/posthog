@@ -19,7 +19,6 @@ jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => 
 jest.mock('scenes/notebooks/NotebookPanel/notebookPanelLogic', () => ({
     notebookPanelLogic: { kind: 'notebookPanel' },
 }))
-jest.mock('../EventStream/AccountEventStreamToggle', () => ({ AccountEventStreamToggle: () => null }))
 jest.mock('../CustomerTasks/CustomerTasksTabContent', () => ({ CustomerTasksTabContent: () => null }))
 jest.mock('../CustomerTasks/customerTasksLogic', () => ({ customerTasksLogic: () => ({ kind: 'tasks' }) }))
 jest.mock('./AccountBillingExpansion', () => ({ AccountBillingExpansion: () => null }))

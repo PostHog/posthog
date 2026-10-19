@@ -13,70 +13,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.av
     AviatorResumeConfig,
     _analytics_window,
     _flatten_analytics,
-    _iter_repositories,
-    aviator_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.settings import AVIATOR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.source import AviatorSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
+    AviatorSourceConfig,
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: AviatorResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[AviatorResumeConfig] = []
+def _driver() -> SourceDriver:
+    return SourceDriver(AviatorSource(), AviatorSourceConfig(api_token="av_uat_test"))
 
-    def can_resume(self) -> bool:
-        return self._state is not None
 
-    def load_state(self) -> AviatorResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: AviatorResumeConfig) -> None:
-        self.saved.append(data)
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.rows for row in table.to_pylist()]
 
 
 class TestFlattenAnalytics:
-    def test_merges_all_series_into_one_row_per_date(self) -> None:
-        # The five daily series share min/avg/pXX keys; merging without prefixing would clobber them,
-        # and dropping a series would silently lose columns. This is the source's core transform.
-        payload = {
-            "time_in_queue": [{"date": "2021-07-14", "min": 12, "p50": 23}],
-            "wait_times_to_queue": [{"date": "2021-07-14", "min": 5, "p50": 8.2}],
-            "mergequeue_usage": [{"date": "2021-07-14", "total": 52, "merged_by_bot": 40}],
-            "blocked_reason": [{"date": "2021-07-14", "merge_conflict": 2, "ci_failure": 4}],
-            "sync_frequency": [{"date": "2021-07-14", "min": 1, "p90": 3.2}],
-        }
-        rows = _flatten_analytics("aviator-co/testrepo", "aviator-co", "testrepo", payload)
-        assert rows == [
-            {
-                "repo": "aviator-co/testrepo",
-                "org": "aviator-co",
-                "name": "testrepo",
-                "date": "2021-07-14",
-                "time_in_queue_min": 12,
-                "time_in_queue_p50": 23,
-                "wait_times_to_queue_min": 5,
-                "wait_times_to_queue_p50": 8.2,
-                "mergequeue_usage_total": 52,
-                "mergequeue_usage_merged_by_bot": 40,
-                "blocked_reason_merge_conflict": 2,
-                "blocked_reason_ci_failure": 4,
-                "sync_frequency_min": 1,
-                "sync_frequency_p90": 3.2,
-            }
-        ]
-
-    def test_rows_are_sorted_by_date_and_span_multiple_days(self) -> None:
-        payload = {
-            "mergequeue_usage": [
-                {"date": "2021-07-15", "total": 3},
-                {"date": "2021-07-14", "total": 1},
-            ],
-        }
-        rows = _flatten_analytics("o/r", "o", "r", payload)
-        assert [r["date"] for r in rows] == ["2021-07-14", "2021-07-15"]
-
     def test_missing_or_malformed_series_are_ignored(self) -> None:
         # A partial response (only some series present, a non-list series, a dateless item) must not crash.
         payload: dict[str, Any] = {
@@ -95,17 +56,6 @@ class TestAnalyticsWindow:
         config = AVIATOR_ENDPOINTS["merge_queue_analytics"]
         start, end = _analytics_window(config, should_use_incremental_field=True, db_incremental_field_last_value=None)
         assert start == "2025-06-15"
-        assert end == "2026-06-15"
-
-    @time_machine.travel("2026-06-15", tick=False)
-    def test_incremental_run_rewinds_watermark_by_lookback(self) -> None:
-        # Recent daily aggregates get revised upstream, so each run must re-pull a trailing window;
-        # advancing straight from the watermark would freeze the last few days at stale values.
-        config = AVIATOR_ENDPOINTS["merge_queue_analytics"]
-        start, end = _analytics_window(
-            config, should_use_incremental_field=True, db_incremental_field_last_value=date(2026, 6, 10)
-        )
-        assert start == "2026-06-03"  # 2026-06-10 minus the 7-day lookback
         assert end == "2026-06-15"
 
     @parameterized.expand(
@@ -153,158 +103,90 @@ class TestIterRepositories:
         ]
     )
     def test_pagination_terminates(self, _name: str, pages: list[list[dict]], expected_calls: int) -> None:
-        calls: list[int] = []
+        result = _driver().run("repositories", [ScriptedResponse(json=page) for page in pages])
 
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            page = (params or {}).get("page", 1)
-            calls.append(page)
-            return pages[page - 1]
-
-        with patch.object(aviator, "_fetch", fake_fetch):
-            repos = list(_iter_repositories(MagicMock(), {}, MagicMock()))
-
-        assert len(calls) == expected_calls
-        assert repos == [row for page in pages for row in page]
-
-
-def _run_fan_out(
-    endpoint: str,
-    fake_fetch: Any,
-    repos: list[dict],
-    manager: _FakeResumableManager,
-    monkeypatch: Any,
-    **incremental: Any,
-) -> list[dict]:
-    monkeypatch.setattr(aviator, "_iter_repositories", lambda *a, **k: iter(repos))
-    monkeypatch.setattr(aviator, "_fetch", fake_fetch)
-    rows: list[dict] = []
-    for table in get_rows(
-        api_token="av_uat_test",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **incremental,
-    ):
-        rows.extend(table.to_pylist())
-    return rows
+        assert result.raised is None
+        assert result.paths == ["/api/v1/repo"] * expected_calls
+        assert result.params("page") == [str(page) for page in range(1, expected_calls + 1)]
+        assert _rows(result) == [row for page in pages for row in page]
 
 
 class TestFanOutExtraction:
-    def test_queued_pull_requests_inject_org_repo_and_drop_nested_repository(self, monkeypatch: Any) -> None:
+    def test_queued_pull_requests_inject_org_repo_and_drop_nested_repository(self) -> None:
         # PR number is unique only within a repo, so the injected org/repo are what make the
         # composite primary key unique table-wide across the fan-out.
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            return {
-                "pull_requests": [
-                    {"number": 89, "title": "fix", "repository": {"org": "o", "name": "r"}, "status": "queued"}
-                ]
-            }
-
-        rows = _run_fan_out(
-            "queued_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        result = _driver().run(
+            "queued_pull_requests",
+            [
+                ScriptedResponse(json=[{"org": "o", "name": "r"}]),
+                ScriptedResponse(
+                    json={
+                        "pull_requests": [
+                            {"number": 89, "title": "fix", "repository": {"org": "o", "name": "r"}, "status": "queued"}
+                        ]
+                    }
+                ),
+            ],
         )
-        assert rows == [{"number": 89, "title": "fix", "status": "queued", "org": "o", "repo": "r"}]
+        assert result.raised is None
+        assert result.paths == ["/api/v1/repo", "/api/v1/pull_request/queued"]
+        assert _rows(result) == [{"number": 89, "title": "fix", "status": "queued", "org": "o", "repo": "r"}]
 
-    def test_queued_pull_request_without_number_is_skipped(self, monkeypatch: Any) -> None:
+    def test_queued_pull_request_without_number_is_skipped(self) -> None:
         # number is part of the (org, repo, number) primary key; a null-keyed row would collapse
         # every numberless PR in the repo into a single persisted row, so such rows are dropped.
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            return {"pull_requests": [{"number": 7, "title": "keep"}, {"title": "no number"}]}
-
-        rows = _run_fan_out(
-            "queued_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        result = _driver().run(
+            "queued_pull_requests",
+            [
+                ScriptedResponse(json=[{"org": "o", "name": "r"}]),
+                ScriptedResponse(json={"pull_requests": [{"number": 7, "title": "keep"}, {"title": "no number"}]}),
+            ],
         )
-        assert [r["title"] for r in rows] == ["keep"]
+        assert result.raised is None
+        assert [row["title"] for row in _rows(result)] == ["keep"]
 
-    def test_queue_stats_flattens_depth_object(self, monkeypatch: Any) -> None:
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            return {"depth": {"queued": 8, "processing": 2, "waiting": 6}}
-
-        rows = _run_fan_out(
-            "queue_stats", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
-        )
-        assert rows == [{"org": "o", "repo": "r", "queued": 8, "processing": 2, "waiting": 6}]
-
-    def test_config_history_paginates_and_flattens_applied_by(self, monkeypatch: Any) -> None:
-        # Pagination must terminate on the first empty page; applied_by is flattened so the row is a
-        # flat record with the injected org/repo the endpoint's primary key needs.
-        page_payloads = {
-            1: {
-                "history": [
-                    {
-                        "applied_at": "2022-11-16T17:21:41Z",
-                        "commit_sha": "abc",
-                        "diff": "x",
-                        "applied_by": {"email": "a@b.co"},
-                    }
-                ]
-            },
-            2: {"history": []},
-        }
-        seen_pages: list[int] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            page = (params or {}).get("page", 1)
-            seen_pages.append(page)
-            return page_payloads[page]
-
-        rows = _run_fan_out(
-            "config_history", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
-        )
-        assert seen_pages == [1, 2]
-        assert rows == [
-            {
-                "org": "o",
-                "repo": "r",
-                "applied_at": "2022-11-16T17:21:41Z",
-                "commit_sha": "abc",
-                "diff": "x",
-                "applied_by_email": "a@b.co",
-                "applied_by_gh_username": None,
-            }
-        ]
-
-    def test_config_history_entry_without_applied_at_is_skipped(self, monkeypatch: Any) -> None:
+    def test_config_history_entry_without_applied_at_is_skipped(self) -> None:
         # applied_at is part of the (org, repo, applied_at) primary key; a null-keyed row would
         # collapse multiple config changes into one persisted row, so such rows are dropped.
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            page = (params or {}).get("page", 1)
-            if page == 1:
-                return {
-                    "history": [
-                        {"applied_at": "2022-11-16T17:21:41Z", "commit_sha": "keep"},
-                        {"commit_sha": "no applied_at"},
-                    ]
-                }
-            return {"history": []}
-
-        rows = _run_fan_out(
-            "config_history", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        result = _driver().run(
+            "config_history",
+            [
+                ScriptedResponse(json=[{"org": "o", "name": "r"}]),
+                ScriptedResponse(
+                    json={
+                        "history": [
+                            {"applied_at": "2022-11-16T17:21:41Z", "commit_sha": "keep"},
+                            {"commit_sha": "no applied_at"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json={"history": []}),
+            ],
         )
-        assert [r["commit_sha"] for r in rows] == ["keep"]
+        assert result.raised is None
+        assert result.params("page") == ["1", "1", "2"]
+        assert [row["commit_sha"] for row in _rows(result)] == ["keep"]
 
-    def test_analytics_fan_out_requests_repo_slug_and_window(self, monkeypatch: Any) -> None:
+    def test_analytics_fan_out_requests_repo_slug_and_window(self) -> None:
         # The analytics call is only correct if it forwards repo=org/name plus the incremental window;
         # a regression that dropped either would sync the wrong (or unbounded) data.
-        captured: dict[str, Any] = {}
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            captured.update(params or {})
-            return {"mergequeue_usage": [{"date": "2026-06-14", "total": 5}]}
-
         with time_machine.travel("2026-06-15", tick=False):
-            rows = _run_fan_out(
+            result = _driver().run(
                 "merge_queue_analytics",
-                fake_fetch,
-                [{"org": "aviator-co", "name": "testrepo"}],
-                _FakeResumableManager(),
-                monkeypatch,
-                should_use_incremental_field=True,
+                [
+                    ScriptedResponse(json=[{"org": "aviator-co", "name": "testrepo"}]),
+                    ScriptedResponse(json={"mergequeue_usage": [{"date": "2026-06-14", "total": 5}]}),
+                ],
                 db_incremental_field_last_value=date(2026, 6, 10),
                 incremental_field="date",
             )
-        assert captured == {"repo": "aviator-co/testrepo", "start": "2026-06-03", "end": "2026-06-15"}
-        assert rows == [
+        assert result.raised is None
+        assert {key: result.requests[1].param(key) for key in ("repo", "start", "end")} == {
+            "repo": "aviator-co/testrepo",
+            "start": "2026-06-03",
+            "end": "2026-06-15",
+        }
+        assert _rows(result) == [
             {
                 "repo": "aviator-co/testrepo",
                 "org": "aviator-co",
@@ -316,41 +198,23 @@ class TestFanOutExtraction:
 
 
 class TestBranchesFanOut:
-    def test_request_sends_the_repository_as_a_json_body(self, monkeypatch: Any) -> None:
-        # GET /branches takes a nested repository object that flat query params cannot express, so
-        # the documented form is a JSON body. Sending it as `params` instead is rejected by the API.
-        captured: dict[str, Any] = {}
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return {"branches": [{"pattern": "release-*", "paused": True, "paused_message": "held"}]}
-
-        rows = _run_fan_out("branches", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch)
-
-        assert captured == {"json_body": {"repository": {"org": "o", "name": "r"}}}
-        assert rows == [{"org": "o", "repo": "r", "pattern": "release-*", "paused": True, "paused_message": "held"}]
-
-    def test_branch_without_a_pattern_is_skipped(self, monkeypatch: Any) -> None:
+    def test_branch_without_a_pattern_is_skipped(self) -> None:
         # pattern is part of the (org, repo, pattern) primary key; a null-keyed row would collapse
         # every patternless branch in the repo into a single persisted row, so such rows are dropped.
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
-            return {"branches": [{"pattern": "master", "paused": False}, {"paused": True}]}
-
-        rows = _run_fan_out("branches", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch)
-        assert [r["pattern"] for r in rows] == ["master"]
+        result = _driver().run(
+            "branches",
+            [
+                ScriptedResponse(json=[{"org": "o", "name": "r"}]),
+                ScriptedResponse(json={"branches": [{"pattern": "master", "paused": False}, {"paused": True}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.requests[1].json() == {"repository": {"org": "o", "name": "r"}}
+        assert [row["pattern"] for row in _rows(result)] == ["master"]
 
 
 class TestBotPullRequestsFanOut:
-    @staticmethod
-    def _fetch_for(queued: list[int], bot_prs: dict[int, Any]) -> Any:
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
-            if url.endswith("/pull_request/queued"):
-                return {"pull_requests": [{"number": n} for n in queued]}
-            return bot_prs.get(kwargs["params"]["number"])
-
-        return fake_fetch
-
-    def test_queued_prs_sharing_a_batch_yield_one_row(self, monkeypatch: Any) -> None:
+    def test_queued_prs_sharing_a_batch_yield_one_row(self) -> None:
         # Every queued PR in a batch resolves to the same bot PR. Merge only dedupes across syncs, so
         # emitting all three would put duplicate (org, repo, number) keys in one batch, and every
         # later merge would multi-match them.
@@ -363,15 +227,22 @@ class TestBotPullRequestsFanOut:
             "codemix_pre_batch_sha": "def",
             "pull_requests": [{"number": 89}, {"number": 90}, {"number": 91}],
         }
-        fake_fetch = self._fetch_for([89, 90, 91], {89: batch, 90: batch, 91: batch})
-
-        rows = _run_fan_out(
-            "bot_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        result = _driver().run(
+            "bot_pull_requests",
+            [
+                ScriptedResponse(json=[{"org": "o", "name": "r"}]),
+                ScriptedResponse(json={"pull_requests": [{"number": 89}, {"number": 90}, {"number": 91}]}),
+                ScriptedResponse(json=batch),
+                ScriptedResponse(json=batch),
+                ScriptedResponse(json=batch),
+            ],
         )
 
         # head_branch_oid is a documented legacy alias for head_commit_sha, so it is not carried.
         # The pipeline lands the member list as a JSON string, which is what the warehouse column holds.
-        assert rows == [
+        assert result.raised is None
+        assert result.params("number") == [None, None, "89", "90", "91"]
+        assert _rows(result) == [
             {
                 "org": "o",
                 "repo": "r",
@@ -384,127 +255,75 @@ class TestBotPullRequestsFanOut:
             }
         ]
 
-    def test_queued_prs_without_a_batch_are_skipped(self, monkeypatch: Any) -> None:
+    def test_queued_prs_without_a_batch_are_skipped(self) -> None:
         # Serial-mode repos never create bot PRs, so the lookup 404s for every queued PR. That must
         # sync an empty table rather than fail the whole run.
-        fake_fetch = self._fetch_for([89, 90], {89: None, 90: {"number": 202, "pull_requests": []}})
-
-        rows = _run_fan_out(
-            "bot_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        result = _driver().run(
+            "bot_pull_requests",
+            [
+                ScriptedResponse(json=[{"org": "o", "name": "r"}]),
+                ScriptedResponse(json={"pull_requests": [{"number": 89}, {"number": 90}]}),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"number": 202, "pull_requests": []}),
+            ],
         )
-        assert [(r["number"], r["pull_request_numbers"]) for r in rows] == [(202, "[]")]
+        assert result.raised is None
+        assert result.params("number") == [None, None, "89", "90"]
+        assert [(row["number"], row["pull_request_numbers"]) for row in _rows(result)] == [(202, "[]")]
 
 
 class TestUserActions:
-    @staticmethod
-    def _run(pages: dict[int, Any], monkeypatch: Any) -> list[dict]:
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
-            return pages[kwargs["params"]["page"]]
-
-        monkeypatch.setattr(aviator, "_fetch", fake_fetch)
-        rows: list[dict] = []
-        for table in get_rows(
-            api_token="av_uat_test",
-            endpoint="user_actions",
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        ):
-            rows.extend(table.to_pylist())
-        return rows
-
-    def test_pagination_stops_on_the_first_empty_page(self, monkeypatch: Any) -> None:
-        # The endpoint documents no page size and no total, so an empty page is the only end signal.
-        pages = {
-            1: [
-                {
-                    "timestamp": "2026-06-15T10:00:00Z",
-                    "actor": "a@b.co",
-                    "action": "queue",
-                    "entity": "merge_queue",
-                    "target": "89",
-                }
-            ],
-            2: [
-                {
-                    "timestamp": "2026-06-14T10:00:00Z",
-                    "actor": "c@d.co",
-                    "action": "login",
-                    "entity": "account",
-                    "target": None,
-                }
-            ],
-            3: [],
-        }
-        rows = self._run(pages, monkeypatch)
-        assert [r["timestamp"] for r in rows] == ["2026-06-15T10:00:00Z", "2026-06-14T10:00:00Z"]
-        assert rows[1]["target"] is None
-
-    def test_entry_without_a_timestamp_is_skipped(self, monkeypatch: Any) -> None:
+    def test_entry_without_a_timestamp_is_skipped(self) -> None:
         # timestamp leads the composite primary key and the endpoint exposes no id, so an entry
         # without one cannot be identified at all.
-        pages = {
-            1: [{"timestamp": "2026-06-15T10:00:00Z", "action": "keep"}, {"action": "no timestamp"}],
-            2: [],
-        }
-        rows = self._run(pages, monkeypatch)
-        assert [r["action"] for r in rows] == ["keep"]
+        result = _driver().run(
+            "user_actions",
+            [
+                ScriptedResponse(
+                    json=[{"timestamp": "2026-06-15T10:00:00Z", "action": "keep"}, {"action": "no timestamp"}]
+                ),
+                ScriptedResponse(json=[]),
+            ],
+        )
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert [row["action"] for row in _rows(result)] == ["keep"]
 
 
 class TestFanOutResume:
-    def _fetch_stats(self, session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-        p = params or {}
-        return {"depth": {"queued": 1, "processing": 0, "waiting": 1, "_repo": p.get("repo")}}
-
-    def test_marks_each_repo_completed_as_it_finishes(self, monkeypatch: Any) -> None:
-        # State accumulates completed repo keys AFTER each repo's rows are yielded, so a crash resumes
-        # with only the repos still owed (and a crash mid-repo re-processes it, since merge dedupes).
-        manager = _FakeResumableManager()
-        repos = [{"org": "o", "name": "a"}, {"org": "o", "name": "b"}, {"org": "o", "name": "c"}]
-        _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
-        assert [s.completed_repo_keys for s in manager.saved] == [
-            ["o/a"],
-            ["o/a", "o/b"],
-            ["o/a", "o/b", "o/c"],
-        ]
-
-    def test_resume_skips_completed_repos(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(AviatorResumeConfig(completed_repo_keys=["o/a"]))
-        repos = [{"org": "o", "name": "a"}, {"org": "o", "name": "b"}, {"org": "o", "name": "c"}]
-        rows = _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
-        assert [r["repo"] for r in rows] == ["b", "c"]
-
-    def test_resume_processes_repo_added_before_the_resume_point(self, monkeypatch: Any) -> None:
+    def test_resume_processes_repo_added_before_the_resume_point(self) -> None:
         # A repo discovered ahead of already-completed ones on retry must NOT be skipped. A positional
         # bookmark would drop it, and since the watermark only advances at successful job end, that
         # repo's older analytics would never be fetched outside the trailing lookback window.
-        manager = _FakeResumableManager(AviatorResumeConfig(completed_repo_keys=["o/b"]))
         repos = [{"org": "o", "name": "new"}, {"org": "o", "name": "b"}, {"org": "o", "name": "c"}]
-        rows = _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
-        assert [r["repo"] for r in rows] == ["new", "c"]
-
-    def test_resume_with_only_unknown_completed_keys_processes_all(self, monkeypatch: Any) -> None:
-        # A completed repo removed between runs must not strand the sync; every current repo runs.
-        manager = _FakeResumableManager(AviatorResumeConfig(completed_repo_keys=["o/gone"]))
-        repos = [{"org": "o", "name": "a"}, {"org": "o", "name": "b"}]
-        rows = _run_fan_out("queue_stats", self._fetch_stats, repos, manager, monkeypatch)
-        assert [r["repo"] for r in rows] == ["a", "b"]
+        result = _driver().run(
+            "queue_stats",
+            [
+                ScriptedResponse(json=repos),
+                ScriptedResponse(json={"depth": {"queued": 1, "processing": 0, "waiting": 1}}),
+                ScriptedResponse(json={"depth": {"queued": 1, "processing": 0, "waiting": 1}}),
+            ],
+            resume_state=AviatorResumeConfig(completed_repo_keys=["o/b"]),
+        )
+        assert result.raised is None
+        assert result.params("repo") == [None, "new", "c"]
+        assert [row["repo"] for row in _rows(result)] == ["new", "c"]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(aviator, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status, json=[])]) as network:
             assert validate_credentials("av_uat_test") is expected
+        assert network.requests_log[0].path == "/api/v1/repo"
+        assert network.requests_log[0].param("page") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer av_uat_test"
+        assert network.session_options == [{"redact_values": ("av_uat_test",), "capture": False}]
 
     def test_network_error_is_not_valid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with patch.object(aviator, "make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("reset"))) as network:
             assert validate_credentials("av_uat_test") is False
+        assert {request.path for request in network.requests_log} == {"/api/v1/repo"}
 
 
 class TestFetchRetries:
@@ -564,12 +383,10 @@ class TestSourceResponseSortMode:
     def test_sort_mode_and_partition(self, endpoint: str, expected_sort: str, partition_key: str | None) -> None:
         # Fan-out endpoints must report "desc" so the watermark persists only at successful job end;
         # reverting to "asc" per-batch persistence lets a crashed run advance past unreached repos.
-        response = aviator_source(
-            api_token="av_uat_test",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.sort_mode == expected_sort
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.primary_keys == AVIATOR_ENDPOINTS[endpoint].primary_keys

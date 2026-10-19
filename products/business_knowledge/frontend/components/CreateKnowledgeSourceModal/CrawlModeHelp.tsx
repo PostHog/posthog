@@ -14,8 +14,7 @@ export function CrawlModeHelp(): JSX.Element {
     if (urlSource.crawl_mode === 'sitemap') {
         return (
             <p className="text-xs text-muted">
-                Read sitemap.xml at this URL (or <code>/sitemap.xml</code> at its origin) and index each listed page.
-                Scheduled refresh is Stage 5.
+                Read sitemap.xml at this URL, or <code>/sitemap.xml</code> on the same site, and index each listed page.
             </p>
         )
     }

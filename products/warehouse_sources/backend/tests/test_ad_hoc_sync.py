@@ -101,12 +101,7 @@ def test_failed_start_restores_staged_reset_state(schema, no_sync_to_wait_for):
     assert schema.initial_sync_complete is True
 
 
-@pytest.mark.parametrize("ingest_mode", [None, "buffered"])
-def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(
-    schema, ingest_mode, no_sync_to_wait_for
-):
-    schema.source.job_inputs = {"cdc_ingest_mode": ingest_mode} if ingest_mode else {}
-    schema.source.save()
+def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(schema, no_sync_to_wait_for):
     schema.sync_type = ExternalDataSchema.SyncType.CDC
     schema.sync_type_config = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
     schema.initial_sync_complete = True
@@ -117,17 +112,13 @@ def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(
     with (
         patch(f"{MODULE}.is_schedule_paused", return_value=True),
         patch(f"{MODULE}.start_external_data_workflow"),
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
-            return_value=True,
-        ),
     ):
         trigger_ad_hoc_sync(MagicMock(), schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
 
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_mode"] == "snapshot"
     # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
-    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
+    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
     assert schema.sync_type_config["cdc_last_run_at"] == "2026-09-24T00:00:00+00:00"
 
 

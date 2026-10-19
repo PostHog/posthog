@@ -18,6 +18,7 @@ from products.slack_app.backend.api import (
     _team_join_onboarding_cache_key,
     route_posthog_code_event_to_relevant_region,
 )
+from products.slack_app.backend.models import SlackSettings
 from products.slack_app.backend.services.slack_auth import get_cached_auth_state, write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
@@ -66,13 +67,16 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
     BOT_USER_ID = "U_BOT"
     CHANNEL_ID = "C_NEW_CHANNEL"
 
-    def _event(self, *, user: str | None = None, channel: str | None = None) -> dict:
-        return {
+    def _event(self, *, user: str | None = None, channel: str | None = None, inviter: str | None = None) -> dict:
+        event = {
             "type": "member_joined_channel",
             "user": user if user is not None else self.BOT_USER_ID,
             "channel": channel if channel is not None else self.CHANNEL_ID,
             "channel_type": "C",
         }
+        if inviter is not None:
+            event["inviter"] = inviter
+        return event
 
     def _mock_slack(self, slack_cls_mock, *, bot_user_id: str | None = BOT_USER_ID, post_ok: bool = True):
         instance = MagicMock()
@@ -97,6 +101,30 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
         assert any(block.get("type") == "actions" for block in call_kwargs["blocks"])
         # Dedupe slot is held so a Slack retry won't double-post.
         assert cache.get(_channel_onboarding_cache_key(self.SLACK_TEAM_ID, self.CHANNEL_ID)) is True
+
+    @parameterized.expand(
+        [
+            ("channel", "channel", "U_INVITER", "public"),
+            ("private_to_inviter", "inviter", "U_INVITER", "ephemeral"),
+            # Without an inviter the private welcome has no reader, so nothing goes to the channel.
+            ("private_without_inviter", "inviter", None, None),
+            ("off", "off", "U_INVITER", None),
+        ]
+    )
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_welcome_mode_decides_who_sees_the_welcome(self, _name, mode, inviter, expected, slack_cls):
+        instance = self._mock_slack(slack_cls)
+        SlackSettings.objects.create(
+            slack_workspace_id=self.SLACK_TEAM_ID, slack_user_id=None, channel_welcome_mode=mode
+        )
+
+        route_posthog_code_event_to_relevant_region(self._request(), self._event(inviter=inviter), self.SLACK_TEAM_ID)
+
+        assert instance.client.chat_postMessage.called == (expected == "public")
+        assert instance.client.chat_postEphemeral.called == (expected == "ephemeral")
+        if expected == "ephemeral":
+            call_kwargs = instance.client.chat_postEphemeral.call_args.kwargs
+            assert (call_kwargs["channel"], call_kwargs["user"]) == (self.CHANNEL_ID, "U_INVITER")
 
     @patch("products.slack_app.backend.api.SlackIntegration")
     def test_human_joined_does_not_post(self, slack_cls):

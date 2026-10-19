@@ -1,14 +1,20 @@
 # ruff: noqa: T201 allow print statements
 
 import datetime as dt
+from collections.abc import Callable, Iterator
+from functools import partial
 from time import sleep
 from typing import Any, Literal, cast
+from uuid import UUID, uuid5
 
 from django.conf import settings
 from django.core import exceptions
 from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
+from posthog.kafka_client.routing import get_producer
+from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.utils import UUIDT, generate_random_token_project
 
@@ -23,6 +29,59 @@ from products.demo.backend.logic.matrix.taxonomy_inference import infer_taxonomy
 
 from .matrix import Matrix
 from .models import EVENT_IDENTIFY, SimEvent, SimPerson
+
+# Each flush waits at most 1 second, so one event waits at most about this many seconds for queue room.
+QUEUE_FULL_MAX_FLUSHES = 60
+
+# Demo events go straight to ClickHouse and skip Node ingestion, so this module makes the
+# $experiment_exposure copies itself. Keep these values and the copy rule in sync with
+# nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts.
+EVENT_FEATURE_FLAG_CALLED = "$feature_flag_called"
+EVENT_EXPERIMENT_EXPOSURE = "$experiment_exposure"
+EXPERIMENT_EXPOSURE_UUID_NAMESPACE = UUID("1b7c9119-5953-4668-97b7-ab0ef8a6bb48")
+
+
+def _is_multivariate_flag_call(event: SimEvent) -> bool:
+    response = event.properties.get("$feature_flag_response")
+    return (
+        event.event == EVENT_FEATURE_FLAG_CALLED and isinstance(response, str) and response not in ("", "true", "false")
+    )
+
+
+@frozen
+class _EventToSave:
+    uuid: UUID
+    name: str
+    source: SimEvent
+
+
+def _with_exposure_copies(events: list[SimEvent]) -> Iterator[_EventToSave]:
+    """Yield each event to save, with each multivariate flag call followed by its $experiment_exposure copy."""
+    for event in events:
+        event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
+        yield _EventToSave(uuid=event_uuid, name=event.event, source=event)
+        if _is_multivariate_flag_call(event):
+            yield _EventToSave(
+                uuid=uuid5(EXPERIMENT_EXPOSURE_UUID_NAMESPACE, str(event_uuid)),
+                name=EVENT_EXPERIMENT_EXPOSURE,
+                source=event,
+            )
+
+
+def _produce_when_queue_has_room(produce: Callable[[], object]) -> None:
+    """Run one produce, and wait for room when the local Kafka queue is full.
+
+    confluent-kafka raises BufferError on a full queue instead of blocking. A demo run produces
+    events faster than a slow broker accepts them, so flush and retry instead of failing.
+    """
+    for _ in range(QUEUE_FULL_MAX_FLUSHES):
+        try:
+            produce()
+            return
+        except BufferError:
+            get_producer(topic=KAFKA_EVENTS_JSON).flush(timeout=1.0)
+    # The last attempt lets a BufferError propagate, so a broker that stays down fails the run.
+    produce()
 
 
 class MatrixManager:
@@ -290,28 +349,31 @@ class MatrixManager:
         """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
-        for event in events:
-            event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
-            create_event(
-                event_uuid=event_uuid,
-                event=event.event,
-                team=team,
-                distinct_id=event.distinct_id,
-                timestamp=event.timestamp,
-                properties=event.properties,
-                person_id=event.person_id,
-                person_properties=event.person_properties,
-                person_created_at=event.person_created_at,
-                group0_properties=event.group0_properties,
-                group1_properties=event.group1_properties,
-                group2_properties=event.group2_properties,
-                group3_properties=event.group3_properties,
-                group4_properties=event.group4_properties,
-                group0_created_at=event.group0_created_at,
-                group1_created_at=event.group1_created_at,
-                group2_created_at=event.group2_created_at,
-                group3_created_at=event.group3_created_at,
-                group4_created_at=event.group4_created_at,
+        for to_save in _with_exposure_copies(events):
+            event = to_save.source
+            _produce_when_queue_has_room(
+                partial(
+                    create_event,
+                    event_uuid=to_save.uuid,
+                    event=to_save.name,
+                    team=team,
+                    distinct_id=event.distinct_id,
+                    timestamp=event.timestamp,
+                    properties=event.properties,
+                    person_id=event.person_id,
+                    person_properties=event.person_properties,
+                    person_created_at=event.person_created_at,
+                    group0_properties=event.group0_properties,
+                    group1_properties=event.group1_properties,
+                    group2_properties=event.group2_properties,
+                    group3_properties=event.group3_properties,
+                    group4_properties=event.group4_properties,
+                    group0_created_at=event.group0_created_at,
+                    group1_created_at=event.group1_created_at,
+                    group2_created_at=event.group2_created_at,
+                    group3_created_at=event.group3_created_at,
+                    group4_created_at=event.group4_created_at,
+                )
             )
 
     @staticmethod

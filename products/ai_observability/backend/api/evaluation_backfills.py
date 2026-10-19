@@ -31,12 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import (
-    AccessControlPermission,
-    APIScopePermission,
-    PostHogFeatureFlagPermission,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import (
     AIObservabilityBackfillCreateSustainedThrottle,
     AIObservabilityBackfillCreateThrottle,
@@ -48,6 +43,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillInputs,
     backfill_workflow_id,
     cancel_backfill,
+    interrupt_backfill,
     report_backfill_finished,
     settle_horizon,
 )
@@ -83,6 +79,11 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # is held for the same tick, because that probe is the expensive one: it opens a connection with
 # no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
+
+# Candidates come from `events`, but each generation is read back from `ai_events`, which a
+# separate pipeline fills later, and a small share of generations take longer than the shared
+# ingestion margin to land there.
+BACKFILL_AI_EVENTS_LAG = timedelta(seconds=30)
 
 
 @frozen
@@ -219,6 +220,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "status",
+            "status_reason",
             "target",
             "window_start",
             "window_end",
@@ -226,6 +228,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "rerun_existing",
             "total_count",
             "dispatched_count",
+            "completed_count",
+            "evaluation_skipped_count",
             "skipped_count",
             "failed_count",
             "remaining_count",
@@ -236,7 +240,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
         read_only_fields = fields
         extra_kwargs = {
             "id": {"help_text": "Backfill identifier."},
-            "status": {"help_text": "running while the walk is dispatching, then completed or cancelled."},
+            "status": {"help_text": "Running, completed, interrupted by an error, or cancelled by a user."},
+            "status_reason": {"help_text": "Reason an interrupted backfill stopped; empty otherwise."},
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
@@ -246,12 +251,11 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
             "failed_count": {
-                "help_text": "Units whose evaluation failed to start. They have no result and count toward remaining_count."
+                "help_text": "Units whose evaluation failed to start or finish. Legacy runs only counted start failures."
             },
             "remaining_count": {
                 "help_text": (
-                    "Units still holding no result when the run finished, counted at that moment. "
-                    "Zero means the window is covered, whoever graded it."
+                    "Units left to retry after completion. Legacy runs estimated this before evaluations finished."
                 )
             },
             "created_at": {"help_text": "When the backfill was created."},
@@ -267,8 +271,6 @@ class EvaluationBackfillViewSet(
 ):
     """Historical runs of one evaluation over a closed time window (nested under an evaluation)."""
 
-    # The same flag as the tab, so the API and the surface reach a project together.
-    posthog_feature_flag = "llm-analytics-eval-backfills"
     scope_object = "evaluation"
     scope_object_read_actions = ["list", "retrieve", "estimate"]
     scope_object_write_actions = WRITE_ACTIONS
@@ -283,7 +285,6 @@ class EvaluationBackfillViewSet(
             APIScopePermission(),
             EvaluationBackfillAccessControlPermission(),
             TeamMemberAccessPermission(),
-            PostHogFeatureFlagPermission(),
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -332,10 +333,9 @@ class EvaluationBackfillViewSet(
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
-        # Candidates come from `events`, but each generation is read back from `ai_events`, which a
-        # separate pipeline fills later. A generation that has not reached `ai_events` yet fails its
-        # run for good, so the window stops short of the newest events.
-        window_end: datetime = min(data["window_end"], now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))
+        # A generation that has not reached `ai_events` yet fails its run, so the window stops short
+        # of the newest events.
+        window_end: datetime = min(data["window_end"], now - BACKFILL_AI_EVENTS_LAG)
         settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any
@@ -540,7 +540,7 @@ class EvaluationBackfillViewSet(
             team_id=self.team_id,
             workflow_id=workflow_id,
         )
-        if cancel_backfill(self.team_id, backfill.pk):
+        if interrupt_backfill(self.team_id, backfill.pk, "workflow_not_running"):
             report_backfill_finished(
                 self.team_id, str(backfill.pk), status="failed", stop_reason="workflow_not_running"
             )
@@ -668,7 +668,7 @@ class EvaluationBackfillViewSet(
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so
-                # a failed handle costs nothing and does not need a stack trace.
+                # a failed handle only lets the current page finish and does not need a stack trace.
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()

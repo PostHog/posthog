@@ -27,13 +27,17 @@ export interface UrlSourceFormValues {
 
 export const MAX_TEXT_BYTES = 1_000_000
 
+// Keep in step with DEFAULT_MAX_PAGES and MAX_URLS_PER_SOURCE.
+export const DEFAULT_MAX_PAGES = 200
+export const MAX_PAGES_PER_SOURCE = 5000
+
 export const DEFAULT_URL_SOURCE_FORM: UrlSourceFormValues = {
     name: '',
     url: '',
     crawl_mode: 'single',
     include_globs: '',
     exclude_globs: '',
-    max_pages: 50,
+    max_pages: DEFAULT_MAX_PAGES,
     max_depth: 2,
     refresh_interval: 'manual',
     always_include: false,
@@ -74,7 +78,10 @@ export function validateUrl({ name, url, max_pages }: UrlSourceFormValues): {
     return {
         name: !name.trim() ? 'Give the source a short name' : undefined,
         url: urlError,
-        max_pages: max_pages < 1 || max_pages > 500 ? 'max_pages must be between 1 and 500' : undefined,
+        max_pages:
+            max_pages < 1 || max_pages > MAX_PAGES_PER_SOURCE
+                ? `Max pages must be between 1 and ${MAX_PAGES_PER_SOURCE}`
+                : undefined,
     }
 }
 
@@ -98,7 +105,7 @@ export function editUrlSourceValuesFromSource(source: KnowledgeSource): UrlSourc
         crawl_mode: (source.crawl_mode || 'single') as CrawlMode,
         include_globs: (cfg.include_globs || []).join('\n'),
         exclude_globs: (cfg.exclude_globs || []).join('\n'),
-        max_pages: cfg.max_pages ?? 50,
+        max_pages: cfg.max_pages ?? DEFAULT_MAX_PAGES,
         max_depth: cfg.max_depth ?? 2,
         refresh_interval: (source.refresh_interval || 'manual') as RefreshIntervalValue,
         always_include: source.always_include ?? false,

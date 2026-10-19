@@ -377,11 +377,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             bulk_create_events(events)
         stored = events[0]["properties"]
         if table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            # The JSON ingest cleaner drops the heavy AI properties, and the table stores declared String paths as text.
-            # The runner converts the numeric ones back, but not $ai_is_error.
-            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES} | {
-                "$ai_is_error": "true"
-            }
+            # The JSON ingest cleaner drops the heavy AI properties.
+            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES}
 
         def make_runner(user: User) -> TraceQueryRunner | SessionQueryRunner | TracesQueryRunner:
             date_range = DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")

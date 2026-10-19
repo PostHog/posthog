@@ -25,6 +25,7 @@ class SignalEmitterOutput:
     description: str
     weight: float
     extra: dict[str, Any]
+    signal_id: str | None = None
 
 
 # Type for signal emitter functions (None if the source has not enough meaningful data)
@@ -52,6 +53,8 @@ class SignalSourceTableConfig(BaseModel):
     emitter: SignalEmitter
     # Each source defines how to fetch records — no default, must be explicit
     record_fetcher: RecordFetcher
+    # Snapshot sources deduplicate only after successful emission or an intentional filter.
+    record_processed_outputs: bool = False
     # Field used to filter records by time window (e.g. "created_at")
     partition_field: str
     # Columns to SELECT — only what the emitter and extra metadata need

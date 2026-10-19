@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconListCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,7 +23,13 @@ export function ScoutRubricsButton({ config }: { config: SignalScoutConfigApi })
 
     return (
         <>
-            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)} data-attr="scout-rubrics-open">
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconListCheck />}
+                onClick={() => setIsOpen(true)}
+                data-attr="scout-rubrics-open"
+            >
                 Rubrics
             </LemonButton>
             {isOpen && (

@@ -5,6 +5,7 @@ import importlib
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
+from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call
@@ -16,6 +17,11 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.logic.services.process_killed import (
+    ProcessKilledNotice,
+    format_process_killed_message,
+    parse_process_killed,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -45,11 +51,34 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_turn_complete, pi_turn_error
+from ee.hogai.sandbox import (
+    BACKGROUND_TURN_COMPLETE_METHOD,
+    PI_RUNTIME_ERROR_MESSAGE,
+    TURN_COMPLETE_METHOD,
+    is_turn_complete,
+    pi_turn_error,
+)
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
 )
+
+_GIB = 1024**3
+
+
+def _process_killed_event(**overrides: object) -> dict:
+    params: dict[str, object] = {
+        "pid": 4242,
+        "comm": "vitest",
+        "command": "node vitest run --token=secret-value",
+        "treeRssBytes": 12 * _GIB,
+        "memoryCurrentBytes": 14 * _GIB,
+        "memoryLimitBytes": 16 * _GIB,
+        "signal": "SIGTERM",
+        "at": "2026-01-01T00:00:00.000Z",
+        **overrides,
+    }
+    return {"type": "notification", "notification": {"method": "_posthog/process_killed", "params": params}}
 
 
 class TestIsTurnComplete:
@@ -333,6 +362,46 @@ class TestIsKeepaliveEvent:
         assert _is_keepalive_event(event_data) == expected
 
 
+class TestParseProcessKilled:
+    @parameterized.expand(
+        [
+            (
+                "kill_notification",
+                _process_killed_event(),
+                ProcessKilledNotice(
+                    comm="vitest",
+                    signal="SIGTERM",
+                    tree_rss_bytes=12 * _GIB,
+                    memory_current_bytes=14 * _GIB,
+                    memory_limit_bytes=16 * _GIB,
+                ),
+            ),
+            ("other_method", {"type": "notification", "notification": {"method": "_posthog/error"}}, None),
+            ("not_a_notification", {"type": "keepalive"}, None),
+            ("missing_size", _process_killed_event(treeRssBytes=None), None),
+            ("boolean_size", _process_killed_event(memoryLimitBytes=True), None),
+            ("missing_comm", _process_killed_event(comm=None), None),
+        ],
+    )
+    def test_parse_process_killed(self, _name: str, event_data: dict, expected: ProcessKilledNotice | None) -> None:
+        assert parse_process_killed(event_data) == expected
+
+    @parameterized.expand(
+        [
+            ("whole_gib", 12 * _GIB, 16 * _GIB, "using 12.0 GiB of the 16.0 GiB available"),
+            ("fractional_gib", int(13.46 * _GIB), int(15.5 * _GIB), "using 13.5 GiB of the 15.5 GiB available"),
+        ],
+    )
+    def test_format_process_killed_message(self, _name: str, tree_rss: int, limit: int, expected: str) -> None:
+        notice = ProcessKilledNotice(
+            comm="node", signal="SIGKILL", tree_rss_bytes=tree_rss, memory_current_bytes=limit, memory_limit_bytes=limit
+        )
+
+        assert format_process_killed_message(notice) == (
+            f"The sandbox stopped node because it was {expected}. The agent is still running."
+        )
+
+
 class TestSanitizeHttpxError:
     def test_redacts_query_string_carrying_the_transport_token(self) -> None:
         request = httpx.Request("GET", "https://hogland.example/events?token=super-secret-bearer")
@@ -417,33 +486,13 @@ class TestAgentActiveReactivation:
 
 
 class TestRelaySandboxEventsCancellation:
-    async def test_cancelled_relay_marks_stream_complete_without_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        redis_stream = SimpleNamespace(
-            initialize=AsyncMock(),
-            mark_complete=AsyncMock(),
-            mark_error=AsyncMock(),
-        )
-
-        class StubTaskRunRedisStream:
-            def __init__(
-                self,
-                stream_key: str,
-                use_dedicated: bool = False,
-                *,
-                presence_gated: bool = False,
-                origin_product: str | None = None,
-                thin_tail: bool = False,
-            ) -> None:
-                self.stream_key = stream_key
-
-            async def initialize(self) -> None:
-                await redis_stream.initialize()
-
-            async def mark_complete(self) -> None:
-                await redis_stream.mark_complete()
-
-            async def mark_error(self, error: str) -> None:
-                await redis_stream.mark_error(error)
+    @pytest.mark.parametrize("replaced", [False, True])
+    async def test_cancelled_relay_only_completes_its_own_stream(
+        self, monkeypatch: pytest.MonkeyPatch, replaced: bool
+    ) -> None:
+        stream_key = f"task-run-stream:test:{uuid4()}"
+        redis_stream = TaskRunRedisStream(stream_key)
+        await redis_stream._redis_client.set(f"{stream_key}:generation", "original")
 
         class StubTaskRunQuerySet:
             def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
@@ -455,9 +504,15 @@ class TestRelaySandboxEventsCancellation:
                 )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
+            if replaced:
+                await redis_stream._redis_client.set(f"{stream_key}:generation", "replacement")
             raise asyncio.CancelledError
 
-        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunRedisStream",
+            lambda _key, use_dedicated=False, **kwargs: TaskRunRedisStream(stream_key, use_dedicated, **kwargs),
+        )
         monkeypatch.setattr(
             relay_sandbox_events_module,
             "TaskRunModel",
@@ -467,20 +522,26 @@ class TestRelaySandboxEventsCancellation:
         monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
         monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", fake_relay_loop)
 
-        with pytest.raises(asyncio.CancelledError):
-            await relay_sandbox_events(
-                RelaySandboxEventsInput(
-                    run_id="run-id",
-                    task_id="task-id",
-                    sandbox_url="https://sandbox.example",
-                    sandbox_connect_token=None,
-                    team_id=1,
-                    distinct_id="distinct-id",
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await relay_sandbox_events(
+                    RelaySandboxEventsInput(
+                        run_id="run-id",
+                        task_id="task-id",
+                        sandbox_url="https://sandbox.example",
+                        sandbox_connect_token=None,
+                        team_id=1,
+                        distinct_id="distinct-id",
+                        stream_generation="original",
+                    )
                 )
-            )
 
-        redis_stream.mark_complete.assert_awaited_once()
-        redis_stream.mark_error.assert_not_awaited()
+            events = await redis_stream._redis_client.xrange(stream_key)
+            assert [json.loads(data[b"data"]) for _, data in events] == (
+                [] if replaced else [{"type": "STREAM_STATUS", "status": "complete"}]
+            )
+        finally:
+            await redis_stream.delete_stream()
 
 
 class TestRelaySandboxEventsPresenceGating:
@@ -510,6 +571,7 @@ class TestRelaySandboxEventsPresenceGating:
                 presence_gated: bool = False,
                 origin_product: str | None = None,
                 thin_tail: bool = False,
+                expected_generation: str | None = None,
             ) -> None:
                 constructed.append((presence_gated, thin_tail))
 
@@ -579,6 +641,7 @@ class TestRelaySandboxEventsMissingActor:
                 presence_gated: bool = False,
                 origin_product: str | None = None,
                 thin_tail: bool = False,
+                expected_generation: str | None = None,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -768,6 +831,71 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
+    async def test_process_killed_is_reported_without_ending_the_relay(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        killed_event = _process_killed_event()
+        terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(killed_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        emit_agent_log_mock = MagicMock()
+        task_run = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module, "emit_agent_log", emit_agent_log_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "parse_permission_request", lambda _event: None)
+
+        sandbox_gone = await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        assert sandbox_gone is False
+        assert redis_stream.write_event.await_args_list == [call(killed_event), call(terminal_event)]
+        emit_agent_log_mock.assert_called_once_with(
+            "run-id",
+            "warn",
+            "The sandbox stopped vitest because it was using 12.0 GiB of the 16.0 GiB available. "
+            "The agent is still running.",
+        )
+        task_run.capture_event.assert_called_once_with(
+            "sandbox_process_killed",
+            {
+                "process_comm": "vitest",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * _GIB,
+                "memory_current_bytes": 14 * _GIB,
+                "memory_limit_bytes": 16 * _GIB,
+            },
+        )
+        assert "secret-value" not in json.dumps(task_run.capture_event.call_args.args)
+
     async def test_relay_signals_command_and_generated_activity_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -949,6 +1077,8 @@ class TestRelaySandboxEventsErrorHandling:
         notify = MagicMock()
         monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        record_cause = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "record_run_failure_cause", record_cause)
         metric = "posthog_tasks_turn_completed_suppressed_total"
         labels = {"reason": "idle_resume"}
         suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
@@ -965,8 +1095,10 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         if turn_failed:
+            record_cause.assert_called_once_with("run-id", "pi_runtime_error")
             handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
         else:
+            record_cause.assert_not_called()
             await asyncio.wait_for(dispatch_done.wait(), timeout=5)
             assert handle.signal.await_args_list == [
                 call("agent_state_changed", arg=False),
@@ -1383,6 +1515,7 @@ class TestRelaySandboxEventsErrorHandling:
                 presence_gated: bool = False,
                 origin_product: str | None = None,
                 thin_tail: bool = False,
+                expected_generation: str | None = None,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -1460,6 +1593,7 @@ class TestRelaySandboxEventsWorkflowOptions:
             create_pr=True,
             state={},
             _branch="feature-branch",
+            stream_generation="replacement",
         )
         execute_activity_mock = AsyncMock()
         execute_activity_mock.return_value = True
@@ -1475,6 +1609,7 @@ class TestRelaySandboxEventsWorkflowOptions:
         assert execute_activity_mock.await_args is not None
         args, kwargs = execute_activity_mock.await_args
         assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
+        assert args[1].stream_generation == "replacement"
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
         assert workflow._sandbox_gone is True
 
@@ -1596,6 +1731,72 @@ class TestPersistFinalMessage:
         _persist_final_message("00000000-0000-0000-0000-000000000000", "The report.")
 
 
+class TestRelaySlackAgentDesignFanOut:
+    async def test_background_turn_end_closes_the_slack_turn_with_the_whole_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+        )
+        events = [
+            _acp("agent_message_chunk", {"content": {"type": "text", "text": "No, it is not safe to"}}),
+            _acp("agent_message_chunk", {"content": {"type": "text", "text": " merge yet."}}),
+            {
+                "type": "notification",
+                "notification": {"method": BACKGROUND_TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+            },
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class EventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "EventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_a, **_kw: EventSource())
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            slack_thread_context={"channel": "C1"},
+            is_agent_design_enabled=True,
+        )
+
+        slack_signals = [
+            (c.args[0], c.kwargs.get("arg"))
+            for c in handle.signal.await_args_list
+            if c.args[0] in ("turn_started", "agent_text_delta", "turn_completed")
+        ]
+        assert slack_signals[0][0] == "turn_started"
+        assert slack_signals[-1] == ("turn_completed", None)
+        assert "".join(arg for name, arg in slack_signals if name == "agent_text_delta") == (
+            "No, it is not safe to merge yet."
+        )
+
+
 class TestFlushPendingText:
     """Coalescing many chunks into one agent_text_delta signal keeps the parent workflow's
     history small enough to replay under the 2s deadlock budget."""
@@ -1631,7 +1832,7 @@ class TestFlushPendingText:
 class TestShouldSignalWorkflowHeartbeat:
     @parameterized.expand(
         [
-            # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
+            # Workflow runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
@@ -1644,7 +1845,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 set(),
                 False,
             ),
-            # Idle after end_of_turn: the short loop window applies and the run winds down.
+            # Idle after end_of_turn: the short window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
             # With no tool call in flight, the default and longer windows rely on the

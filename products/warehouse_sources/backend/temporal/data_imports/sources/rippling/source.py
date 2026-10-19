@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]):
+    codebase_detection = detect(env=("^RIPPLING_",))
+
     # Rippling versions its REST API through a dated `Rippling-Api-Version` header and, when no
     # header is sent, serves the version bound to the API token account-side (chosen when the
     # customer mints the token) — never a moving "latest". We send the token as-is with no version
@@ -72,7 +75,7 @@ class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]
             label="Rippling",
             caption="""Enter your Rippling API token to pull your Rippling workforce data into the PostHog Data warehouse.
 
-A Rippling admin can create a scoped API token under Settings > Company Settings > API Access. Enable the read scope for each dataset you want to sync (e.g. `companies.read`, `users.read`, `workers.read`, `departments.read`, `teams.read`, `levels.read`, `work-locations.read`, `employment-types.read`, `compensations.read`). Note that tokens expire after 30 days of inactivity.""",
+A Rippling admin can create a scoped API token under Settings > Company Settings > API Access. Enable the read scope for each dataset you want to sync (e.g. `companies.read`, `users.read`, `workers.read`, `departments.read`, `teams.read`, `levels.read`, `work-locations.read`, `employment-types.read`, `compensations.read`, `time-entries.read`, `leave-requests.read`, `payroll-runs.read`, `worker-payroll-records.read`). Payroll tables need Rippling Global Payroll. Note that tokens expire after 30 days of inactivity.""",
             iconPath="/static/services/rippling.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rippling",
             releaseStatus=ReleaseStatus.ALPHA,

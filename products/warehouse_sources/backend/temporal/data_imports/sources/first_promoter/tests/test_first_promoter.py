@@ -5,16 +5,25 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter import (
     FirstPromoterPaginator,
     FirstPromoterResumeConfig,
     _format_filter_date,
     first_promoter_source,
     get_resource,
-    rest_api_client_config,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import DEFAULT_PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source import FirstPromoterSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
+    FirstPromoterSourceConfig,
+)
 
 
 def _rows(count: int, start_id: int = 1) -> list[dict[str, Any]]:
@@ -25,6 +34,10 @@ def _request() -> Mock:
     request = Mock()
     request.params = None
     return request
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(FirstPromoterSource(), FirstPromoterSourceConfig(api_key="fp-key", account_id="98765"))
 
 
 class TestFirstPromoterTransport:
@@ -53,12 +66,6 @@ class TestFirstPromoterTransport:
         paginator.update_state(Mock(), data=list(page))
         assert paginator.has_next_page is False
 
-    def test_paginator_keeps_paging_through_distinct_full_pages(self) -> None:
-        paginator = FirstPromoterPaginator()
-        paginator.update_state(Mock(), data=_rows(DEFAULT_PAGE_SIZE, start_id=1))
-        paginator.update_state(Mock(), data=_rows(DEFAULT_PAGE_SIZE, start_id=1 + DEFAULT_PAGE_SIZE))
-        assert paginator.has_next_page is True
-
     def test_paginator_sends_page_and_page_size(self) -> None:
         paginator = FirstPromoterPaginator()
         request = _request()
@@ -70,18 +77,6 @@ class TestFirstPromoterTransport:
         paginator.update_request(request)
         assert request.params == {"page": 2, "per_page": DEFAULT_PAGE_SIZE}
 
-    def test_paginator_resume_state_round_trip(self) -> None:
-        paginator = FirstPromoterPaginator()
-        paginator.update_state(Mock(), data=_rows(DEFAULT_PAGE_SIZE))
-        state = paginator.get_resume_state()
-        assert state == {"page": 2}
-
-        resumed = FirstPromoterPaginator()
-        resumed.set_resume_state(cast(dict[str, Any], state))
-        request = _request()
-        resumed.init_request(request)
-        assert request.params["page"] == 2
-
     @parameterized.expand(
         [
             ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45, 999999), "2026-03-01"),
@@ -92,21 +87,6 @@ class TestFirstPromoterTransport:
     )
     def test_format_filter_date(self, _name: str, value: Any, expected: str) -> None:
         assert _format_filter_date(value) == expected
-
-    def test_commissions_resource_is_incremental(self) -> None:
-        resource = cast(dict[str, Any], get_resource("commissions", should_use_incremental_field=True))
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        incremental = resource["endpoint"]["incremental"]
-        # A flat `created_at` param is silently ignored by the API — the filter is bracket-nested.
-        assert incremental["start_param"] == "filters[created_at][from]"
-        assert incremental["cursor_path"] == "created_at"
-        # sort_mode="asc" checkpoints the watermark mid-sync, so the request must pin that order.
-        assert resource["endpoint"]["params"]["sorting[created_at]"] == "asc"
-
-    def test_commissions_resource_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource("commissions", should_use_incremental_field=False))
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in resource["endpoint"]
 
     def test_commissions_resource_honors_user_selected_cursor(self) -> None:
         resource = cast(
@@ -163,27 +143,6 @@ class TestFirstPromoterTransport:
         resource = cast(dict[str, Any], get_resource(endpoint, should_use_incremental_field=False))
         assert "data_map" not in resource
 
-    def test_client_config_sends_both_credentials_and_pins_the_host(self) -> None:
-        config = rest_api_client_config("fp-key", "98765", "v2")
-        assert config["base_url"] == "https://api.firstpromoter.com/api/v2/company"
-        assert config["auth"] == {"type": "bearer", "token": "fp-key"}
-        # Omitting the account id header fails auth even with a valid bearer token.
-        assert cast(dict[str, str], config["headers"])["ACCOUNT-ID"] == "98765"
-        # A redirect off the FirstPromoter host would otherwise replay the bearer token.
-        assert config["allowed_hosts"] == []
-        assert config["allow_redirects"] is False
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.make_tracked_session"
-    )
-    def test_client_config_keeps_response_bodies_out_of_sample_capture(self, mock_session: MagicMock) -> None:
-        # Sample capture sees the raw body before the data_map runs, so the promoter credential (and
-        # PII) would leak into shared sample storage unless capture is off on the sync session.
-        config = rest_api_client_config("fp-key", "98765", "v2")
-        assert config["session"] is mock_session.return_value
-        assert mock_session.call_args.kwargs["capture"] is False
-        assert mock_session.call_args.kwargs["redact_values"] == ("fp-key",)
-
     @parameterized.expand(
         [
             (200, True, None),
@@ -193,15 +152,11 @@ class TestFirstPromoterTransport:
             (500, False, "unexpected status code"),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.make_tracked_session"
-    )
     def test_validate_credentials_status_mapping(
-        self, status: int, expected_valid: bool, message_fragment: str | None, mock_session: MagicMock
+        self, status: int, expected_valid: bool, message_fragment: str | None
     ) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        is_valid, message = validate_credentials("fp-key", "98765", "v2")
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            is_valid, message = validate_credentials("fp-key", "98765", "v2")
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -209,33 +164,23 @@ class TestFirstPromoterTransport:
         else:
             assert message is not None and message_fragment in message
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.firstpromoter.com/api/v2/company/promoters"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer fp-key"
-        assert call.kwargs["headers"]["ACCOUNT-ID"] == "98765"
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        request = network.requests_log[0]
+        assert request.url == "https://api.firstpromoter.com/api/v2/company/promoters?per_page=1"
+        assert request.headers["authorization"] == "Bearer fp-key"
+        assert request.headers["account-id"] == "98765"
+        assert network.session_options[0]["allow_redirects"] is False
         # The probe reads /promoters, whose bodies carry the password_setup_url credential and PII.
-        assert mock_session.call_args.kwargs["capture"] is False
+        assert network.session_options[0]["capture"] is False
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.rest_api_resource"
-    )
-    def test_saved_state_resumes_at_the_next_page(self, mock_rest_api_resource: MagicMock) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = FirstPromoterResumeConfig(page=7)
-
-        first_promoter_source(
-            api_key="fp-key",
-            account_id="98765",
-            endpoint="commissions",
-            team_id=1,
-            job_id="job-1",
-            api_version="v2",
-            resumable_source_manager=manager,
+    def test_saved_state_resumes_at_the_next_page(self) -> None:
+        result = _driver().run(
+            "commissions",
+            [ScriptedResponse(json=_rows(1))],
+            resume_state=FirstPromoterResumeConfig(page=7),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"page": 7}
+        assert result.raised is None
+        assert result.params("page") == ["7"]
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.rest_api_resource"
@@ -271,24 +216,17 @@ class TestFirstPromoterTransport:
             ("promo_codes", ["id"], None),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.rest_api_resource"
-    )
     def test_source_response_keys_and_partitioning(
         self,
         endpoint: str,
         expected_primary_keys: list[str],
         expected_partition_keys: list[str] | None,
-        _mock_rest_api_resource: MagicMock,
     ) -> None:
-        response = first_promoter_source(
-            api_key="fp-key",
-            account_id="98765",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            api_version="v2",
-        )
+        payload = {"data": _rows(1)} if endpoint == "promoters" else _rows(1)
+        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys

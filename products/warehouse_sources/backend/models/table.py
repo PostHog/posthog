@@ -19,6 +19,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, is_reserved_models_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -61,7 +62,11 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
+)
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping, resolve_external_table_fields
@@ -86,6 +91,8 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
+    "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
@@ -410,12 +417,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Use if it's certain externaldataschemas aren't needed
     raw_objects = DataWarehouseTableQuerySet.as_manager()
 
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     TableFormat = DataWarehouseTableFormat
     CreatedVia = DataWarehouseTableCreatedVia
 
     name = models.CharField(max_length=128)
-    format = models.CharField(max_length=128, choices=TableFormat)
+    format = models.CharField(max_length=128, choices=TableFormat.choices)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     url_pattern = models.CharField(max_length=500)
@@ -427,7 +434,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Where this table came from — the request surface for user-created tables, or the internal
     # path that built it. Derived server-side (never taken from the request body) so a client can't
     # self-label. NULL on rows created before this field existed.
-    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
+    created_via = models.CharField(max_length=20, choices=CreatedVia.choices, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,
@@ -448,7 +455,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     options = models.JSONField(default=dict, blank=True)
 
-    row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
+    row_count = models.BigIntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
     __repr__ = sane_repr("name")
@@ -467,6 +474,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         ]
 
     def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        self._validate_models_namespace()
         if not internally_computed_url_pattern:
             self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
         super().save(*args, **kwargs)
@@ -479,7 +487,24 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # error. save()'s check stays the enforcement of record for every other caller (DRF, a
         # management command, a future endpoint), since nothing but ModelForm calls full_clean().
         super().clean()
+        self._validate_models_namespace()
         self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _validate_models_namespace(self) -> None:
+        # A materialized model stores its rows in a private backing table that has the model's name.
+        # The HogQL schema never exposes that table, so it does not claim the namespace.
+        if self.created_via == self.CreatedVia.MATERIALIZED_VIEW:
+            return
+        if not is_reserved_models_name(self.name):
+            return
+        source = self.external_data_source
+        if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT:
+            return
+        # A table saved with this name before the reservation existed must stay editable and deletable.
+        # soft_delete() calls save(), so rejecting an unchanged name would leave the table stuck.
+        if not self._state.adding and type(self).raw_objects.filter(pk=self.pk, name=self.name).exists():
+            return
+        raise ValidationError({"name": MODELS_NAMESPACE_TABLE_ERROR})
 
     def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
         """Block a url_pattern change on a table with no credential, unless the caller declares the
@@ -952,7 +977,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
         )
 
-        if self.external_data_source and self.external_data_source.is_direct_postgres:
+        is_managed_trino_table = (
+            self.external_data_source is not None
+            and self.external_data_source.is_managed_warehouse
+            and self.url_pattern == "direct://trino"
+        )
+        if self.external_data_source and self.external_data_source.is_direct_postgres and not is_managed_trino_table:
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
@@ -1093,7 +1123,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if (
             self.external_data_source
             and self.external_data_source.is_direct_query
-            and self.external_data_source.direct_engine == "trino"
+            and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
             job_inputs = self.external_data_source.job_inputs or {}
             trino_catalog = (
@@ -1190,10 +1220,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             source_type=self.external_data_source.source_type if self.external_data_source else None,
         )
 
-        if self._is_csv_format():
-            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
+        # Must resolve an unset option the same way _describe_settings does, by sending no setting.
+        # Column detection reads the file through that method, so forcing a value here would query a
+        # table under different quoting than the columns it was created from.
+        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
             table_def.top_level_settings = HogQLQuerySettings(
-                format_csv_allow_double_quotes=effective,
+                format_csv_allow_double_quotes=self.csv_allow_double_quotes,
             )
 
         return table_def
@@ -1233,7 +1265,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
         """Read a few rows under one quote setting. False when the rows don't parse; any other
-        failure (credentials, a missing file) is raised for the caller to surface as-is."""
+        failure (credentials, a missing file) is raised with a user-facing message."""
         ctx = HogQLContext(team_id=self.team.pk)
         func = build_function_call(
             url=self.url_pattern,
@@ -1258,8 +1290,32 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 self._safe_expose_ch_error(e)
             if e.code in self._CSV_PARSE_ERROR_CODES:
                 return False
-            raise
+            if not is_expected_warehouse_read_error(e):
+                capture_exception(e)
+            self._safe_expose_ch_error(e)
         return True
+
+    def detect_csv_double_quotes_setting(self) -> bool | None:
+        """Return the csv_allow_double_quotes setting that parses this file, or None when neither does.
+
+        RFC 4180 is tried first because almost every CSV export quotes fields that contain a comma.
+        Each probe reads a sample rather than the whole file, so a file whose quoting only varies
+        past the sample stays undisambiguated and takes the RFC 4180 answer. That is the same
+        setting ClickHouse applies to an unset option, so the sample bounds how much this method
+        can learn, not how correct its answer is. False comes back only when RFC 4180 fails.
+        """
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="detect_csv_double_quotes",
+            product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
+        )
+        for allow_double_quotes in (True, False):
+            if self._csv_parses_with_double_quotes(allow_double_quotes):
+                return allow_double_quotes
+        return None
 
     def _validate_csv_double_quotes_setting(self) -> None:
         """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.

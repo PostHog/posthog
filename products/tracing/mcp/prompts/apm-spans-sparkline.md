@@ -53,7 +53,7 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 
 Property filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 

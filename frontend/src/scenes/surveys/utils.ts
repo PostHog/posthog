@@ -2,22 +2,26 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
+    INTRO_SCREEN_PAGE_INDEX,
     MAX_ITERATION_COUNT,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
 } from 'scenes/surveys/constants'
+import { getIntroScreenDescriptionContentType } from 'scenes/surveys/surveyIntroScreen'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -43,6 +47,8 @@ import {
     SurveyStats,
     SurveyType,
 } from '~/types'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -274,6 +280,32 @@ export function sanitizeSurveyDisplayConditions(
     return sanitized
 }
 
+/**
+ * The renderer shows the intro page for INTRO_SCREEN_PAGE_INDEX in preview mode regardless of
+ * `displayIntroScreen` (mirroring how the confirmation page ignores `displayThankYouMessage`),
+ * so a page index left on the intro after the toggle turns off must fall back to question 0.
+ */
+export function clampPreviewPageIndex(
+    pageIndex: number | null | undefined,
+    survey: Pick<Survey | NewSurvey, 'appearance'>
+): number {
+    const index = pageIndex ?? 0
+    if (index === INTRO_SCREEN_PAGE_INDEX && !survey.appearance?.displayIntroScreen) {
+        return 0
+    }
+    return index
+}
+
+export function getFirstPreviewPageIndex(survey: Pick<Survey | NewSurvey, 'appearance'>): number {
+    return survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0
+}
+
+export function getIntroScreenPageOptions(
+    survey: Pick<Survey | NewSurvey, 'appearance'>
+): { label: string; value: number }[] {
+    return survey.appearance?.displayIntroScreen ? [{ label: 'Intro screen', value: INTRO_SCREEN_PAGE_INDEX }] : []
+}
+
 export function sanitizeSurveyAppearance(
     appearance?: SurveyAppearance | null,
     isPartialResponsesEnabled = false,
@@ -294,8 +326,24 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        introScreenHeader: sanitizeHTML(appearance.introScreenHeader ?? ''),
+        introScreenDescription:
+            getIntroScreenDescriptionContentType(appearance) === 'text'
+                ? (appearance.introScreenDescription ?? '')
+                : sanitizeHTML(appearance.introScreenDescription ?? ''),
         surveyPopupDelaySeconds:
             surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
+    }
+}
+
+// An unset content type means HTML to the SDKs, so a new intro is pinned to the editors' text tab.
+// A description that already has content keeps the type it renders with.
+export function withIntroScreenEnabled(appearance?: SurveyAppearance | null): SurveyAppearance {
+    return {
+        ...appearance,
+        displayIntroScreen: true,
+        introScreenDescriptionContentType:
+            appearance?.introScreenDescriptionContentType ?? (appearance?.introScreenDescription ? 'html' : 'text'),
     }
 }
 
@@ -750,8 +798,8 @@ function buildMergedSubmissionsSubquery(
     questions: QuestionWithIndex[],
     {
         includeRespondentMetadata = false,
-        includeCurrentUrl = false,
-    }: { includeRespondentMetadata?: boolean; includeCurrentUrl?: boolean } = {}
+        propertyReads = [],
+    }: { includeRespondentMetadata?: boolean; propertyReads?: PropertyRead[] } = {}
 ): string {
     const completedEventExpr = `event = '${SurveyEventName.SENT}' AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
 
@@ -767,10 +815,10 @@ function buildMergedSubmissionsSubquery(
                   'person.properties AS person_properties',
               ]
             : []),
-        // Read only when the user turns its column on, because an unconditional read costs every
+        // Read only when the user adds its column, because an unconditional read costs every
         // responses query one more property read and one more argMax. The metadata columns above
         // always reach a caller, so they stay unconditional.
-        ...(includeCurrentUrl ? ['properties.`$current_url` AS current_url'] : []),
+        ...propertyReads.map(({ alias, expression }) => `${expression} AS ${alias}`),
         `${completedEventExpr} AS is_completed_event`,
         'event',
         ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
@@ -793,7 +841,7 @@ function buildMergedSubmissionsSubquery(
                   'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
               ]
             : []),
-        ...(includeCurrentUrl ? ['argMax(current_url, tuple(timestamp, event_uuid)) AS current_url'] : []),
+        ...propertyReads.map(({ alias }) => `argMax(${alias}, tuple(timestamp, event_uuid)) AS ${alias}`),
         ...questions.map(({ question, index }) => {
             const raw = rawAnswerAlias(index)
             return `argMaxIf(${raw}, tuple(timestamp, event_uuid), ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
@@ -903,32 +951,83 @@ export function transformSurveyResponseRows(rows: DataTableRow[], survey: Pick<S
 }
 
 /**
- * Respondent context the responses table can show. Both the table and the export select only the
- * columns the user turned on, so the file carries the same context the table shows.
+ * A column the user adds to the responses table. Both the table and the export select only the
+ * columns the user added, so the file carries the same context the table shows.
  */
-export const SURVEY_RESPONSE_CONTEXT_COLUMNS = [
-    { key: 'person_id', label: 'Person ID' },
-    { key: 'session_id', label: 'Session ID' },
-    { key: 'current_url', label: 'Current URL' },
-] as const
+export type SurveyResponseColumn =
+    | { type: 'person_id' }
+    | {
+          type: TaxonomicFilterGroupType.EventProperties | TaxonomicFilterGroupType.PersonProperties
+          key: string
+      }
 
-export type SurveyResponseContextColumn = (typeof SURVEY_RESPONSE_CONTEXT_COLUMNS)[number]['key']
+export function surveyResponseColumnId(column: SurveyResponseColumn): string {
+    switch (column.type) {
+        case 'person_id':
+            return 'person_id'
+        case TaxonomicFilterGroupType.EventProperties:
+            return `properties.${column.key}`
+        case TaxonomicFilterGroupType.PersonProperties:
+            return `person.properties.${column.key}`
+    }
+}
 
-function selectedContextColumns(
-    contextColumns: SurveyResponseContextColumn[]
-): { key: SurveyResponseContextColumn; label: string }[] {
-    return SURVEY_RESPONSE_CONTEXT_COLUMNS.filter((column) => contextColumns.includes(column.key))
+export function surveyResponseColumnLabel(column: SurveyResponseColumn): string {
+    switch (column.type) {
+        case 'person_id':
+            return 'Person ID'
+        case TaxonomicFilterGroupType.EventProperties:
+            return getFilterLabel(column.key, column.type)
+        case TaxonomicFilterGroupType.PersonProperties:
+            return `Person: ${getFilterLabel(column.key, column.type)}`
+    }
+}
+
+interface PropertyRead {
+    alias: string
+    expression: string
+}
+
+interface ChosenColumn {
+    column: SurveyResponseColumn
+    source: string
+}
+
+function chooseColumns(columns: SurveyResponseColumn[]): { chosen: ChosenColumn[]; propertyReads: PropertyRead[] } {
+    const chosen: ChosenColumn[] = []
+    const propertyReads: PropertyRead[] = []
+    columns.forEach((column, index) => {
+        if (column.type === 'person_id') {
+            chosen.push({ column, source: 'person_id' })
+            return
+        }
+        const alias = `column_${index}`
+        const object = column.type === TaxonomicFilterGroupType.PersonProperties ? 'person.properties' : 'properties'
+        chosen.push({ column, source: alias })
+        propertyReads.push({ alias, expression: `${object}.${escapeRawPropertyAsHogQLIdentifier(column.key)}` })
+    })
+    return { chosen, propertyReads }
+}
+
+/** A property can share its label with a fixed export column, and HogQL rejects a repeated alias. */
+function uniqueColumnName(name: string, taken: string[]): string {
+    let unique = name
+    for (let suffix = 2; taken.includes(unique); suffix++) {
+        unique = `${name} (${suffix})`
+    }
+    return unique
 }
 
 export function buildSurveyResponsesQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
-    contextColumns: SurveyResponseContextColumn[] = []
+    responseColumns: SurveyResponseColumn[] = []
 ): string {
     const questions = getAnswerableQuestions(survey)
+    const { chosen, propertyReads } = chooseColumns(responseColumns)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
         includeRespondentMetadata: true,
-        includeCurrentUrl: contextColumns.includes('current_url'),
+        propertyReads,
     })
     const answers = survey.questions.map((question, index) =>
         question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
@@ -942,7 +1041,9 @@ export function buildSurveyResponsesQuery(
         'outcome AS status',
         'submitted_at AS timestamp',
         'distinct_id AS respondent',
-        ...selectedContextColumns(contextColumns).map((column) => `${column.key} AS ${column.key}`),
+        ...chosen.map(
+            ({ column, source }) => `${source} AS ${escapeRawPropertyAsHogQLIdentifier(surveyResponseColumnId(column))}`
+        ),
         // Last, so the row actions stay in the rightmost column.
         'uuid AS actions',
     ]
@@ -952,12 +1053,13 @@ export function buildSurveyResponsesQuery(
 export function buildSurveyResponsesExportQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
-    contextColumns: SurveyResponseContextColumn[] = []
+    responseColumns: SurveyResponseColumn[] = []
 ): DataTableNode & { source: HogQLQuery } {
     const questions = getAnswerableQuestions(survey)
+    const { chosen, propertyReads } = chooseColumns(responseColumns)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
         includeRespondentMetadata: true,
-        includeCurrentUrl: contextColumns.includes('current_url'),
+        propertyReads,
     })
     const columns = ['Respondent ID', 'Email', 'Submitted at (UTC)', 'Status']
     const expressions = [
@@ -967,14 +1069,14 @@ export function buildSurveyResponsesExportQuery(
         "multiIf(outcome = 'completed', 'Completed', outcome = 'dismissed', 'Dismissed', 'Abandoned')",
     ]
 
-    for (const column of selectedContextColumns(contextColumns)) {
-        columns.push(column.label)
-        expressions.push(column.key)
+    for (const { column, source } of chosen) {
+        columns.push(uniqueColumnName(surveyResponseColumnLabel(column), columns))
+        expressions.push(source)
     }
 
     for (const { question, index } of questions) {
         const title = question.question.replace(/\s+/g, ' ').trim()
-        columns.push(`Q${index + 1}${title ? `: ${title}` : ''}`)
+        columns.push(uniqueColumnName(`Q${index + 1}${title ? `: ${title}` : ''}`, columns))
         const answer = mergedAnswerAlias(index)
         expressions.push(
             question.type === SurveyQuestionType.MultipleChoice
@@ -990,7 +1092,7 @@ export function buildSurveyResponsesExportQuery(
         columns,
         source: {
             kind: NodeKind.HogQLQuery,
-            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapePropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
+            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapeRawPropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
         },
     }
 }
@@ -1375,7 +1477,7 @@ export function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Sur
         archived: false,
         start_date: null,
         end_date: null,
-        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        targeting_flag_filters: v1TargetingFlagFilters(survey) ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
 }
@@ -1455,7 +1557,13 @@ export function getSurveyTargetingFilters(survey: Survey | NewSurvey): FeatureFl
         return survey.targeting_flag_filters
     }
 
-    return survey.targeting_flag?.filters || undefined
+    return v1TargetingFlagFilters(survey)
+}
+
+/** A survey's targeting flag is v1 by construction; any other config version has no release conditions to show. */
+export function v1TargetingFlagFilters(survey: Survey | NewSurvey): FeatureFlagFilters | undefined {
+    const filters = survey.targeting_flag?.filters
+    return filters && isV1FeatureFlagConfig(filters) ? filters : undefined
 }
 
 export function getSurveyAudienceRuleCount(filters?: FeatureFlagFilters | null): number {

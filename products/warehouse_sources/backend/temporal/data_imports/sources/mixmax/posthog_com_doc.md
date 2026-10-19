@@ -39,6 +39,8 @@ PostHog authenticates every request with this token (sent as the `X-API-Token` h
 
 Mixmax's API does not expose a server-side "modified since" filter, so every table is synced as **full refresh** — each sync re-reads the resource and replaces the table. Because of Mixmax's fixed rate limit (120 requests per minute), prefer a modest sync frequency, especially for high-volume tables like the live feed.
 
+The `live_feed_events` table makes one request per live feed message, so it is not selected by default. Enable it only if you need per-event detail, and expect a large live feed to take a while to sync.
+
 ## Configuration
 
 <SourceParameters />

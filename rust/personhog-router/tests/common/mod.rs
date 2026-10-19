@@ -36,6 +36,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
@@ -60,9 +61,10 @@ use personhog_proto::personhog::types::v1::{
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
 };
-use personhog_router::config::RetryConfig;
+use personhog_router::config::{Http2Windows, RetryConfig};
 use personhog_router::proxy::{IdentityProxyService, LifecycleProxyService, RawProxyService};
-use tokio::net::TcpListener;
+use tokio::io::AsyncReadExt;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Channel, Server};
@@ -537,6 +539,13 @@ impl PersonHogReplica for TestReplicaService {
             updated: false,
         }))
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _request: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(EnsurePersonVersionFloorsResponse::default()))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -948,6 +957,7 @@ fn make_channel_backend(role: &'static str, addr: SocketAddr) -> Arc<ChannelBack
             retry_config,
             keepalive_interval: None,
             keepalive_timeout: None,
+            http2_windows: Http2Windows::default(),
             num_channels: 1,
         },
     ))
@@ -968,6 +978,8 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
+            num_channels: 1,
+            http2_windows: Http2Windows::default(),
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))
@@ -1000,6 +1012,8 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_millis(200),
+            num_channels: 1,
+            http2_windows: Http2Windows::default(),
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))
@@ -1262,4 +1276,50 @@ pub async fn start_test_router_raw_with_identity(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     addr
+}
+
+pub const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+pub const H2_FRAME_DATA: u8 = 0x0;
+pub const H2_FRAME_HEADERS: u8 = 0x1;
+pub const H2_FRAME_SETTINGS: u8 = 0x4;
+pub const H2_FRAME_WINDOW_UPDATE: u8 = 0x8;
+pub const H2_FLAG_END_STREAM: u8 = 0x1;
+pub const H2_FLAG_END_HEADERS: u8 = 0x4;
+
+pub struct H2Frame {
+    pub frame_type: u8,
+    pub flags: u8,
+    pub stream_id: u32,
+    pub payload: Vec<u8>,
+}
+
+pub fn h2_frame(frame_type: u8, flags: u8, stream_id: u32, payload: &[u8]) -> Vec<u8> {
+    let len = payload.len() as u32;
+    let mut frame = vec![
+        (len >> 16) as u8,
+        (len >> 8) as u8,
+        len as u8,
+        frame_type,
+        flags,
+    ];
+    frame.extend_from_slice(&stream_id.to_be_bytes());
+    frame.extend_from_slice(payload);
+    frame
+}
+
+pub async fn read_h2_frame(stream: &mut TcpStream) -> H2Frame {
+    let mut header = [0u8; 9];
+    stream.read_exact(&mut header).await.expect("frame header");
+    let len = u32::from_be_bytes([0, header[0], header[1], header[2]]) as usize;
+    let mut payload = vec![0u8; len];
+    stream
+        .read_exact(&mut payload)
+        .await
+        .expect("frame payload");
+    H2Frame {
+        frame_type: header[3],
+        flags: header[4],
+        stream_id: u32::from_be_bytes([header[5], header[6], header[7], header[8]]) & 0x7fff_ffff,
+        payload,
+    }
 }

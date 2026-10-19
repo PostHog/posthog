@@ -1,29 +1,53 @@
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import field
+from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
+class FlyIoFanoutConfig:
+    # Schema name of the endpoint whose rows drive this one.
+    parent: str
+    # Child path placeholder -> the parent row field bound to it.
+    path_params: dict[str, str]
+    # Parent row field -> the column each child row carries it under.
+    parent_fields: dict[str, str]
+    # Extra query params for the child request.
+    child_params: dict[str, Any] = field(default_factory=dict)
+
+
+@frozen
 class FlyIoEndpointConfig:
     name: str
     # Path template relative to the API base. `{org_slug}` is substituted with the configured
     # organization for the org-scoped endpoints; the apps endpoint takes org_slug as a query
-    # param instead (see `_endpoint_path`/`_endpoint_params` in fly_io.py).
+    # param instead (see `_endpoint_path`/`_endpoint_params` in fly_io.py). A fan-out child's
+    # placeholders are bound per parent row instead (see `fanout`).
     path: str
     # Body key the list of rows lives under (e.g. {"apps": [...]}, {"machines": [...]}).
-    response_data_path: str
+    # None when the endpoint returns a bare array.
+    response_data_path: Optional[str]
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation timestamp used for datetime partitioning. None disables partitioning —
     # Fly.io app objects carry no timestamp at all.
     partition_key: Optional[str] = None
     # True when the endpoint returns a `next_cursor` and accepts a `cursor` query param.
     paginated: bool = False
-    # True when rows can embed deployment secrets (a machine's `config` carries env vars,
-    # per-process env, and inline file contents). Such a stream is reduced to a safe
-    # operational allowlist before it's yielded and excluded from HTTP sample capture, so
-    # secrets never reach the warehouse or the sample-capture pipeline.
+    # True when the endpoint scopes to an organization through an `org_slug` query param rather
+    # than through the path. The platform-wide endpoints take neither.
+    org_slug_param: bool = False
+    # True when the stream's HTTP traffic can carry deployment secrets, either in its own rows
+    # or in its fan-out parent's. Such a stream is excluded from HTTP sample capture so secrets
+    # never reach the sample-capture pipeline.
     redact_secrets: bool = False
+    # Row key holding a machine config (env vars, per-process env, inline file contents). Such a
+    # field is reduced to a safe operational allowlist before the row is yielded, so secrets
+    # never reach the warehouse.
+    secret_config_field: Optional[str] = None
+    # Set when the endpoint only exists per parent resource and has to be fanned out.
+    fanout: Optional[FlyIoFanoutConfig] = None
 
 
 # Fly.io streams. We use the org-level aggregate endpoints for machines and volumes
@@ -39,6 +63,7 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         # App objects have no created_at/updated_at, so datetime partitioning isn't possible.
         partition_key=None,
         paginated=False,
+        org_slug_param=True,
     ),
     "machines": FlyIoEndpointConfig(
         name="machines",
@@ -47,6 +72,7 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         partition_key="created_at",
         paginated=True,
         redact_secrets=True,
+        secret_config_field="config",
     ),
     "volumes": FlyIoEndpointConfig(
         name="volumes",
@@ -54,6 +80,68 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         response_data_path="volumes",
         partition_key="created_at",
         paginated=True,
+    ),
+    "regions": FlyIoEndpointConfig(
+        name="regions",
+        path="/platform/regions",
+        # The platform regions endpoint capitalizes its list key, unlike every other Fly.io endpoint.
+        response_data_path="Regions",
+        primary_keys=["code"],
+        # Regions are a static lookup with no timestamps.
+        partition_key=None,
+        paginated=False,
+    ),
+    "machine_events": FlyIoEndpointConfig(
+        name="machine_events",
+        path="/apps/{app_name}/machines/{machine_id}/events",
+        response_data_path=None,
+        # Neither machine nor event ids are documented as globally unique across apps.
+        primary_keys=["app_name", "machine_id", "id"],
+        # The only time field is `timestamp`, epoch milliseconds rather than the RFC 3339 string
+        # datetime partitioning needs.
+        partition_key=None,
+        paginated=False,
+        # Event rows carry no secrets, but the machines listing that drives the fan-out does.
+        redact_secrets=True,
+        fanout=FlyIoFanoutConfig(
+            parent="machines",
+            path_params={"app_name": "app_name", "machine_id": "id"},
+            parent_fields={"app_name": "app_name", "id": "machine_id"},
+            # The endpoint returns 20 events when `limit` is omitted and caps at 50. It is not
+            # paginated, so 50 is the most history a sync can see for a machine.
+            child_params={"limit": 50},
+        ),
+    ),
+    "machine_versions": FlyIoEndpointConfig(
+        name="machine_versions",
+        path="/apps/{app_name}/machines/{machine_id}/versions",
+        response_data_path=None,
+        # A version row carries no id; its app, machine, and version identify the config.
+        primary_keys=["app_name", "machine_id", "version"],
+        # Version rows carry no timestamp.
+        partition_key=None,
+        paginated=False,
+        redact_secrets=True,
+        secret_config_field="user_config",
+        fanout=FlyIoFanoutConfig(
+            parent="machines",
+            path_params={"app_name": "app_name", "machine_id": "id"},
+            parent_fields={"app_name": "app_name", "id": "machine_id"},
+        ),
+    ),
+    "volume_snapshots": FlyIoEndpointConfig(
+        name="volume_snapshots",
+        path="/apps/{app_name}/volumes/{volume_id}/snapshots",
+        response_data_path=None,
+        # Neither volume nor snapshot ids are documented as globally unique across apps.
+        primary_keys=["app_name", "volume_id", "id"],
+        partition_key="created_at",
+        paginated=False,
+        fanout=FlyIoFanoutConfig(
+            parent="volumes",
+            path_params={"app_name": "app_name", "volume_id": "id"},
+            parent_fields={"app_name": "app_name", "id": "volume_id"},
+        ),
     ),
 }
 

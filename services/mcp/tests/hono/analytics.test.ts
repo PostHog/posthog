@@ -93,6 +93,36 @@ describe('Hono MCP analytics contexts', () => {
         mockCapture.mockClear()
     })
 
+    it.each([false, true])(
+        'records recruitment diagnostics without exposing them on suppressed calls: %s',
+        async (suppressed) => {
+            const state = makeState({
+                suppressAnalytics: suppressed,
+                interviewRecruitmentDiagnostics: {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                    campaignId: 'synthetic-study',
+                },
+            })
+            await trackToolCall('user-get', 12, false, state)
+            const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+            if (suppressed) {
+                expect(properties).not.toHaveProperty('interview_recruitment_reason')
+                expect(properties).not.toHaveProperty('interview_recruitment_form_supported')
+            } else {
+                expect(properties).toMatchObject({
+                    interview_recruitment_reason: 'url_unsupported',
+                    interview_recruitment_url_supported: false,
+                    interview_recruitment_form_supported: true,
+                    interview_recruitment_campaign_id: 'synthetic-study',
+                })
+                expect(properties).not.toHaveProperty('interview_recruitment_completed_calls')
+            }
+            expect(mockCapture).not.toHaveBeenCalled()
+        }
+    )
+
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
         await trackInitEvent(makeState())
@@ -102,28 +132,72 @@ describe('Hono MCP analytics contexts', () => {
     })
 
     it.each([
+        'scout-trial-create',
+        'scout-trial-get',
+        'scout-trial-start',
+        'scout-trial-report',
+        'scout-trial-list',
+        'scout-trial-resume',
+        'scout-trial-archive',
+        'scout-trial-setup',
+        'scout-rubric-generate',
+        'scout-rubric-get',
+        'scout-rubric-save',
+    ])('excludes exec discovery metadata for %s with ordinary operator credentials', async (targetTool) => {
+        await trackToolCall(
+            'exec',
+            12,
+            false,
+            makeState({ suppressAnalytics: false }),
+            { $mcp_exec_verb: 'info', $mcp_exec_target_tool: targetTool },
+            { intent: 'Compare synthetic scout variants' }
+        )
+
+        expect(mockCaptureToolCall).not.toHaveBeenCalled()
+        expect(mockCapture).not.toHaveBeenCalled()
+    })
+
+    it.each([
         { impersonated: true, isError: false },
         { impersonated: true, isError: true },
         { impersonated: false, isError: false },
         { impersonated: false, isError: true },
     ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
-        const state = makeState({ isImpersonated: impersonated })
+        const state = makeState({ isImpersonated: impersonated, suppressAnalytics: impersonated })
 
-        await trackToolCall('user-get', 12, isError, state, { is_impersonated: !impersonated })
+        await trackToolCall('user-get', 12, isError, state, {
+            is_impersonated: !impersonated,
+            suppress_analytics: !impersonated,
+        })
         await trackInitEvent(state)
         await trackToolsList(['user-get'], state)
+        await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, { durationMs: 12, isError })
+        await trackToolSpan('user-get', state, { input: {}, output: {}, durationMs: 12, isError })
+        await trackSkillInvoked(state, { source: 'posthog', skill: 'test-skill', readKind: 'skill' })
 
         expect(mockCaptureToolCall).toHaveBeenCalledWith(
             expect.objectContaining({
                 toolName: 'user-get',
                 isError,
-                properties: expect.objectContaining({ is_impersonated: impersonated }),
+                properties: expect.objectContaining({
+                    is_impersonated: impersonated,
+                    suppress_analytics: impersonated,
+                }),
             })
         )
         for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
             expect(capture).toHaveBeenCalledWith(
-                expect.objectContaining({ properties: expect.objectContaining({ is_impersonated: impersonated }) })
+                expect.objectContaining({
+                    properties: expect.objectContaining({
+                        is_impersonated: impersonated,
+                        suppress_analytics: impersonated,
+                    }),
+                })
             )
+        }
+        expect(mockCapture).toHaveBeenCalledTimes(3)
+        for (const [event] of mockCapture.mock.calls) {
+            expect(event.properties.suppress_analytics).toBe(impersonated)
         }
     })
 

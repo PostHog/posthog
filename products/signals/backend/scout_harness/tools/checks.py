@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import get_args
 
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -36,13 +37,20 @@ from products.signals.backend.models import SignalReport, SignalReportCheck, Sig
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
 from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
-from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
+from products.signals.backend.report_checks import (
+    AgentCheckConfig,
+    CheckInconclusiveReason,
+    CheckOutcome,
+    parse_check_config,
+)
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
 # Rows one `scout-report-check-list` call returns. A report carries at most five open checks, so
 # this only bounds the terminal ones a long-lived report accumulates.
 MAX_CHECKS_LISTED = 50
+_OUTCOMES = get_args(CheckOutcome)
+_INCONCLUSIVE_REASONS = get_args(CheckInconclusiveReason)
 
 
 class InvalidCheckResultError(ValueError):
@@ -117,7 +125,7 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
             raise InvalidCheckResultError(
                 f"check {check_id} is not due until {check.next_run_at.isoformat()}, so it is not yours to close yet"
             )
-        pause_reason = _pause_reason(check, check.report.status, now)
+        pause_reason = _pause_reason(check, check.report.effective_status, now)
         if pause_reason is not None:
             raise InvalidCheckResultError(
                 f"check {check_id} is paused because {pause_reason}, so nothing is owed on it"
@@ -140,19 +148,29 @@ def record_check_result(
     outcome: str,
     explanation: str,
     observed_value: float | None = None,
+    reason: str | None = None,
 ) -> RecordCheckResultResult:
     """Close one dispatched `agent` check with the verdict this run reached.
 
     The verdict goes through the executor's funnel, the same one the deterministic lane writes
     through, so an agent result advances or retires its check by exactly the rules a measured one
     does: a breach is terminal, an error retries and retires after three, and a pass re-arms a
-    recurring check.
+    recurring check. An `inconclusive` verdict needs a `reason`, and only `awaiting_data` keeps the
+    check open for another look.
     """
     trimmed = explanation.strip()
     if not trimmed:
         raise InvalidCheckResultError("explanation must say what you established")
-    if outcome not in {"passed", "failed", "errored"}:
-        raise InvalidCheckResultError(f"outcome must be `passed`, `failed`, or `errored`, not `{outcome}`")
+    if outcome not in _OUTCOMES:
+        raise InvalidCheckResultError(
+            f"outcome must be `passed`, `failed`, `errored`, or `inconclusive`, not `{outcome}`"
+        )
+    if outcome == "inconclusive" and reason not in _INCONCLUSIVE_REASONS:
+        raise InvalidCheckResultError(
+            f"an `inconclusive` outcome needs a reason: one of {', '.join(f'`{r}`' for r in _INCONCLUSIVE_REASONS)}"
+        )
+    if outcome != "inconclusive" and reason is not None:
+        raise InvalidCheckResultError(f"a `{outcome}` outcome takes no reason, only `inconclusive` does")
 
     check = _resolve_dispatched_check(team, run, check_id)
     record_check_verdict(
@@ -163,11 +181,13 @@ def record_check_result(
             # Only meaningful when the run measured something; an investigation that read a stack
             # trace has no number and says so by leaving it out.
             observed_value=observed_value,
+            reason=reason,  # type: ignore[arg-type]
         ),
         # Attributed to the run's task, the way every other artefact an agent writes is, so the
         # report's log names what produced the verdict rather than the system that scheduled it.
         attribution=_run_attribution(run),
         run_id=str(run.id),
+        lane_can_emit_report=_run_can_emit_report(run),
     )
     check.refresh_from_db()
     return RecordCheckResultResult(
@@ -189,6 +209,8 @@ class ScoutCheckSummary:
     status: str
     next_run_at: datetime
     last_outcome: str | None
+    # Set only when `last_outcome` is `inconclusive`.
+    last_outcome_reason: str | None
     # Where the check is in its run cycle. See `_run_state`.
     run_state: str
     # True while an `agent` check waits on a dispatched run to record its verdict.
@@ -234,6 +256,7 @@ def _summarize(
         # Provisional on a pending check, whose clock the report's resolve starts.
         next_run_at=check.next_run_at,
         last_outcome=check.last_outcome,
+        last_outcome_reason=check.last_outcome_reason,
         run_state=_run_state(check, report_status, dispatched_run_id, now or timezone.now()),
         # Cancel and expiry leave `dispatched_at` set, so only an open check can still owe a run.
         waiting_on_run=check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None,
@@ -336,7 +359,7 @@ def create_report_check(
         )
     except CheckCreationError as error:
         raise InvalidCheckWriteError(str(error)) from None
-    return _summarize(check, report.status)
+    return _summarize(check, report.effective_status)
 
 
 def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]:
@@ -350,13 +373,26 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     )
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
     now = timezone.now()
-    return [_summarize(check, report.status, run_ids.get(str(check.id)), now) for check in checks]
+    report_status = report.effective_status
+    return [_summarize(check, report_status, run_ids.get(str(check.id)), now) for check in checks]
 
 
 def _run_attribution(run: SignalScoutRun) -> ArtefactAttribution:
     """Attribute a write to the run's task, the way every other scout write is attributed."""
     task_id = _resolve_task_id(run)
     return ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system()
+
+
+def _run_can_emit_report(run: SignalScoutRun) -> bool | None:
+    """Whether the run held `emit_report`, read off the channel the runner stamped when it started.
+
+    Read from the stamp rather than the skill, because a skill's `allowed_tools` can be edited mid-run
+    and the prompt this run got was built from the old list. None for a run without the stamp.
+    """
+    channel = (run.metadata or {}).get("report_channel")
+    if channel is None:
+        return None
+    return channel in ("emit", "both")
 
 
 def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:
@@ -374,4 +410,4 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
         raise InvalidCheckWriteError(f"check {check_id} not found")
     if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
         raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
-    return _summarize(check, check.report.status)
+    return _summarize(check, check.report.effective_status)

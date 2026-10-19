@@ -44,7 +44,7 @@ import {
     isTrendsAlertConfig,
     supportsOngoingInterval,
 } from '../types'
-import { getAlertFormValidationErrors } from './alertFormSchema'
+import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
@@ -52,7 +52,7 @@ import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPrevi
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 
-export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
+export { canCheckOngoingInterval, THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -69,6 +69,7 @@ export type AlertFormType = Pick<
     | 'schedule_restriction'
     | 'schedule_start_time'
     | 'detector_config'
+    | 'evaluation_delay_intervals'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
@@ -76,25 +77,6 @@ export type AlertFormType = Pick<
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: InsightModel['id']
-}
-
-export function canCheckOngoingInterval(
-    alert?: AlertType | AlertFormType,
-    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
-): boolean {
-    // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
-    // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
-    // safe for an absolute/increase check above an upper bound.
-    if (isFunnelsAlertConfig(alert?.config)) {
-        return isTrendsFunnel
-    }
-    const upper = alert?.threshold?.configuration?.bounds?.upper
-    return (
-        (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
-            alert?.condition?.type === AlertConditionType.RELATIVE_INCREASE) &&
-        upper != null &&
-        !isNaN(upper)
-    )
 }
 
 const ONGOING_DISABLED_REASON =
@@ -140,6 +122,28 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
         return 'metrics'
     }
     return 'trends'
+}
+
+const EVALUATION_DELAY_UNSUPPORTED_REASON =
+    "This insight doesn't support an evaluation delay. Set it to 0 to save the alert."
+
+export interface EvaluationDelayField {
+    show: boolean
+    unsupportedReason?: string
+}
+
+/** A saved delay stays editable after its insight stops supporting one, because the API
+ * rejects every save of that alert until the delay is 0. */
+export function evaluationDelayField(
+    insightAlertKind: InsightAlertKind,
+    isNonTimeSeriesDisplay: boolean,
+    savedDelay: number
+): EvaluationDelayField {
+    const supported = insightAlertKind === 'trends' && !isNonTimeSeriesDisplay
+    return {
+        show: supported || savedDelay > 0,
+        unsupportedReason: supported ? undefined : EVALUATION_DELAY_UNSUPPORTED_REASON,
+    }
 }
 
 export interface AlertFormLogicProps {
@@ -537,6 +541,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             // SQL insights have no series_index; the config carries the evaluated column
                             // and read direction so the preview matches what the alert will score.
                             config: formConfig,
+                            evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
                         })) as AlertSimulationResult
                     } catch (error) {
                         if (values.simulationRequestId === requestId) {
@@ -569,6 +574,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           created_by: null,
                           created_at: '',
                           enabled: true,
+                          evaluation_delay_intervals: 0,
                           config: defaultConfigForInsight(props.insightAlertKind),
                           threshold: {
                               configuration: {
@@ -978,6 +984,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         : simulationResult.anomaly_count
                     posthog.capture('alert simulation run', {
                         success: true,
+                        evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
                         detector_type: detectorConfig?.type ?? null,
                         ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
                         date_from:
@@ -1028,7 +1035,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const field = Array.isArray(name) ? name[0] : name
                 // The evaluated series or column, and the detector settings, are inputs to the
                 // preview, so an edit to either leaves nothing the chart can honestly show.
-                if (field === 'config' || field === 'detector_config') {
+                if (field === 'config' || field === 'detector_config' || field === 'evaluation_delay_intervals') {
                     discardSimulation()
                 }
             },

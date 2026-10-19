@@ -44,7 +44,19 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'false',
 ]
 
-const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
+/** Every cookieless visitor shares this distinct id. */
+export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
+
+const BARE_CASE_SENSITIVE_ILLEGAL_IDS = [
+    '[object Object]',
+    'NaN',
+    'None',
+    'none',
+    'null',
+    '0',
+    'undefined',
+    COOKIELESS_SENTINEL_VALUE,
+]
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids

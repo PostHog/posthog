@@ -437,8 +437,10 @@ export interface BarsConfig {
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
-     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
-    track?: boolean | { hover?: boolean }
+     *  but leave it inert (no highlight when the cursor is over the empty remainder).
+     *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
+     *  in the band. It works on every layout, ignores `trackData`, and has no hover highlight. */
+    track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
@@ -451,7 +453,8 @@ export interface BarsConfig {
      *  still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
-     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+     *  value, so `step = range / N`. Zero also removes spacing within grouped bars.
+     *  Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
     /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
      *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
@@ -518,6 +521,8 @@ export interface LineChartConfig extends ChartConfig {
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
  *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Gap between bar bands (0–1, default 0.2). Zero also removes within-group spacing. */
+    bandPadding?: number
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to

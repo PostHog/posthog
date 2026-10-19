@@ -4,6 +4,7 @@ from requests.exceptions import HTTPError, RequestException
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS,
     TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_MISSING_SCOPE_FRAGMENT,
+    TIKTOK_MISSING_SCOPE_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_CODES,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
@@ -53,6 +56,25 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^TIKTOK_ADS_", "^TIKTOK_PIXEL_ID$", "^NEXT_PUBLIC_TIKTOK_PIXEL_ID$"),
+        script_hosts=("analytics.tiktok.com",),
+        npm=(
+            "tiktok-business-api-sdk-official",
+            "@tiktok-for-business/react-native-sdk",
+            "react-native-tiktok-business-sdk",
+            "tiktok-pixel",
+        ),
+        pypi=("tiktok-business-api-sdk-official",),
+        cocoapods=("TikTokBusinessSDK",),
+        maven=(
+            "io.github.jasonchentt:tiktok-business-api-sdk-official",
+            "com.github.tiktok:tiktok-business-android-sdk",
+        ),
+        pub=("tiktok_events_sdk",),
+        swiftpm=("github.com/tiktok/tiktok-business-ios-sdk",),
+    )
+
     supported_versions = ("v1.3",)
     default_version = "v1.3"
     api_docs_url = "https://business-api.tiktok.com/portal/docs"
@@ -75,6 +97,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # Must precede TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a denial matches both keys, and
             # `external_data_job` takes the first match in dict order, discarding it when None.
             **dict.fromkeys(TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS, TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE),
+            TIKTOK_MISSING_SCOPE_FRAGMENT: TIKTOK_MISSING_SCOPE_MESSAGE,
             # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
             # doesn't exist or has been deleted). The paginator raises these with this exact
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as

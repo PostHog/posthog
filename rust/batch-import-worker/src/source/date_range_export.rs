@@ -1008,6 +1008,51 @@ mod tests {
         source.cleanup_after_job().await.unwrap();
     }
 
+    // Mixpanel service accounts need project_id, which the job config passes inside base_url.
+    #[tokio::test]
+    async fn test_basic_auth_keeps_query_params_in_base_url() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/export")
+                .query_param("project_id", "123")
+                .query_param("from_date", "2023-01-01")
+                .query_param("to_date", "2023-01-01")
+                .header("Authorization", "Basic c2EtdXNlcjpzYS1zZWNyZXQ=");
+            then.status(200).body(TEST_DATA);
+        });
+
+        let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2023, 1, 2, 0, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
+
+        let source = DateRangeExportSource::builder(
+            server.url("/export?project_id=123"),
+            start,
+            end,
+            86400,
+            Arc::new(MockExtractor),
+            _staging.path().to_path_buf(),
+        )
+        .with_query_params("from_date".to_string(), "to_date".to_string())
+        .with_auth(AuthConfig::BasicAuth {
+            username: "sa-user".to_string(),
+            password: "sa-secret".to_string(),
+        })
+        .with_date_format("%Y-%m-%d".to_string())
+        .with_headers(HashMap::new())
+        .build()
+        .unwrap();
+
+        source.prepare_for_job().await.unwrap();
+        let keys = source.keys().await.unwrap();
+        source.prepare_key(&keys[0]).await.unwrap();
+        source.cleanup_after_job().await.unwrap();
+
+        mock.assert();
+    }
+
     #[tokio::test]
     async fn test_bearer_token_auth() {
         let server = MockServer::start();

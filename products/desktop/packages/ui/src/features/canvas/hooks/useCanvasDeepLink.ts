@@ -25,11 +25,9 @@ const log = logger.scope("canvas-deep-link");
  * Mirrors `useScoutDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
  * subscribes for links delivered while the app is already running. The live
- * subscription acts on every link unconditionally — gating it behind the
- * project-bluebird flag would drop a link that arrives before the flag resolves
- * (the main process emits rather than queues once a listener is attached, so a
- * discarded payload is unrecoverable). Navigation is safe regardless: the
- * Channels space is flag-gated at the route, which redirects out when off.
+ * subscription acts on every link unconditionally: the main process emits
+ * rather than queues once a listener is attached, so a discarded payload is
+ * unrecoverable.
  */
 export function useCanvasDeepLink() {
   const trpcReact = useHostTRPC();

@@ -28,8 +28,11 @@ Manual operations:
 
 import sys
 from collections import defaultdict, deque
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -69,12 +72,16 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
-from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    UnsupportedConfig,
+    decode_config,
+    detect_config_format,
+)
+from products.feature_flags.backend.facade.references import FlagReferences, references
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
-from products.feature_flags.backend.types import FlagProperty
 
 logger = structlog.get_logger(__name__)
 
@@ -99,15 +106,17 @@ def _is_unevaluable(flag_data: dict[str, Any]) -> bool:
     return not flag_data.get("active", True) or flag_data.get("deleted", False)
 
 
-def _parse_dependency_ids(properties: list[FlagProperty]) -> set[int]:
-    """The integer flag ids the flag-reference properties name; any other ``key`` is skipped."""
-    dep_ids: set[int] = set()
-    for prop in properties:
-        try:
-            dep_ids.add(int(prop["key"]))
-        except (ValueError, KeyError, TypeError):
-            continue
-    return dep_ids
+def _evaluated_references(flag_data: dict[str, Any]) -> FlagReferences:
+    """The references of a serialized flag the matcher reads, and none for an unevaluable
+    flag, whose filters it skips.
+
+    Only flags that passed ``_omit_unsupported_flags`` are serialized, so the document is
+    a readable config version 1 or a supported v2 document.
+    """
+    if _is_unevaluable(flag_data):
+        return FlagReferences()
+    config = decode_config(flag_data.get("filters", {}))
+    return FlagReferences() if isinstance(config, UnsupportedConfig) else references(config)
 
 
 def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
@@ -115,19 +124,9 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     Extract direct flag dependency IDs from a serialized flag's filters.
 
     Inactive/deleted flags return empty deps before their filters are read, to
-    match Rust's extract_dependencies behavior. Only flags that passed
-    ``_omit_unsupported_flags`` are serialized, so every other document here is a
-    readable config version 1 or a supported v2 document, which has no dependencies.
+    match Rust's extract_dependencies behavior. A ``key`` that is not an integer id is skipped.
     """
-    if not _reads_v1_conditions(flag_data):
-        return set()
-    return _parse_dependency_ids(flag_dependency_properties(flag_data.get("filters", {})))
-
-
-def _reads_v1_conditions(flag_data: dict[str, Any]) -> bool:
-    """Whether a serialized flag's release conditions are read: evaluable, and a v1
-    document (a kept v2 document has no cohort or flag references)."""
-    return not _is_unevaluable(flag_data) and detect_config_format(flag_data.get("filters", {})).kind == "v1"
+    return set(_evaluated_references(flag_data).flag_ids)
 
 
 def _validates_v2(filters: Mapping[str, Any]) -> bool:
@@ -158,25 +157,26 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     cache cannot carry the row.
 
     A non-object document and an unsupported discriminator are rejected whatever the
-    row's lifecycle. A v2 document is carried verbatim, with no dependencies, only when
-    the row is active and ``_validates_v2`` admits it. Any other v2 row is rejected, so an
-    inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
-    not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
-    conditions cannot be read is rejected instead of failing the team.
+    row's lifecycle. A v2 document is carried verbatim only when the row is active and
+    ``_validates_v2`` admits it. Any other v2 row is rejected, so an inactive v2 row is
+    never blanked into a v1-shaped entry. An unevaluable v1 object is not read, since
+    ``_blank_inactive_filters`` empties it; an evaluable one whose conditions cannot be
+    read is rejected instead of failing the team.
     """
     filters = flag.filters
     if not isinstance(filters, Mapping):
         return None
     kind = detect_config_format(filters).kind
     if kind == "v2":
-        return set() if flag.active and not flag.deleted and _validates_v2(filters) else None
-    if kind != "v1":
+        if not (flag.active and not flag.deleted and _validates_v2(filters)):
+            return None
+    elif kind != "v1":
         return None
-    if not flag.active or flag.deleted:
+    elif not flag.active or flag.deleted:
         return set()
     try:
-        return _parse_dependency_ids(flag_dependency_properties(filters))
-    except (AttributeError, TypeError):
+        return set(references(decode_config(filters)).flag_ids)
+    except (AttributeError, TypeError, ConfigFormatError):
         return None
 
 
@@ -254,9 +254,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if not _reads_v1_conditions(flag):
-            continue
-        cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
+        cohort_ids.update(_evaluated_references(flag).cohort_ids)
     return cohort_ids
 
 
@@ -1147,18 +1145,17 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), REFRESH_ROUTING_FLAG, _refresh_routing_enabled,
-# route_refresh_to_kafka (and its config binding), SHADOW_COMPARE_FLAG,
-# _shadow_compare_enabled, publish_shadow_invalidation, _produce_invalidation,
-# _enqueue_invalidation, and the Kafka branch inside it.
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), route_refresh_to_kafka (and its config
+# binding), SHADOW_COMPARE_FLAG, _shadow_compare_enabled, publish_shadow_invalidation,
+# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover. The one
 # call site outside this block is the tail of update_team_service_flags_cache in
 # tasks.py, which goes with it.
 #
-# At cutover the sweep routes unconditionally: REFRESH_ROUTING_FLAG and its gate go,
-# and the binding is replaced by a hook that always produces, not deleted. The generic
-# surface it uses — route_refresh_fn, the enqueued count and RefreshPacing — keeps its
-# caller and stays.
+# At cutover the sweep routes unconditionally: the FLAGS_CACHE_REFRESH_KAFKA_ENABLED
+# guard goes, and the binding is replaced by a hook that always produces, not deleted.
+# The generic surface it uses — route_refresh_fn, the enqueued count and RefreshPacing —
+# keeps its caller and stays.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1254,63 +1251,6 @@ def _route_to_kafka(team_id: int) -> bool:
     return bool(result)
 
 
-# Per-team gate for the hourly expiry refresh sweep. A different flag from
-# KAFKA_ROUTING_FLAG on purpose: that one is pinned at 100% for the edit path, so
-# reusing it would move the sweep the moment this code shipped. The two ramp
-# independently, and setting this one back to 0 returns the next hourly run to the
-# Python builder with no cleanup, because a refresh message already in flight still
-# produces a correct build.
-REFRESH_ROUTING_FLAG = "flags-cache-refresh-kafka"
-
-
-def _refresh_routing_enabled(team_id: int) -> bool:
-    """Return True if this team's hourly refresh should be raised as a Kafka
-    invalidation instead of being built in the Celery worker.
-
-    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read before the flag, because the flag cannot
-    be scoped to one deployment: local evaluation resolves it against the single
-    project key set in posthog/apps.py, so raising it raises it in every region at
-    once. A region whose flags-cache-builder image predates the `source` field rejects
-    the message through deny_unknown_fields, counts it as a parse error and drops it,
-    and the dead letter queue holds build failures rather than parse failures, so
-    nothing can be replayed. The setting is read per deployment, so a lagging region
-    holds routing off on its own until its builder is rolled.
-
-    Every failure mode returns False, which keeps the sweep building in Python. That
-    is the safe direction: a build that happens is never worse than a message nobody
-    consumes.
-
-    Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER, for the
-    reason `_shadow_compare_enabled` gives. Local evaluation cannot resolve
-    REFRESH_ROUTING_FLAG for as long as the flag does not exist in PostHog, so a tick
-    would fire for every team of every run, which is about 5,000 an hour, and hold a
-    constant high rate on a panel that means "rare anomaly". A client that is actually
-    broken raises instead, and the warning below records that.
-    """
-    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
-        return False
-
-    try:
-        return feature_enabled_or_false(
-            REFRESH_ROUTING_FLAG,
-            f"team-{team_id}",
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        # Log so a fleet-wide silent disable is visible in Sentry rather than only as
-        # an enqueued gauge that quietly returns to zero mid-ramp.
-        logger.warning(
-            "flags_cache_refresh_routing_flag_evaluation_failed",
-            team_id=team_id,
-            flag=REFRESH_ROUTING_FLAG,
-            exc_info=True,
-        )
-        return False
-
-
 def route_refresh_to_kafka(team_id: int) -> bool:
     """Routing hook for the expiry refresh sweep, bound on
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.
@@ -1332,8 +1272,16 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     building the team anyway. The sweep skips its own build for a team whose hook
     failed. A team whose message is lost stays inside the expiry window, so the next
     hourly run raises it again, and the verifier repairs it in the meantime.
+
+    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read per deployment, so each region turns
+    routing on only after its flags-cache-builder image accepts the `source` field.
+    An older builder rejects the message through deny_unknown_fields, counts it as a
+    parse error and drops it, and the dead letter queue holds build failures rather
+    than parse failures, so nothing can be replayed. With the setting off the sweep
+    keeps building in Python, which is the safe direction: a build that happens is
+    never worse than a message nobody consumes.
     """
-    if not _refresh_routing_enabled(team_id):
+    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
         return False
 
     _produce_invalidation(team_id, source="refresh", raise_on_error=True)
@@ -1533,6 +1481,77 @@ def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     _enqueue_invalidation(team_id)
 
 
+# The two caches a cohort save rebuilds: the local-evaluation definitions cache and the
+# flags-service cache.
+FlagsCacheName = Literal["definitions", "service"]
+
+_deferred_rebuild_teams: ContextVar[dict[int, set[FlagsCacheName]] | None] = ContextVar(
+    "deferred_flags_cache_rebuild_teams", default=None
+)
+
+
+def defer_flags_cache_rebuild(team_id: int, cache: FlagsCacheName) -> bool:
+    """Record the team's rebuild of `cache` if a coalescing block is active.
+
+    Returns True when the rebuild was recorded, which means the caller must not enqueue its
+    own.
+    """
+    teams = _deferred_rebuild_teams.get()
+    if teams is None:
+        return False
+    teams.setdefault(team_id, set()).add(cache)
+    return True
+
+
+def _dispatch_flags_cache_rebuilds(team_id: int, caches: set[FlagsCacheName], failed_teams: set[int]) -> None:
+    """Enqueue the recorded rebuilds for one team, recording the team when a publish fails."""
+    from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+
+    tasks = {"definitions": update_team_flags_cache, "service": update_team_service_flags_cache}
+
+    failed = False
+    for cache in sorted(caches):
+        # One try per task, so a broker failure on one does not drop the other.
+        try:
+            tasks[cache].delay(team_id)
+        except Exception:
+            # The saves already committed, so raising would abort the rest of a fleet-wide run.
+            # The caller reports the team instead.
+            failed = True
+            logger.error("coalesced_flags_cache_dispatch_failed", team_id=team_id, cache=cache, exc_info=True)
+
+    if failed:
+        failed_teams.add(team_id)
+    else:
+        logger.info("coalesced_flags_cache_dispatch", team_id=team_id)
+
+
+@contextmanager
+def coalesced_cohort_flags_cache_rebuilds() -> Iterator[set[int]]:
+    """Coalesce the cohort-save flags-cache rebuilds inside the block to one dispatch per team.
+
+    A bulk cohort resave otherwise enqueues two whole-team rebuilds per cohort, where two per
+    team are sufficient. Only the two cohort receivers coalesce; flag and experiment saves
+    inside the block still enqueue their own rebuild. Each receiver records the cache it was
+    about to rebuild, so the dispatch enqueues exactly what the receivers wanted.
+
+    Yields the set of team ids whose dispatch failed, so the caller can report them. In
+    autocommit it is filled by the time the block exits; under an open transaction the dispatch
+    waits for the commit and the set fills later.
+    """
+    failed_teams: set[int] = set()
+    token = _deferred_rebuild_teams.set({})
+    try:
+        yield failed_teams
+    finally:
+        teams = _deferred_rebuild_teams.get() or {}
+        # Reset before dispatching: eager Celery runs the rebuild inline, and a cohort save
+        # inside it would otherwise record into a dict nobody reads again.
+        _deferred_rebuild_teams.reset(token)
+        for team_id, caches in sorted(teams.items()):
+            transaction.on_commit(partial(_dispatch_flags_cache_rebuilds, team_id, caches, failed_teams))
+
+
 @receiver(post_save, sender=FeatureFlag)
 @receiver(post_delete, sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
@@ -1634,6 +1653,9 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
 
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
+        return
+
+    if defer_flags_cache_rebuild(instance.team_id, "service"):
         return
 
     from products.feature_flags.backend.tasks import update_team_service_flags_cache

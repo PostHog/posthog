@@ -5,19 +5,89 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import MagicMock
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.template.loader import render_to_string
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
 from posthog.stable_chunks import StableChunks
-from posthog.utils import get_context_for_template
+from posthog.utils import (
+    flags_for_app_evaluation_context,
+    get_context_for_template,
+    get_persisted_feature_flags_for_app_context,
+)
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
+
+
+class TestPersistedFeatureFlagsForAppContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("enabled", True, [], [], ["warehouse-person-properties"]),
+            ("disabled", False, [], [], []),
+            (
+                "disabled_explicit",
+                False,
+                ["warehouse-person-properties", "other-feature"],
+                [],
+                ["other-feature"],
+            ),
+            (
+                "disabled_dynamic",
+                False,
+                ["other-feature"],
+                [
+                    {
+                        "key": "warehouse-person-properties",
+                        "active": True,
+                        "filters": {"groups": [{"rollout_percentage": 100}]},
+                    }
+                ],
+                ["other-feature"],
+            ),
+        ]
+    )
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions")
+    def test_self_hosted_context_respects_operator_setting(
+        self, _name, enabled, static_flags, definitions, expected, mock_definitions
+    ):
+        mock_definitions.return_value = definitions
+        with self.settings(
+            CLOUD_DEPLOYMENT=None,
+            DEBUG=False,
+            PERSISTED_FEATURE_FLAGS=static_flags,
+            WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=enabled,
+        ):
+            assert get_persisted_feature_flags_for_app_context() == expected
+
+    @parameterized.expand(
+        [
+            ("without_explicit_flag", [], []),
+            (
+                "with_explicit_flag",
+                ["warehouse-person-properties"],
+                ["warehouse-person-properties"],
+            ),
+        ]
+    )
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
+    def test_cloud_context_does_not_include_non_cloud_persisted_flags(
+        self, _name, static_flags, expected, _definitions
+    ):
+        with self.settings(
+            CLOUD_DEPLOYMENT="US",
+            DEBUG=False,
+            PERSISTED_FEATURE_FLAGS=static_flags,
+            WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False,
+        ):
+            assert get_persisted_feature_flags_for_app_context() == expected
+
 
 STABLE_CHUNKS = StableChunks(
     imports={"@c/eAAAA": "static/index-S0000000000.js"},
@@ -26,9 +96,37 @@ STABLE_CHUNKS = StableChunks(
 )
 
 
+class TestFlagsForAppEvaluationContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_contexts_is_kept", None, True),
+            ("empty_contexts_is_kept", [], True),
+            ("app_context_is_kept", ["posthog-web-app", "posthog-website"], True),
+            ("other_context_is_dropped", ["posthog-website"], False),
+        ]
+    )
+    def test_keeps_flags_the_app_evaluates(self, _name, evaluation_contexts, kept):
+        definitions = [{"key": "the-flag", "evaluation_contexts": evaluation_contexts}]
+
+        actual = flags_for_app_evaluation_context({"the-flag": True, "untagged": True}, definitions)
+
+        assert actual == ({"the-flag": True, "untagged": True} if kept else {"untagged": True})
+
+    def test_keeps_every_flag_before_definitions_load(self):
+        assert flags_for_app_evaluation_context({"the-flag": True}, None) == {"the-flag": True}
+
+    def test_keeps_no_flags_when_analytics_is_disabled(self):
+        definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
+
+        assert flags_for_app_evaluation_context(None, definitions) is None
+
+
 class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
-        with self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]):
+        with (
+            self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),
+            mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "LOCAL"),
+        ):
             actual = get_context_for_template(
                 "layout",
                 MagicMock(),
@@ -44,12 +142,34 @@ class TestGetContextForTemplate(APIBaseTest):
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
-            "posthog_app_context": {"persisted_feature_flags": ["the_persisted_flags"], "anonymous": False},
+            "posthog_app_context": {
+                "persisted_feature_flags": ["the_persisted_flags", "warehouse-person-properties"],
+                "anonymous": False,
+                "run_mode": "LOCAL",
+            },
             "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
             "region": None,
             "self_capture": True,
         }
+
+    @parameterized.expand(
+        [
+            ("hobby", None, False, "HOBBY"),
+            ("local", None, True, "LOCAL"),
+            ("cloud_us", "US", False, "US"),
+            ("cloud_eu", "EU", False, "EU"),
+            ("cloud_dev", "DEV", False, "DEV"),
+            ("e2e", "E2E", False, "E2E"),
+        ]
+    )
+    def test_exposes_run_mode(self, _name, deployment, debug, expected):
+        with (
+            mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment),
+            mock.patch("posthog.settings.DEBUG", debug),
+        ):
+            actual = get_context_for_template("layout", MagicMock())
+        assert actual["posthog_app_context"]["run_mode"] == expected
 
     def test_picks_up_stripe_public_key_from_environment(self):
         with self.settings(STRIPE_PUBLIC_KEY="pk_test_12345"):
@@ -60,9 +180,26 @@ class TestGetContextForTemplate(APIBaseTest):
 
         assert actual["stripe_public_key"] == "pk_test_12345"
 
+    def test_renders_one_origin_trial_meta_tag_per_token(self):
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        with self.settings(ORIGIN_TRIAL_TOKENS=["tokenA+/=", "tokenB"]):
+            html = render_to_string("head.html", get_context_for_template("layout", request), request=request)
+
+        assert html.count('http-equiv="origin-trial"') == 2
+        assert '<meta http-equiv="origin-trial" content="tokenA+/=">' in html
+        assert '<meta http-equiv="origin-trial" content="tokenB">' in html
+
     @parameterized.expand(
         [
-            ("configured", {"pathname": "/dashboard/42", "pinned": True, "title": "Default dashboard"}),
+            (
+                "configured",
+                {
+                    "pathname": "/dashboard/42",
+                    "pinned": True,
+                    "title": "Default dashboard",
+                },
+            ),
             ("not_configured", None),
             ("empty_is_cleared", {}),
         ]
@@ -79,6 +216,55 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = actual["posthog_app_context"]
         assert app_context["homepage"] == (stored_homepage or None)
+
+    @parameterized.expand([("shares_email", False, "user@example.com"), ("anonymized", True, None)])
+    @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={})
+    def test_flag_bootstrap_evaluates_with_the_identity_the_browser_sends(
+        self, _name, anonymize_data, expected_email, mock_get_all_flags
+    ):
+        self.user.email = "user@example.com"
+        self.user.anonymize_data = anonymize_data
+        self.user.save()
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        with self.settings(SITE_URL="https://app.example.com"):
+            get_context_for_template("layout", request)
+
+        kwargs = mock_get_all_flags.call_args.kwargs
+        assert kwargs["person_properties"] == {
+            "email": expected_email,
+            "joined_at": self.user.date_joined.isoformat(),
+        }
+        assert kwargs["groups"] == {
+            "project": str(self.team.uuid),
+            "organization": str(self.organization.id),
+            "customer": "cus_123",
+            "instance": "https://app.example.com",
+        }
+        assert kwargs["group_properties"]["project"] == {
+            "id": self.team.id,
+            "uuid": str(self.team.uuid),
+            "name": self.team.name,
+            "ingested_event": self.team.ingested_event,
+            "is_demo": self.team.is_demo,
+            "timezone": self.team.timezone,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        assert kwargs["group_properties"]["organization"] == {
+            "id": str(self.organization.id),
+            "name": self.organization.name,
+            "slug": self.organization.slug,
+            "created_at": mock.ANY,
+            "available_product_features": self.organization.available_product_features or [],
+            "member_count": 1,
+            "project_count": 1,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        assert kwargs["group_properties"]["instance"] == {"site_url": "https://app.example.com"}
 
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is

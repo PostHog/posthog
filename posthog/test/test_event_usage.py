@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
@@ -22,7 +24,12 @@ from posthog.event_usage import (
     sanitize_header_value,
 )
 from posthog.models.oauth import OAuthAccessToken
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    WEBMCP_APP_CLIENT_ID,
+)
 
 # The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
 # Desktop hosts locally.
@@ -279,7 +286,7 @@ class TestReportUserAction(BaseTest):
             )
 
 
-class TestGetEventSource(BaseTest):
+class TestGetEventSource(SimpleTestCase):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
@@ -299,7 +306,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
     def test_web_via_session_authentication(self):
-        from rest_framework.authentication import SessionAuthentication
+        from posthog.auth import SessionAuthentication
 
         request = SimpleNamespace(META={}, headers={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB
@@ -321,13 +328,19 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
-    def test_posthog_ai_oauth_app_beats_the_mcp_header(self):
+    @parameterized.expand(
+        [
+            ("posthog_ai", POSTHOG_AI_APP_CLIENT_ID_DEV, EventSource.POSTHOG_AI),
+            ("webmcp", WEBMCP_APP_CLIENT_ID, EventSource.WEBMCP),
+        ]
+    )
+    def test_server_minted_oauth_app_beats_the_mcp_header(self, _name, client_id, expected):
         request = SimpleNamespace(
             META={},
             headers={"X-Posthog-Client": "mcp"},
-            successful_authenticator=_oauth_authenticator(POSTHOG_AI_APP_CLIENT_ID_DEV),
+            successful_authenticator=_oauth_authenticator(client_id),
         )
-        assert get_event_source(request) == EventSource.POSTHOG_AI
+        assert get_event_source(request) == expected
 
     @parameterized.expand(
         [
@@ -406,7 +419,7 @@ class TestGetEventSource(BaseTest):
         # that is not an EventSource drops out of every breakdown that joins the two. This list is
         # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
         # a surface here without removing it there fails this.
-        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving"}
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving", "webmcp"}
         assert mcp_server_sources <= {source.value for source in EventSource}
 
     @parameterized.expand(
@@ -470,7 +483,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
 
-class TestIsWizardSelfDrivingProgram(BaseTest):
+class TestIsWizardSelfDrivingProgram(SimpleTestCase):
     @parameterized.expand(
         [
             # Direct wizard → Django: the marker rides on the User-Agent itself.
@@ -570,7 +583,7 @@ class TestSignupCrmExclusion(BaseTest):
             mock_group_identify.assert_not_called()
 
 
-class TestSanitizeHeaderValue(BaseTest):
+class TestSanitizeHeaderValue(SimpleTestCase):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),

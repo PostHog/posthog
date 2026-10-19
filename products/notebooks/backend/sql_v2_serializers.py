@@ -303,6 +303,14 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         default=list,
         help_text="Rich outputs from a Python node run, e.g. matplotlib figures as PNGs.",
     )
+    result_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "The plain-text form of a Python node's last expression, as Jupyter shows it under Out[n]. "
+            "Absent when the cell ends in a statement, a None value, a semicolon, or a dataframe."
+        ),
+    )
     columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -421,6 +429,31 @@ class NotebookCellLastRunSerializer(serializers.Serializer):
     error = serializers.CharField(required=False, allow_null=True, help_text="Error message when the run failed.")
 
 
+class NotebookCellVisualizationSerializer(serializers.Serializer):
+    display = serializers.CharField(
+        help_text="Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'."
+    )
+    x_axis = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y "
+            "series do not use when there is no date column."
+        ),
+    )
+    y_axis = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text=(
+            "Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list "
+            "means the author removed every series, so the chart plots nothing."
+        ),
+    )
+    series_breakdown = serializers.CharField(
+        allow_null=True,
+        help_text="Column that splits the Y series into one series per value, or null.",
+    )
+
+
 class NotebookCellStateSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Durable cell identity, used by the cell run and edit endpoints.")
     cell_type = serializers.CharField(
@@ -468,6 +501,14 @@ class NotebookCellStateSerializer(serializers.Serializer):
     )
     last_run = NotebookCellLastRunSerializer(
         required=False, allow_null=True, help_text="Summary of the most recent run; null when never run."
+    )
+    visualization = NotebookCellVisualizationSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of "
+            "notebooks-add-cell. Null when the cell opens on its results table."
+        ),
     )
 
 
@@ -665,7 +706,7 @@ class NotebookRunStartRequestSerializer(serializers.Serializer):
     include_prepared_insights = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled.",
+        help_text="Include prepared embedded insights when refreshing a dashboard widget.",
     )
     variables = NotebookVariableSerializer(
         many=True,
@@ -755,3 +796,50 @@ class NotebookRunInterruptResponseSerializer(serializers.Serializer):
         help_text="True when this call stopped the run. False when it had already finished, which is not an error."
     )
     status = serializers.CharField(help_text="The run's state after the call: 'done', 'failed', or 'interrupted'.")
+
+
+MAX_INTROSPECTION_CODE_LENGTH = 100_000
+
+
+class NotebookKernelCompleteRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=MAX_INTROSPECTION_CODE_LENGTH,
+        help_text="The full source of the cell being edited.",
+    )
+    cursor_pos = serializers.IntegerField(
+        min_value=0, help_text="Character offset of the cursor in `code`, counting from 0."
+    )
+
+
+class NotebookKernelCompletionSerializer(serializers.Serializer):
+    text = serializers.CharField(help_text="The text that replaces `code[cursor_start:cursor_end]`.")
+    type = serializers.CharField(
+        allow_blank=True,
+        help_text="What the match names, as the kernel reports it: 'function', 'module', 'instance', … or blank.",
+    )
+
+
+class NotebookKernelCompleteResponseSerializer(serializers.Serializer):
+    matches = NotebookKernelCompletionSerializer(
+        many=True, help_text="Completions from the live kernel's namespace. Empty when no kernel is running."
+    )
+    cursor_start = serializers.IntegerField(help_text="Start offset of the text the completions replace.")
+    cursor_end = serializers.IntegerField(help_text="End offset of the text the completions replace.")
+
+
+class NotebookKernelInspectRequestSerializer(NotebookKernelCompleteRequestSerializer):
+    detail_level = serializers.IntegerField(
+        min_value=0,
+        max_value=1,
+        default=0,
+        help_text="0 for the signature and docstring, 1 to add the source when the kernel can find it.",
+    )
+
+
+class NotebookKernelInspectResponseSerializer(serializers.Serializer):
+    found = serializers.BooleanField(help_text="Whether the kernel found an object at the cursor.")
+    text = serializers.CharField(
+        allow_blank=True, help_text="The object's signature and docstring as plain text. Blank when not found."
+    )

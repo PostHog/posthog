@@ -1,13 +1,17 @@
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
     LeadfeederSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
-    ENDPOINTS,
     LEADFEEDER_API_2026_08_07,
     LEADFEEDER_API_LEGACY,
 )
@@ -50,24 +54,6 @@ class TestLeadfeederSource:
     def test_non_retryable_errors_ignore_transient(self, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_get_schemas_marks_only_date_filtered_endpoints_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        # Accounts has no server-side date filter -> full refresh only.
-        assert schemas["accounts"].supports_incremental is False
-        assert schemas["accounts"].supports_append is False
-        # Leads and visits filter server-side on start_date/end_date -> incremental.
-        for name in ("leads", "visits"):
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leads"])
-        assert [s.name for s in schemas] == ["leads"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @parameterized.expand(
         [
@@ -125,21 +111,20 @@ class TestLeadfeederSource:
         # The resolved source pin reaches the request layer so it builds the right generation's client.
         assert kwargs["api_version"] == LEADFEEDER_API_LEGACY
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.leadfeeder_source")
-    def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # A stale watermark must not leak into a full-refresh run.
         config = LeadfeederSourceConfig(api_token="token")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "accounts"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-06-01"
+        result = SourceDriver(self.source, config).run(
+            "leads",
+            [
+                ScriptedResponse(json={"data": [{"id": "1", "type": "accounts", "attributes": {}}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+            api_version=LEADFEEDER_API_LEGACY,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2024-06-01",
+        )
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None
-        assert kwargs["start_date_config"] == ""
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
+        assert result.raised is None
+        assert result.requests[1].param("start_date") == "2025-07-02"

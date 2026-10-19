@@ -2,8 +2,8 @@
 
 Every scorer reads the task output dict built in eval_scanner_quality._scan_task plus its own
 sub-dict of ``case.expected``, and self-skips (score=None) when its key is absent, so one scorer
-list spans all four scanner types. Correctness scoring reuses the same primary-outcome and
-kept/regressed/fixed/still_wrong semantics as the in-product prompt-suggestion evaluation.
+list spans all four scanner types. Correctness scoring compares the primary outcome against the
+human label: kept/fixed score 1, regressed/still_wrong score 0.
 """
 
 import json
@@ -11,7 +11,7 @@ from typing import Any
 
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
-from products.replay_vision.backend.prompt_evaluation import classify_outcome, primary_outcome
+from products.replay_vision.evals.outcomes import classify_outcome, primary_outcome
 
 _OUTCOME_SCORES = {"kept": 1.0, "fixed": 1.0, "regressed": 0.0, "still_wrong": 0.0}
 
@@ -41,7 +41,7 @@ class ScanCompleted(Scorer):
 
 class LabeledOutcome(Scorer):
     """For human-labeled monitor/classifier cases: kept and fixed score 1, regressed and
-    still_wrong score 0, mirroring the in-product prompt-suggestion evaluation."""
+    still_wrong score 0."""
 
     def _name(self) -> str:
         return "labeled_outcome"

@@ -1,5 +1,6 @@
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -17,6 +18,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.billing import is_in_free_historical_window
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
@@ -31,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
+    setup_row_tracking,
     will_hit_billing_limit,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
@@ -45,6 +48,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportDataActivityInputs,
     )
@@ -77,6 +81,7 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 
 
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
+NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE = timedelta(minutes=10)
 
 
 UNREADABLE_JOB_INPUTS_MESSAGE = (
@@ -288,6 +293,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
+def count_worker_deaths(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> int:
+    """Times a worker died on this run without raising. `report_heartbeat_timeout` records each one."""
+    try:
+        from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSchemaOOMEvent,
+        )
+
+        return (
+            ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id)
+            .filter(schema_id=inputs.schema_id, run_id=inputs.run_id)
+            .count()
+        )
+    except Exception as e:
+        # The count only makes a read more careful, so a read of it that fails must not fail the sync.
+        logger.debug(f"Could not count worker deaths for schema {inputs.schema_id}: {e}", exc_info=e)
+        return 0
+
+
 async def handle_non_retryable_error(
     team_id: int,
     source_id: str,
@@ -328,27 +351,14 @@ async def handle_non_retryable_error(
     raise NonRetryableException() from error
 
 
-async def reset_rows_synced_if_needed(
-    job: "ExternalDataJob",
-    is_incremental: bool,
-    reset_pipeline: bool,
-    should_resume: bool,
-    *,
-    incremental_cursor_staged: bool = False,
-) -> None:
+async def reset_rows_synced_if_needed(job: "ExternalDataJob", should_resume: bool) -> None:
     # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
     #
-    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
-    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
-    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
-    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
-    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
-    if (
-        job.rows_synced is not None
-        and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
-        and not should_resume
-    ):
+    # The incremental cursor is staged and only promoted on completion, so a retried attempt
+    # re-extracts the whole window from batch 0, and keeping the previous attempt's count
+    # double-counts every re-read row — `rows_synced` feeds billed usage via `Sum("rows_synced")`
+    # in usage reports. A resumed attempt picks up the earlier attempt's staged batches instead.
+    if job.rows_synced is not None and job.rows_synced != 0 and not should_resume:
         job.rows_synced = 0
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
@@ -484,14 +494,79 @@ async def setup_row_tracking_with_billing_check(
     logger: FilteringBoundLogger,
     billable: bool | None = True,
 ) -> None:
-    if resource.rows_to_sync:
-        await increment_rows(team_id, schema.id, resource.rows_to_sync)
-        # Check billing limits against incoming rows (skip for non-billable jobs)
-        if billable and await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
-            raise BillingLimitsWillBeReachedException(
-                f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
-                f"with {resource.rows_to_sync} rows"
-            )
+    # The limit check sums these rows over every running sync in the organization. A run the check skips (a
+    # non-billable job, or a source in its free first week at the start) must stay out, or it blocks the others.
+    if not resource.rows_to_sync or not billable or is_in_free_historical_window(source.created_at):
+        return
+
+    await increment_rows(team_id, schema.id, resource.rows_to_sync)
+    if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
+        raise BillingLimitsWillBeReachedException(
+            f"Your account will hit your Sources billing limits syncing {resource.name} "
+            f"with {resource.rows_to_sync} rows"
+        )
+
+
+def reset_pipeline_requested(
+    schema: "ExternalDataSchema",
+    *,
+    workflow_reset_pipeline: bool | None,
+    scheduled_full_refresh: bool,
+    job_created_at: datetime,
+) -> bool:
+    """Whether this run was asked to load the table again from the start.
+
+    The import and the pre-extraction repartition both read this answer. One function keeps them
+    from a disagreement, in which the repartition rewrites a table that the import then deletes.
+    """
+    if workflow_reset_pipeline is not None:
+        return workflow_reset_pipeline
+    if schema.sync_type_config.get("reset_pipeline", False) is True:
+        return True
+    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
+    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
+    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
+    return scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
+
+
+def import_replaces_table(
+    schema: "ExternalDataSchema", *, workflow_reset_pipeline: bool | None, job_created_at: datetime
+) -> bool:
+    """Whether the import that follows the repartition step deletes the table and loads it again.
+
+    Answers before the source is built, so it cannot see three things that the import sees later: a
+    resumed run, a webhook-only resource, and a reset that the source asks for. A resumed run is the
+    second attempt or later, and the repartition step runs before the first. A webhook schema counts
+    as webhook-only here, so the answer for it is always False. In each unseen case the answer is
+    False and the repartition step does what it did before.
+
+    A scheduled full refresh is not an input, because the workflow does not run the repartition step
+    for it.
+    """
+    reset_pipeline = reset_pipeline_requested(
+        schema,
+        workflow_reset_pipeline=workflow_reset_pipeline,
+        scheduled_full_refresh=False,
+        job_created_at=job_created_at,
+    )
+    return resets_table_before_extraction(
+        reset_pipeline, should_resume=False, schema=schema, webhook_only=schema.is_webhook
+    )
+
+
+def resets_table_before_extraction(
+    reset_pipeline: bool, should_resume: bool, schema: "ExternalDataSchema", webhook_only: bool = False
+) -> bool:
+    """Whether `handle_reset_or_full_refresh` deletes the table for these inputs."""
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        ExternalDataSchema,
+    )
+
+    if should_resume:
+        return False
+    if reset_pipeline:
+        return not webhook_only
+    return schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
 
 async def handle_reset_or_full_refresh(
@@ -529,7 +604,9 @@ async def handle_reset_or_full_refresh(
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_ref.reset_table()
-        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
+            promote_pending_repartition=True
+        )
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
@@ -537,7 +614,7 @@ async def handle_reset_or_full_refresh(
         # Keep the initial_sync_complete latch: this branch runs on every scheduled full-refresh
         # sync, and a run that extracts zero rows never reaches post-load to re-set it.
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
-            clear_initial_sync_complete=False
+            clear_initial_sync_complete=False, promote_pending_repartition=True
         )
 
 
@@ -569,6 +646,8 @@ async def handle_corrupted_delta_log(
     job: "ExternalDataJob",
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
+    *,
+    table_will_be_reset: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -589,10 +668,17 @@ async def handle_corrupted_delta_log(
     - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
       non-billable — the corruption is our fault, not the customer's.
 
+    `table_will_be_reset` says that this run deletes the table before extraction in any case (a
+    scheduled full refresh or a requested reset). The delete does not read the log, so an unreadable
+    log needs no detection there, and the open is skipped. A revive marker and a staged swap are
+    still handled, because they need more than the delete.
+
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
+        if table_will_be_reset and schema.repartition_swap is None:
+            return False
         try:
             if not await delta_table_ref.is_table_corrupted():
                 return False
@@ -706,6 +792,9 @@ async def handle_corrupted_delta_log(
     if job.billable:
         job.billable = False
         await database_sync_to_async_pool(job.save)(update_fields=["billable"])
+        # The run registered its row estimate while the job was still billable. The estimate must
+        # stop counting toward the limit check, the same as for a job that starts non-billable.
+        await setup_row_tracking(schema.team_id, schema.id)
 
     _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
     await logger.awarning(
@@ -740,7 +829,8 @@ async def update_incremental_field_values(
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
-        if (last_incremental_field_value is None) or (last_value > last_incremental_field_value):
+        last_advanced = (last_incremental_field_value is None) or (last_value > last_incremental_field_value)
+        if last_advanced:
             last_incremental_field_value = last_value
 
         if resource.sort_mode == "asc":
@@ -756,18 +846,27 @@ async def update_incremental_field_values(
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
-
-            if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
+            earliest_advanced = (
+                earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value
+            )
+            if earliest_advanced:
                 earliest_incremental_field_value = earliest_value
                 await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                if staging_run_uuid is not None:
+
+            if staging_run_uuid is not None:
+                # The high-water mark is staged with every checkpoint so a resumed attempt can inherit it
+                # (see `staged_run_last_value`). Staging is not promotion: the loader promotes the
+                # watermark only when the final batch of the run completes the job.
+                if last_advanced or earliest_advanced:
                     await database_sync_to_async_pool(schema.stage_incremental_field_value)(
-                        staging_run_uuid, None, earliest_value
+                        staging_run_uuid,
+                        last_incremental_field_value,
+                        earliest_value if earliest_advanced else None,
                     )
-                else:
-                    await database_sync_to_async_pool(schema.update_incremental_field_value)(
-                        earliest_value, type="earliest"
-                    )
+            elif earliest_advanced:
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                    earliest_value, type="earliest"
+                )
 
     return IncrementalFieldValues(
         last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value
@@ -787,6 +886,14 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
+def is_young_first_attempt() -> bool:
+    if not activity.in_activity():
+        return False
+
+    info = activity.info()
+    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+
+
 def should_check_shutdown(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -796,12 +903,13 @@ def should_check_shutdown(
     # Only raise if we're not running in descending order, otherwise we'll often not
     # complete the job before the incremental value can be updated. Or if the source is
     # resumable
-    # TODO: raise when we're within `x` time of the worker being forced to shutdown
+    # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
+    # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable
+    return incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt()
 
 
 async def finalize_desc_sort_incremental_value(
@@ -826,31 +934,28 @@ async def finalize_desc_sort_incremental_value(
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
-async def advance_xmin_state(
-    resource: SourceResponse,
+async def commit_source_cursor(
+    source_cursor_manager: "SourceCursorManager[Any] | None",
     schema: "ExternalDataSchema",
     logger: FilteringBoundLogger,
+    *,
+    staging_run_uuid: str | None,
     log_prefix: str = "",
 ) -> None:
-    """Persist the xmin ceiling captured at sync start, once the run's data is durable.
+    """Persist the cursor the source staged, once this run's rows are durable or about to be.
 
-    Persist-then-advance: the ceiling was captured before streaming and is stored only here, at
-    completion, so a mid-run crash re-reads the window next time (the upsert on PK is idempotent).
-    Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
-    wraparound-unsafe for xmin.
+    With `staging_run_uuid`, the cursor waits in the staged slot until the loader promotes it with
+    the final batch, so a load that fails never leaves the cursor past rows it did not write.
+    Without it, the caller has already written every row and the cursor is stored directly.
     """
-    if (
-        not schema.is_xmin
-        or resource.xmin_ceiling_xid is None
-        or resource.xmin_ceiling_xid8 is None
-        or resource.xmin_num_wraparound is None
-    ):
+    if source_cursor_manager is None:
+        return
+    payload = source_cursor_manager.staged_payload()
+    if payload is None:
         return
 
-    await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")
-    await database_sync_to_async_pool(schema.refresh_from_db)()
-    await database_sync_to_async_pool(schema.update_xmin_state)(
-        ceiling_xid=resource.xmin_ceiling_xid,
-        ceiling_xid8=resource.xmin_ceiling_xid8,
-        num_wraparound=resource.xmin_num_wraparound,
-    )
+    await logger.adebug(f"{log_prefix}Committing source cursor", kind=payload["kind"], staged=staging_run_uuid)
+    if staging_run_uuid is not None:
+        await database_sync_to_async_pool(schema.stage_source_cursor)(staging_run_uuid, payload)
+    else:
+        await database_sync_to_async_pool(schema.update_source_cursor)(payload)

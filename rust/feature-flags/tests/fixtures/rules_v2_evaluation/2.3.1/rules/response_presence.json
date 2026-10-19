@@ -1,0 +1,155 @@
+{
+  "version": "1.0.0",
+  "rows": [
+    {
+      "reason": "targeting_match",
+      "rule_type": "targeted_release",
+      "required": [
+        "rule_type",
+        "rule_id"
+      ],
+      "forbidden": [
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "targeting_match",
+      "rule_type": "percentage_rollout",
+      "required": [
+        "rule_type",
+        "rule_id"
+      ],
+      "forbidden": [
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "experiment_split",
+      "rule_type": "experiment",
+      "required": [
+        "rule_type",
+        "rule_id",
+        "experiment_id",
+        "variant_key"
+      ],
+      "forbidden": [
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "rollout_miss",
+      "rule_type": "percentage_rollout",
+      "required": [
+        "rule_type",
+        "rule_id"
+      ],
+      "forbidden": [
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "rollout_miss",
+      "rule_type": "experiment",
+      "required": [
+        "rule_type",
+        "rule_id",
+        "experiment_id"
+      ],
+      "forbidden": [
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "experiment_paused",
+      "rule_type": "experiment",
+      "required": [
+        "rule_type",
+        "rule_id",
+        "experiment_id"
+      ],
+      "forbidden": [
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "holdout",
+      "rule_type": "experiment",
+      "required": [
+        "rule_type",
+        "rule_id",
+        "experiment_id",
+        "holdout_id"
+      ],
+      "forbidden": [
+        "variant_key"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "no_rule_match",
+      "rule_type": null,
+      "required": [],
+      "forbidden": [
+        "rule_type",
+        "rule_id",
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "missing_group_key",
+      "rule_type": null,
+      "required": [],
+      "forbidden": [
+        "rule_type",
+        "rule_id",
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": false
+    },
+    {
+      "reason": "dependency_error",
+      "rule_type": null,
+      "required": [],
+      "forbidden": [
+        "rule_type",
+        "rule_id",
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": true
+    },
+    {
+      "reason": "error",
+      "rule_type": null,
+      "required": [],
+      "forbidden": [
+        "rule_type",
+        "rule_id",
+        "experiment_id",
+        "variant_key",
+        "holdout_id"
+      ],
+      "failed": true
+    }
+  ]
+}

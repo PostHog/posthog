@@ -19,12 +19,6 @@ jest.mock('./components/ScannerScanTab', () => {
     mockImportedTabs.push('Run')
     return { ScannerScanTab: ({ scannerId }: { scannerId: string }) => <div>Run content {scannerId}</div> }
 })
-jest.mock('./components/ScannerCalibrationTab', () => {
-    mockImportedTabs.push('Calibration')
-    return {
-        ScannerCalibrationTab: ({ scannerId }: { scannerId: string }) => <div>Calibration content {scannerId}</div>,
-    }
-})
 jest.mock('./components/ScannerScoutsTab', () => {
     mockImportedTabs.push('Scouts')
     return { ScannerScoutsTab: ({ scannerId }: { scannerId: string }) => <div>Scouts content {scannerId}</div> }
@@ -86,7 +80,6 @@ describe('ReplayScanner', () => {
 
         const tabKeys: [string, string][] = [
             ['Run', 'run'],
-            ['Calibration', 'calibration'],
             ['Scouts', 'scouts'],
             ['Alerts', 'alerts'],
         ]
@@ -102,8 +95,8 @@ describe('ReplayScanner', () => {
 
         fireEvent.click(screen.getByText('Observations', { exact: true }))
         await waitFor(() => expect(logic.values.observationsActive).toBe(true))
-        fireEvent.click(screen.getByText('Calibration', { exact: true }))
-        await screen.findByText('Calibration content scanner-example')
+        fireEvent.click(screen.getByText('Scouts', { exact: true }))
+        await screen.findByText('Scouts content scanner-example')
         expect(logic.values.observationsActive).toBe(false)
         expect(mockImportedTabs).toEqual(tabs)
 

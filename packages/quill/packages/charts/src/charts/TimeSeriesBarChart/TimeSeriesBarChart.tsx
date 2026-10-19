@@ -81,6 +81,8 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
     config?: TimeSeriesBarChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable`. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. See `BarChartProps.onDateRangeZoom`. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
@@ -96,6 +98,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     dataAttr,
     className,
@@ -188,6 +191,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                isPointClickable={isPointClickable}
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
@@ -195,7 +199,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
                 {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && <ValueLabels {...valueLabelsConfig} valueFormatter={valueLabelFormatter} />}
                 {children}
             </BarChart>
         </ChartLegend>

@@ -1,16 +1,18 @@
+from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connections
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -23,6 +25,7 @@ from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_dispatch_tasks import (
@@ -30,6 +33,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.inbox_summary import sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -51,6 +55,7 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -68,10 +73,58 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
+    from products.signals.backend.onboarding_activation import (
+        InboxOnboardingActivation,  # noqa: PLC0415 - keep the Temporal graph off task discovery
+    )
+
+    InboxOnboardingActivation(team_id).run(job, final_attempt=self.request.retries >= self.max_retries)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
+    from products.signals.backend.onboarding_completion import (
+        InboxOnboardingReconciler,  # noqa: PLC0415 - keep onboarding dependencies off task discovery
+        RepositoryCheckUnavailable,
+    )
+
+    try:
+        pending = InboxOnboardingReconciler(team_id, priority=Priority.BATCH).run()
+    except RepositoryCheckUnavailable as error:
+        reconcile_inbox_onboarding.apply_async(
+            args=[team_id],
+            kwargs={"failed_checks": failed_checks + 1},
+            countdown=max(min(60 * 2 ** min(failed_checks, 4), 900), error.retry_after),
+        )
+        return
+    if pending:
+        reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_pull_request_participants",
+    ignore_result=True,
+    bind=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_pull_request_participants(self, team_id: int, repository: str, pr_number: int) -> None:
+    try:
+        sync_pull_request_participants(team_id=team_id, repository=repository, pr_number=pr_number)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
 
 
 @shared_task(
@@ -90,6 +143,10 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if pr is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED:
+        from products.signals.backend.pull_requests import schedule_participant_refresh
+
+        schedule_participant_refresh(pr)
 
     github = GitHubIntegration.first_for_team_repository(
         team_id,
@@ -374,6 +431,29 @@ def deliver_scout_slack_thread_replies(
         )
         return
 
+    # The earlier attempt recorded the replies it reached, so this one updates those instead of
+    # posting them again.
+    message = (
+        scout_report_slack_message(
+            team_id=team_id,
+            report_id=report_id,
+            slack_workspace_id=integration.integration_id,
+            thread_ts=thread_ts,
+        )
+        if report_id is not None
+        else None
+    )
+
+    def _record_reply_ts(posted: list[str]) -> None:
+        if message is not None:
+            record_scout_report_slack_replies(
+                team_id=team_id,
+                slack_workspace_id=integration.integration_id,
+                channel=message.channel,
+                thread_ts=thread_ts,
+                reply_ts=posted,
+            )
+
     _post_scout_report_thread_replies(
         slack.client,
         channel_id=channel_id,
@@ -383,6 +463,9 @@ def deliver_scout_slack_thread_replies(
         fallback=fallback,
         schedule_retry=_schedule_retry,
         chunk_offset=chunk_offset,
+        conversation=message.channel if message is not None else None,
+        reply_ts=message.reply_ts if message is not None else None,
+        record_reply_ts=_record_reply_ts,
     )
 
 
@@ -610,7 +693,7 @@ def send_reviewer_added_slack_notifications(
     # them must not suppress the ping itself.
     source_products: list[str] | None = None
     try:
-        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ClickHouseUser.SIGNALS).get(report_id)
         source_products = meta.source_products if meta else None
     except Exception:
         logger.exception(
@@ -990,6 +1073,65 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         cache.delete(lock_key)
 
 
+# Long enough to collapse a burst of reads into one queued build, short enough that a failed
+# build is retried by the next read a few minutes later.
+_PROFILE_BUILD_DEDUPE_SECONDS = 5 * 60
+
+
+def enqueue_project_profile_build(team_id: int, *, dedupe: bool = True) -> None:
+    """Queue one `build_signal_project_profile` per team per dedupe window.
+
+    `dedupe=False` queues the build even inside the window. A read calls this after it has its
+    profile, so a cache or broker failure is reported and does not fail the read. A failed
+    enqueue releases the window, so the next read can queue the build again.
+    """
+    key = f"signals_project_profile_build/{team_id}"
+    claimed = False
+    try:
+        claimed = cache.add(key, "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS)
+        if claimed or not dedupe:
+            build_signal_project_profile.delay(team_id)
+    except Exception as exc:
+        capture_exception(exc, {"team_id": team_id})
+        if claimed:
+            with suppress(Exception):
+                cache.delete(key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.build_signal_project_profile",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def build_signal_project_profile(team_id: int) -> None:
+    """Run the surface queries off the request path, and build the profile if the team has none.
+
+    A read caller that found no profile queues this, and so does a read whose profile has no
+    current surface entries.
+    """
+    # The `tools` package imports this module through `slack_delivery_queue`.
+    from products.signals.backend.scout_harness.tools.profile import refresh_project_profile_surfaces  # noqa: PLC0415
+
+    refresh_project_profile_surfaces(team_id=team_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def refresh_signal_scout_background_bands() -> None:
+    """Daily: recompute which projects can get a background scout, and their activity band.
+
+    Runs here rather than on the coordinator tick, because it reads a week of fleet-wide event
+    volume and activity bands do not change by the half hour.
+    """
+    outcome = refresh_background_bands()
+    logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
+
+
 @shared_task(
     name="products.signals.backend.tasks.pause_inactive_signal_scouts",
     ignore_result=True,
@@ -1092,8 +1234,13 @@ def prune_expired_scratchpad_entries_task() -> None:
         # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
         logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
     except Exception as exc:
-        capture_exception(exc)
-        logger.exception("signals_scout.scratchpad_prune_failed")
+        if is_stale_connection_read_only_error(exc):
+            # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
+            connections.close_all()
+            logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
+        else:
+            capture_exception(exc)
+            logger.exception("signals_scout.scratchpad_prune_failed")
     logger.info("signals_scout scratchpad prune finished", deleted=deleted)
 
 

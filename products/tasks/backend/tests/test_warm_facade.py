@@ -15,6 +15,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
+from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -392,6 +393,42 @@ class TestWarmTaskSandbox(APIBaseTest):
         task = Task.objects.get(id=result.task_id)
         assert task.repository is None
         assert task.github_integration_id == integration_id
+
+    @parameterized.expand(
+        [
+            ("posthog_ai_connected", Task.OriginProduct.POSTHOG_AI, True, "user"),
+            ("posthog_ai_without_personal_github", Task.OriginProduct.POSTHOG_AI, False, "bot"),
+        ]
+    )
+    def test_repo_less_warm_stamps_authorship_from_the_creators_personal_github(
+        self, _name, origin_product, connected, expected_mode
+    ):
+        user_integration = (
+            UserIntegration.objects.create(
+                user=self.user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="install-1",
+                config={},
+                sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+            )
+            if connected
+            else None
+        )
+
+        def fake_warm(self_warmer, **kwargs):
+            run = self_warmer.task.create_run(
+                mode="interactive", extra_state={**kwargs["extra_state"], "await_user_message": True}
+            )
+            return WarmResult(run=run, just_created=True)
+
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
+            result = self._warm(repository=None, github_integration_id=None, branch=None, origin_product=origin_product)
+
+        assert result is not None
+        task = Task.objects.get(id=result.task_id)
+        assert task.github_integration_id is None
+        assert task.github_user_integration == user_integration
+        assert TaskRun.objects.get(id=result.run_id).state["pr_authorship_mode"] == expected_mode
 
     @parameterized.expand(
         [
@@ -1151,6 +1188,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
                 assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
                 assert retry.json()["latest_run"]["id"] == str(run.id)
+                if endpoint != "create":
+                    assert retry.json()["run"]["id"] == str(run.id)
                 assert handle.signal.await_count == 3
                 assert all(call.kwargs["args"] == first_message for call in handle.signal.await_args_list)
                 run.refresh_from_db()
@@ -1721,6 +1760,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             )
 
         assert result is not None and result.error is None
+        assert result.run_id == warm_run.id
         assert task.runs.count() == 2
         signal.assert_called_once()
         warm_run.refresh_from_db()

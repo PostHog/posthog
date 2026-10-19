@@ -49,11 +49,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiGateway": {
-        "template": "/ai-gateway",
-        "params": [],
-        "scope": "project"
-    },
     "aiHistory": {
         "template": "/ai/history",
         "params": [],
@@ -119,6 +114,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityOfflineScorerHistory": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}/offline",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityPlayground": {
         "template": "/ai-observability/playground",
         "params": [],
@@ -136,6 +136,16 @@
     },
     "aiObservabilityReviews": {
         "template": "/ai-observability/reviews",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityScorer": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
+    "aiObservabilityScorers": {
+        "template": "/ai-evals/evaluations/scorers",
         "params": [],
         "scope": "project"
     },
@@ -204,6 +214,31 @@
         "params": [],
         "scope": "project"
     },
+    "analytics": {
+        "template": "/analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsList": {
+        "template": "/analytics/all",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsMine": {
+        "template": "/analytics/mine",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsProductHome": {
+        "template": "/analytics/product-analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsSpaces": {
+        "template": "/analytics/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "annotation": {
         "template": "/data-management/annotations/{id}",
         "params": ["id"],
@@ -239,6 +274,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -269,6 +319,21 @@
         "params": [],
         "scope": "project"
     },
+    "businessIntelligence": {
+        "template": "/bi",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceNew": {
+        "template": "/bi/new",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceWorksheet": {
+        "template": "/bi/{insightShortId}",
+        "params": ["insightShortId"],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
@@ -291,6 +356,21 @@
     },
     "canvas": {
         "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
+        "params": [],
+        "scope": "project"
+    },
+    "canvases": {
+        "template": "/canvases",
         "params": [],
         "scope": "project"
     },
@@ -373,6 +453,16 @@
         "template": "/account/credential-review",
         "params": [],
         "scope": "global"
+    },
+    "crossProjectDashboard": {
+        "template": "/cross-project-dashboards/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "crossProjectDashboards": {
+        "template": "/cross-project-dashboards",
+        "params": [],
+        "scope": "project"
     },
     "customCss": {
         "template": "/themes/custom-css",
@@ -614,6 +704,11 @@
         "params": [],
         "scope": "project"
     },
+    "engineeringAnalyticsCIExplorer": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}/ci-explorer",
+        "params": ["repoOwner", "repoName", "number"],
+        "scope": "project"
+    },
     "engineeringAnalyticsDeploys": {
         "template": "/engineering-analytics/deploys",
         "params": [],
@@ -660,32 +755,32 @@
         "scope": "project"
     },
     "errorTracking": {
-        "template": "/error_tracking",
+        "template": "/error-tracking",
         "params": [],
         "scope": "project"
     },
     "errorTrackingAlert": {
-        "template": "/error_tracking/alerts/{id}",
+        "template": "/error-tracking/alerts/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "errorTrackingAlertNew": {
-        "template": "/error_tracking/alerts/new/{templateId}",
+        "template": "/error-tracking/alerts/new/{templateId}",
         "params": ["templateId"],
         "scope": "project"
     },
     "errorTrackingConfiguration": {
-        "template": "/error_tracking",
+        "template": "/error-tracking",
         "params": [],
         "scope": "project"
     },
     "errorTrackingFingerprint": {
-        "template": "/error_tracking/fingerprint/{fingerprint}",
+        "template": "/error-tracking/fingerprint/{fingerprint}",
         "params": ["fingerprint"],
         "scope": "project"
     },
     "errorTrackingIssue": {
-        "template": "/error_tracking/{id}",
+        "template": "/error-tracking/{id}",
         "params": ["id"],
         "scope": "project"
     },
@@ -884,6 +979,11 @@
         "params": ["skillName"],
         "scope": "project"
     },
+    "inboxScoutTrials": {
+        "template": "/inbox/scout-trials",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
         "params": [],
@@ -1011,21 +1111,6 @@
     },
     "legalDocuments": {
         "template": "/legal",
-        "params": [],
-        "scope": "project"
-    },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
         "params": [],
         "scope": "project"
     },
@@ -1179,6 +1264,11 @@
         "params": [],
         "scope": "project"
     },
+    "metricsDashboardReview": {
+        "template": "/metrics/dashboard-review",
+        "params": [],
+        "scope": "project"
+    },
     "models": {
         "template": "/models",
         "params": [],
@@ -1249,10 +1339,20 @@
         "params": [],
         "scope": "project"
     },
+    "organizationLegalDocuments": {
+        "template": "/organization/legal",
+        "params": [],
+        "scope": "global"
+    },
     "organizationPendingDeletion": {
         "template": "/organization-pending-deletion",
         "params": [],
         "scope": "project"
+    },
+    "organizationStartups": {
+        "template": "/organization/startups",
+        "params": [],
+        "scope": "global"
     },
     "passwordReset": {
         "template": "/reset",
@@ -1281,6 +1381,16 @@
     },
     "pipelineStatus": {
         "template": "/health/pipeline-status",
+        "params": [],
+        "scope": "project"
+    },
+    "platformAlert": {
+        "template": "/platform-alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "platformAlerts": {
+        "template": "/platform-alerts",
         "params": [],
         "scope": "project"
     },
@@ -1379,6 +1489,11 @@
         "params": [],
         "scope": "project"
     },
+    "replayVisionNewScanner": {
+        "template": "/replay-vision/new/goal",
+        "params": [],
+        "scope": "project"
+    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1399,18 +1514,13 @@
         "params": ["id"],
         "scope": "project"
     },
+    "replayVisionScannerGoal": {
+        "template": "/replay-vision/{id}/goal",
+        "params": ["id"],
+        "scope": "project"
+    },
     "replayVisionScannerOverview": {
         "template": "/replay-vision/{id}/overview",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "replayVisionScannerSelfDriving": {
-        "template": "/replay-vision/{id}/self-driving",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "replayVisionScannerTemplate": {
-        "template": "/replay-vision/{id}/template",
         "params": ["id"],
         "scope": "project"
     },
@@ -1419,8 +1529,8 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionTemplates": {
-        "template": "/replay-vision/new/template",
+    "replayVisionTab": {
+        "template": "/replay-vision",
         "params": [],
         "scope": "project"
     },
@@ -1644,6 +1754,36 @@
         "params": [],
         "scope": "project"
     },
+    "taskNewSession": {
+        "template": "/spaces/new",
+        "params": [],
+        "scope": "project"
+    },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceNewSession": {
+        "template": "/spaces/{id}/new",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceSettings": {
+        "template": "/spaces/{id}/settings",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaces": {
+        "template": "/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "taskTracker": {
         "template": "/tasks",
         "params": [],
@@ -1656,6 +1796,11 @@
     },
     "toolbarLaunch": {
         "template": "/toolbar",
+        "params": [],
+        "scope": "project"
+    },
+    "tools": {
+        "template": "/tools",
         "params": [],
         "scope": "project"
     },
@@ -1686,21 +1831,6 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
-        "params": [],
-        "scope": "project"
-    },
-    "userInterview": {
-        "template": "/user_research/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "userInterviewResponse": {
-        "template": "/user_research/{topicId}/response/{responseId}",
-        "params": ["topicId", "responseId"],
-        "scope": "project"
-    },
-    "userInterviews": {
-        "template": "/user_research",
         "params": [],
         "scope": "project"
     },
@@ -1735,38 +1865,48 @@
         "scope": "project"
     },
     "visualReviewFlakiness": {
-        "template": "/visual_review/repos/{repoId}/flakiness",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/flakiness",
+        "params": ["repoOwner", "repoName"],
+        "scope": "project"
+    },
+    "visualReviewRepoRun": {
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/runs/{runId}",
+        "params": ["repoOwner", "repoName", "runId"],
         "scope": "project"
     },
     "visualReviewRepoRuns": {
-        "template": "/visual_review/repos/{repoId}/runs",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/runs",
+        "params": ["repoOwner", "repoName"],
         "scope": "project"
     },
     "visualReviewRun": {
-        "template": "/visual_review/runs/{runId}",
+        "template": "/visual-review/runs/{runId}",
         "params": ["runId"],
         "scope": "project"
     },
     "visualReviewRuns": {
-        "template": "/visual_review",
+        "template": "/visual-review",
         "params": [],
         "scope": "project"
     },
     "visualReviewSettings": {
-        "template": "/visual_review/settings",
+        "template": "/visual-review/settings",
         "params": [],
         "scope": "project"
     },
     "visualReviewSnapshotHistory": {
-        "template": "/visual_review/repos/{repoId}/{runType}/snapshots/{identifier}",
-        "params": ["repoId", "runType", "identifier"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/{runType}/snapshots/{identifier}",
+        "params": ["repoOwner", "repoName", "runType", "identifier"],
         "scope": "project"
     },
     "visualReviewSnapshotOverview": {
-        "template": "/visual_review/repos/{repoId}/snapshots",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/snapshots",
+        "params": ["repoOwner", "repoName"],
+        "scope": "project"
+    },
+    "warehouseDestination": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseDestinations": {

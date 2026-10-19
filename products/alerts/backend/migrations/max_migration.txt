@@ -1,1 +1,1 @@
-0007_platformalertconfiguration_platformalert_and_more
+0012_move_platform_models_to_alerts_platform

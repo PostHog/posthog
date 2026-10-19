@@ -5,7 +5,6 @@ import {
   getShortcutsByCategory,
   type ShortcutCategory,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -114,14 +113,9 @@ export function KeyboardShortcutsList() {
   // Several keys change owner with the layout, so the sheet has to know which
   // one is on rather than listing keys nothing handles.
   const channelsLayout = useChannelsLayout();
-  const inboxAvailable = useInboxAvailable();
   const shortcutsByCategory = useMemo(
-    () =>
-      getShortcutsByCategory({
-        channelsLayout,
-        inboxEnabled: inboxAvailable,
-      }),
-    [channelsLayout, inboxAvailable],
+    () => getShortcutsByCategory({ channelsLayout }),
+    [channelsLayout],
   );
 
   const categoryOrder: ShortcutCategory[] = [

@@ -1175,6 +1175,8 @@ class PersonalSpendCrossRegionAuthentication(WebhookSignatureAuthentication):
     fails closed on missing headers, unset secret, stale timestamp, or digest
     mismatch; the asserted identity lives in the signed body, not `request.user`."""
 
+    activity_credential_type = "cross_region_signature"
+
     def get_signature_header(self) -> str:
         return CROSS_REGION_SIGNATURE_HEADER
 

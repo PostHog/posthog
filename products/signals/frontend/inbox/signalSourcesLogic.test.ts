@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -80,6 +82,7 @@ describe('signalSourcesLogic', () => {
                     200,
                     { results: warehouseSources, count: warehouseSources.length, next: null, previous: null },
                 ],
+                '/api/projects/:team_id/error_tracking/issues/exists/': { exists: false },
                 '/api/projects/:team_id/signals/source_configs/': () => [
                     200,
                     { results: [], count: 0, next: null, previous: null },
@@ -210,6 +213,67 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.isGithubIssuesToggling).toBe(false)
     })
 
+    // Before the list loads, an existing row looks new. Creating it again fails on the unique
+    // constraint, so the toggle has to refuse and let go of its spinner instead.
+    it.each([
+        {
+            name: 'Support',
+            toggle: (mountedLogic: typeof logic) => mountedLogic.actions.toggleConversations(),
+            isToggling: (mountedLogic: typeof logic) => mountedLogic.values.isConversationsToggling,
+        },
+        {
+            name: 'Error tracking',
+            toggle: (mountedLogic: typeof logic) => mountedLogic.actions.toggleErrorTracking(),
+            isToggling: (mountedLogic: typeof logic) => mountedLogic.values.isErrorTrackingToggling,
+        },
+        {
+            name: 'an Error tracking signal type',
+            toggle: (mountedLogic: typeof logic) =>
+                mountedLogic.actions.toggleErrorTrackingType(SignalSourceType.IssueSpiking),
+            isToggling: () => false,
+        },
+    ])('creates no row for $name while the source list has not loaded', async ({ toggle, isToggling }) => {
+        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        expect(logic.values.sourceConfigs).toBeNull()
+
+        toggle(logic)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createSourceConfig).not.toHaveBeenCalled()
+        expect(isToggling(logic)).toBe(false)
+        createSourceConfig.mockRestore()
+    })
+
+    it('reports a failed toggle when another source is toggled while it saves', async () => {
+        let rejectUpdate!: (error: unknown) => void
+        const updatePromise = new Promise<never>((_, reject) => {
+            rejectUpdate = reject
+        })
+        const updateSourceConfig = jest.spyOn(api.signalSourceConfigs, 'update').mockReturnValue(updatePromise)
+        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        const toastError = jest.spyOn(lemonToast, 'error')
+        logic.actions.loadSourceConfigsSuccess([
+            {
+                ...githubIssuesConfig,
+                id: 'config-conversations',
+                source_product: SignalSourceProduct.Conversations,
+                source_type: SignalSourceType.Ticket,
+                enabled: false,
+            },
+        ])
+
+        logic.actions.toggleConversations()
+        logic.actions.toggleEvalReports()
+        rejectUpdate({ detail: 'Support is not set up for this project.' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastError).toHaveBeenCalledWith('Support is not set up for this project.')
+        expect(logic.values.isConversationsToggling).toBe(false)
+        updateSourceConfig.mockRestore()
+        createSourceConfig.mockRestore()
+        toastError.mockRestore()
+    })
+
     it('uses only eval reports for the AI observability signal source', async () => {
         const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
             id: 'config-evaluation-reports',
@@ -270,6 +334,15 @@ describe('signalSourcesLogic', () => {
             dataStatus: 'none',
         },
         {
+            name: 'when the issue check fails and no recent exceptions exist',
+            arrange: (mountedLogic: typeof logic) => {
+                mountedLogic.actions.setErrorTrackingHasIssues(null)
+                mountedLogic.actions.loadProductDataEventsSuccess(new Set())
+            },
+            enabled: null,
+            dataStatus: 'error',
+        },
+        {
             name: 'when a successful check finds recent exceptions',
             arrange: (mountedLogic: typeof logic) =>
                 mountedLogic.actions.loadProductDataEventsSuccess(new Set(['$exception'])),
@@ -282,9 +355,50 @@ describe('signalSourcesLogic', () => {
             autocapture_exceptions_opt_in: false,
         })
 
+        logic.actions.setErrorTrackingHasIssues(false)
         arrange(logic)
 
         expect(logic.values.productStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+    })
+
+    it('keeps loaded product statuses visible until a background refresh completes', async () => {
+        const refresh = deferred<void>()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/': async () => {
+                    await refresh.promise
+                    return [200, { results: [], count: 0, next: null }]
+                },
+            },
+        })
+        logic.actions.setErrorTrackingHasIssues(false)
+        logic.actions.loadProductDataEventsSuccess(new Set(['$exception', '$ai_generation', '$pageview']))
+        const statuses = logic.values.productStatusBySource
+
+        logic.actions.loadProductDataEvents()
+        expect(logic.values.productDataEventsLoading).toBe(true)
+        expect(logic.values.productStatusBySource).toEqual(statuses)
+
+        refresh.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.productStatusBySource.llm_analytics?.dataStatus).toBe('none')
+    })
+
+    it('recognizes existing Error tracking issues without recent event definitions or browser autocapture', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/error_tracking/issues/exists/': { exists: true },
+                '/api/projects/:team_id/event_definitions/': { results: [], count: 0, next: null },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: false })
+
+        await expectLogic(logic, () => logic.actions.loadProductDataEvents()).toFinishAllListeners()
+
+        expect(logic.values.productStatusBySource.error_tracking).toMatchObject({
+            enabled: true,
+            dataStatus: 'unavailable',
+        })
     })
 
     it('uses only recently seen event definitions as product data', async () => {

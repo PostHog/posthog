@@ -3,10 +3,10 @@ import json
 import socket
 import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.set
     CHANGES_BASE_QUERY,
     GERRIT_ENDPOINTS,
     GerritEndpointConfig,
+    GerritFanoutConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -213,6 +214,50 @@ def _rows_from_response(config: GerritEndpointConfig, data: Any) -> tuple[list[d
     return rows, has_more
 
 
+def _parent_columns(config: GerritEndpointConfig, parent: dict[str, Any]) -> dict[str, Any]:
+    return {column: parent.get(parent_field) for parent_field, column in config.include_from_parent.items()}
+
+
+def _fanout_path(fanout: GerritFanoutConfig, parent: dict[str, Any]) -> Optional[str]:
+    key = parent.get(fanout.key_field)
+    if key is None:
+        return None
+    return fanout.path.replace("{key}", quote(str(key), safe="") if fanout.quote_key else str(key))
+
+
+def _fanout_rows_from_response(
+    config: GerritEndpointConfig, fanout: GerritFanoutConfig, parent: dict[str, Any], data: Any
+) -> list[dict[str, Any]]:
+    if fanout.response_kind == "map_of_lists":
+        rows = []
+        for key, items in (data or {}).items():
+            for item in items if isinstance(items, list) else []:
+                if isinstance(item, dict):
+                    rows.append({fanout.map_key_column: key, **item})
+    else:
+        rows = [dict(item) for item in (data or []) if isinstance(item, dict)]
+
+    parent_columns = _parent_columns(config, parent)
+    return [{**row, **parent_columns} for row in rows]
+
+
+def _current_revision_file_rows(config: GerritEndpointConfig, change: dict[str, Any]) -> list[dict[str, Any]]:
+    revision = change.get("current_revision")
+    revision_info = (change.get("revisions") or {}).get(revision) or {}
+    parent_columns = _parent_columns(config, change)
+    return [
+        {
+            **file_info,
+            "path": path,
+            "revision": revision,
+            "_revision_number": revision_info.get("_number"),
+            **parent_columns,
+        }
+        for path, file_info in (revision_info.get("files") or {}).items()
+        if isinstance(file_info, dict)
+    ]
+
+
 def _connection_error_message(error: Exception) -> str:
     """Translate a low-level requests connection failure into a short, actionable message
     without echoing the raw error, which embeds the customer's host/IP."""
@@ -283,7 +328,7 @@ def validate_credentials(
     if schema_name is not None and schema_name in GERRIT_ENDPOINTS:
         config = GERRIT_ENDPOINTS[schema_name]
         params: dict[str, str | list[str]] = {**config.params, "n": "1"}
-        if schema_name == "changes":
+        if config.path == "/changes/":
             params["q"] = CHANGES_BASE_QUERY
         probe_url = f"{api_base}{config.path}?{urlencode(params, doseq=True)}"
     elif authenticated:
@@ -328,6 +373,34 @@ def validate_credentials(
         return False, _connection_error_message(e)
 
 
+def _derive_batches(
+    config: GerritEndpointConfig,
+    rows: list[dict[str, Any]],
+    api_base: str,
+    fetch: Callable[[str, frozenset[int]], Optional[str]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Turn a page of listing rows into the endpoint's rows: the rows themselves, the files of
+    each change's current revision, or the child rows fetched per parent."""
+    if config.expand_current_files:
+        yield [file_row for change in rows for file_row in _current_revision_file_rows(config, change)]
+        return
+
+    fanout = config.fanout
+    if fanout is None:
+        yield rows
+        return
+
+    # One batch per parent so a page of fan-out children is never held in memory at once.
+    for parent in rows:
+        path = _fanout_path(fanout, parent)
+        if path is None:
+            continue
+        body = fetch(f"{api_base}{path}", fanout.ignore_statuses)
+        if body is None:
+            continue
+        yield _fanout_rows_from_response(config, fanout, parent, parse_gerrit_response(body))
+
+
 def get_rows(
     host: str,
     username: Optional[str],
@@ -353,7 +426,7 @@ def get_rows(
     api_base = _api_base(base_url, authenticated)
 
     params: dict[str, str | list[str]] = dict(config.params)
-    if endpoint == "changes":
+    if config.path == "/changes/":
         params["q"] = build_changes_query(db_incremental_field_last_value if should_use_incremental_field else None)
 
     offset = 0
@@ -368,7 +441,7 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch(page_url: str) -> str:
+    def fetch(page_url: str, ignore_statuses: frozenset[int] = frozenset()) -> Optional[str]:
         # Don't follow redirects: a customer-controlled host could 3xx to an internal address,
         # bypassing the host check above (SSRF). stream=True so the body isn't buffered until we
         # drain it under a cap (see _read_capped_text).
@@ -382,6 +455,8 @@ def get_rows(
                 raise GerritHostNotAllowedError(
                     f"Gerrit API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
                 )
+            if response.status_code in ignore_statuses:
+                return None
             if not response.ok:
                 logger.error(
                     f"Gerrit API error: status={response.status_code}, body={_read_capped_text(response)}, url={page_url}"
@@ -396,18 +471,23 @@ def get_rows(
             page_params["S"] = str(offset)
         url = f"{api_base}{config.path}?{urlencode(page_params, doseq=True)}"
 
-        rows, has_more = _rows_from_response(config, parse_gerrit_response(fetch(url)))
+        body = fetch(url)
+        if body is None:
+            break
+        rows, has_more = _rows_from_response(config, parse_gerrit_response(body))
 
         if not rows:
             break
 
         offset += len(rows)
-        yield rows
+        for batch in _derive_batches(config, rows, api_base, fetch):
+            if batch:
+                yield batch
 
         if not has_more:
             break
 
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it —
+        # Save AFTER yielding every batch of the page so a crash re-yields the last page rather than skipping it —
         # merge dedupes on the primary key.
         resumable_source_manager.save_state(GerritResumeConfig(offset=offset))
 

@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.enums import LabeledStrEnum
 from posthog.openapi.enum_names import build_derived_overrides, derive_enum_name
 
 
@@ -19,6 +20,16 @@ class FruitCopy(models.TextChoices):
 class Basket(models.TextChoices):
     SMALL = "small", "Small"
     LARGE = "large", "Large"
+
+
+class LabeledFruitCopy(LabeledStrEnum):
+    APPLE = "apple", "Apple"
+    PEAR = "pear", "Pear"
+
+
+class Crate(LabeledStrEnum):
+    WOOD = "wood", "Wooden crate"
+    PLASTIC = "plastic"
 
 
 class TestDeriveEnumName(SimpleTestCase):
@@ -40,8 +51,13 @@ class TestBuildDerivedOverrides(SimpleTestCase):
         overrides = build_derived_overrides([Fruit, Basket], {})
         assert overrides == {"FruitEnum": Fruit, "BasketEnum": Basket}
 
-    def test_identical_choice_sets_are_left_to_the_explicit_dict(self) -> None:
-        overrides = build_derived_overrides([Fruit, FruitCopy, Basket], {})
+    def test_registers_labeled_enum_by_its_choices(self) -> None:
+        overrides = build_derived_overrides([Crate], {})
+        assert overrides == {"CrateEnum": [("wood", "Wooden crate"), ("plastic", "Plastic")]}
+
+    @parameterized.expand([("two choices classes", FruitCopy), ("choices class and labeled enum", LabeledFruitCopy)])
+    def test_identical_choice_sets_are_left_to_the_explicit_dict(self, _name: str, copy: type) -> None:
+        overrides = build_derived_overrides([Fruit, copy, Basket], {})
         assert overrides == {"BasketEnum": Basket}
 
     def test_explicit_entry_displaces_derived_by_name_and_by_hash(self) -> None:

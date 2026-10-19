@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-const TOOL_NAME = 'execute-sql'
+const TOOL_NAME = 'warehouse/execute-sql'
 
 // This tool's share of all MCP activity in the window: enough calls and sessions to exercise the
 // call-share and session-share subtitles on the Calls and Sessions tiles with a realistic percentage.
@@ -128,7 +128,7 @@ const FAILURE_BUCKETS = [
 ]
 
 interface MockQueryBody {
-    query?: { kind?: string; neighborDirection?: 'before' | 'after' }
+    query?: { kind?: string; toolName?: string; neighborDirection?: 'before' | 'after' }
 }
 
 const meta: Meta = {
@@ -143,6 +143,9 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as MockQueryBody
+                    if (body?.query?.toolName?.includes('%')) {
+                        return [200, { results: [] }]
+                    }
                     switch (body?.query?.kind) {
                         case 'MCPToolStatsQuery':
                             return [200, { results: [STATS] }]

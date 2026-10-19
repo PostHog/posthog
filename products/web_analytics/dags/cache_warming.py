@@ -21,12 +21,13 @@ import dagster
 import structlog
 from dagster import Backoff, Jitter, RetryPolicy
 from prometheus_client import Counter, Gauge
+from pydantic import Field
 
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries, tags_context
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
@@ -35,6 +36,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_o
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 from posthog.query_cache import QueryCache
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.storage import object_storage
 
@@ -887,22 +889,27 @@ def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
         # the candidates it needs: existing members stay until they fall below
         # the exit floor instead of flapping around the entry threshold.
         exit_floor = max(1, floor // 2)
-        tag_queries(feature=Feature.CACHE_WARMUP, trigger="webAnalyticsQueryWarming", product=Product.WEB_ANALYTICS)
-        rows = sync_execute(
-            """
-            SELECT team_id, count() AS ev7d
-            FROM events
-            WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
-            GROUP BY team_id
-            HAVING ev7d >= %(exit_floor)s
-            """,
-            {"exit_floor": exit_floor},
-            workload=Workload.OFFLINE,
-            # Bound the fleet scan like the shape-selection query: a marks-only
-            # count still reads the timestamp column across every team, so cap it
-            # rather than let a plan regression drain offline capacity to timeout.
-            settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 300},
-        )
+        with tags_context(
+            feature=Feature.CACHE_WARMUP,
+            trigger="webAnalyticsQueryWarming",
+            product=Product.WEB_ANALYTICS,
+            query_type="web_cache_warming_volume_floor",
+        ):
+            rows = sync_execute(
+                """
+                SELECT team_id, count() AS ev7d
+                FROM events
+                WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
+                GROUP BY team_id
+                HAVING ev7d >= %(exit_floor)s
+                """,
+                {"exit_floor": exit_floor},
+                workload=Workload.OFFLINE,
+                # Bound the fleet scan like the shape-selection query: a marks-only
+                # count still reads the timestamp column across every team, so cap it
+                # rather than let a plan regression drain offline capacity to timeout.
+                settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 300},
+            )
         above_floor = [int(r[0]) for r in rows if int(r[1]) >= floor]
         above_exit_floor = [int(r[0]) for r in rows]
         if not above_floor:
@@ -1107,6 +1114,12 @@ WARMING_PASS_DEADLINE_SECONDS = 3 * 3600
 # before the process exits hard rather than hanging on a blocked thread join.
 WARMING_CANCEL_GRACE_SECONDS = 60
 
+# The hourly schedule starts each team at its own offset inside this window, so
+# the pass does not send every team's first queries to the offline ClickHouse
+# pool in the same minute. The window is far below the stall timeout, so a
+# pass that is still releasing teams never looks stalled.
+WARMING_RELEASE_WINDOW_SECONDS = 10 * 60
+
 
 # The warmer shares its per-user ClickHouse query budget with every other
 # Dagster job (the `dagster` CH user has a hard simultaneous-query cap on the
@@ -1153,8 +1166,9 @@ def _team_still_exists(team_id: int) -> bool:
 
 
 class WarmQueriesConfig(dagster.Config):
-    """Launchpad knobs for targeted warming runs. The hourly schedule passes no
-    config, so it keeps the defaults; a manual launch can scope a run.
+    """Launchpad knobs for targeted warming runs. The hourly schedule sets only
+    `release_window_seconds` and keeps the other defaults; a manual launch can
+    scope a run.
 
     The concurrent-run guard makes launches of this job mutually exclusive with
     the hourly schedule, so bound a manual backfill with `limit` — an unbounded
@@ -1170,6 +1184,10 @@ class WarmQueriesConfig(dagster.Config):
     team_ids: list[int] = []
     # Process at most this many shapes, hottest first (0 = no limit).
     limit: int = 0
+    # Spread the teams' start times over this many seconds (0 = start every team at once).
+    # Capped at the hourly window because a window near the stall timeout can leave a
+    # shard with only waiting workers, and the stall guard then kills a healthy pass.
+    release_window_seconds: int = Field(default=0, ge=0, le=WARMING_RELEASE_WINDOW_SECONDS)
 
 
 def _scope_queries(config: WarmQueriesConfig, queries: list[dict]) -> tuple[str, list[dict]]:
@@ -1186,7 +1204,7 @@ def _scope_queries(config: WarmQueriesConfig, queries: list[dict]) -> tuple[str,
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]) -> None:
     mode, queries = _scope_queries(config, queries)
-    _warm_queries(context, mode, queries)
+    _warm_queries(context, mode, queries, release_window=timedelta(seconds=config.release_window_seconds))
 
 
 @dagster.op(out=dagster.DynamicOut(dict), retry_policy=cache_warming_retry_policy)
@@ -1210,15 +1228,26 @@ def split_warmable_queries_op(context: dagster.OpExecutionContext, config: WarmQ
         buckets.setdefault(query_info["team_id"] % shards, []).append(query_info)
     context.log.info(f"Split {len(queries)} shapes into {len(buckets)} shards (mode={mode})")
     for shard_index in sorted(buckets):
-        yield dagster.DynamicOutput({"mode": mode, "queries": buckets[shard_index]}, mapping_key=f"shard_{shard_index}")
+        yield dagster.DynamicOutput(
+            {
+                "mode": mode,
+                "queries": buckets[shard_index],
+                "release_window_seconds": config.release_window_seconds,
+            },
+            mapping_key=f"shard_{shard_index}",
+        )
 
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_shard_op(context: dagster.OpExecutionContext, shard: dict) -> None:
-    _warm_queries(context, shard["mode"], shard["queries"])
+    _warm_queries(
+        context, shard["mode"], shard["queries"], release_window=timedelta(seconds=shard["release_window_seconds"])
+    )
 
 
-def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[dict]) -> None:
+def _warm_queries(
+    context: dagster.OpExecutionContext, mode: str, queries: list[dict], release_window: timedelta = timedelta(0)
+) -> None:
     team_ids = {q["team_id"] for q in queries}
     teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     missing_teams = team_ids - teams.keys()
@@ -1232,7 +1261,20 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     raw_preset_replays_by_team: dict[int, int] = {}
     seen_lock = threading.Lock()
 
+    release_after = {
+        team_id: deterministic_offset(str(team_id), release_window).total_seconds() for team_id in team_ids
+    }
+    # Submitted in release order, so a worker never waits on a late team while
+    # shapes that are already released queue behind it.
+    queries = sorted(queries, key=lambda query_info: release_after[query_info["team_id"]])
+    stop_releasing = threading.Event()
+
     def _warm_one(query_info: dict) -> str:
+        release_in = release_after[query_info["team_id"]] - (time.monotonic() - started_at)
+        # The wait ends early on cancellation, so a worker that has not started
+        # its shape does not use up the cancellation grace period.
+        if release_in > 0 and stop_releasing.wait(release_in):
+            return "cancelled"
         # One line per shape, every outcome — deliberately verbose (~a line per
         # selected shape per run). Warm passes have repeatedly been slow for
         # reasons aggregate counters couldn't attribute (bucket identity churn,
@@ -1423,7 +1465,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     processed = 0
     started_at = time.monotonic()
     last_log_at = started_at
-    context.log.info(f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency})")
+    context.log.info(
+        f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency}, "
+        f"release window={int(release_window.total_seconds())}s)"
+    )
     # No `with` block: the context manager's exit calls shutdown(wait=True),
     # which joins worker threads — on the exceptional paths below that would
     # re-block on the very wedged threads this code exists to escape.
@@ -1511,7 +1556,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
         # in-flight shapes a bounded grace to finish, then exit hard if any
         # remain — re-raising with blocked threads alive would just hang again
         # at the interpreter's exit join.
+        stop_releasing.set()
         pool.shutdown(wait=False, cancel_futures=True)
+        # wait() can report shutdown-cancelled futures as pending even though they are done.
+        pending = {future for future in pending if not future.done()}
         if pending:
             _, still_pending = wait(pending, timeout=WARMING_CANCEL_GRACE_SECONDS)
             if still_pending:
@@ -1642,7 +1690,7 @@ def web_analytics_cache_warming_dry_run_job():
 
 
 @dagster.schedule(
-    cron_schedule="0 * * * *",
+    cron_schedule="3 * * * *",
     job=web_analytics_cache_warming_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
@@ -1652,4 +1700,6 @@ def web_analytics_cache_warming_schedule(context: dagster.ScheduleEvaluationCont
     if skip_reason:
         return skip_reason
 
-    return dagster.RunRequest()
+    return dagster.RunRequest(
+        run_config={"ops": {"warm_queries_op": {"config": {"release_window_seconds": WARMING_RELEASE_WINDOW_SECONDS}}}}
+    )

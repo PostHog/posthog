@@ -16,16 +16,72 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, cast
+from urllib.parse import urlparse
+
+from django.conf import settings
 
 import requests
+import structlog
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
-from urllib3.exceptions import InvalidHeader
+from urllib3.exceptions import InvalidHeader, MaxRetryError, ResponseError
 from urllib3.util.retry import Retry
 
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import retry_budget_seconds
+
+logger = structlog.get_logger(__name__)
+
+RequestTimeout = float | tuple[float, float] | tuple[float, None]
+
+# Pass this as `timeout` to send a request with no deadline. `None` does not do that: `requests`
+# passes `None` for every call that names no timeout, so `None` means "use the default".
+# The cast is for the `requests` stubs, which reject a `None` connect value that `requests` accepts.
+NO_REQUEST_TIMEOUT: RequestTimeout = cast(RequestTimeout, (None, None))
+
+
+def default_request_timeout() -> RequestTimeout:
+    """The (connect, read) timeout for a request that names none."""
+    return (
+        settings.DATA_WAREHOUSE_SOURCE_CONNECT_TIMEOUT_SECONDS,
+        settings.DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS,
+    )
+
+
+def resolve_request_timeout(timeout: RequestTimeout | None) -> RequestTimeout:
+    return default_request_timeout() if timeout is None else timeout
+
+
+_monotonic = time.monotonic
+
+# The same policy as the `requests` default: no retry, and a read error keeps its own type.
+NO_RETRY = Retry(0, read=False)
+
+_adapter_retries_suspended: ContextVar[bool] = ContextVar("warehouse_source_adapter_retries_suspended", default=False)
+
+
+@contextmanager
+def suspend_adapter_retries() -> Iterator[None]:
+    """Send requests in the block with no adapter-level retry.
+
+    For a caller that owns the retries of its requests. Two retry layers multiply their tries and
+    their waits, and only the outer one can reach a safe point before a wait.
+    """
+    token = _adapter_retries_suspended.set(True)
+    try:
+        yield
+    finally:
+        _adapter_retries_suspended.reset(token)
 
 
 class BoundedRetry(Retry):
@@ -43,7 +99,56 @@ class BoundedRetry(Retry):
       else. Some upstream APIs send fractional seconds (e.g. "0.129") instead, which
       otherwise turns a should-be-transient rate limit into a hard failure.
       `parse_retry_after` tolerates fractional values and falls back to no delay.
+
+    Two more limits keep one request from holding a worker:
+
+    - All retries of one request share `retry_budget_seconds()`, counted from the first failure.
+      When it is spent, the last response or error goes to the caller.
+    - A wait ends early when the worker starts to shut down, so the caller can hand the run off.
     """
+
+    def __init__(self, *args: Any, retry_deadline: float | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._retry_deadline = retry_deadline
+
+    def new(self, **kw: Any) -> BoundedRetry:
+        # urllib3 builds a new object for each try, so the deadline must travel with it.
+        kw.setdefault("retry_deadline", self._retry_deadline)
+        return cast(BoundedRetry, super().new(**kw))
+
+    def increment(
+        self,
+        method: str | None = None,
+        url: str | None = None,
+        response: Any = None,
+        error: Exception | None = None,
+        _pool: Any = None,
+        _stacktrace: Any = None,
+    ) -> BoundedRetry:
+        retry = cast(
+            BoundedRetry,
+            super().increment(
+                method=method, url=url, response=response, error=error, _pool=_pool, _stacktrace=_stacktrace
+            ),
+        )
+        now = _monotonic()
+        deadline = now + retry_budget_seconds() if self._retry_deadline is None else self._retry_deadline
+        if now >= deadline:
+            raise MaxRetryError(_pool, url or "", error or ResponseError("retry budget spent"))
+        retry._retry_deadline = deadline
+        return retry
+
+    def sleep_for_retry(self, response: Any = None) -> bool:
+        retry_after = self.get_retry_after(response)
+        if retry_after:
+            interruptible_wait(retry_after)
+            return True
+        return False
+
+    def _sleep_backoff(self) -> None:
+        backoff = self.get_backoff_time()
+        if backoff > 0:
+            interruptible_wait(backoff)
 
     def parse_retry_after(self, retry_after: str) -> float:
         try:
@@ -84,6 +189,38 @@ DEFAULT_RETRY = BoundedRetry(
 )
 
 
+def _note_oob_domain(request: PreparedRequest) -> None:
+    """Record a request to an out-of-band interaction domain, without refusing it.
+
+    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is recorded
+    as well as the first request.
+    """
+    if not is_cloud():
+        return
+
+    try:
+        host = urlparse(request.url or "").hostname
+    except Exception as exc:
+        # Detection never fails a request: a malformed URL is the connection's problem to report.
+        # `requests` rejects a URL it cannot parse before `send()`, so reaching this means the two
+        # parsers disagree. The URL stays out of the line because it carries the credential that
+        # `record_request` scrubs; it logs the same request a moment later.
+        logger.warning("security.oob_domain_url_unparsed", error=type(exc).__name__)
+        return
+
+    if host is None:
+        return
+
+    try:
+        oob_domain = matched_oob_domain(host)
+    except Exception:
+        logger.exception("security.oob_domain_check_failed", host=host)
+        return
+
+    if oob_domain is not None:
+        logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="warehouse_http")
+
+
 class TrackedHTTPAdapter(HTTPAdapter):
     """`HTTPAdapter` that records every dispatched request via the observer.
 
@@ -99,6 +236,9 @@ class TrackedHTTPAdapter(HTTPAdapter):
     `capture=False` keeps requests metered and logged but excludes them from HTTP
     sample capture — for auth exchanges whose bodies carry secrets the name-based
     scrubbers can't recognise (e.g. a minted session token in a generic `id` field).
+
+    A request that reaches `send()` with `timeout=None` gets `default_request_timeout()`, so a
+    stalled host cannot hold a worker without limit. Pass `NO_REQUEST_TIMEOUT` to opt out.
     """
 
     def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), capture: bool = True, **kwargs: Any) -> None:
@@ -106,15 +246,24 @@ class TrackedHTTPAdapter(HTTPAdapter):
         self._capture = capture
         super().__init__(*args, **kwargs)
 
+    @property
+    def max_retries(self) -> Retry:
+        return NO_RETRY if _adapter_retries_suspended.get() else self._max_retries
+
+    @max_retries.setter
+    def max_retries(self, value: Retry) -> None:
+        self._max_retries = value
+
     def send(
         self,
         request: PreparedRequest,
         stream: bool = False,
-        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
+        timeout: RequestTimeout | None = None,
         verify: bool | str = True,
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
+        _note_oob_domain(request)
         started = time.monotonic()
         response: Response | None = None
         exception: BaseException | None = None
@@ -122,7 +271,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
             response = super().send(
                 request,
                 stream=stream,
-                timeout=timeout,
+                timeout=resolve_request_timeout(timeout),
                 verify=verify,
                 cert=cert,
                 proxies=proxies,

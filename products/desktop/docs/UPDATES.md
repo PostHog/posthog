@@ -67,7 +67,7 @@ Only a repository admin can push a base tag.
 
 ## Agent package releases
 
-Agent releases are separate from desktop app releases. Changes to `products/desktop/packages/agent` or `products/desktop/packages/harness` on `master` trigger an agent release.
+Agent releases are separate from desktop app releases. Changes to `packages/agent/packages/agent` or `packages/agent/packages/harness` on `master` trigger an agent release.
 The patch version counts commits that change either package since the agent base tag. A commit that changes both packages counts once.
 See the [agent release process](../packages/agent/README.md#releasing) for the tag and publish steps.
 

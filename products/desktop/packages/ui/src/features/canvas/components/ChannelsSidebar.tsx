@@ -9,6 +9,7 @@ import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSi
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
+import { openActivityItemInRail } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
 import { WorkActivityColumn } from "@posthog/ui/features/canvas/components/work/WorkActivityColumn";
 import { WorkColumn } from "@posthog/ui/features/canvas/components/work/WorkColumn";
@@ -25,7 +26,6 @@ import {
   railPaneFoldsIntoWork,
 } from "@posthog/ui/features/canvas/railPane";
 import {
-  selectActivityItem,
   selectActivityReport,
   useActivitySelection,
 } from "@posthog/ui/features/canvas/stores/activityDetailStore";
@@ -259,9 +259,6 @@ function ChannelsSidebarImpl() {
   // while peeked (route without it), a stale peek would greet the remount.
   useEffect(() => () => cancelSidebarPeek(), []);
 
-  // Channels stay behind project-bluebird: the switch only appears where the
-  // canvas backend is wired, and a persisted "on" is ignored when the flag is
-  // off so the sidebar can't strand a user on an unsupported feature.
   const channelsWorld = useChannelsWorld();
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),
@@ -361,7 +358,7 @@ function ChannelsSidebarImpl() {
               workActivityOpen={workActivityOpen}
               showsActivityDetail={showsActivityDetail}
               selectedActivityId={selectedActivityId}
-              onActivityActivate={selectActivityItem}
+              onActivityActivate={openActivityItemInRail}
               onActivityReportActivate={selectActivityReport}
               feedId={feedId}
               channelId={presentedChannelId}

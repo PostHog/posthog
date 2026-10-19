@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class TursoSourceConfig(config.Config):
-    pass
+    organization_slug: str
+    api_token: str

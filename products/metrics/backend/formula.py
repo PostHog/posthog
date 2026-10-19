@@ -2,16 +2,19 @@
 
 A formula combines clause results by name — `(a - b) / a` — evaluated
 point-by-point on the shared time grid. Parsing is a tiny recursive-descent
-parser (numbers, clause identifiers, + - * /, unary minus, parentheses);
+parser (numbers with an optional exponent, clause identifiers, + - * /, unary minus, parentheses);
 nothing is ever eval()'d.
 """
 
 from __future__ import annotations
 
 import re
+import math
 from collections.abc import Mapping
 
-_TOKEN_RE = re.compile(r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|(?P<number>\d+(?:\.\d+)?)|(?P<op>[()+\-*/]))")
+_TOKEN_RE = re.compile(
+    r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|(?P<number>\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(?P<op>[()+\-*/]))"
+)
 
 # (kind, value) tuples; kind is "ident" | "number" | "op"
 _Token = tuple[str, str]
@@ -97,7 +100,10 @@ class _Parser:
                     raise ValueError("Unbalanced parentheses in formula")
                 return node
             if token[0] == "number":
-                return ("number", float(token[1]))
+                value = float(token[1])
+                if not math.isfinite(value):
+                    raise ValueError("The number in the formula is too large. Use a smaller number.")
+                return ("number", value)
             if token[0] == "ident":
                 if token[1] not in self.known_names:
                     raise ValueError(

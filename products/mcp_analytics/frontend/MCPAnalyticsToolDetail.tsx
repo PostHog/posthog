@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconCopy, IconInfo } from '@posthog/icons'
@@ -42,10 +43,12 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { BrandMark } from './components/BrandMark'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
-import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { HarnessPill } from './dashboard/harness'
+import { harnessMark } from './dashboard/harnessRegistry'
 import { MetricTile } from './dashboard/MetricTile'
 import {
     type DailyChartData,
@@ -56,8 +59,9 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import { mcpSessionUrl } from './sessionUrls'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
-import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
+import { type MCPErrorContext, formatErrorContext } from './tool-quality/errorContext'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -99,7 +103,7 @@ function HarnessLogos({ labels }: { labels: string[] }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
             {labels.map((category) => (
-                <HarnessLogo key={category} category={category} />
+                <BrandMark key={category} name={harnessMark(category)} label={category} />
             ))}
         </div>
     )
@@ -503,8 +507,9 @@ function TrendChart({
     )
 }
 
-export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
+export function MCPAnalyticsToolDetail(): JSX.Element {
     const {
+        toolName,
         summary,
         summaryLoading,
         descriptions,
@@ -530,8 +535,8 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         interval,
         pinnedInterval,
         incompleteTail,
-    } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { selectFailure, setDateFilter, loadAllSections } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+    } = useValues(mcpAnalyticsToolDetailLogic)
+    const { selectFailure, setDateFilter, loadAllSections } = useActions(mcpAnalyticsToolDetailLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
@@ -797,18 +802,18 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                 />
             </div>
 
-            <FailureOccurrencesModal toolName={toolName} />
+            <FailureOccurrencesModal />
         </SceneContent>
     )
 }
 
 // Drill-down into one failure bucket: the individual errored calls, each with a
 // copyable, paste-ready context block for handing to a coding agent.
-function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Element {
-    const { selectedFailure, failureOccurrences, failureOccurrencesLoading } = useValues(
-        mcpAnalyticsToolDetailLogic({ toolName })
-    )
-    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+function FailureOccurrencesModal(): JSX.Element {
+    const { searchParams } = useValues(router)
+    const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading } =
+        useValues(mcpAnalyticsToolDetailLogic)
+    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic)
 
     const occurrenceContext = (o: MCPToolFailureOccurrenceItem): MCPErrorContext => ({
         toolName,
@@ -878,7 +883,7 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
                                     {occurrence.session_id ? (
                                         <LemonButton
                                             size="xsmall"
-                                            to={mcpSessionUrl(occurrence.session_id)}
+                                            to={mcpSessionUrl(occurrence.session_id, searchParams)}
                                             tooltip="View the session this call belongs to"
                                         >
                                             Session

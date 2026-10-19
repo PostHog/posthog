@@ -6,6 +6,10 @@ import {
   LoggerProvider,
 } from "@opentelemetry/sdk-logs";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import {
+  redactSecrets,
+  secretHeaderReplacer,
+} from "@posthog/agent/utils/redact-secrets";
 import type ElectronLog from "electron-log";
 import { getAppVersion } from "./env";
 
@@ -18,15 +22,17 @@ const SEVERITY_TEXT: Record<string, string> = {
 
 let loggerProvider: LoggerProvider | null = null;
 
-function formatBody(data: unknown[]): string {
+export function formatBody(data: unknown[]): string {
   return data
     .map((item) => {
-      if (typeof item === "string") return item;
-      if (item instanceof Error) return `${item.message}\n${item.stack ?? ""}`;
+      if (typeof item === "string") return redactSecrets(item);
+      if (item instanceof Error) {
+        return redactSecrets(`${item.message}\n${item.stack ?? ""}`);
+      }
       try {
-        return JSON.stringify(item);
+        return redactSecrets(JSON.stringify(item, secretHeaderReplacer));
       } catch {
-        return String(item);
+        return redactSecrets(String(item));
       }
     })
     .join(" ");

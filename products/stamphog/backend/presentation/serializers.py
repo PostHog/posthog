@@ -98,11 +98,11 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         return fields
 
     review_mode = serializers.ChoiceField(
-        choices=[(m.value, m.value) for m in ReviewMode],
+        choices=ReviewMode.choices,
         read_only=True,
         help_text=(
-            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
-            "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+            "When reviews run: 'label' reviews only pull requests carrying the trigger label (the "
+            "default), mirroring the Action's opt-in flow; 'all' reviews every pull request."
         ),
     )
 
@@ -739,11 +739,11 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         required=False, help_text="Whether merged PRs on this repo are captured for the daily Slack digest."
     )
     review_mode = serializers.ChoiceField(
-        choices=[(m.value, m.value) for m in ReviewMode],
+        choices=ReviewMode.choices,
         required=False,
         help_text=(
-            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
-            "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+            "When reviews run: 'label' reviews only pull requests carrying the trigger label (the "
+            "default), mirroring the Action's opt-in flow; 'all' reviews every pull request."
         ),
     )
     trigger_label = serializers.CharField(

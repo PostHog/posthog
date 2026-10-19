@@ -55,6 +55,8 @@ ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
 RECOMPUTE_INTERVAL = timedelta(hours=20)
 RECOMPUTE_EXPIRES_SECONDS = 5 * 60
+RETRY_BACKOFF_BASE = timedelta(minutes=15)
+RETRY_BACKOFF_MAX = timedelta(hours=24)
 TRANSIENT_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
 TEAM_QUERY_TRACK_KEYS = [str(track.key) for track in TRACKS.values() if track.evaluator_key in INCREMENTAL_EVALUATORS]
 
@@ -185,6 +187,8 @@ def persist_progress(
     if bump_last_computed_at:
         progress.last_computed_at = timezone.now()
     progress.state = state
+    progress.failed_attempts = 0
+    progress.retry_after = None
     progress.save()
 
 
@@ -216,14 +220,45 @@ def evaluate_track(
     return incremental_evaluator(ctx, prior)
 
 
+def _retry_backoff(failed_attempts: int) -> timedelta:
+    return min(RETRY_BACKOFF_BASE * 2 ** min(failed_attempts - 1, 10), RETRY_BACKOFF_MAX)
+
+
+def _due_q(now: datetime) -> Q:
+    return (Q(last_computed_at__isnull=True) | Q(last_computed_at__lte=now - RECOMPUTE_INTERVAL)) & (
+        Q(retry_after__isnull=True) | Q(retry_after__lte=now)
+    )
+
+
+def _claim_attempt(progress: WebAnalyticsAchievementProgress) -> bool:
+    now = timezone.now()
+    failed_attempts = progress.failed_attempts + 1
+    return bool(
+        WebAnalyticsAchievementProgress.objects.for_team(progress.team_id, canonical=True)
+        .filter(_due_q(now), pk=progress.pk, failed_attempts=progress.failed_attempts)
+        .update(failed_attempts=failed_attempts, retry_after=now + _retry_backoff(failed_attempts))
+    )
+
+
+def _release_attempt(progress: WebAnalyticsAchievementProgress) -> None:
+    WebAnalyticsAchievementProgress.objects.for_team(progress.team_id, canonical=True).filter(pk=progress.pk).update(
+        failed_attempts=progress.failed_attempts, retry_after=progress.retry_after
+    )
+
+
 def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     progress = get_or_create_progress(ctx, track)
     if progress.current_stage >= len(track.stages):
         return
-    if track.evaluator_key in INCREMENTAL_EVALUATORS and not is_due(progress):
+    incremental = track.evaluator_key in INCREMENTAL_EVALUATORS
+    if incremental and (not is_due(progress) or not _claim_attempt(progress)):
         return
     try:
         evaluation = evaluate_track(ctx, track, progress)
+    except ConcurrencyLimitExceeded:
+        if incremental:
+            _release_attempt(progress)
+        raise
     except TRANSIENT_ACHIEVEMENT_ERRORS:
         raise
     except Exception as e:
@@ -251,6 +286,13 @@ def _apply_progress(
             or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
         ):
             return []
+        if not evaluation.complete:
+            state = dict(progress.state or {})
+            state["checkpoint"] = evaluation.checkpoint
+            persist_progress(
+                progress, progress.progress_value, progress.current_stage, state, bump_last_computed_at=False
+            )
+            return []
         new_value = evaluation.value
         is_cumulative = track.evaluator_key != "streak"
         value = max(new_value, progress.progress_value) if is_cumulative else new_value
@@ -258,6 +300,7 @@ def _apply_progress(
         new_stage = max(progress.current_stage, track.stage_for_value(value, arm))
 
         state = dict(progress.state or {})
+        backfill_pending = bool(state.pop("backfill_pending", False))
         unlocked_stages = dict(state.get("unlocked_stages", {}))
         pending_celebrations = list(state.get("pending_celebrations", []))
         newly_unlocked: list[int] = []
@@ -265,8 +308,9 @@ def _apply_progress(
             now_iso = timezone.now().isoformat()
             for stage in range(progress.current_stage + 1, new_stage + 1):
                 unlocked_stages[str(stage)] = now_iso
-                pending_celebrations.append(stage)
-                newly_unlocked.append(stage)
+                if not backfill_pending:
+                    pending_celebrations.append(stage)
+                    newly_unlocked.append(stage)
         state["unlocked_stages"] = unlocked_stages
         state["pending_celebrations"] = pending_celebrations
         if track.evaluator_key == "streak":
@@ -321,7 +365,8 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
 
 
 def due_team_ids(limit: int) -> list[int]:
-    active_since = timezone.now().date() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
+    now = timezone.now()
+    active_since = now.date() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
     active_team_ids = (
         WebAnalyticsVisit.objects.unscoped().filter(visit_date__gte=active_since).values("team_id").distinct()
     )
@@ -333,7 +378,7 @@ def due_team_ids(limit: int) -> list[int]:
             current_stage__lt=STAGE_COUNT,
             team_id__in=active_team_ids,
         )
-        .filter(Q(last_computed_at__isnull=True) | Q(last_computed_at__lte=timezone.now() - RECOMPUTE_INTERVAL))
+        .filter(_due_q(now))
         .values("team_id")
         .annotate(oldest_computed_at=Min("last_computed_at"))
         .order_by(F("oldest_computed_at").asc(nulls_first=True), "team_id")

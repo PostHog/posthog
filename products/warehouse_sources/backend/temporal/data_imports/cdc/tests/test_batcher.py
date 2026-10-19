@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     TOAST_OMITTED_COLUMN,
     ChangeEventBatcher,
     build_scd2_table,
-    deduplicate_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
@@ -298,80 +297,6 @@ class TestEventsToTableEdgeCases:
 
         table = batcher.flush()["users"]
         assert table.column("seats").type == pa.string()
-
-
-class TestDeduplicateTable:
-    def _make_raw_table(self, events):
-        batcher = ChangeEventBatcher()
-        for ev in events:
-            batcher.add(ev)
-        return batcher.flush()["users"]
-
-    @parameterized.expand(
-        [
-            (
-                "single_event_unchanged",
-                [("I", {"id": 1})],
-                ["id"],
-                1,
-                None,
-            ),
-            (
-                "two_updates_same_pk_keeps_last",
-                [("U", {"id": 1, "name": "Alice"}), ("U", {"id": 1, "name": "Bob"})],
-                ["id"],
-                1,
-                {"name": "Bob"},
-            ),
-            (
-                "different_pks_both_kept",
-                [("I", {"id": 1, "name": "Alice"}), ("I", {"id": 2, "name": "Bob"})],
-                ["id"],
-                2,
-                None,
-            ),
-            (
-                "insert_then_delete_keeps_delete",
-                [("I", {"id": 1, "name": "Alice"}), ("D", {"id": 1})],
-                ["id"],
-                1,
-                {"_ph_cdc_op": "D"},
-            ),
-            (
-                "empty_pk_returns_unchanged",
-                [("I", {"id": 1}), ("I", {"id": 2})],
-                [],
-                2,
-                None,
-            ),
-            (
-                "missing_pk_col_returns_unchanged",
-                [("I", {"id": 1}), ("I", {"id": 2})],
-                ["nonexistent_col"],
-                2,
-                None,
-            ),
-        ],
-    )
-    def test_deduplicate(self, _name, ops_and_cols, pk_columns, expected_rows, expected_values):
-        events = [
-            _make_event(op=op, columns=cols, position=f"0/{i}00") for i, (op, cols) in enumerate(ops_and_cols, start=1)
-        ]
-        table = self._make_raw_table(events)
-        result = deduplicate_table(table, pk_columns)
-        assert result.num_rows == expected_rows
-        if expected_values:
-            for col, val in expected_values.items():
-                assert result.column(col)[0].as_py() == val
-
-    def test_preserves_row_order(self):
-        events = [
-            _make_event(op="I", columns={"id": 2, "name": "Bob"}, position="0/100"),
-            _make_event(op="I", columns={"id": 1, "name": "Alice"}, position="0/200"),
-        ]
-        table = self._make_raw_table(events)
-        result = deduplicate_table(table, ["id"])
-        assert result.column("id").to_pylist() == [2, 1]
 
 
 class TestBuildScd2Table:
@@ -722,7 +647,6 @@ class TestSeqColumn:
         assert has_engine_seq(table)
         assert has_engine_seq(toasted)
         assert has_engine_seq(enriched)
-        assert has_engine_seq(deduplicate_table(enriched, ["id"]))
         assert has_engine_seq(build_scd2_table(enriched, ["id"]))
 
     def test_engine_seq_is_stamped_and_survives_a_parquet_round_trip(self):
@@ -769,16 +693,10 @@ class TestSeqColumn:
 
 
 class TestScd2TimestampType:
-    """`valid_from` carries the timestamp column's own values, so it must carry its type too.
-
-    The buffered path normalizes timestamps to naive before the loader derives SCD2; the legacy
-    path derives it in the extraction activity, where they are still UTC-aware. Declaring a fixed
-    type made pyarrow reject the whole batch on the buffered path.
-    """
-
-    @parameterized.expand([("naive", None), ("utc_aware", "UTC")])
-    def test_scd2_columns_match_the_timestamp_column(self, _name, tz):
-        ts = pa.timestamp("us", tz=tz)
+    def test_scd2_columns_match_the_timestamp_column(self):
+        # `valid_from` carries the timestamp column's own values, so it must carry its type too:
+        # declaring a fixed UTC type made pyarrow reject every naive batch.
+        ts = pa.timestamp("us")
         table = pa.table(
             {
                 "id": pa.array([1, 1], pa.int64()),

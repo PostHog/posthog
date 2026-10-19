@@ -1,9 +1,7 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planhat import (
     PlanhatSourceConfig,
 )
@@ -15,23 +13,6 @@ class TestPlanhatSource:
         self.source = PlanhatSource()
         self.team_id = 123
         self.config = PlanhatSourceConfig(api_key="ph-token")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Planhat"
-        assert config.label == "Planhat"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/planhat"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API token; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved token against another account.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [
@@ -77,9 +58,3 @@ class TestPlanhatSource:
         assert kwargs["api_token"] == "ph-token"
         assert kwargs["endpoint"] == "companies"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Planhat schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

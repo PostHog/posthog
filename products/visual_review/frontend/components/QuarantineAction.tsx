@@ -18,6 +18,7 @@ interface QuarantineActionProps {
     initialReason?: string
     initialExpiresAt?: string | null
     sourceRunId?: string | null
+    runType?: string
     /**
      * Set while a quarantine write for this identifier is in flight. The create
      * endpoint supersedes the prior active row, so a second submit writes a
@@ -39,6 +40,7 @@ export function QuarantineAction({
     initialReason,
     initialExpiresAt,
     sourceRunId,
+    runType,
     pendingReason,
 }: QuarantineActionProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
@@ -65,6 +67,7 @@ export function QuarantineAction({
                 initialReason={initialReason}
                 initialExpiresAt={initialExpiresAt}
                 sourceRunId={sourceRunId}
+                runType={runType}
             />
         </div>
     )

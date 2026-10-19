@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AcculynxSourceConfig(config.Config):
-    pass
+    api_key: str
+    appointment_start_date: str | None = None
+    appointment_end_date: str | None = None

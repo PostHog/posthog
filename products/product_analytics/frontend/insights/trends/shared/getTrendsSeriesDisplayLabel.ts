@@ -1,8 +1,10 @@
 import { alphabet } from 'lib/utils/strings'
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
+import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 
 import type { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import type { BreakdownFilter, InsightQueryNode } from '~/queries/schema/schema-general'
 import type { CohortType } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -11,6 +13,7 @@ import type { SeriesIdentification } from '../../shared/seriesIdentification'
 import { humanizeSeriesLabel } from './humanizeSeriesLabel'
 
 export interface TrendsSeriesLabelDeps {
+    querySource: InsightQueryNode | null | undefined
     breakdownFilter: BreakdownFilter | null | undefined
     cohorts: CohortType[] | undefined
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
@@ -19,7 +22,8 @@ export interface TrendsSeriesLabelDeps {
 }
 
 export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsSeriesLabelDeps): string {
-    const seriesName = getDisplayNameFromEntityFilter(r.action) ?? humanizeSeriesLabel(r.label)
+    const series = getResultSeries(deps.querySource, r)
+    const seriesName = getResultSeriesName(series) ?? humanizeSeriesLabel(r.label)
     if (r.breakdown_value != null) {
         const breakdownLabel = formatBreakdownLabel(
             r.breakdown_value,
@@ -33,9 +37,7 @@ export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsS
             return breakdownLabel
         }
         const seriesPrefix =
-            deps.seriesIdentification === 'letter-and-name'
-                ? `${alphabet[r.action?.order ?? r.order ?? 0]} ${seriesName}`
-                : seriesName
+            deps.seriesIdentification === 'letter-and-name' ? `${alphabet[series.order]} ${seriesName}` : seriesName
         return `${seriesPrefix} · ${breakdownLabel}`
     }
     return seriesName

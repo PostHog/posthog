@@ -4,6 +4,7 @@ import {
   Sparkle,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { blockReferencePrompt } from "@posthog/core/canvas/blockLibrary/blockReference";
 import { Button } from "@posthog/quill";
 import {
   isRootSelection,
@@ -255,6 +256,7 @@ export function CanvasBlocksPanel({
       entry.saveError ??
       (entry.conflict ? "This canvas changed somewhere else" : null),
   };
+  const waitingForSave = (status.saving || status.dirty) && !status.error;
   const isRoot = isRootSelection(entry, selection);
   const SelectedIcon = libraryIcon(selection?.blockType ?? null);
   const inspecting = !!selection && !libraryOpen;
@@ -389,9 +391,23 @@ export function CanvasBlocksPanel({
               <Button
                 variant="outline"
                 size="sm"
+                loading={waitingForSave}
                 onClick={() =>
                   onAskAgent(
-                    `Change the ${libraryLabel(selection.blockType, selection.tag).toLowerCase()} at ${selection.source?.file ?? "the canvas"}${selection.blockId ? ` (blockId ${selection.blockId})` : ""}: `,
+                    blockReferencePrompt(
+                      {
+                        label: libraryLabel(
+                          selection.blockType,
+                          selection.tag,
+                        ).toLowerCase(),
+                        source: selection.source,
+                        blockId: selection.blockId,
+                        props: selection.props,
+                        visibleText: selection.visibleText,
+                        instance: selection.instance,
+                      },
+                      entry.files,
+                    ),
                   )
                 }
               >

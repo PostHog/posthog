@@ -1,8 +1,19 @@
+from django.urls import URLPattern, path
+
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
 from products.notebooks.backend.presentation.views.notebook import NotebookViewSet
 from products.notebooks.backend.presentation.views.reusable_widget import ReusableWidgetViewSet
+from products.notebooks.backend.presentation.views.sandbox_heartbeat import notebook_sql_v2_data_plane_heartbeat
+
+api_urlpatterns: list[URLPattern] = [
+    path(
+        "sandbox/heartbeat/",
+        notebook_sql_v2_data_plane_heartbeat,
+        name="notebook_sandbox_heartbeat",
+    ),
+]
 
 
 def register_routes(routers: RouterRegistry) -> None:

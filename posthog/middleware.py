@@ -590,6 +590,8 @@ class CHQueries:
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            if get_query_tag_value("is_scout_experiment") is True:
+                response["X-PostHog-Suppress-Analytics"] = "true"
 
             if is_api_request:
                 statsd.incr(
@@ -854,6 +856,14 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
+        # posthog-js `tracing_headers` sends the browser session on app API calls. The key is
+        # `sessionId` because the Logs and Tracing session links look for that key by default,
+        # and the PostHog SDKs use it on their own spans. Caller-asserted, like the MCP headers.
+        frontend_session_id = sanitize_header_value(request.headers.get("X-Posthog-Session-Id"))
+        if frontend_session_id:
+            structlog.contextvars.bind_contextvars(sessionId=frontend_session_id)
+            trace.get_current_span().set_attribute("sessionId", frontend_session_id)
+
         response: HttpResponse | None = None
         try:
             response = get_response(request)
@@ -914,14 +924,21 @@ def user_logging_context_middleware(
     get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
-    This middleware adds the team_id to the logging context if it exists. Note
-    that this should be added after we have performed authentication, as we
-    need the user to be authenticated to get the team_id.
+    This middleware adds the team_id and the user's distinct_id to the logging
+    context if they exist, and the distinct_id to the request span. Note that
+    this should be added after we have performed authentication, as we need
+    the user to be authenticated to get them.
     """
 
     def middleware(request: HttpRequest) -> HttpResponse:
         if request.user.is_authenticated:
             structlog.contextvars.bind_contextvars(team_id=request.user.current_team_id)
+            # `posthogDistinctId` is the key that the Logs and Tracing person links look for by default.
+            # The span gets no team_id here, because current_team_id can differ from the team in the URL.
+            # TeamAndOrgViewSetMixin tags the span with the team that the view resolves.
+            if distinct_id := request.user.distinct_id:
+                structlog.contextvars.bind_contextvars(posthogDistinctId=distinct_id)
+                trace.get_current_span().set_attribute("posthogDistinctId", distinct_id)
 
         return get_response(request)
 
@@ -1213,7 +1230,7 @@ class AutoLogoutImpersonateMiddleware:
 
 class Fix204Middleware:
     """
-    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    Remove the 'Content-Type', 'Content-Length' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
     """
 
     def __init__(self, get_response):
@@ -1224,7 +1241,8 @@ class Fix204Middleware:
 
         if response.status_code == 204:
             response.content = b""
-            for h in ["Content-Type", "X-Content-Type-Options"]:
+            # Envoy rejects a 204 that has a non-zero Content-Length, then retries the request.
+            for h in ["Content-Type", "Content-Length", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
 
         return response
@@ -1250,6 +1268,16 @@ class OAuthCoopMiddleware:
         "/api/agentic/authorize",
         "/api/agentic/oauth/",
     )
+
+    SIGNUP_AND_LOGIN_PATHS = (
+        "/login",
+        "/login/",
+        "/signup",
+        "/signup/",
+        "/organization/confirm-creation",
+    )
+
+    SIGNUP_PATH_PREFIXES = ("/verify_email/",)
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1284,7 +1312,7 @@ class OAuthCoopMiddleware:
             session = getattr(request, "session", None)
             session_next = session.get("next", "") if session is not None else ""
             return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
-        if path in ("/login", "/login/", "/signup", "/signup/"):
+        if path in self.SIGNUP_AND_LOGIN_PATHS or self._matches_oauth_prefix(path, self.SIGNUP_PATH_PREFIXES):
             return self._targets_oauth_flow(request.GET.get("next", ""))
         return False
 
@@ -1300,8 +1328,9 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     the request.
 
     DRF writes the principal of the authentication class that succeeded back onto `request.user`.
-    Another principal there means that a class which records no credential of its own (a sharing
-    link, a widget token) authenticated the request, so the row must not name the session cookie.
+    An authentication class that records its own credential replaces this resolver. Another
+    principal here means that a class authenticated the request without recording a credential,
+    so the row must not name the session cookie.
     The check compares primary keys, not objects, because later middleware such as django-otp's
     wraps the same user in a new object.
     """
@@ -1379,6 +1408,7 @@ class SocialAuthExceptionMiddleware:
                 "gitlab_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
+                "access_blocked",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
@@ -1406,13 +1436,15 @@ class SocialAuthExceptionMiddleware:
 
 
 # Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
-# organization, which this check never judges. Settling the balance is how a member lifts a
-# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+# organization, which this check never judges. Partner consent can target an organization that the
+# partner pays for, which this check also never judges. Settling the balance is how a member lifts
+# a deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
-    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/", "/agentic/authorize"),
     "/organization-deactivated": (
         "/organization-deactivated",
         "/signup/",
+        "/agentic/authorize",
         "/organization/billing",
         "/billing/authorization_status",
     ),
@@ -1564,7 +1596,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     # POST but read-only: same reasoning for the Metrics product
     (
         "POST",
-        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize|explain)/?$"),
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize)/?$"),
     ),
     # Allow upgrading from read-only to read-write impersonation
     ("POST", "/admin/impersonation/upgrade/"),

@@ -299,10 +299,32 @@ describe('action.conditional_branch', () => {
             expect(repository.calls).toEqual([])
         })
 
-        it('propagates a lookup failure instead of routing on a made-up answer', async () => {
+        it.each([
+            [0, 10],
+            [1, 60],
+        ])('retries a failed lookup after %s earlier failures in %ss instead of routing', async (earlier, delay) => {
             const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
+            invocation.state.currentAction!.cohortLookupAttempts = earlier || undefined
+            action.config.conditions = [{ filters: cohortConditionFilters('inCohort') }]
+
+            const result = await new ConditionalBranchHandler(repository).execute({
+                invocation,
+                action,
+                result: createInvocationResult(invocation),
+            })
+
+            expect(result.nextAction).toBeUndefined()
+            expect(result.scheduledAt).toEqual(DateTime.now().plus({ seconds: delay }))
+            expect(invocation.state.currentAction!.cohortLookupAttempts).toBe(earlier + 1)
+            expect(invocation.state.currentAction!.cohortLookupFailed).toBeUndefined()
+        })
+
+        it('marks the step failed and throws once every lookup attempt failed', async () => {
+            const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
+            invocation.state.currentAction!.cohortLookupAttempts = 2
 
             await expect(executeWithRepository(repository, 'inCohort')).rejects.toThrow('lookup timed out')
+            expect(invocation.state.currentAction!.cohortLookupFailed).toBe(true)
         })
     })
 

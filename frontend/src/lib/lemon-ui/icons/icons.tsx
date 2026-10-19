@@ -444,6 +444,16 @@ export function IconDonutChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconProportionBarChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="7.25" width="16.5" height="9.5" rx="2" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M5.75 7.25H11V16.75H5.75A2 2 0 0 1 3.75 14.75V9.25A2 2 0 0 1 5.75 7.25Z" fill="currentColor" />
+            <path d="M15.5 7.5V16.5" stroke="currentColor" strokeWidth="1.5" />
+        </LemonIconBase>
+    )
+}
+
 /*
  * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
  * (~1.5-1.75 unit strokes, slim bars). Series blue is the base color; glyphs with several
@@ -461,19 +471,20 @@ const LIFECYCLE_RETURNING = 'var(--insight-icon-lifecycle-returning)'
 const LIFECYCLE_DORMANT = 'var(--insight-icon-lifecycle-dormant)'
 const LIFECYCLE_RESURRECTING = 'var(--insight-icon-lifecycle-resurrecting)'
 
-/** SQL insights: curly brackets (matching `IconBrackets` from `@posthog/icons`) wrapping a bar chart. */
-export function IconBracketsChart(props: LemonIconProps): JSX.Element {
+export function IconSQL(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M4 4.75C4 3.784 4.784 3 5.75 3h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25V11c0 .372-.116.716-.314 1 .198.284.314.628.314 1v6.25c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 4 19.25V13a.25.25 0 0 0-.25-.25h-1a.75.75 0 0 1 0-1.5h1A.25.25 0 0 0 4 11V4.75Zm11-1a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75V11c0 .138.112.25.25.25h1a.75.75 0 0 1 0 1.5h-1A.25.25 0 0 0 20 13v6.25A1.75 1.75 0 0 1 18.25 21h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25V13c0-.372.116-.716.314-1a1.742 1.742 0 0 1-.314-1V4.75a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"
-                fill="currentColor"
-            />
-            <rect x="6.75" y="13.5" width="3" height="4" rx="0.5" style={{ fill: INSIGHT_GREEN }} />
-            <rect x="10.5" y="10.5" width="3" height="7" rx="0.5" style={{ fill: INSIGHT_PURPLE }} />
-            <rect x="14.25" y="7.5" width="3" height="10" rx="0.5" style={{ fill: INSIGHT_BLUE }} />
+            <text
+                x="12"
+                y="12"
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize="11"
+                fontWeight="700"
+                className="font-mono fill-[var(--insight-icon-blue)]"
+            >
+                SQL
+            </text>
         </LemonIconBase>
     )
 }
@@ -873,6 +884,18 @@ export function IconCancel(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 d="m12 2c-5.53 0-10 4.47-10 10s4.47 10 10 10 10-4.47 10-10-4.47-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13-3.59 3.59-3.59-3.59-1.41 1.41 3.59 3.59-3.59 3.59 1.41 1.41 3.59-3.59 3.59 3.59 1.41-1.41-3.59-3.59 3.59-3.59z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Block icon. */
+export function IconBlock(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="m12 2c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm-8 10c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69l-11.21 11.21c-1.06-1.35-1.69-3.05-1.69-4.9zm8 8c-1.85 0-3.55-.63-4.9-1.69l11.21-11.21c1.06 1.35 1.69 3.05 1.69 4.9 0 4.42-3.58 8-8 8z"
                 fill="currentColor"
             />
         </LemonIconBase>

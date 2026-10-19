@@ -26,11 +26,14 @@ from posthog.rate_limit import (
     AIObservabilityBackfillEstimateSustainedThrottle,
     AIObservabilityBackfillEstimateThrottle,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.evaluation_backfills import BACKFILL_RETENTION_MARGIN, BACKFILL_START_GRACE
+from products.ai_observability.backend.api.evaluation_backfills import (
+    BACKFILL_AI_EVENTS_LAG,
+    BACKFILL_RETENTION_MARGIN,
+    BACKFILL_START_GRACE,
+)
 from products.ai_observability.backend.backfill_candidates import BackfillScope
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -114,17 +117,9 @@ def _workflow_not_found() -> RPCError:
     return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
 
 
-def _enable_backfills_flag(test: APIBaseTest) -> None:
-    """Turn the rollout flag on for one test, the way a project that opted in sees the API."""
-    flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
-    flag.start()
-    test.addCleanup(flag.stop)
-
-
 class TestEvaluationBackfillsApi(APIBaseTest):
     def setUp(self):
         super().setUp()
-        _enable_backfills_flag(self)
         self.evaluation = _evaluation(self.team, [{"id": "c1", "properties": [], "rollout_percentage": 50}])
         self.url = f"/api/projects/{self.team.id}/evaluations/{self.evaluation.id}/backfills"
 
@@ -302,7 +297,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
-        assert stale.status == EvaluationBackfillStatus.CANCELLED
+        assert stale.status == EvaluationBackfillStatus.INTERRUPTED
+        assert stale.status_reason == "workflow_not_running"
         assert stale.finished_at is not None
         finished = [
             call.kwargs["properties"]
@@ -360,9 +356,9 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         response = self.client.get(f"{self.url}/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["results"][0]["status"] == EvaluationBackfillStatus.CANCELLED
+        assert response.json()["results"][0]["status"] == EvaluationBackfillStatus.INTERRUPTED
         stale.refresh_from_db()
-        assert stale.status == EvaluationBackfillStatus.CANCELLED
+        assert stale.status == EvaluationBackfillStatus.INTERRUPTED
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
@@ -421,7 +417,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
         assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        expected_end = now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+        expected_end = now - BACKFILL_AI_EVENTS_LAG
         assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - expected_end) < timedelta(seconds=5)
         expected_start = now - timedelta(days=AI_EVENTS_RETENTION_DAYS)
         assert abs(datetime.fromisoformat(estimate.json()["window_start"]) - expected_start) < timedelta(seconds=5)
@@ -469,7 +465,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
     @patch(f"{API_MODULE}.sync_connect")
     def test_a_generation_backfill_stops_short_of_the_ai_events_lag(self, connect, _count):
         connect.return_value = _temporal_client()
-        margin = timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+        margin = BACKFILL_AI_EVENTS_LAG
         before = timezone.now()
 
         estimate = self.client.post(f"{self.url}/estimate/", _body(), format="json")
@@ -646,25 +642,6 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         [properties] = _captured(capture, "llma evaluation backfill cancelled")
         assert properties == {**properties, "source": "web", "backfill_id": str(backfill.id), "total_count": 1}
 
-    @parameterized.expand(
-        [
-            ("list", "get", "/", None),
-            (
-                "estimate",
-                "post",
-                "/estimate/",
-                {"window_start": "2024-01-01T00:00:00Z", "window_end": "2024-01-02T00:00:00Z"},
-            ),
-            ("create", "post", "/", {"window_start": "2024-01-01T00:00:00Z", "window_end": "2024-01-02T00:00:00Z"}),
-        ]
-    )
-    def test_every_action_is_off_while_the_flag_is_off(self, _case, method, path, payload):
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
-            response = getattr(self.client, method)(f"{self.url}{path}", payload, format="json")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert EvaluationBackfill.objects.unscoped().count() == 0
-
     def test_list_breaks_created_at_ties_by_ascending_id(self):
         ids = sorted(str(self._running_backfill(status=EvaluationBackfillStatus.COMPLETED).id) for _ in range(5))
         # created_at is auto_now_add, so tying the rows to one timestamp takes an update.
@@ -691,7 +668,6 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 class TestEvaluationBackfillsAccessControl(APIBaseTest):
     def setUp(self):
         super().setUp()
-        _enable_backfills_flag(self)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

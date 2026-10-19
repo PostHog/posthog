@@ -46,6 +46,7 @@ def _day_query() -> TrendsQuery:
 
 def _trends_alert(*, high_frequency: bool) -> MagicMock:
     alert = MagicMock(spec=AlertConfiguration)
+    alert.evaluation_delay_intervals = 0
     alert.team = MagicMock()
     alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
     alert.condition = AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE).model_dump()

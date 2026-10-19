@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
+import { isCompanionProduct } from './billing-utils'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
@@ -58,6 +59,9 @@ export function Billing(): JSX.Element {
         minimumBillingAccessLevel,
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
+        billingManagedByPartnerNotice,
+        billingManagedByVercelNotice,
+        isBillingManagedByVercel,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -161,6 +165,18 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {billingManagedByPartnerNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByPartnerNotice}
+                </LemonBanner>
+            )}
+
+            {billingManagedByVercelNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByVercelNotice}
+                </LemonBanner>
+            )}
+
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
@@ -253,7 +269,8 @@ export function Billing(): JSX.Element {
             )
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
+                        !isCompanionProduct(product) &&
+                        (!product.inclusion_only || product.addons.find((a) => !a.inclusion_only))
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>
@@ -262,7 +279,7 @@ export function Billing(): JSX.Element {
                 ))}
 
             <div>
-                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct && !isBillingManagedByVercel ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

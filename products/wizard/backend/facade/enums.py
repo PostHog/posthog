@@ -8,6 +8,8 @@ the implementation (logic.py, models.py).
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class WizardSessionRunPhase(StrEnum):
     IDLE = "idle"
@@ -26,14 +28,12 @@ class WizardSessionTaskStatus(StrEnum):
     CANCELED = "canceled"
 
 
-class WizardTaskStatus(StrEnum):
-    CREATED = "created"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-WIZARD_TASK_STATUS_CHOICES = [(status.value, status.value) for status in WizardTaskStatus]
+# Each label repeats its value, because the API documents these choices as plain values.
+class WizardTaskStatus(LabeledStrEnum):
+    CREATED = "created", "created"
+    RUNNING = "running", "running"
+    COMPLETED = "completed", "completed"
+    FAILED = "failed", "failed"
 
 
 class WizardRunStatus(StrEnum):

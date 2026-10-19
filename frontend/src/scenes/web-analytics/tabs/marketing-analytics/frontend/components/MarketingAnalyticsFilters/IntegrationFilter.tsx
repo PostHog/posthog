@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { ExternalDataSchemaStatus } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
@@ -12,12 +15,37 @@ import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/mark
 import { StatusIcon } from '../settings/StatusIcon'
 
 export function IntegrationFilter(): JSX.Element {
-    const { allAvailableSourcesWithStatus, integrationFilter } = useValues(marketingAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { allAvailableSourcesWithStatus, integrationFilter, dataWarehouseSources, isAdPerformance } =
+        useValues(marketingAnalyticsLogic)
     const { setIntegrationFilter } = useActions(marketingAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
-    const selectedIds = integrationFilter.integrationSourceIds || []
-    const allSourceIds = allAvailableSourcesWithStatus.map((s) => s.id)
+    const includeOrganic = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+    const organicSources = includeOrganic
+        ? (dataWarehouseSources?.results ?? [])
+              .filter((source) => source.source_type === 'GoogleSearchConsole')
+              .map((source) => ({
+                  id: source.id,
+                  name: source.source_type,
+                  type: 'native',
+                  source_type: source.source_type,
+                  prefix: source.description || source.prefix || undefined,
+                  status: undefined,
+                  statusMessage: undefined,
+              }))
+        : []
+    const availableSources = [...allAvailableSourcesWithStatus, ...organicSources]
+    const groups = includeOrganic
+        ? [
+              { title: 'Ad sources', sources: allAvailableSourcesWithStatus },
+              { title: 'Organic search', sources: organicSources },
+          ]
+        : [{ title: '', sources: availableSources }]
+    const selectedIds = (integrationFilter.integrationSourceIds || []).filter((id) =>
+        availableSources.some((source) => source.id === id)
+    )
+    const allSourceIds = availableSources.map((s) => s.id)
     const isAllSelected = selectedIds.length === allSourceIds.length && allSourceIds.length > 0
     const isSomeSelected = selectedIds.length > 0 && selectedIds.length < allSourceIds.length
     // Absent means included, so only an explicit false hides these rows.
@@ -45,7 +73,7 @@ export function IntegrationFilter(): JSX.Element {
 
     const formatSourceLabel = (source: { name: string; type: string; prefix?: string }): string => {
         const prefix = source.prefix ? `${source.prefix} - ` : 'default - '
-        return `${prefix}${source.name}`
+        return `${prefix}${source.name.replace(/([a-z])([A-Z])/g, '$1 $2')}`
     }
 
     const displayValue = (): string => {
@@ -56,14 +84,14 @@ export function IntegrationFilter(): JSX.Element {
             return includeNonIntegrated ? 'All integrations' : 'Integrated only'
         }
         if (selectedIds.length === 1) {
-            const source = allAvailableSourcesWithStatus.find((s) => s.id === selectedIds[0])
+            const source = availableSources.find((s) => s.id === selectedIds[0])
             return `${source ? formatSourceLabel(source) : '1 integration'}${suffix}`
         }
         return `${selectedIds.length} integrations${suffix}`
     }
 
     // Don't show the filter if there are no available sources
-    if (allAvailableSourcesWithStatus.length === 0) {
+    if (availableSources.length === 0) {
         return <></>
     }
 
@@ -85,49 +113,69 @@ export function IntegrationFilter(): JSX.Element {
                         </span>
                     </LemonButton>
                     <div className="border-t border-border my-1" />
-                    {allAvailableSourcesWithStatus.map((source) => (
-                        <LemonButton
-                            key={source.id}
-                            fullWidth
-                            size="small"
-                            onClick={() => handleToggleSource(source.id)}
-                            className="justify-start"
-                        >
-                            <span className="flex items-center gap-2">
-                                <LemonCheckbox
-                                    checked={selectedIds.includes(source.id)}
-                                    className="pointer-events-none"
-                                />
-                                <SourceIcon type={source.name} size="xsmall" disableTooltip />
-                                <span className="flex-1">{formatSourceLabel(source)}</span>
-                                {/* We don't show the status icon for Completed sources because it would be too many statuses */}
-                                {source.status &&
-                                    source.statusMessage &&
-                                    source.status !==
-                                        (ExternalDataSchemaStatus.Completed || MarketingSourceStatus.Success) && (
-                                        <StatusIcon status={source.status} message={source.statusMessage} />
-                                    )}
-                            </span>
-                        </LemonButton>
-                    ))}
-                    <div className="border-t border-border my-1" />
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        onClick={handleToggleNonIntegrated}
-                        className="justify-start"
-                        tooltip="Traffic no integration reports cost for, like organic, email, or a source you haven't mapped yet."
-                    >
-                        <span className="flex items-center gap-2">
-                            <LemonCheckbox checked={includeNonIntegrated} className="pointer-events-none" />
-                            <span className="flex-1">No integration</span>
-                        </span>
-                    </LemonButton>
+                    {groups
+                        .filter((group) => group.sources.length > 0)
+                        .map((group) => (
+                            <div key={group.title}>
+                                {group.title && (
+                                    <div className="px-2 py-1 text-xs font-semibold text-secondary">{group.title}</div>
+                                )}
+                                {group.sources.map((source) => (
+                                    <LemonButton
+                                        key={source.id}
+                                        fullWidth
+                                        size="small"
+                                        onClick={() => handleToggleSource(source.id)}
+                                        className="justify-start"
+                                    >
+                                        <span className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={selectedIds.includes(source.id)}
+                                                className="pointer-events-none"
+                                            />
+                                            <SourceIcon type={source.name} size="xsmall" disableTooltip />
+                                            <span className="flex-1">{formatSourceLabel(source)}</span>
+                                            {/* We don't show the status icon for Completed sources because it would be too many statuses */}
+                                            {source.status &&
+                                                source.statusMessage &&
+                                                source.status !==
+                                                    (ExternalDataSchemaStatus.Completed ||
+                                                        MarketingSourceStatus.Success) && (
+                                                    <StatusIcon status={source.status} message={source.statusMessage} />
+                                                )}
+                                        </span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        ))}
+                    {!isAdPerformance && (
+                        <>
+                            <div className="border-t border-border my-1" />
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                onClick={handleToggleNonIntegrated}
+                                className="justify-start"
+                                tooltip="Traffic no integration reports cost for, like organic, email, or a source you haven't mapped yet."
+                            >
+                                <span className="flex items-center gap-2">
+                                    <LemonCheckbox checked={includeNonIntegrated} className="pointer-events-none" />
+                                    <span className="flex-1">No integration</span>
+                                </span>
+                            </LemonButton>
+                        </>
+                    )}
                 </div>
             }
         >
-            <LemonButton type="secondary" size="small" icon={<IconFilter />} data-attr="integration-filter">
-                {displayValue()}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconFilter />}
+                data-attr="integration-filter"
+                className="max-w-full"
+            >
+                <span className="truncate">{displayValue()}</span>
             </LemonButton>
         </LemonDropdown>
     )

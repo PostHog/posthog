@@ -108,6 +108,13 @@ def my_action(self, request, **kwargs):
 
 This validates inputs AND documents the endpoint for OpenAPI. Use `request.validated_query_data`, not manual `request.query_params` parsing.
 
+A list view that keeps its django-filter `FilterSet` but filters in a service, without `DjangoFilterBackend` in `filter_backends`, loses those query params from the schema.
+Do not declare them again by hand with `OpenApiParameter`.
+Use the helpers in `posthog/api/filterset_helpers.py`:
+
+- `@extend_schema(parameters=filterset_openapi_parameters(MyFilterSet))` emits the same params that the backend would emit. Use `overrides` to describe `method=` filters.
+- `validate_filterset(MyFilterSet, request.query_params, queryset, request=request)` returns the bound `FilterSet`, or raises the same 400 body as the backend.
+
 ### Side generators
 
 A side generator is a script that reads a Python module and writes TypeScript next to the OpenAPI flow, usually as a `*.generated.ts` file outside a `generated/` directory.
@@ -124,7 +131,7 @@ The field must be on an endpoint that is in the schema. A viewset action marked 
 
 Data rows that no endpoint serves, such as the task model catalog, go through the projection registry instead of a script of their own:
 
-1. Write a renderer module next to the data. Its `render()` function returns the full text of each output, keyed by repo-relative path.
+1. Write a renderer module next to the data. Its `render()` function returns the full text of each output, keyed by repo-relative path. The text only has to be valid: the runner formats each output with oxfmt, or with Biome under `products/desktop` and `packages/agent`, so do not add a formatter exclusion for it.
 2. Add an entry to `PROJECTIONS` in `tools/hogli-commands/hogli_commands/projections.py` with the renderer, its inputs and its outputs.
 3. Run `hogli build:projections` and commit the outputs. CI runs `hogli build:projections --check` and fails when one is out of date.
 

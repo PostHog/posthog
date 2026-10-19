@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -58,6 +59,16 @@ class MailerLiteSource(
     ResumableSource[MailerLiteSourceConfig, MailerLiteResumeConfig],
     WebhookSource[MailerLiteSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^MAILERLITE_",),
+        script_hosts=("assets.mailerlite.com", "static.mailerlite.com"),
+        npm=("@mailerlite/mailerlite-nodejs",),
+        pypi=("mailerlite",),
+        composer=("mailerlite/mailerlite-php", "mailerlite/mailerlite-api-v2-php-sdk", "mailerlite/mailerlite_rest_v1"),
+        go=("github.com/mailerlite/mailerlite-go",),
+        rubygems=("mailerlite-ruby",),
+    )
+
     api_docs_url = "https://developers.mailerlite.com"
 
     supported_versions = SUPPORTED_VERSIONS
@@ -181,6 +192,9 @@ Copy the `secret` from the response into the field below. MailerLite never retur
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         endpoint_config = MAILERLITE_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint_config is not None and endpoint_config.fanout is not None:
+            # A fan-out path needs a parent id, so probe the parent list the child is reached through.
+            endpoint_config = MAILERLITE_ENDPOINTS[endpoint_config.fanout.parent_name]
         path = endpoint_config.path if endpoint_config else "/subscribers"
         return validate_mailerlite_credentials(config.api_key, path)
 

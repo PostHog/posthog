@@ -1,7 +1,7 @@
 // Domain types, error classes and discriminated unions for the agent-proxy.
 // Shapes defined here must stay compatible with the Python counterparts in
-// products/tasks/backend/stream/redis_stream.py and
-// products/tasks/backend/proxy/event_ingest.py — both sides share the same
+// products/tasks/backend/logic/stream/redis_stream.py and
+// products/tasks/backend/logic/stream/event_ingest.py — both sides share the same
 // Redis stream and HTTP contracts.
 
 import type { Redis } from 'ioredis'
@@ -16,6 +16,8 @@ export class TaskRunStreamError extends Error {
         this.name = 'TaskRunStreamError'
     }
 }
+
+export class TaskRunStreamGenerationMismatch extends Error {}
 
 export class TaskRunStreamCursorTrimmedError extends Error {
     constructor(public readonly cursor: string) {
@@ -121,6 +123,7 @@ export interface SandboxEventIngestTokenPayload {
     presenceGated: boolean
     thinTail: boolean
     originProduct: string
+    streamGeneration?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +181,7 @@ export type SideEffectKind =
     | 'command_dispatched'
     | 'agent_activity'
     | 'budget_steer'
+    | 'process_killed'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface

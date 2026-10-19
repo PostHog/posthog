@@ -1,18 +1,25 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconPlus, IconSparkles } from '@posthog/icons'
+import { IconCheck, IconPlus, IconSparkles } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonCard,
-    LemonCheckbox,
+    LemonCollapse,
     LemonDialog,
     LemonModal,
     LemonSkeleton,
+    LemonTag,
+    LemonTextArea,
+    Spinner,
 } from '@posthog/lemon-ui'
 
-import { MAX_SCOUT_RUBRICS, scoutRubricsLogic } from '../../../logics/scoutRubricsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { MAX_RUBRIC_CONTEXT_LENGTH, MAX_SCOUT_RUBRICS, scoutRubricsLogic } from '../../../logics/scoutRubricsLogic'
 import { ScoutRubricCriterionEditor } from './ScoutRubricCriterionEditor'
+import { ScoutRubricReference } from './ScoutRubricReference'
 
 export function ScoutRubricsModal({
     teamId,
@@ -26,19 +33,26 @@ export function ScoutRubricsModal({
     onClose: () => void
 }): JSX.Element {
     const logic = scoutRubricsLogic({ teamId, configId })
+    const [focusExpanded, setFocusExpanded] = useState(false)
     const {
         rubricDocument,
         rubricDocumentLoading,
-        draftCriteria,
+        criteriaToSave,
+        customCriteria,
+        sharedCriteria,
         draftRevision,
+        draftAdoptGenerationId,
         expandedCriterionId,
         generation,
         generationActive,
+        generationContext,
         generationSubmitting,
         generationError,
+        generationElapsedLabel,
         availableSuggestions,
         selectedSuggestionIds,
-        selectedSuggestions,
+        allSuggestionsSelected,
+        newCriteriaCount,
         hasUnsavedChanges,
         saving,
         saveError,
@@ -49,22 +63,25 @@ export function ScoutRubricsModal({
     const {
         loadRubrics,
         updateCriterion,
+        updateSuggestion,
         removeCriterion,
         addCriterion,
         setExpandedCriterion,
         toggleSuggestion,
-        addSelectedSuggestions,
+        adoptGenerationReference,
+        toggleAllSuggestions,
         generateSuggestions,
+        setGenerationContext,
         saveRubrics,
     } = useActions(logic)
 
     const confirmDiscard = (action: () => void): void => {
-        if (!hasUnsavedChanges) {
+        if (!hasUnsavedChanges && !generationContext.trim()) {
             action()
             return
         }
         LemonDialog.open({
-            title: 'Discard unsaved rubric changes?',
+            title: 'Discard unsaved changes?',
             description: 'Your saved rubrics and generated suggestions will still be available.',
             primaryButton: { children: 'Discard changes', status: 'danger', onClick: action },
             secondaryButton: { children: 'Keep editing' },
@@ -78,8 +95,7 @@ export function ScoutRubricsModal({
         }
         LemonDialog.open({
             title: 'Replace current suggestions?',
-            description:
-                'New suggestions replace the ones you have not added to your rubric. To keep some, add them and save your rubric first.',
+            description: 'New suggestions replace the unsaved ones. To keep any, select and save them first.',
             primaryButton: { children: 'Generate new suggestions', onClick: () => generateSuggestions() },
             secondaryButton: { children: 'Keep current suggestions' },
         })
@@ -89,24 +105,27 @@ export function ScoutRubricsModal({
         <LemonModal
             isOpen
             title={`${scoutName} rubrics`}
-            description="Define how this scout should be evaluated. Saving rubrics does not change its instructions."
-            width={800}
-            hasUnsavedInput={hasUnsavedChanges}
+            description="Rubrics define how this scout's work is evaluated. Saving them does not change the scout's instructions."
+            width={880}
+            hasUnsavedInput={hasUnsavedChanges || !!generationContext.trim()}
             onClose={() => confirmDiscard(onClose)}
             closable={!saving}
             data-attr="scout-rubrics-modal"
             footer={
-                <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm text-secondary">
-                        {draftRevision === null
-                            ? ''
-                            : hasUnsavedChanges
-                              ? 'Unsaved changes'
-                              : draftRevision === 0
-                                ? 'Shared defaults are ready to save'
-                                : `Saved revision ${draftRevision}`}
+                <div className="flex w-full flex-wrap items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 text-sm text-secondary">
+                        {draftRevision !== null && draftRevision > 0 && !hasUnsavedChanges && <IconCheck />}
+                        <span>
+                            {draftRevision === null
+                                ? ''
+                                : hasUnsavedChanges
+                                  ? 'Unsaved changes'
+                                  : draftRevision === 0
+                                    ? 'Shared defaults are ready to save'
+                                    : `All changes saved · Revision ${draftRevision}`}
+                        </span>
                     </span>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="ml-auto flex flex-wrap gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => confirmDiscard(onClose)}
@@ -128,13 +147,13 @@ export function ScoutRubricsModal({
                             }
                             data-attr="scout-rubrics-save"
                         >
-                            Save rubrics
+                            {newCriteriaCount > 0 ? `Save rubrics (${newCriteriaCount} new)` : 'Save rubrics'}
                         </LemonButton>
                     </div>
                 </div>
             }
         >
-            <div className="flex min-w-0 flex-col gap-4">
+            <div className="flex min-w-0 flex-col gap-7 pb-3">
                 {loadError && (
                     <LemonBanner
                         type="error"
@@ -147,37 +166,138 @@ export function ScoutRubricsModal({
                     <LemonSkeleton className="h-40 w-full" />
                 ) : rubricDocument ? (
                     <>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                            <p className="mb-0 max-w-md text-sm text-secondary">
-                                Shared defaults start enabled. Adjust them for this scout and add your own criteria.
-                                Generate suggestions from its instructions and recent runs when you need a starting
-                                point.
-                            </p>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconSparkles />}
-                                onClick={confirmReplaceSuggestions}
-                                loading={generationSubmitting || generationActive}
-                                disabledReason={
-                                    generationActive
-                                        ? 'Suggestions are being generated'
-                                        : saving
-                                          ? 'Saving rubrics'
-                                          : hasUnsavedChanges
-                                            ? 'Save rubric changes before generating suggestions'
-                                            : undefined
-                                }
-                                data-attr="scout-rubrics-generate"
-                            >
-                                {generationActive ? 'Generating suggestions' : 'Generate suggestions'}
-                            </LemonButton>
-                        </div>
+                        <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                            {generationActive ? (
+                                <div className="flex items-start gap-3 p-4">
+                                    <Spinner className="mt-0.5 shrink-0 text-lg" />
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                            <h4 className="mb-0" role="status">
+                                                Generating suggestions…
+                                            </h4>
+                                            {generationElapsedLabel && (
+                                                <span className="text-sm tabular-nums text-secondary" translate="no">
+                                                    {`${generationElapsedLabel} elapsed`}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="mb-0 mt-1 text-sm text-secondary">
+                                            This usually takes a few minutes. You can keep editing or close this window.
+                                            Suggestions will appear here when they're ready.
+                                        </p>
+                                        {generation?.context && (
+                                            <p
+                                                className="mb-0 mt-2 truncate text-xs text-secondary"
+                                                title={generation.context}
+                                            >
+                                                <strong>Additional focus: </strong>
+                                                <span>{generation.context}</span>
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex flex-wrap items-center justify-between gap-4 p-4">
+                                        <div className="min-w-0 flex-1 basis-80">
+                                            <h4 className="mb-1">Suggest criteria</h4>
+                                            <p className="mb-0 text-sm text-secondary">
+                                                Drafts criteria from this scout's instructions and any recent runs. It
+                                                takes a few minutes, and you can close this window while it works.
+                                            </p>
+                                        </div>
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconSparkles />}
+                                            onClick={confirmReplaceSuggestions}
+                                            loading={generationSubmitting}
+                                            disabledReason={
+                                                saving
+                                                    ? 'Saving rubrics'
+                                                    : hasUnsavedChanges
+                                                      ? 'Save rubric changes before generating suggestions'
+                                                      : undefined
+                                            }
+                                            data-attr="scout-rubrics-generate"
+                                        >
+                                            {generation?.status === 'completed'
+                                                ? 'Generate again'
+                                                : 'Generate suggestions'}
+                                        </LemonButton>
+                                    </div>
+                                    <div className="border-t bg-surface-secondary">
+                                        <LemonCollapse
+                                            embedded
+                                            size="small"
+                                            activeKey={focusExpanded ? 'focus' : null}
+                                            onChange={(key) => setFocusExpanded(key !== null)}
+                                            panels={[
+                                                {
+                                                    key: 'focus',
+                                                    dataAttr: 'scout-rubrics-focus-toggle',
+                                                    header: (
+                                                        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                                                            <span>Additional focus</span>
+                                                            <span className="font-normal text-secondary">Optional</span>
+                                                            {!focusExpanded && generationContext.trim() && (
+                                                                <span className="ml-auto min-w-0 max-w-full truncate font-normal text-secondary">
+                                                                    {generationContext.trim()}
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    ),
+                                                    className: 'px-4! pb-4!',
+                                                    content: (
+                                                        <div className="flex flex-col gap-2">
+                                                            <LemonField.Pure
+                                                                label="What should suggestions pay extra attention to?"
+                                                                htmlFor="scout-rubrics-focus"
+                                                            >
+                                                                <LemonTextArea
+                                                                    id="scout-rubrics-focus"
+                                                                    value={generationContext}
+                                                                    onChange={setGenerationContext}
+                                                                    placeholder="e.g. Check that comparisons use consistent filters and enough data."
+                                                                    minRows={3}
+                                                                    maxRows={8}
+                                                                    maxLength={MAX_RUBRIC_CONTEXT_LENGTH}
+                                                                    disabled={saving || generationSubmitting}
+                                                                    data-attr="scout-rubrics-focus"
+                                                                />
+                                                            </LemonField.Pure>
+                                                            <p className="mb-0 text-xs text-secondary">
+                                                                Used for this generation only. Suggestions still cover
+                                                                the scout's full scope.
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </LemonCard>
 
-                        {generationActive && (
-                            <LemonBanner type="info">
-                                The agent is reviewing this scout and its recent runs. You can leave this page and
-                                return later. Suggestions will appear here for you to review.
-                            </LemonBanner>
+                        <LemonBanner
+                            type={rubricDocument.reference_context || draftAdoptGenerationId ? 'info' : 'warning'}
+                        >
+                            {draftAdoptGenerationId
+                                ? 'Saving will use this generation’s captured reference for the whole checklist, including existing criteria.'
+                                : rubricDocument.reference_context
+                                  ? 'Scoring uses the saved scout reference. Editing this scout or its criteria keeps that reference until you explicitly adopt another generation.'
+                                  : 'Scoring needs a saved scout reference. Generate suggestions, review the captured reference, then use it and save your rubric. You can keep your existing criteria.'}
+                        </LemonBanner>
+                        {rubricDocument.reference_context && (
+                            <LemonCollapse
+                                panels={[
+                                    {
+                                        key: 'saved-reference',
+                                        header: 'Saved scoring reference',
+                                        content: <ScoutRubricReference reference={rubricDocument.reference_context} />,
+                                    },
+                                ]}
+                            />
                         )}
                         {(generationError || generation?.status === 'failed') && (
                             <LemonBanner type="error">
@@ -186,111 +306,178 @@ export function ScoutRubricsModal({
                                     'Generation failed. Try generating suggestions again.'}
                             </LemonBanner>
                         )}
+
                         {generation?.status === 'completed' && (
-                            <LemonCard hoverEffect={false} className="!p-4">
-                                <h3 className="mb-2">Suggested criteria</h3>
-                                {generation.summary && (
-                                    <p className="break-words text-sm text-secondary">{generation.summary}</p>
-                                )}
-                                {availableSuggestions.length ? (
-                                    <>
-                                        <p className="text-sm text-secondary">
-                                            Select the suggestions you want to add. You can edit them before saving.
+                            <section className="min-w-0" aria-label="Suggestions">
+                                <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1 basis-80">
+                                        <h4 className="mb-1 flex items-center gap-2">
+                                            <span>Suggestions</span>
+                                            <LemonTag type="muted">{availableSuggestions.length}</LemonTag>
+                                        </h4>
+                                        <p className="mb-0 text-sm text-secondary">
+                                            {availableSuggestions.length
+                                                ? 'Select the ones you want. Selected suggestions are added to this scout when you save rubrics.'
+                                                : generation.suggestions.length
+                                                  ? 'All suggestions are in your rubric.'
+                                                  : 'No additional criteria were suggested. You can add criteria manually below.'}
                                         </p>
-                                        <div className="flex flex-col gap-4">
-                                            {availableSuggestions.map((suggestion) => (
-                                                <div key={suggestion.id} className="flex min-w-0 flex-col gap-1">
-                                                    <LemonCheckbox
-                                                        checked={selectedSuggestionIds.includes(suggestion.id)}
-                                                        onChange={(selected) =>
-                                                            toggleSuggestion(suggestion.id, selected)
-                                                        }
-                                                        label={suggestion.title}
-                                                        disabledReason={saving ? 'Saving rubrics' : undefined}
-                                                        data-attr="scout-rubric-select-suggestion"
-                                                    />
-                                                    <p className="mb-0 break-words text-sm text-secondary">
-                                                        {suggestion.description}
-                                                    </p>
-                                                    <p className="mb-0 break-words text-sm">
-                                                        <strong>Passes when: </strong>
-                                                        <span>{suggestion.pass_condition}</span>
-                                                    </p>
-                                                    <p className="mb-0 break-words text-xs text-secondary">
-                                                        <strong>Applies: </strong>
-                                                        <span>{suggestion.applicability}</span>
-                                                    </p>
-                                                </div>
-                                            ))}
-                                        </div>
+                                    </div>
+                                    {availableSuggestions.length > 0 && (
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            onClick={() => toggleAllSuggestions(!allSuggestionsSelected)}
+                                            disabledReason={saving ? 'Saving rubrics' : undefined}
+                                            data-attr="scout-rubrics-select-all"
+                                        >
+                                            {allSuggestionsSelected ? 'Clear selection' : 'Select all'}
+                                        </LemonButton>
+                                    )}
+                                </div>
+                                {generation.reference_context ? (
+                                    <div className="mb-4 flex flex-col items-start gap-3">
+                                        <p className="m-0 text-sm text-secondary">
+                                            Review the captured scout reference. Selecting suggestions or choosing this
+                                            reference applies it to the whole checklist when you save.
+                                        </p>
+                                        <LemonCollapse
+                                            className="w-full"
+                                            panels={[
+                                                {
+                                                    key: 'generated-reference',
+                                                    header: 'Captured scout reference',
+                                                    content: (
+                                                        <ScoutRubricReference
+                                                            reference={generation.reference_context}
+                                                        />
+                                                    ),
+                                                },
+                                            ]}
+                                        />
                                         <LemonButton
                                             type="secondary"
-                                            className="mt-4"
-                                            onClick={addSelectedSuggestions}
+                                            onClick={adoptGenerationReference}
                                             disabledReason={
                                                 saving
                                                     ? 'Saving rubrics'
-                                                    : !selectedSuggestions.length
-                                                      ? 'Select at least one suggestion'
-                                                      : selectedSuggestions.length + draftCriteria.length >
-                                                          MAX_SCOUT_RUBRICS
-                                                        ? `Keep at most ${MAX_SCOUT_RUBRICS} criteria`
+                                                    : draftAdoptGenerationId === generation.id
+                                                      ? 'This reference will be adopted when you save'
+                                                      : rubricDocument.reference_generation_id === generation.id
+                                                        ? 'This reference is already saved'
                                                         : undefined
                                             }
-                                            data-attr="scout-rubrics-add-selected"
+                                            data-attr="scout-rubrics-adopt-reference"
                                         >
-                                            {`Add selected (${selectedSuggestions.length})`}
+                                            Use this reference
                                         </LemonButton>
-                                    </>
+                                    </div>
                                 ) : (
-                                    <p className="mb-0 text-sm text-secondary">
-                                        {generation.suggestions.length
-                                            ? 'All suggestions are in your rubric. Review them below and save your changes.'
-                                            : 'No additional criteria were suggested. You can add criteria manually below.'}
-                                    </p>
+                                    <LemonBanner type="warning" className="mb-4">
+                                        These suggestions have no captured scout reference. Generate new suggestions
+                                        before adopting them for scoring.
+                                    </LemonBanner>
                                 )}
-                            </LemonCard>
+                                {availableSuggestions.length > 0 && (
+                                    <LemonCard
+                                        hoverEffect={false}
+                                        className="divide-y overflow-hidden border-accent-highlight-secondary bg-warning-highlight p-0"
+                                    >
+                                        {availableSuggestions.map((suggestion) => (
+                                            <ScoutRubricCriterionEditor
+                                                key={suggestion.id}
+                                                criterion={suggestion}
+                                                selected={selectedSuggestionIds.includes(suggestion.id)}
+                                                onSelect={(selected) => toggleSuggestion(suggestion.id, selected)}
+                                                expanded={expandedCriterionId === suggestion.id}
+                                                saving={saving}
+                                                onChange={(changes) => updateSuggestion(suggestion.id, changes)}
+                                                onExpand={() => {
+                                                    if (expandedCriterionId !== suggestion.id) {
+                                                        toggleSuggestion(suggestion.id, true)
+                                                    }
+                                                    setExpandedCriterion(
+                                                        expandedCriterionId === suggestion.id ? null : suggestion.id
+                                                    )
+                                                }}
+                                                onRemove={() => {}}
+                                            />
+                                        ))}
+                                    </LemonCard>
+                                )}
+                            </section>
                         )}
 
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="mb-0">{`Criteria (${draftCriteria.length})`}</h3>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPlus />}
-                                onClick={addCriterion}
-                                disabledReason={
-                                    saving
-                                        ? 'Saving rubrics'
-                                        : draftCriteria.length >= MAX_SCOUT_RUBRICS
-                                          ? `Keep at most ${MAX_SCOUT_RUBRICS} criteria`
-                                          : undefined
-                                }
-                                data-attr="scout-rubrics-add"
-                            >
-                                Add criterion
-                            </LemonButton>
-                        </div>
-                        {draftCriteria.length === 0 && (
-                            <p className="mb-0 text-sm text-secondary">
-                                No criteria yet. Add a criterion or generate suggestions to get started.
-                            </p>
-                        )}
-                        <div className="flex flex-col gap-2">
-                            {draftCriteria.map((criterion) => (
-                                <ScoutRubricCriterionEditor
-                                    key={criterion.id}
-                                    criterion={criterion}
-                                    expanded={expandedCriterionId === criterion.id}
-                                    saving={saving}
-                                    onChange={(changes) => updateCriterion(criterion.id, changes)}
-                                    onExpand={() =>
-                                        setExpandedCriterion(expandedCriterionId === criterion.id ? null : criterion.id)
-                                    }
-                                    onRemove={() => removeCriterion(criterion.id)}
-                                />
-                            ))}
-                        </div>
+                        {[
+                            {
+                                title: 'This scout',
+                                description: 'Criteria written for this scout only.',
+                                criteria: customCriteria,
+                                custom: true,
+                            },
+                            {
+                                title: 'Shared defaults',
+                                description:
+                                    'Used by every scout. Editing or turning one off here only affects this scout.',
+                                criteria: sharedCriteria,
+                                custom: false,
+                            },
+                        ].map(({ title, description, criteria, custom }) => (
+                            <section key={title} className="min-w-0" aria-label={title}>
+                                <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1 basis-80">
+                                        <h4 className="mb-1 flex items-center gap-2">
+                                            <span>{title}</span>
+                                            <LemonTag type="muted">{criteria.length}</LemonTag>
+                                        </h4>
+                                        <p className="mb-0 text-sm text-secondary">{description}</p>
+                                    </div>
+                                    {custom && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconPlus />}
+                                            onClick={addCriterion}
+                                            disabledReason={
+                                                saving
+                                                    ? 'Saving rubrics'
+                                                    : criteriaToSave.length >= MAX_SCOUT_RUBRICS
+                                                      ? `Keep at most ${MAX_SCOUT_RUBRICS} criteria`
+                                                      : undefined
+                                            }
+                                            data-attr="scout-rubrics-add"
+                                        >
+                                            Add criterion
+                                        </LemonButton>
+                                    )}
+                                </div>
+                                <LemonCard hoverEffect={false} className="divide-y overflow-hidden p-0">
+                                    {criteria.length === 0 && (
+                                        <p className="m-0 p-6 text-center text-sm text-secondary">
+                                            {custom
+                                                ? 'No scout-specific criteria yet. Add one, or generate suggestions.'
+                                                : 'No shared defaults in this rubric.'}
+                                        </p>
+                                    )}
+                                    {criteria.map((criterion) => (
+                                        <ScoutRubricCriterionEditor
+                                            key={criterion.id}
+                                            criterion={criterion}
+                                            expanded={expandedCriterionId === criterion.id}
+                                            saving={saving}
+                                            onChange={(changes) => updateCriterion(criterion.id, changes)}
+                                            onExpand={() =>
+                                                setExpandedCriterion(
+                                                    expandedCriterionId === criterion.id ? null : criterion.id
+                                                )
+                                            }
+                                            onRemove={() => removeCriterion(criterion.id)}
+                                        />
+                                    ))}
+                                </LemonCard>
+                            </section>
+                        ))}
+
                         {saveError && (
                             <LemonBanner
                                 type="error"

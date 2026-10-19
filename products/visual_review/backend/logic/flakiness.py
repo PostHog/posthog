@@ -381,6 +381,14 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         worst_soft_diff = soft.worst_diff_percentage if soft is not None else None
         hard_rate = _rate(hard_count, window_runs)
         headroom = _headroom(worst_soft_diff)
+        state = _state(
+            hard_rate=hard_rate,
+            soft_count=soft_count,
+            headroom=headroom,
+            window_runs=window_runs,
+        )
+        if state == FlakinessState.CLEAN and quarantine is None and hard is None:
+            continue
         rows.append(
             _FlakinessRow(
                 run_type=key.run_type,
@@ -409,12 +417,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
                     length=FLAKINESS_WINDOW_DAYS,
                 ),
                 baseline_moved_at=baseline_moved_at_by_key.get(key),
-                state=_state(
-                    hard_rate=hard_rate,
-                    soft_count=soft_count,
-                    headroom=headroom,
-                    window_runs=window_runs,
-                ),
+                state=state,
                 quarantine=quarantine,
                 needs_decision=_needs_decision(
                     quarantine=quarantine,
@@ -460,7 +463,6 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         totals_broken=sum(1 for row in rows if row.state == FlakinessState.BROKEN),
         totals_unstable=sum(1 for row in rows if row.state == FlakinessState.UNSTABLE),
         totals_at_risk=sum(1 for row in rows if row.state == FlakinessState.AT_RISK),
-        totals_noisy=sum(1 for row in rows if row.state == FlakinessState.NOISY),
         totals_clean=sum(1 for row in rows if row.state == FlakinessState.CLEAN),
         totals_quarantined=sum(1 for row in rows if row.quarantine is not None),
         totals_needs_decision=sum(1 for row in rows if row.needs_decision),
@@ -516,7 +518,6 @@ def _quarantine_only_raw(
         totals_broken=0,
         totals_unstable=0,
         totals_at_risk=0,
-        totals_noisy=0,
         totals_clean=len(rows),
         # Totals count the whole population, as they do on the normal path, so
         # the tiles stay right when the list is capped.
@@ -619,21 +620,18 @@ def _state(*, hard_rate: float, soft_count: int, headroom: float | None, window_
         return FlakinessState.BROKEN
     if hard_rate > 0:
         return FlakinessState.UNSTABLE
-    if soft_count == 0:
-        return FlakinessState.CLEAN
-    if headroom is not None and headroom < FLAKINESS_MIN_HEADROOM:
+    if soft_count > 0 and headroom is not None and headroom < FLAKINESS_MIN_HEADROOM:
         return FlakinessState.AT_RISK
-    return FlakinessState.NOISY
+    return FlakinessState.CLEAN
 
 
 # How far up the ladder each state sits, for ordering against the entry cap.
 # Keyed by `str` because `_state` returns one: `FlakinessState` is a `StrEnum`,
 # so the members are the keys either way.
 _STATE_URGENCY: dict[str, int] = {
-    FlakinessState.BROKEN: 4,
-    FlakinessState.UNSTABLE: 3,
-    FlakinessState.AT_RISK: 2,
-    FlakinessState.NOISY: 1,
+    FlakinessState.BROKEN: 3,
+    FlakinessState.UNSTABLE: 2,
+    FlakinessState.AT_RISK: 1,
     FlakinessState.CLEAN: 0,
 }
 
@@ -775,7 +773,6 @@ class _FlakinessRaw:
     totals_broken: int
     totals_unstable: int
     totals_at_risk: int
-    totals_noisy: int
     totals_clean: int
     totals_quarantined: int
     totals_needs_decision: int
@@ -794,7 +791,6 @@ class _FlakinessRaw:
             totals_broken=0,
             totals_unstable=0,
             totals_at_risk=0,
-            totals_noisy=0,
             totals_clean=0,
             totals_quarantined=0,
             totals_needs_decision=0,

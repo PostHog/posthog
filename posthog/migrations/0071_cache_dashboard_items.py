@@ -4,9 +4,10 @@ import secrets
 
 from django.db import migrations, models
 
-from posthog.models import Filter
 
-
+# The legacy Filter this normalized is gone. The migration is elidable and replaced by
+# 0001_squash_2026_09_07_initial, so a fresh database never runs it and an existing one
+# applied it years ago; the normalization is left out rather than reimplemented.
 def forwards_func(apps, schema_editor):
     Dashboard = apps.get_model("posthog", "Dashboard")
     DashboardItem = apps.get_model("posthog", "DashboardItem")
@@ -21,7 +22,6 @@ def forwards_func(apps, schema_editor):
             continue
         if item.filters.get("funnel_id"):
             item.funnel_id = item.filters["funnel_id"]
-        item.filters = Filter(data=item.filters).to_dict()
         item.save()
 
 

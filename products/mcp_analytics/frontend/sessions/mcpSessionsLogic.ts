@@ -22,13 +22,11 @@ import {
 } from '../mcpAnalyticsFiltersLogic'
 
 export interface MCPSessionsFilters {
-    search: string
     // true: sessions with at least one errored call; false: sessions with none; null: both.
     hasErrors: boolean | null
 }
 
 const DEFAULT_FILTERS: MCPSessionsFilters = {
-    search: '',
     hasErrors: null,
 }
 
@@ -40,8 +38,6 @@ export interface MCPSessionsDateFilter {
 // Matches the dashboard default (mcpDashboardOverviewLogic) so both tabs show the
 // same window out of the box and the shared date_from/date_to URL params line up.
 const DEFAULT_DATE_FILTER: MCPSessionsDateFilter = { dateFrom: '-7d', dateTo: null }
-
-const SEARCH_DEBOUNCE_MS = 300
 
 // How many sessions to fetch per request. Each "Load more" appends the next page
 export const SESSIONS_PAGE_SIZE = 50
@@ -335,17 +331,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         sessions: [
             [] as MCPSessionApi[],
             {
-                // First page / reset (search or sort change). Replaces the list.
                 loadSessions: async (_, breakpoint) => {
                     cache.sessionsGeneration = (cache.sessionsGeneration ?? 0) + 1
-                    if (values.filters.search) {
-                        await breakpoint(SEARCH_DEBOUNCE_MS)
-                    }
                     if (!values.currentProjectId) {
                         return []
                     }
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
-                        search: values.filters.search || undefined,
                         has_errors: values.filters.hasErrors ?? undefined,
                         order_by: orderByParam(values.sorting),
                         date_from: values.dateFilter.dateFrom || undefined,
@@ -366,11 +357,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId) {
                         return values.sessions
                     }
-                    // Snapshot the list and the query (search + sort) before the await. If a
-                    // concurrent loadSessions reset (sort/search change) lands while this page
-                    // is in flight, merging against the post-await values.sessions would corrupt
-                    // the list — so we both offset and merge from the snapshot, and drop this
-                    // page entirely if the query changed underneath us.
+                    // Keep a query snapshot because a reset can finish before this page.
+                    // Discard the old page instead of merging it into the new list.
                     const baseSessions = values.sessions
                     const generation = cache.sessionsGeneration ?? 0
                     const filters = values.filters
@@ -379,7 +367,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const dateTo = values.dateFilter.dateTo
                     const sharedFilters = values.sharedQueryFilters
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
-                        search: filters.search || undefined,
                         has_errors: filters.hasErrors ?? undefined,
                         order_by: orderBy,
                         date_from: dateFrom || undefined,
@@ -543,7 +530,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 dateFilter: MCPSessionsDateFilter,
                 sharedQueryFilters: MCPSharedQueryFilters
             ): boolean =>
-                !!filters.search ||
                 filters.hasErrors !== null ||
                 dateFilter.dateFrom !== DEFAULT_DATE_FILTER.dateFrom ||
                 dateFilter.dateTo !== DEFAULT_DATE_FILTER.dateTo ||
@@ -659,9 +645,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             },
         }
     }),
-    // Mirror the filters to the URL so they survive a refresh and follow across tabs (date_from /
-    // date_to are shared with the dashboard; search is Sessions-only and also lets the dashboard
-    // deep-link a session by pre-filling its id).
+    // The date range follows users across MCP analytics tabs. The error filter applies only to Sessions.
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values
@@ -669,7 +653,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             const params: Record<string, string | null> = {
                 date_from: values.dateFilter.dateFrom,
                 date_to: values.dateFilter.dateTo,
-                search: values.filters.search || null,
+                search: null,
                 has_errors: values.filters.hasErrors === null ? null : String(values.filters.hasErrors),
             }
             for (const [key, value] of Object.entries(params)) {
@@ -693,14 +677,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
 
-            const search = typeof searchParams.search === 'string' ? searchParams.search : ''
             const hasErrors = parseUrlBoolean(searchParams.has_errors)
-            const filtersChanged = search !== values.filters.search || hasErrors !== values.filters.hasErrors
+            const filtersChanged = hasErrors !== values.filters.hasErrors
 
             // setFilters / setDateFilter each reload via their listener; only load directly when
             // neither changed and we haven't loaded yet.
             if (filtersChanged) {
-                actions.setFilters({ search, hasErrors })
+                actions.setFilters({ hasErrors })
             }
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
@@ -711,14 +694,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        // urlToAction owns the initial load when the sessions URL carries date or search params; this
+        // urlToAction owns the initial load when the Sessions URL carries route parameters. This
         // is the fallback for a param-less mount (and off-route mounts in tests, where urlToAction
         // never fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
         const { searchParams } = router.values
         const hasUrlParams =
             typeof searchParams.date_from === 'string' ||
             typeof searchParams.date_to === 'string' ||
-            typeof searchParams.search === 'string' ||
             searchParams.has_errors !== undefined
         if (!hasUrlParams && !cache.hasLoaded) {
             cache.hasLoaded = true

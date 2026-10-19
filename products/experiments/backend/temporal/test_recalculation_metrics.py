@@ -14,6 +14,7 @@ from products.experiments.backend.temporal import recalculation_metrics
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
     ExperimentsRecalculationMetricsInterceptor,
     _failure_error_type,
     increment_workflow_finished,
@@ -44,10 +45,20 @@ def test_registered_on_recalculation_queue():
     assert is_task_queue_supported(
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor
     )
+    # Both queue names alias to one value in test settings, so only the tuple shows a missing activity queue.
+    assert ExperimentsRecalculationMetricsInterceptor.task_queue == (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+    )
 
 
-def test_buckets_sorted_ascending_and_floats():
-    buckets = EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS
+@parameterized.expand(
+    [
+        ("execution_latency", EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
+        ("schedule_to_start", EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS),
+    ]
+)
+def test_buckets_sorted_ascending_and_floats(name: str, buckets: list[float]):
     assert buckets == sorted(buckets)
     assert all(isinstance(b, float) for b in buckets)
 

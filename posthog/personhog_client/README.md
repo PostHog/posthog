@@ -69,10 +69,14 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 `get_distinct_ids_for_person`, `get_distinct_ids_for_persons`
 
 **Person deletes:**
-`delete_persons`, `delete_persons_batch_for_team`, `delete_tombstoned_persons` (deletes only while still tombstoned, a bounded number of dependent rows per call; persons it did not finish come back as pending and are sent again; used by the persons cleanup drain)
+`delete_persons`, `delete_persons_batch_for_team`, `delete_tombstoned_persons` (deletes only while still tombstoned and, for `bounded_persons`, at or below each person's `max_version`; check `version_guard_applied` on the response; a bounded number of dependent rows per call; persons it did not finish come back as pending and are sent again; used by the persons cleanup drain)
 
 **Person split:**
 `split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
+
+**Version floors:**
+`ensure_person_version_floors` (raise each tombstone to a minimum version, inserting a tombstone where no row exists, and leave live rows unchanged; a lost insert race fails the whole request with `FAILED_PRECONDITION`).
+Each write takes at most 250 keys in one transaction. Use the helper in `posthog/models/person/util.py`: it batches and retries a lost race.
 
 **Cohort membership:**
 `check_cohort_membership`, `count_cohort_members`, `insert_cohort_members`,
@@ -122,8 +126,7 @@ The client emits Prometheus metrics at multiple layers:
 **gRPC request metrics** (`interceptor.py`):
 
 - `personhog_django_grpc_request_duration_seconds` — request latency histogram
-- `personhog_django_grpc_requests_total` — request count by method and status
-- `personhog_django_grpc_timeouts_total` — deadline exceeded count
+- `personhog_django_grpc_requests_total` — request count by method and status (timeouts are `status="DEADLINE_EXCEEDED"`)
 
 **Channel metrics** (`client.py`):
 

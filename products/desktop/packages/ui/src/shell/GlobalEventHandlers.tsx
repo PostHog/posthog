@@ -6,7 +6,6 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService, useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -17,8 +16,6 @@ import {
   GLOBAL_HOTKEY_OPTIONS,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -92,13 +89,7 @@ function useGlobalEventHandlers({
   // starred channels in the new layout (ChannelHotkeys, mounted from __root so
   // the keys always have an owner), so task-switching only owns those keys in
   // the Code nav.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const inboxAvailable = useInboxAvailable();
+  const channelsEnabled = useSidebarStore((s) => s.channelsEnabled);
   const channelsLayout = useChannelsLayout();
   const spacesTabs = useSpacesTabs();
   const browserTabStripMounted = channelsLayout ? spacesTabs : true;
@@ -242,10 +233,7 @@ function useGlobalEventHandlers({
     onToggleShortcutsSheet,
     GLOBAL_HOTKEY_OPTIONS,
   );
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
-    ...GLOBAL_HOTKEY_OPTIONS,
-    enabled: inboxAvailable,
-  });
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, GLOBAL_HOTKEY_OPTIONS);
   useHotkeys(
     SHORTCUTS.COMMAND_CENTER,
     navigateToCommandCenter,

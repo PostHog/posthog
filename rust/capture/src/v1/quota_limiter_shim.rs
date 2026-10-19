@@ -6,7 +6,6 @@ use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event, EventInfo};
 use crate::v1::analytics::constants::CAPTURE_V1_EVENTS_QUOTA_LIMITED;
 use crate::v1::analytics::types::{EventResult, WrappedEvent};
-use crate::v1::sinks::Destination;
 use crate::v1::Error;
 
 type ScopedCheck = (QuotaResource, fn(EventInfo) -> bool);
@@ -66,7 +65,6 @@ pub async fn apply_quota_limits(
             };
             if predicate(info) {
                 ev.result = EventResult::Drop;
-                ev.destination = Destination::Drop;
                 ev.details = Some(match resource {
                     QuotaResource::Exceptions => "exceptions_over_quota",
                     QuotaResource::Surveys => "survey_responses_over_quota",
@@ -98,6 +96,7 @@ pub async fn apply_quota_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v1::types::Destination;
     use std::num::NonZeroU32;
     use std::sync::Arc;
     use std::time::Duration;
@@ -112,7 +111,8 @@ mod tests {
 
     use crate::config::EnvelopeCompression;
 
-    use crate::config::{CaptureMode, Config, KafkaTopicsConfig};
+    use crate::config::{CaptureMode, Config, OutputsConfig};
+    use crate::producers::ProducerName;
     use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
@@ -145,7 +145,11 @@ mod tests {
             global_rate_limit_token_overrides_csv: None,
             global_rate_limit_token_local_cache_max_entries: 300_000,
             global_rate_limit_redis_url: None,
+            global_rate_limit_redis_shards: 1,
+            global_rate_limit_redis_shard_1_url: None,
+            global_rate_limit_redis_shard_1_reader_url: None,
             global_rate_limit_redis_reader_url: None,
+            global_rate_limit_max_read_outage_secs: None,
             global_rate_limit_redis_response_timeout_ms: None,
             global_rate_limit_redis_connection_timeout_ms: None,
             global_rate_limit_custom_threshold_key: None,
@@ -155,6 +159,7 @@ mod tests {
             event_restrictions_refresh_interval_secs: 30,
             event_restrictions_fail_open_after_secs: 300,
             overflow_enabled: false,
+            ai_events_overflow_enabled: false,
             overflow_preserve_partition_locality: false,
             overflow_burst_limit: NonZeroU32::new(5).unwrap(),
             overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
@@ -165,17 +170,31 @@ mod tests {
             is_mirror_deploy: false,
             log_level: Level::INFO,
             verbose_sample_percent: 0.0,
-            kafka_topics: KafkaTopicsConfig {
-                main: "events_plugin_ingestion".to_string(),
-                overflow: "events_plugin_ingestion_overflow".to_string(),
-                historical: "events_plugin_ingestion_historical".to_string(),
-                client_ingestion_warning: "events_plugin_ingestion".to_string(),
-                error_tracking: "error_tracking_events".to_string(),
-                heatmaps: "events_plugin_ingestion".to_string(),
-                replay_overflow: "session_recording_snapshot_item_overflow".to_string(),
-                dlq: "events_plugin_ingestion_dlq".to_string(),
-                ai_events: "events_plugin_ingestion_ai".to_string(),
-                ai_events_overflow: None,
+            outputs: OutputsConfig {
+                analytics_main_topic: "events_plugin_ingestion".to_string(),
+                analytics_main_producer: ProducerName::Ingestion,
+                analytics_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
+                analytics_overflow_producer: ProducerName::Ingestion,
+                analytics_historical_topic: "events_plugin_ingestion_historical".to_string(),
+                analytics_historical_producer: ProducerName::Ingestion,
+                session_replay_main_topic: "events_plugin_ingestion".to_string(),
+                session_replay_main_producer: ProducerName::Ingestion,
+                session_replay_overflow_topic: "session_recording_snapshot_item_overflow"
+                    .to_string(),
+                session_replay_overflow_producer: ProducerName::Ingestion,
+                heatmaps_topic: "events_plugin_ingestion".to_string(),
+                heatmaps_producer: ProducerName::Ingestion,
+                client_warnings_topic: "events_plugin_ingestion".to_string(),
+                client_warnings_producer: ProducerName::Ingestion,
+                error_tracking_topic: "error_tracking_events".to_string(),
+                error_tracking_producer: ProducerName::Ingestion,
+                dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+                dlq_producer: ProducerName::Ingestion,
+                ai_main_topic: "events_plugin_ingestion_ai".to_string(),
+                ai_main_producer: ProducerName::Ingestion,
+                ai_overflow_topic: "events_plugin_ingestion_ai_overflow".to_string(),
+                ai_overflow_producer: ProducerName::Ingestion,
+                custom_producer: ProducerName::Ingestion,
             },
             replay_envelope_compression: EnvelopeCompression::None,
             outputs_completeness_check_enabled: true,
@@ -192,13 +211,11 @@ mod tests {
             s3_fallback_prefix: String::new(),
             ai_max_sum_of_parts_bytes: 26_214_400,
             ai_max_event_bytes: 8_388_608,
-            ai_lane_predicate: crate::v0_request::AiLanePredicate::Allowlist,
             ai_gateway_signing_secret: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
             continuous_profiling: ContinuousProfilingConfig::default(),
-            capture_v1_sinks: String::new(),
             capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
             capture_v1_scatter_gather_min_batch: 8,
@@ -312,7 +329,7 @@ mod tests {
     fn quota_dropped_event_names(events: &[WrappedEvent]) -> Vec<&str> {
         let mut names: Vec<&str> = events
             .iter()
-            .filter(|e| e.result == EventResult::Drop && e.destination == Destination::Drop)
+            .filter(|e| e.result == EventResult::Drop)
             .map(|e| e.event.event.as_str())
             .collect();
         names.sort();
@@ -382,7 +399,6 @@ mod tests {
         // Pre-mark one event as Drop (e.g. from validation)
         let bad_ev = events.iter_mut().find(|e| e.uuid == bad_uuid).unwrap();
         bad_ev.result = EventResult::Drop;
-        bad_ev.destination = Destination::Drop;
         bad_ev.details = Some("invalid_event_name");
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -660,7 +676,6 @@ mod tests {
         // Pre-mark pageview as Drop from a prior validation step
         let pv_ev = events.iter_mut().find(|e| e.uuid == pv_uuid).unwrap();
         pv_ev.result = EventResult::Drop;
-        pv_ev.destination = Destination::Drop;
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         // $exception → Drop (quota), $pageview → already Drop → all non-Ok → error

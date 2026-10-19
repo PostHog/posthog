@@ -13,9 +13,18 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.egress.limiter.policies import Priority
+from posthog.enums import LabeledStrEnum
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
-from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    NEEDS_REAUTHORIZATION_Q,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
@@ -34,10 +43,24 @@ from products.tasks.backend.constants import (
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
 )
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GatewayTokenUnavailableError,
+    ProcessTaskError,
+    ProcessTaskTransientError,
+)
+from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
-from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
+from products.tasks.backend.logic.services.desktop_gateway_token import (
+    POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
+    record_gateway_token_refusal,
+)
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    FREE_TIER_PIN_KEY,
+    GATEWAY_PRODUCT_STATE_KEY,
+    PRODUCT_ALLOWED_MODELS,
+)
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -51,13 +74,17 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state as is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    POSTHOG_CODE_PRODUCT,
     is_slack_origin,
     mint_refusal,
     mint_scoped_token,
+    posthog_code_allowed_models,
+    posthog_code_limit_tier,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
     token_cap_usd,
@@ -66,6 +93,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
     from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
         TaskProcessingContext,
@@ -86,10 +114,11 @@ class GitHubCredentialSource(StrEnum):
     SERVER_INTEGRATION = "server_integration"
 
 
-class RunSource(StrEnum):
-    MANUAL = "manual"
-    SIGNAL_REPORT = "signal_report"
-    AGENT = "agent"
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class RunSource(LabeledStrEnum):
+    MANUAL = "manual", "manual"
+    SIGNAL_REPORT = "signal_report", "signal_report"
+    AGENT = "agent", "agent"
 
 
 def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
@@ -97,12 +126,13 @@ def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_onl
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
-USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai")
 
 
-class RuntimeAdapter(StrEnum):
-    CLAUDE = "claude"
-    CODEX = "codex"
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class RuntimeAdapter(LabeledStrEnum):
+    CLAUDE = "claude", "claude"
+    CODEX = "codex", "codex"
 
 
 class LLMProvider(StrEnum):
@@ -440,7 +470,8 @@ MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
 def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
-    """Cache scope for marks describing a run's live sandbox.
+    """Cache scope for the MCP-session mark, whose readers reach the agent server over HTTP
+    and hold no sandbox handle to key on. The GitHub mark takes a sandbox id directly.
 
     Keyed on the sandbox id so a replacement sandbox (fresh provision,
     snapshot restore, workflow retry) starts unmarked — nothing ever needs
@@ -476,24 +507,28 @@ def get_sandbox_mcp_session_user(scope: str) -> int | None:
     return _get_sandbox_identity_user("mcp-session", scope)
 
 
-def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
+def mark_sandbox_github_identity(sandbox_id: str, user_id: int) -> None:
     """Record which actor the sandbox's in-place GitHub credentials reflect.
 
     The value is the actor whose token was applied, or who was logged out (no usable
     access) — either way the sandbox no longer carries a *different* actor's identity,
-    which is what owner-scoped refreshes check before re-applying the owner's token.
+    which is what every other writer checks before applying a token of its own.
+
+    Takes the sandbox's own id rather than a scope derived from run state: a reader that
+    resolved the id from a snapshot taken before the sandbox existed would look under a key
+    nobody writes and read every sandbox as unmarked.
 
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
     "must re-establish", which is always safe because re-establishing re-applies or
     clears rather than trusting stale creds.
     """
-    _mark_sandbox_identity("github-identity", scope, user_id)
+    _mark_sandbox_identity("github-identity", sandbox_id, user_id)
 
 
-def get_sandbox_github_identity_user(scope: str) -> int | None:
+def get_sandbox_github_identity_user(sandbox_id: str) -> int | None:
     """Actor id the sandbox's GitHub credentials were last bound to (or logged
     out for) within the freshness window, or None when unknown."""
-    return _get_sandbox_identity_user("github-identity", scope)
+    return _get_sandbox_identity_user("github-identity", sandbox_id)
 
 
 @dataclass(frozen=True)
@@ -596,12 +631,13 @@ def get_user_mcp_server_configs(
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
-    the user installed. The PostHog MCP needs this to resolve single-exec mode
-    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
-    upstreams ignore the header.
+    the user installed. Non-PostHog upstreams ignore the header.
 
     Returns an empty list on errors (non-fatal).
     """
+    if origin_product == "account_audit":
+        return []
+
     installations = get_installations_for_sandbox(
         team_id,
         user_id=user_id,
@@ -825,13 +861,14 @@ def get_sandbox_ph_mcp_configs(
     (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
     `exec` from advertising gateway tools to runs that mount those servers directly.
 
-    Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
-    - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
-    - eu.posthog.com → https://mcp-eu.posthog.com/mcp
-    - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
-    - Other hosts → empty list (MCP not available)
+    Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
+    neither is set, because the instance has no MCP server.
+    An explicit empty scope list also omits the server: internal-only tokens cannot initialize
+    a PostHog MCP session.
     """
-    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
+    if scopes == []:
+        return []
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -865,15 +902,121 @@ def get_sandbox_ph_mcp_configs(
     ]
 
 
-def get_github_token(github_integration_id: int) -> Optional[str]:
+# GitHub installation tokens expire after 1 hour and sandboxes refresh theirs every 20 minutes, so a
+# token cached for 30 minutes still outlives the next refresh.
+SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS = 30 * 60
+PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 5 * 60
+
+
+def _private_repositories(repositories: Sequence[str]) -> list[str]:
+    # Public sandbox repos clone without credentials and usually sit outside the installation,
+    # where GitHub rejects a scoped mint that names them.
+    return [repository for repository in repositories if not is_public_sandbox_repo(repository)]
+
+
+def _installation_repository_names(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> list[str]:
+    # GitHub scopes a mint by bare repo name, so a repo another account owns would get the installation's
+    # repo of the same name. Do not mint until the installation owner is known.
+    owner = None if github_integration.account_name_needs_heal() else github_integration.organization().lower()
+    if owner is None or any(repository.lower().rpartition("/")[0] != owner for repository in repositories):
+        github_integration.ensure_account_name(force_refresh=True)
+        if github_integration.account_name_needs_heal():
+            return []
+        owner = github_integration.organization().lower()
+    names: set[str] = set()
+    for repository in repositories:
+        repository_owner, _, name = repository.lower().rpartition("/")
+        if repository_owner == owner:
+            names.add(name)
+    return sorted(names)
+
+
+def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
+    # Same rule as TaskProcessingContext.repositories, so the token covers exactly what the run clones.
+    pinned = (state or {}).get("repositories")
+    if isinstance(pinned, list) and all(isinstance(r, str) for r in pinned):
+        return pinned
+    return [repository] if repository else []
+
+
+def _resolve_installation_repository_names(
+    github_integration: GitHubIntegrationBase, names: Sequence[str]
+) -> list[str]:
+    owner = github_integration.organization().lower()
+    installed: dict[int, str] = {}
+    for repository in github_integration.sync_repository_cache():
+        repository_id = repository.get("id")
+        full_name = repository.get("full_name")
+        if isinstance(repository_id, int) and isinstance(full_name, str):
+            repository_owner, _, name = full_name.lower().rpartition("/")
+            if repository_owner == owner and name:
+                installed[repository_id] = name
+
+    installed_names = set(installed.values())
+    resolved: set[str] = set()
+    unavailable: list[str] = []
+    for name in names:
+        if name in installed_names:
+            resolved.add(name)
+            continue
+        full_name = f"{owner}/{name}"
+        response = github_integration.api_request("GET", f"/repos/{full_name}", endpoint="/repos/{owner}/{repo}")
+        if response.status_code == 404:
+            unavailable.append(full_name)
+            continue
+        if response.status_code != 200:
+            raise GitHubIntegrationError("Failed to check GitHub repository access", status_code=response.status_code)
+        repository = response.json()
+        repository_id = repository.get("id")
+        if isinstance(repository_id, int) and repository_id in installed:
+            resolved.add(installed[repository_id])
+        elif repository.get("private") is not False or repository.get("visibility") == "internal":
+            unavailable.append(full_name)
+
+    if unavailable:
+        raise CredentialUnavailableError(
+            f"Cannot access GitHub repositories: {', '.join(unavailable)}. "
+            "Check that they exist and grant the GitHub App access in your installation settings, then retry.",
+            {"repositories": unavailable},
+        )
+    return sorted(resolved)
+
+
+def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
+    names = _installation_repository_names(github_integration, repositories)
+    if not names:
+        return None
+    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+    cache = get_tasks_cache()
+    cached = cache.get(cache_key)
+    if isinstance(cached, str):
+        return cached or None
+    try:
+        token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    except GitHubIntegrationError as error:
+        if error.status_code != 422:
+            raise
+        resolved_names = _resolve_installation_repository_names(github_integration, names)
+        if not resolved_names:
+            cache.set(cache_key, "", timeout=PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS)
+            return None
+        token = github_integration.mint_scoped_installation_token(None, repositories=resolved_names)
+    cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
+    return token
+
+
+def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
-    github_integration = GitHubIntegration(integration)
+    github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.installation_unavailable():
         raise CredentialUnavailableError(
             "GitHub App installation for this integration is uninstalled or suspended",
             {"github_integration_id": github_integration_id},
         )
+    private_repositories = _private_repositories(repositories)
+    if private_repositories:
+        return _mint_repository_scoped_token(github_integration, private_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
@@ -922,8 +1065,8 @@ def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | Non
     return integration
 
 
-def get_readonly_github_token(team_id: int) -> Optional[str]:
-    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token scoped to the sandbox repositories, or None.
 
     Resolves the same integration the repo-selection agent would use for this team, then mints an
     installation token downscoped to read-only permissions. Team-level installations only: the
@@ -940,16 +1083,25 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
-        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+        private_repositories = _private_repositories(repositories)
+        names = _installation_repository_names(integration, private_repositories)
+        if private_repositories and not names:
+            return None
+        return integration.mint_scoped_installation_token(
+            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=names or None
+        )
     except Exception:
         logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
         return None
 
 
-def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
+def get_user_github_token(github_user_integration_id: str, repositories: Sequence[str] = ()) -> Optional[str]:
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
-    github_integration = UserGitHubIntegration(integration)
+    github_integration = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
+    private_repositories = _private_repositories(repositories)
+    if private_repositories:
+        return _mint_repository_scoped_token(github_integration, private_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
     return github_integration.integration.sensitive_config.get("access_token") or None
@@ -978,7 +1130,7 @@ def _user_integration_has_repository(
     if repository is None:
         return True
 
-    github = UserGitHubIntegration(integration)
+    github = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
     cached_repositories = integration.repository_cache
     if isinstance(cached_repositories, list) and _repository_matches_cached_list(cached_repositories, repository):
         return True
@@ -1002,7 +1154,9 @@ def get_user_github_integration(
         return None
 
     normalized_repository = _normalize_repository(repository)
-    integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
+    integrations = (
+        UserIntegration.objects.filter(user=user, kind="github").exclude(NEEDS_REAUTHORIZATION_Q).order_by("created_at")
+    )
     if github_user_integration_id:
         integrations = integrations.filter(id=github_user_integration_id)
 
@@ -1012,7 +1166,7 @@ def get_user_github_integration(
             normalized_repository,
             allow_refresh=allow_refresh,
         ):
-            return UserGitHubIntegration(integration)
+            return UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     return None
 
@@ -1051,6 +1205,7 @@ def resolve_user_github_integration_for_task(
                 kind="github",
                 integration_id=team_installation_id,
             )
+            .exclude(NEEDS_REAUTHORIZATION_Q)
             .order_by("created_at")
             .first()
         )
@@ -1059,7 +1214,7 @@ def resolve_user_github_integration_for_task(
             normalized_repository,
             allow_refresh=allow_refresh,
         ):
-            return UserGitHubIntegration(integration)
+            return UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     return get_user_github_integration(
         user,
@@ -1186,6 +1341,7 @@ def _resolve_sandbox_github_token(
     else:
         run_state = parse_run_state(state)
         pr_authorship_mode = run_state.pr_authorship_mode
+    repositories = _sandbox_repositories(state, repository)
 
     # Loop runs mint credentials as the owner, so gate every GitHub token resolution (initial
     # provisioning, snapshot resume, and refresh all reach here) on current owner eligibility. A
@@ -1232,7 +1388,7 @@ def _resolve_sandbox_github_token(
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
-            return get_github_token(github_integration_id)
+            return get_github_token(github_integration_id, repositories=repositories)
         # Serialize the rotating mint per integration so concurrent runs (provisioning
         # clones and refresh loops) don't revoke each other's in-flight user token.
         from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415
@@ -1258,19 +1414,19 @@ def _resolve_sandbox_github_token(
             raise ReauthorizationRequired(
                 f"User-authored run {run_id} requires a linked GitHub account with repo access."
             )
-        return get_github_token(github_integration_id)
+        return get_github_token(github_integration_id, repositories=repositories)
     elif pr_authorship_mode == PrAuthorshipMode.BOT:
         if github_integration_id is not None:
-            return get_github_token(github_integration_id)
+            return get_github_token(github_integration_id, repositories=repositories)
         # BOT fallback for teams without an Integration row: borrow the
         # installation access token from the UserIntegration the task was created with.
         if github_user_integration_id:
-            return get_user_github_token(github_user_integration_id)
+            return get_user_github_token(github_user_integration_id, repositories=repositories)
         return None
     # No authorship mode resolved (legacy callers without state and without a task).
     if github_integration_id is None:
         return None
-    return get_github_token(github_integration_id)
+    return get_github_token(github_integration_id, repositories=repositories)
 
 
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
@@ -1331,7 +1487,7 @@ def build_sandbox_environment_variables(
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
-    if otel_telemetry_enabled:
+    if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
@@ -1355,7 +1511,7 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
     """The gateway routing/mint env for one run, derived from its server-side context.
 
     Every sandbox provisioning path calls this rather than spelling out the kwargs, so
@@ -1363,14 +1519,42 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    if task.is_scout_experiment is True:
+        ensure_scout_trial_capture_ready()
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+            raise GatewayNotConfiguredError("Scout trials require the AI gateway instead of subscription credentials")
+        if ctx.task_runtime == "pi":
+            raise GatewayNotConfiguredError("Scout trials require a runtime that supports the AI gateway")
+        gateway_url = settings.SANDBOX_AI_GATEWAY_URL
+        if not gateway_url:
+            raise GatewayNotConfiguredError("Scout trials require SANDBOX_AI_GATEWAY_URL")
+        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id)
+        try:
+            record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
+        except Exception:
+            revoke_private_gateway_token(token)
+            raise
+        return {
+            "LLM_GATEWAY_URL": "",
+            "AI_GATEWAY_URL": gateway_url,
+            "AI_GATEWAY_PRODUCTS": "signals_scout",
+            "AI_GATEWAY_TOKEN": token,
+            "AI_GATEWAY_TOKEN_CAP_USD": token_cap_usd(ctx.team_id, "signals_scout"),
+            "AI_GATEWAY_PRODUCT": "signals_scout",
+            "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
+        }
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
+    ai_stage = (ctx.state or {}).get("ai_stage")
+    requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
+        POSTHOG_CODE_PRODUCT
+    )
     try:
         env_vars = ai_gateway_env_vars(
             team_id=ctx.team_id,
             origin_product=ctx.origin_product,
-            ai_stage=(ctx.state or {}).get("ai_stage"),
+            ai_stage=ai_stage,
             internal=task.internal,
             prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
             distinct_id=ctx.distinct_id,
@@ -1378,11 +1562,18 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             model=ctx.model,
             runtime=ctx.task_runtime,
         )
-        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
+        pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
+        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
+            if requires_go:
+                raise posthog_code_token_unavailable("pin_unrecorded", ctx.team_id)
             # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
-            env_vars.pop("AI_GATEWAY_TOKEN", None)
-            env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
-    except Exception:
+            for key in _TOKEN_ENV_KEYS:
+                env_vars.pop(key, None)
+    except ProcessTaskError:
+        raise
+    except Exception as e:
+        if requires_go:
+            raise posthog_code_token_unavailable("mint_failed", ctx.team_id) from e
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
         logger.warning(
@@ -1395,7 +1586,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     record_gateway_routing(
         run_id=ctx.run_id,
         team_id=ctx.team_id,
-        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")) and ctx.task_runtime != "pi",
+        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")),
     )
     return env_vars
 
@@ -1411,6 +1602,11 @@ def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | 
     if not is_slack_origin(origin_product) or is_slack_interaction_state(state):
         return False
     return TaskRun.objects.filter(task_id=task.id, state__interaction_origin="slack").exists()
+
+
+_TOKEN_ENV_KEYS = ("AI_GATEWAY_TOKEN", "AI_GATEWAY_TOKEN_CAP_USD")
+# Carries a narrower pin than the product's own to the run stamp; popped before the env reaches the sandbox.
+_PIN_KEY_ENV = "_AI_GATEWAY_PIN_KEY"
 
 
 def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
@@ -1429,6 +1625,14 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
         logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
         return pinned is None
     return True
+
+
+WORKFLOWS_PRODUCT = "workflows"
+WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL = "ai_credits_exhausted"
+WORKFLOWS_CREDITS_EXHAUSTED_DETAIL = (
+    "This project has used its monthly PostHog AI credits. "
+    "Raise the AI credit limit in billing settings, or wait for the next billing period."
+)
 
 
 def ai_gateway_env_vars(
@@ -1455,19 +1659,33 @@ def ai_gateway_env_vars(
     treats its own task-run fetch as the fallback. The agent server routes to the
     Go gateway only when the token is present, so a missing token (mint failure,
     or a caller that cannot supply run context) degrades the run to the Python
-    gateway.
+    gateway, except a `posthog_code` run, which raises: the Python gateway
+    refuses `posthog_code`. A `workflows` run whose team is out of AI credits
+    also raises, because the Python gateway refuses it too.
     """
+    ai_product = (
+        resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
+    )
+    requires_go = ai_product == POSTHOG_CODE_PRODUCT
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
+        if requires_go:
+            raise posthog_code_token_unavailable("not_configured", team_id)
         return {}
+    # Without a mint key no attempt can mint.
+    if requires_go and not settings.SANDBOX_AI_GATEWAY_MINT_KEY:
+        raise posthog_code_token_unavailable("not_configured", team_id)
     env_vars = {
         "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
         "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
     }
-    if team_id is not None:
-        ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
-        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
-            ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
+    if team_id is not None and ai_product is not None:
+        if not (
+            ai_product in MINTABLE_PRODUCTS
+            and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
         ):
+            if requires_go:
+                raise posthog_code_token_unavailable("not_configured", team_id)
+        else:
             refusal = mint_refusal(
                 ai_product,
                 team_id=team_id,
@@ -1476,9 +1694,13 @@ def ai_gateway_env_vars(
                 runtime=runtime,
                 internal=internal,
                 prior_slack_run=prior_slack_run,
+                origin_product=origin_product,
             )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+                # posthog_code_token_unavailable counts posthog_code refusals.
+                if not requires_go:
+                    record_gateway_token_refusal("sandbox", refusal, ai_product=ai_product)
                 # The deploy's log formatter drops `extra`, so the message carries the fields.
                 # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
                 logger.info(
@@ -1488,15 +1710,64 @@ def ai_gateway_env_vars(
                     refusal,
                     extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
                 )
+                if requires_go:
+                    raise posthog_code_token_unavailable(refusal, team_id)
+                # The legacy gateway refuses an exhausted bucket with a retryable 429. A background
+                # workflow run has nobody to read the refusal, so the agent retries until the idle
+                # timeout and the run fails as lost. Fail it here with the real reason.
+                if ai_product == WORKFLOWS_PRODUCT and refusal == WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL:
+                    raise GatewayTokenUnavailableError(
+                        WORKFLOWS_CREDITS_EXHAUSTED_DETAIL, {"team_id": team_id, "reason": refusal}
+                    )
                 return env_vars
-            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            mint_kwargs: dict[str, Any] = {}
+            if ai_product == POSTHOG_CODE_PRODUCT:
+                free_pin = posthog_code_allowed_models(team_id)
+                if free_pin is not None:
+                    mint_kwargs["allowed_models"] = free_pin
+                mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
                 env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
+                if "allowed_models" in mint_kwargs:
+                    env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
+            elif requires_go:
+                raise posthog_code_token_unavailable("mint_failed", team_id)
     return env_vars
+
+
+# Messages for reasons a retry won't change.
+_POSTHOG_CODE_REFUSAL_MESSAGES = {
+    "model_outside_free_pin": "This run's model isn't included in the free plan. Choose a free-plan model or upgrade.",
+    "model_outside_pin": "This run's model isn't available for PostHog Code cloud runs. Choose another model.",
+    "posthog_code_credits_exhausted": POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
+    "org_deactivated": "This organization is deactivated.",
+    "team_not_found": "This run's project no longer exists.",
+    "not_configured": "Cloud runs can't reach PostHog AI: the AI gateway isn't configured for posthog_code.",
+}
+# A credit lookup or mint can succeed on the next attempt.
+_POSTHOG_CODE_TRANSIENT_REFUSALS = frozenset({"posthog_code_credits_unknown", "mint_failed", "pin_unrecorded"})
+
+
+def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessTaskError:
+    record_gateway_token_refusal("sandbox", reason, ai_product=POSTHOG_CODE_PRODUCT)
+    context: dict[str, Any] = {"team_id": team_id, "reason": reason}
+    if reason in _POSTHOG_CODE_TRANSIENT_REFUSALS:
+        # Also the run's final error after the last retry, so it can't promise one.
+        return ProcessTaskTransientError(
+            f"Couldn't get a PostHog AI token for this run (reason: {reason}). Try again in a few minutes.",
+            context,
+            RuntimeError(reason),
+            capture=False,
+        )
+    message = _POSTHOG_CODE_REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
+    if reason == "not_configured":
+        logger.error("ai_gateway: posthog_code run with no gateway configured (team_id=%s)", team_id)
+    return GatewayTokenUnavailableError(message, context)
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
@@ -1513,7 +1784,7 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     if run_state.pr_authorship_mode is not None:
         return run_state.pr_authorship_mode
 
-    if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
+    if task.origin_product in (TaskModel.OriginProduct.SIGNAL_REPORT, TaskModel.OriginProduct.POSTHOG_AI):
         return PrAuthorshipMode.BOT
 
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
@@ -1621,25 +1892,63 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     }
 
 
-def _message_actor_cache_key(run_id: str, message_id: str) -> str:
-    return f"tasks:followup-actor:{run_id}:{message_id}"
+def _message_record_key(kind: str, run_id: str, message_id: str) -> str:
+    return f"tasks:followup-{kind}:{run_id}:{message_id}"
 
 
 # Bounds how long after delivery a turn can finish and still get exact
 # per-message attribution; longer turns fall back to the run-state actors.
-MESSAGE_ACTOR_TTL_SECONDS = 2 * 60 * 60
+DELIVERED_MESSAGE_TTL_SECONDS = 2 * 60 * 60
 
 
-def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> None:
-    """Correlate a delivered message with its sender's Slack id, so a relay
-    echoing the message id can tag the exact speaker it answers. The sandbox
-    only ever echoes an opaque id — resolution happens against actors this
-    server recorded itself, so a compromised sandbox cannot pick an arbitrary
-    mention target."""
-    get_tasks_cache().set(
-        _message_actor_cache_key(run_id, message_id), slack_user_id, timeout=MESSAGE_ACTOR_TTL_SECONDS
-    )
+def record_delivered_message(
+    run_id: str, message_id: str, *, actor_slack_user_id: str | None, person_message: str | None
+) -> None:
+    """Correlate a delivered message with its sender's Slack id and the sender's own words, so a
+    relay echoing the message id can tag the exact speaker it answers and offer replies that fit
+    what they asked. The sandbox only ever echoes an opaque id — resolution happens against values
+    this server recorded itself, so a compromised sandbox cannot pick an arbitrary mention target."""
+    records = {
+        _message_record_key(kind, run_id, message_id): value
+        for kind, value in (("actor", actor_slack_user_id), ("person-message", person_message))
+        if value
+    }
+    if records:
+        get_tasks_cache().set_many(records, timeout=DELIVERED_MESSAGE_TTL_SECONDS)
 
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
-    return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
+    return get_tasks_cache().get(_message_record_key("actor", run_id, message_id))
+
+
+def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:
+    """What the person said to start the turn that answers ``message_id``.
+
+    ``mention`` is the message that opened the run, and only the run's first turn passes it: a later
+    turn never falls back to it, because the mention is not what that turn answers.
+    """
+    if run_id and message_id:
+        # The answer must still go out when the cache is down; the buttons then come from the answer alone.
+        try:
+            recorded = get_tasks_cache().get(_message_record_key("person-message", run_id, message_id))
+        except Exception:
+            logger.warning(
+                "turn_person_message_lookup_failed",
+                extra={"run_id": run_id, "message_id": message_id},
+                exc_info=True,
+            )
+            recorded = None
+        if isinstance(recorded, str) and recorded:
+            return recorded
+    return mention or None
+
+
+def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
+    """The recorded sender of the message a reply answers, else the run's actor, else the thread's actors."""
+    state = task_run.state or {}
+    return (
+        (get_message_actor(str(task_run.id), message_id) if message_id else None)
+        or state.get("slack_actor_slack_user_id")
+        or (mapping.latest_actor_slack_user_id if mapping else None)
+        or (mapping.mentioning_slack_user_id if mapping else None)
+    )

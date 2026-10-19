@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { useSparklineData } from '../../hooks/use-sparkline-data'
-import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION, sourceDisplay } from '../../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
 import { QuillAssigneeSelect } from '../Assignee/QuillAssigneeSelect'
@@ -42,15 +41,6 @@ export function ErrorTrackingIssueListHeader(): JSX.Element {
             <span className="text-center">Occurrences</span>
         </div>
     )
-}
-
-function prefetchIssueScene(issue: ErrorTrackingIssue): void {
-    const issueLogic = errorTrackingIssueSceneLogic({
-        id: issue.id,
-        timestamp: issue.last_seen,
-    })
-    issueLogic.mount()
-    issueLogic.actions.setIssue(issue)
 }
 
 export function ErrorTrackingIssueListRow({
@@ -85,11 +75,7 @@ export function ErrorTrackingIssueListRow({
             )}
         >
             <div className="flex min-w-0 flex-col gap-0.5">
-                <Link
-                    to={issueUrl}
-                    className="flex items-center gap-2 text-sm text-primary"
-                    onClick={() => prefetchIssueScene(issue)}
-                >
+                <Link to={issueUrl} className="flex items-center gap-2 text-sm text-primary">
                     <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.75rem" />
                     <span className="line-clamp-1 font-semibold">{issue.name || 'Unknown Type'}</span>
                 </Link>

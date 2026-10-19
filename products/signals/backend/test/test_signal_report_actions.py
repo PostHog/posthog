@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -9,7 +10,7 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
-from products.signals.backend.models import SignalReport, SignalReportAction
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalScoutConfig, SignalScoutRun
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):
@@ -114,12 +115,95 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
         assert response.status_code == expected_status
         assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
 
-    def test_a_suppressed_report_still_records_its_view(self) -> None:
-        # The Dismissed tab renders the same detail view, so its opens must count too instead of
-        # 404ing like mutating-by-ID actions on suppressed reports do.
+    def _author_with_scout(self, report: SignalReport, managed_by: str) -> SignalScoutConfig:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-general", managed_by=managed_by
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        task_run = apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task)
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=task_run,
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(report.id)],
+            metadata={"managed_by": managed_by} if managed_by == SignalScoutConfig.ManagedBy.BACKGROUND else {},
+        )
+        return config
+
+    @parameterized.expand(
+        [
+            (f"{path}_{origin}", path, body, event, origin)
+            for path, body, event in (
+                ("viewed", None, "signals_background_report_viewed"),
+                ("feedback", {"sentiment": "negative"}, "signals_background_report_rated"),
+                ("state", {"state": "suppressed"}, "signals_background_report_dismissed"),
+            )
+            for origin in (SignalScoutConfig.ManagedBy.BACKGROUND, SignalScoutConfig.ManagedBy.TEAM)
+        ]
+    )
+    @patch("products.signals.backend.background_pilot.posthoganalytics.capture")
+    def test_background_pilot_events_fire_only_for_background_reports(
+        self, _name, action_path: str, body: dict | None, event: str, origin: str, mock_capture: MagicMock
+    ) -> None:
+        report = self._create_report()
+        config = self._author_with_scout(report, origin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/{action_path}/", body, format="json"
+        )
+
+        assert response.status_code < 300
+        captured = [call.kwargs for call in mock_capture.call_args_list if call.kwargs["event"] == event]
+        if origin == SignalScoutConfig.ManagedBy.BACKGROUND:
+            assert len(captured) == 1
+            assert captured[0]["properties"]["report_id"] == str(report.id)
+            assert captured[0]["properties"]["scout_config_id"] == str(config.id)
+        else:
+            assert captured == []
+
+    @patch("products.signals.backend.background_pilot.posthoganalytics.capture")
+    def test_repeat_dismissal_of_a_background_report_is_not_counted_again(self, mock_capture: MagicMock) -> None:
         report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._author_with_scout(report, SignalScoutConfig.ManagedBy.BACKGROUND)
 
-        response = self.client.post(self._viewed_url(str(report.pk)))
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/state/",
+            {"state": "suppressed", "dismissal_reason": "report_unclear"},
+            format="json",
+        )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert SignalReportAction.objects.for_team(self.team.id).filter(report=report, user=self.user).exists()
+        assert response.status_code == status.HTTP_200_OK
+        assert not [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signals_background_report_dismissed"
+        ]
+
+    @parameterized.expand(
+        [
+            ("suppressed", SignalReport.Status.SUPPRESSED, False, True),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, True),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, True),
+        ]
+    )
+    def test_visible_reports_record_their_views(
+        self, _name: str, report_status: str, flag_enabled: bool, visible: bool
+    ) -> None:
+        report = self._create_report(status=report_status)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled):
+            detail = self.client.get(f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/")
+            response = self.client.post(self._viewed_url(str(report.pk)))
+
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+        assert response.status_code == (status.HTTP_204_NO_CONTENT if visible else status.HTTP_404_NOT_FOUND)
+        actions = SignalReportAction.objects.for_team(self.team.id).filter(report=report, user=self.user)
+        if visible:
+            action = actions.get()
+            assert action.type == SignalReportAction.ActionType.VIEW
+            assert action.count == 1
+        else:
+            assert not actions.exists()
+        report.refresh_from_db()
+        assert report.status == report_status

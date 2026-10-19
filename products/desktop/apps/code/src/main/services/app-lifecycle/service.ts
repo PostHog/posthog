@@ -1,3 +1,4 @@
+import { cleanupAllPinnedSettings } from "@posthog/agent/adapters/claude/session/pinned-settings";
 import {
   APP_LIFECYCLE_SERVICE,
   type IAppLifecycle,
@@ -273,6 +274,12 @@ export class AppLifecycleService {
       await cleanupAllCodexHomes(this.storagePaths.appDataPath);
     } catch (error) {
       log.warn("Failed to clean Codex state", error);
+    }
+
+    try {
+      await cleanupAllPinnedSettings();
+    } catch (error) {
+      log.warn("Failed to clean pinned Claude settings", error);
     }
 
     // Drain pending native callbacks (e.g. @parcel/watcher ThreadSafeFunction)

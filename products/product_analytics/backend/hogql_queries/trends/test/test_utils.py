@@ -42,6 +42,12 @@ def test_properties_chain_groups():
         assert "group_type_index missing from params" in str(e.value)
 
 
+def test_properties_chain_group_key_and_virtual_properties():
+    # The key column and the expression fields are not entries in the group's property JSON
+    assert get_properties_chain(BreakdownType.GROUP, "$group_key", 1) == ["group_1", "key"]
+    assert get_properties_chain(BreakdownType.GROUP, "$virt_revenue", 0) == ["group_0", "$virt_revenue"]
+
+
 def test_properties_chain_events():
     p1 = get_properties_chain(breakdown_type=BreakdownType.EVENT, breakdown_field="anything", group_type_index=None)
     assert p1 == ["properties", "anything"]

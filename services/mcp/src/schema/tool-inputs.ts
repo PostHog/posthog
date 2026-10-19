@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+import {
+    AiObservabilityOfflineExperimentsUploadCreateBody,
+    aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax,
+    aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
+} from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
@@ -8,6 +13,15 @@ import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
 export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+export const SignalReportFeedbackSentimentSchema = z
+    .enum(['positive', 'negative'])
+    .describe("The report rating: 'positive' (thumbs up) or 'negative' (thumbs down).")
+export const SignalReportFeedbackNoteSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .describe("The person's context for why the report was or was not useful, up to 4000 characters.")
 
 // Mirrors the Django serializer's `validate` rule so a continuation without the revision
 // fails here instead of at the API with a 400.
@@ -220,6 +234,18 @@ const CategoricalScoreDefinitionConfigSchema = z
             .min(1)
             .optional()
             .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+        passing_rule: z
+            .object({
+                categories: z
+                    .array(z.string().max(128))
+                    .describe('Passing category keys. Every returned category must be included.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe(
+                'Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.'
+            ),
     })
     .strict()
     .describe('Config shape used when kind is "categorical".')
@@ -229,6 +255,17 @@ const NumericScoreDefinitionConfigSchema = z
         min: z.number().optional().describe('Optional inclusive minimum score.'),
         max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
         step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+        passing_rule: z
+            .object({
+                operator: z
+                    .enum(['gte', 'lte'])
+                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                threshold: z.number().describe('Finite passing threshold within any configured score bounds.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe('Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.'),
     })
     .strict()
     .describe('Config shape used when kind is "numeric".')
@@ -237,6 +274,11 @@ const BooleanScoreDefinitionConfigSchema = z
     .object({
         true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
         false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+        true_is_failure: z
+            .boolean()
+            .nullable()
+            .optional()
+            .describe('Whether true means failure. False, omitted, or null means true passes in offline evaluations.'),
     })
     .strict()
     .describe('Config shape used when kind is "boolean".')
@@ -248,8 +290,42 @@ export const ScoreDefinitionConfigSchema = z
         BooleanScoreDefinitionConfigSchema,
     ])
     .describe(
-        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
+
+const OfflineExperimentUploadBody = AiObservabilityOfflineExperimentsUploadCreateBody().shape
+const OfflineExperimentUploadItem = OfflineExperimentUploadBody.items.unwrap().element
+const OfflineExperimentUploadResult = OfflineExperimentUploadBody.results.element
+
+// The API rejects unknown payload keys, but zod drops them before the request. A misnamed key
+// would then upload an incomplete payload, and the immutable item cannot be corrected later.
+export const OfflineExperimentUploadItemsSchema = z
+    .array(
+        OfflineExperimentUploadItem.extend({
+            payload: OfflineExperimentUploadItem.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadItem.shape.payload.description!),
+        })
+    )
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax)
+    .optional()
+    .describe(OfflineExperimentUploadBody.items.description!)
+
+export const OfflineExperimentUploadResultsSchema = z
+    .array(
+        OfflineExperimentUploadResult.extend({
+            payload: OfflineExperimentUploadResult.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadResult.shape.payload.description!),
+        })
+    )
+    .min(1)
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
+    .describe(OfflineExperimentUploadBody.results.description!)
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -423,7 +499,9 @@ export const ExperimentResultsGetSchema = z.preprocess(
             .boolean()
             .optional()
             .default(false)
-            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+            .describe(
+                'Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.'
+            ),
     })
 )
 
@@ -438,7 +516,6 @@ export const InsightQueryInputSchema = z.preprocess(
     z.object({
         insightId: z
             .union([z.string(), z.number()])
-            .transform((value) => String(value))
             .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
         output_format: z
             .enum(['optimized', 'json'])

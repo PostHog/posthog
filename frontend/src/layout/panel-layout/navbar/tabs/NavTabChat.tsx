@@ -167,11 +167,9 @@ function LoadTasksError({ onRetry }: { onRetry: () => void }): JSX.Element {
 const ConversationRow = memo(function ConversationRow({
     item,
     active,
-    onItemClick,
 }: {
     item: Extract<AiHistoryItem, { kind: 'conversation' }>
     active: boolean
-    onItemClick?: () => void
 }): JSX.Element {
     const href = AiChatListItem.getHref(item.conversation.id)
     return (
@@ -194,7 +192,6 @@ const ConversationRow = memo(function ConversationRow({
                                 onClick={(e) => {
                                     e.preventDefault()
                                     router.actions.push(href)
-                                    onItemClick?.()
                                 }}
                             >
                                 <AiChatListItem.Content
@@ -216,11 +213,9 @@ const ConversationRow = memo(function ConversationRow({
 const TaskRow = memo(function TaskRow({
     item,
     active,
-    onItemClick,
 }: {
     item: Extract<AiHistoryItem, { kind: 'task' }>
     active: boolean
-    onItemClick?: () => void
 }): JSX.Element {
     const href = TaskListItem.getHref(item.task.id)
     return (
@@ -243,7 +238,6 @@ const TaskRow = memo(function TaskRow({
                                 onClick={(e) => {
                                     e.preventDefault()
                                     router.actions.push(href)
-                                    onItemClick?.()
                                 }}
                             >
                                 <TaskListItem.Content task={item.task} />
@@ -258,14 +252,7 @@ const TaskRow = memo(function TaskRow({
     )
 })
 
-export function NavTabChat({
-    inPanel = false,
-    onItemClick,
-}: {
-    inPanel?: boolean
-    onItemClick?: () => void
-}): JSX.Element {
-    // The nav tab and side panel can mount together, so each search input needs a unique id.
+export function NavTabChat(): JSX.Element {
     const searchInputId = useId()
     const {
         conversationHistory,
@@ -336,7 +323,6 @@ export function NavTabChat({
                             aria-label="Filter chats"
                             value={inputValue}
                             onChange={setInputValue}
-                            autoFocus={inPanel}
                             fullWidth
                             data-attr="nav-chat-search"
                             prefix={
@@ -399,14 +385,12 @@ export function NavTabChat({
                                                                         !selectedTaskId &&
                                                                         item.conversation.id === currentConversationId
                                                                     }
-                                                                    onItemClick={onItemClick}
                                                                 />
                                                             ) : (
                                                                 <TaskRow
                                                                     key={item.key}
                                                                     item={item}
                                                                     active={item.task.id === selectedTaskId}
-                                                                    onItemClick={onItemClick}
                                                                 />
                                                             )
                                                         }

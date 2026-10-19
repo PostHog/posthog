@@ -22,7 +22,7 @@ packages:
     - '!products/desktop'
     - docs/onboarding
     - services/agent-proxy
-    - services/integration-service
+    - services/credentials-service
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
@@ -143,7 +143,7 @@ catalog:
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
-    kea-router: ^3.4.1
+    kea-router: ^3.4.2
     kea-subscriptions: ^3.0.1
     kea-test-utils: ^0.2.4
     kea-waitfor: ^0.2.1
@@ -151,8 +151,8 @@ catalog:
     # PostHog packages
     '@posthog/icons': ^0.38.0
     '@posthog/brand': 0.12.3
-    '@posthog/react': ^1.11.2
-    posthog-js: ^1.434.14
+    '@posthog/react': ^1.11.3
+    posthog-js: ^1.438.12
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -197,6 +197,7 @@ minimumReleaseAgeExclude:
     - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.6
+    - kea-router@3.4.2
     - kea-typegen@3.8.3
     - '@earendil-works/*'
     - typebox

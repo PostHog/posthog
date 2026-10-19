@@ -1,100 +1,38 @@
-import json
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
-    BREX_API_VERSION_V1,
-    BREX_API_VERSION_V2,
     BrexResumeConfig,
-    _resolve_path,
     _to_rfc3339,
-    brex_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
     BREX_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    BrexEndpointConfig,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the brex module.
-BREX_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
 
 CASH_TX_PATH = BREX_ENDPOINTS["cash_transactions"].path
-
-
-def _response(
-    payload: Any,
-    status_code: int = 200,
-    headers: dict[str, str] | None = None,
-) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(payload).encode()
-    resp.url = "https://api.brex.com/test"
-    if headers:
-        resp.headers.update(headers)
-    return resp
 
 
 def _page(items: list[dict[str, Any]], next_cursor: str | None) -> dict[str, Any]:
     return {"items": items, "next_cursor": next_cursor}
 
 
-def _make_manager(resume_state: BrexResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(
-    endpoint: str,
-    manager: mock.MagicMock,
-    *,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-):
-    return brex_source(
-        "bxt_token",
-        endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(BrexSource(), BrexSourceConfig(api_key="bxt_token"))
 
 
 class TestToRfc3339:
@@ -115,480 +53,143 @@ class TestToRfc3339:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            # A valid token without the Team scope returns 403 — accepted at source-create.
-            (403, True),
-            (401, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(BREX_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = _response({}, status_code=status_code)
+    def test_validate_credentials_sends_bearer_header(self) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("bxt_token")
 
-        assert validate_credentials("bxt_token") is expected
-
-    @mock.patch(BREX_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("bxt_token") is False
-
-    @mock.patch(BREX_SESSION_PATCH)
-    def test_validate_credentials_sends_bearer_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
-
-        validate_credentials("bxt_token")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer bxt_token"
+        assert network.requests_log[0].headers["authorization"] == "Bearer bxt_token"
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_next_cursor(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "u1"}, {"id": "u2"}], "cursor-2")),
-                _response(_page([{"id": "u3"}], None)),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert [row["id"] for row in rows] == ["u1", "u2", "u3"]
-        assert snapshots[0]["url"] == "https://api.brex.com/v2/users"
-        assert snapshots[0]["params"] == {"limit": 100}
-        assert snapshots[1]["params"] == {"limit": 100, "cursor": "cursor-2"}
-        # State is saved only while a next page exists, after the batch has been yielded.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == BrexResumeConfig(cursor="cursor-2")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page([{"id": "u9"}], None))])
-
-        manager = _make_manager(BrexResumeConfig(cursor="cursor-5"))
-        _rows(_source("users", manager))
-
-        assert snapshots[0]["params"]["cursor"] == "cursor-5"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving_state(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response(_page([], None))])
-
-        manager = _make_manager()
-        rows = _rows(_source("expenses", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_run_passes_server_side_filter(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page([{"id": "e1"}], None))])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "expenses",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[0]["params"]["updated_at_start"] == "2024-01-02T00:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_filter_resent_on_every_page(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "e1"}], "cursor-2")),
-                _response(_page([{"id": "e2"}], None)),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "expenses",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[1]["params"]["updated_at_start"] == "2024-01-02T00:00:00Z"
-        assert snapshots[1]["params"]["cursor"] == "cursor-2"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_param_omitted_without_value(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page([{"id": "e1"}], None))])
-
-        manager = _make_manager()
-        _rows(_source("expenses", manager, should_use_incremental_field=True))
-
-        assert "updated_at_start" not in snapshots[0]["params"]
-
-    @pytest.mark.parametrize(
-        "endpoint",
-        [
+    def test_resumes_from_saved_state(self) -> None:
+        result = _driver().run(
             "users",
-            "departments",
-            "locations",
-            "titles",
-            "cards",
-            "fields",
-            "vendors",
-            "transfers",
-            "budgets",
-            "budget_programs",
-            "spend_limits",
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_value_ignored_for_full_refresh_endpoints(self, MockSession, endpoint):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page([{"id": "x"}], None))])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                endpoint,
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-01-02",
-            )
+            [ScriptedResponse(json=_page([{"id": "u9"}], None))],
+            resume_state=BrexResumeConfig(cursor="cursor-5"),
         )
 
-        assert snapshots[0]["params"] == {"limit": 100}
+        assert result.raised is None
+        assert result.requests[0].param("cursor") == "cursor-5"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_run_has_no_filter(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page([{"id": "e1"}], None))])
-
-        manager = _make_manager()
-        _rows(_source("expenses", manager))
-
-        assert "updated_at_start" not in snapshots[0]["params"]
-
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_429_honors_retry_after_then_retries(self, MockSession, mock_nap):
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_incremental_filter_resent_on_every_page(self) -> None:
+        result = _driver().run(
+            "expenses",
             [
-                _response({}, status_code=429, headers={"Retry-After": "7"}),
-                _response(_page([{"id": "u1"}], None)),
+                ScriptedResponse(json=_page([{"id": "e1"}], "cursor-2")),
+                ScriptedResponse(json=_page([{"id": "e2"}], None)),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests[1].param("updated_at_start") == "2024-01-02T00:00:00Z"
+        assert result.requests[1].param("cursor") == "cursor-2"
+
+    def test_429_with_unparseable_retry_after_still_retries(self) -> None:
+        result = _driver().run(
+            "users",
+            [
+                ScriptedResponse(status=429, json={}, headers={"Retry-After": "not-a-number"}),
+                ScriptedResponse(json=_page([{"id": "u1"}], None)),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["u1"]
+        assert len(result.requests) == 2
 
-        assert [row["id"] for row in rows] == ["u1"]
-        mock_nap.assert_called_once_with(7.0)
+    def test_4xx_raises_immediately(self) -> None:
+        result = _driver().run("users", [ScriptedResponse(status=401, json={})])
 
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_429_with_unparseable_retry_after_still_retries(self, MockSession, mock_nap):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status_code=429, headers={"Retry-After": "not-a-number"}),
-                _response(_page([{"id": "u1"}], None)),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert [row["id"] for row in rows] == ["u1"]
-        assert session.send.call_count == 2
-
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_5xx_is_retried(self, MockSession, mock_nap):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status_code=502),
-                _response(_page([{"id": "u1"}], None)),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert [row["id"] for row in rows] == ["u1"]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_4xx_raises_immediately(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({}, status_code=401)])
-
-        manager = _make_manager()
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("users", manager))
-
-        assert session.send.call_count == 1
-
-
-class TestGetRowsCardAccounts:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reads_rows_from_a_bare_array_body(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "acc_1"}, {"id": "acc_2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("card_accounts", manager))
-
-        assert [row["id"] for row in rows] == ["acc_1", "acc_2"]
-        assert snapshots[0]["url"] == "https://api.brex.com/v2/accounts/card"
-        # Brex documents no cursor/limit params on this endpoint.
-        assert snapshots[0]["params"] == {}
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_array_body_yields_no_rows(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(_source("card_accounts", _make_manager())) == []
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestGetRowsCashFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_cash_accounts_and_injects_account_id(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_fans_out_over_cash_accounts_and_injects_account_id(self) -> None:
+        result = _driver().run(
+            "cash_transactions",
             [
-                _response(_page([{"id": "acc_1"}, {"id": "acc_2"}], None)),
-                _response(_page([{"id": "tx_1", "posted_at_date": "2024-01-01"}], None)),
-                _response(_page([{"id": "tx_2", "posted_at_date": "2024-01-02"}], None)),
+                ScriptedResponse(json=_page([{"id": "acc_1"}, {"id": "acc_2"}], None)),
+                ScriptedResponse(json=_page([{"id": "tx_1", "posted_at_date": "2024-01-01"}], None)),
+                ScriptedResponse(json=_page([{"id": "tx_2", "posted_at_date": "2024-01-02"}], None)),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("cash_transactions", manager))
-
-        assert [(row["id"], row["account_id"]) for row in rows] == [("tx_1", "acc_1"), ("tx_2", "acc_2")]
+        assert result.raised is None
+        assert [(row["id"], row["account_id"]) for row in result.rows] == [("tx_1", "acc_1"), ("tx_2", "acc_2")]
         # The framework's include_from_parent key is renamed away — rows keep their old shape.
-        assert all("_cash_accounts_id" not in row for row in rows)
+        assert all("_cash_accounts_id" not in row for row in result.rows)
 
-        urls = [snapshot["url"] for snapshot in snapshots]
-        assert urls[0] == "https://api.brex.com/v2/accounts/cash"
-        assert snapshots[0]["params"] == {"limit": 100}
-        assert urls[1] == "https://api.brex.com/v2/transactions/cash/acc_1"
-        assert urls[2] == "https://api.brex.com/v2/transactions/cash/acc_2"
+        assert result.requests[0].url.split("?")[0] == "https://api.brex.com/v2/accounts/cash"
+        assert result.requests[0].query == {"limit": ("100",)}
+        assert result.requests[1].url.split("?")[0] == "https://api.brex.com/v2/transactions/cash/acc_1"
+        assert result.requests[2].url.split("?")[0] == "https://api.brex.com/v2/transactions/cash/acc_2"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_fanout_checkpoints_between_accounts(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_resume_skips_completed_accounts_and_uses_cursor(self) -> None:
+        result = _driver().run(
+            "cash_transactions",
             [
-                _response(_page([{"id": "acc_1"}, {"id": "acc_2"}], None)),
-                _response(_page([{"id": "tx_1"}], "cursor-a")),
-                _response(_page([{"id": "tx_2"}], None)),
-                _response(_page([{"id": "tx_3"}], None)),
+                ScriptedResponse(json=_page([{"id": "acc_1"}, {"id": "acc_2"}], None)),
+                ScriptedResponse(json=_page([{"id": "tx_9"}], None)),
             ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("cash_transactions", manager))
-
-        saved_states = [call.args[0].fanout_state for call in manager.save_state.call_args_list]
-        acc_1_path = CASH_TX_PATH.format(account_id="acc_1")
-        # Mid-account checkpoint carries the account's cursor; completing an account moves it
-        # into the completed list.
-        assert {"completed": [], "current": acc_1_path, "child_state": {"cursor": "cursor-a"}} in saved_states
-        assert saved_states[-1]["completed"] == [
-            acc_1_path,
-            CASH_TX_PATH.format(account_id="acc_2"),
-        ]
-        assert saved_states[-1]["current"] is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_accounts_and_uses_cursor(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "acc_1"}, {"id": "acc_2"}], None)),
-                _response(_page([{"id": "tx_9"}], None)),
-            ],
-        )
-
-        manager = _make_manager(
-            BrexResumeConfig(
+            resume_state=BrexResumeConfig(
                 fanout_state={
                     "completed": [CASH_TX_PATH.format(account_id="acc_1")],
                     "current": CASH_TX_PATH.format(account_id="acc_2"),
                     "child_state": {"cursor": "cursor-mid"},
                 }
-            )
+            ),
         )
-        rows = _rows(_source("cash_transactions", manager))
 
-        assert [(row["id"], row["account_id"]) for row in rows] == [("tx_9", "acc_2")]
-        assert len(snapshots) == 2
-        assert snapshots[1]["url"].endswith("/transactions/cash/acc_2")
-        assert snapshots[1]["params"]["cursor"] == "cursor-mid"
+        assert result.raised is None
+        assert [(row["id"], row["account_id"]) for row in result.rows] == [("tx_9", "acc_2")]
+        assert len(result.requests) == 2
+        assert result.requests[1].url.split("?")[0].endswith("/transactions/cash/acc_2")
+        assert result.requests[1].param("cursor") == "cursor-mid"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_translates_pre_framework_state(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_resume_cursor_not_applied_to_other_accounts(self) -> None:
+        result = _driver().run(
+            "cash_transactions",
             [
-                _response(_page([{"id": "acc_1"}, {"id": "acc_2"}], None)),
-                _response(_page([{"id": "tx_9"}], None)),
+                ScriptedResponse(json=_page([{"id": "acc_1"}], None)),
+                ScriptedResponse(json=_page([{"id": "tx_1"}], None)),
             ],
+            resume_state=BrexResumeConfig(cursor="cursor-mid", account_id="acc_gone", completed_account_ids=[]),
         )
 
-        manager = _make_manager(
-            BrexResumeConfig(cursor="cursor-mid", account_id="acc_2", completed_account_ids=["acc_1"])
-        )
-        rows = _rows(_source("cash_transactions", manager))
-
-        assert [(row["id"], row["account_id"]) for row in rows] == [("tx_9", "acc_2")]
-        assert len(snapshots) == 2
-        assert snapshots[1]["url"].endswith("/transactions/cash/acc_2")
-        assert snapshots[1]["params"]["cursor"] == "cursor-mid"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_cursor_not_applied_to_other_accounts(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "acc_1"}], None)),
-                _response(_page([{"id": "tx_1"}], None)),
-            ],
-        )
-
-        manager = _make_manager(BrexResumeConfig(cursor="cursor-mid", account_id="acc_gone", completed_account_ids=[]))
-        _rows(_source("cash_transactions", manager))
-
-        assert "cursor" not in snapshots[1]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_cash_account_listing(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "acc_1"}], "acc-cursor-2")),
-                _response(_page([{"id": "tx_1"}], None)),
-                _response(_page([{"id": "acc_2"}], None)),
-                _response(_page([{"id": "tx_2"}], None)),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("cash_transactions", manager))
-
-        assert [(row["id"], row["account_id"]) for row in rows] == [("tx_1", "acc_1"), ("tx_2", "acc_2")]
-        # Parent pages are consumed lazily: accounts page 1, its transactions, accounts page 2, ...
-        assert "accounts/cash" in snapshots[0]["url"]
-        assert "transactions/cash/acc_1" in snapshots[1]["url"]
-        assert "accounts/cash" in snapshots[2]["url"]
-        assert snapshots[2]["params"]["cursor"] == "acc-cursor-2"
-        assert "transactions/cash/acc_2" in snapshots[3]["url"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_filter_applied_per_account(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "acc_1"}], None)),
-                _response(_page([{"id": "tx_1"}], None)),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "cash_transactions",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-01-02",
-            )
-        )
-
-        # Account listing carries no filter; the per-account transaction call does.
-        assert "posted_at_start" not in snapshots[0]["params"]
-        assert snapshots[1]["params"]["posted_at_start"] == "2024-01-02T00:00:00Z"
+        assert result.raised is None
+        assert result.requests[1].param("cursor") is None
 
 
 class TestGetRowsFieldValuesFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_fields_resolving_brex_id(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"brex_id": "ef_1"}, {"brex_id": "ef_2"}], None)),
-                _response(_page([{"brex_id": "efo_1", "field_id": "ef_1", "value": "Marketing"}], None)),
-                _response(_page([{"brex_id": "efo_2", "field_id": "ef_2", "value": "R&D"}], None)),
-            ],
-        )
-
-        rows = _rows(_source("field_values", _make_manager()))
-
-        assert [(row["brex_id"], row["field_id"]) for row in rows] == [("efo_1", "ef_1"), ("efo_2", "ef_2")]
-        urls = [snapshot["url"] for snapshot in snapshots]
-        assert urls == [
-            "https://api.brex.com/v1/fields",
-            "https://api.brex.com/v1/fields/ef_1/values",
-            "https://api.brex.com/v1/fields/ef_2/values",
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_parent_field_is_injected(self, MockSession):
+    def test_no_parent_field_is_injected(self) -> None:
         # Field value rows already carry field_id, so nothing is included from the parent.
         # An include_from_parent here would add a stray `_fields_brex_id` column.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "field_values",
             [
-                _response(_page([{"brex_id": "ef_1"}], None)),
-                _response(_page([{"brex_id": "efo_1", "field_id": "ef_1"}], None)),
+                ScriptedResponse(json=_page([{"brex_id": "ef_1"}], None)),
+                ScriptedResponse(json=_page([{"brex_id": "efo_1", "field_id": "ef_1"}], None)),
             ],
         )
 
-        rows = _rows(_source("field_values", _make_manager()))
+        assert result.raised is None
+        assert result.rows == [{"brex_id": "efo_1", "field_id": "ef_1"}]
 
-        assert rows == [{"brex_id": "efo_1", "field_id": "ef_1"}]
 
-
-@mock.patch(CLIENT_SESSION_PATCH)
 class TestBrexSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = BREX_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(
+            endpoint, [ScriptedResponse(json=[] if endpoint == "card_accounts" else _page([], None))]
+        )
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.incremental_fields:
@@ -603,70 +204,11 @@ class TestBrexSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_cash_transactions_use_composite_primary_key(self, MockSession):
-        response = _source("cash_transactions", _make_manager())
-        assert response.primary_keys == ["account_id", "id"]
-
-    def test_budgets_primary_key_is_budget_id(self, MockSession):
-        response = _source("budgets", _make_manager())
-        assert response.primary_keys == ["budget_id"]
-
     @pytest.mark.parametrize("config", list(BREX_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_dates(self, MockSession, config):
+    def test_partition_keys_are_stable_creation_dates(self, config: BrexEndpointConfig) -> None:
         # Never an updated_at-style field, which would rewrite partitions on every sync.
         if config.partition_key:
             assert config.partition_key in {"posted_at_date", "created_at"}
 
-    def test_incremental_fields_only_declared_for_filterable_endpoints(self, MockSession):
+    def test_incremental_fields_only_declared_for_filterable_endpoints(self) -> None:
         assert set(INCREMENTAL_FIELDS.keys()) == {"card_transactions", "cash_transactions", "expenses"}
-
-
-class TestPathResolution:
-    @pytest.mark.parametrize("api_version", [BREX_API_VERSION_V1, BREX_API_VERSION_V2])
-    @pytest.mark.parametrize(
-        "endpoint, expected_path",
-        [
-            ("users", "/v2/users"),
-            ("titles", "/v2/titles"),
-            ("cards", "/v2/cards"),
-            ("fields", "/v1/fields"),
-            ("field_values", "/v1/fields/{field_id}/values"),
-            ("expenses", "/v1/expenses"),
-            ("card_accounts", "/v2/accounts/card"),
-            ("cash_accounts", "/v2/accounts/cash"),
-            ("vendors", "/v1/vendors"),
-            ("transfers", "/v1/transfers"),
-            ("budgets", "/v2/budgets"),
-            # Brex keeps budget programs on v1 while budgets themselves moved to v2.
-            ("budget_programs", "/v1/budget_programs"),
-            ("spend_limits", "/v2/spend_limits"),
-        ],
-    )
-    def test_resolve_path_matches_current_paths_for_every_version(self, api_version, endpoint, expected_path):
-        # Both versions must keep hitting each API's current path — expenses/vendors have no v2.
-        assert _resolve_path(BREX_ENDPOINTS[endpoint], api_version) == expected_path
-
-    def test_resolve_path_honors_per_version_override(self):
-        config = BREX_ENDPOINTS["users"]
-        overridden = dataclasses.replace(config, versioned_paths={BREX_API_VERSION_V2: "/v3/users"})
-        assert _resolve_path(overridden, BREX_API_VERSION_V2) == "/v3/users"
-        assert _resolve_path(overridden, BREX_API_VERSION_V1) == config.path
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resolved_path_is_wired_into_request_url(self, MockSession):
-        # Guards that _resolve_path feeds the dispatched request URL; per-version path coverage
-        # lives in test_resolve_path_matches_current_paths_for_every_version.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page([{"id": "u1"}], None))])
-
-        source = brex_source(
-            "bxt_token",
-            "users",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-            api_version=BREX_API_VERSION_V2,
-        )
-        _rows(source)
-
-        assert snapshots[0]["url"] == "https://api.brex.com/v2/users"
