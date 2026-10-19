@@ -7,9 +7,11 @@ from parameterized import parameterized
 from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
 from products.posthog_ai.evals.cli_mcp.scorers import (
     INLINE_VIEW_NOTE,
+    ChartFromTypedQuery,
     ChartShown,
     DidNotCiteRawSqlAfterTypedQuery,
     FirstRelevantTool,
+    NoAnalyticsSql,
     NoMarkdownDataTable,
 )
 
@@ -252,30 +254,44 @@ def test_first_relevant_tool_turn_skips_a_missing_slice() -> None:
 
 _TRENDS_RESULT = ("mcp__posthog__query-trends", {"series": []}, "rows")
 _TRENDS_INLINE_RESULT = ("mcp__posthog__query-trends", {"series": []}, f"rows\n\nThe user {INLINE_VIEW_NOTE}.")
-_SQL_RESULT = ("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1")
+_BASE = "https://us.example.com/project/1"
+_SQL_CHART = f"[Weekly signups]({_BASE}/sql?open_query=SELECT%20toStartOfWeek(timestamp)%2C%20count()%20FROM%20events)"
+_INSIGHT_CHART = f"[Weekly signups]({_BASE}/insights/9pQx3)"
+_UNSAVED_INSIGHT_LINK = f"[Weekly signups]({_BASE}/insights/new#q=%7B%7D)"
 
 
 def _render(tool_name: str, status: str = "completed") -> tuple:
     return ("mcp__posthog__render-ui", {"tool_name": tool_name, "tool_input": {}}, "Rendering", status)
 
 
+def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
+    return {
+        "raw_log": _raw_tool_log(calls),
+        "prompt": "Weekly signups",
+        "messages": [{"role": "assistant", "content": [{"type": "text", "text": answer}]}],
+    }
+
+
 @parameterized.expand(
     [
-        ("rendered_query_tool", [_TRENDS_RESULT, _render("query-trends")], 1.0),
-        ("inline_view_note", [_TRENDS_INLINE_RESULT], 1.0),
-        ("query_without_chart", [_TRENDS_RESULT], 0.0),
-        ("sql_only", [_SQL_RESULT], 0.0),
-        ("failed_render", [_TRENDS_RESULT, _render("query-trends", status="failed")], 0.0),
-        ("rendered_other_tool", [_TRENDS_RESULT, _render("experiment-list")], 0.0),
+        ("rendered_query_tool", [_TRENDS_RESULT, _render("query-trends")], "Signups rose.", 1.0, 1.0),
+        ("inline_view_note", [_TRENDS_INLINE_RESULT], "Signups rose.", 1.0, 1.0),
+        ("saved_insight_link", [_TRENDS_RESULT], f"Signups rose.\n\n{_INSIGHT_CHART}\n\nMore text.", 1.0, 1.0),
+        ("sql_link_after_typed_query", [_TRENDS_RESULT], f"Signups rose.\n\n{_SQL_CHART}", 1.0, 0.0),
+        ("sql_link_inside_sentence", [_TRENDS_RESULT], f"See {_SQL_CHART} for details.", 0.0, None),
+        ("unsaved_insight_link", [_TRENDS_RESULT], f"Signups rose.\n\n{_UNSAVED_INSIGHT_LINK}", 0.0, None),
+        ("failed_render", [_TRENDS_RESULT, _render("query-trends", status="failed")], "Signups rose.", 0.0, None),
+        ("rendered_other_tool", [_TRENDS_RESULT, _render("experiment-list")], "Signups rose.", 0.0, None),
     ]
 )
-def test_chart_shown_accepts_render_or_inline_view(_name: str, calls: list[tuple], score: float) -> None:
-    result = ChartShown()._run_eval_sync(
-        {"raw_log": _raw_tool_log(calls), "prompt": "Weekly signups"},
-        expected={"chart_shown": {"tool_name_any_of": ["query-trends"]}},
-    )
+def test_chart_scorers_grade_each_chart_path(
+    _name: str, calls: list[tuple], answer: str, shown: float, typed: float | None
+) -> None:
+    output = _chart_output(calls, answer)
+    spec = {"tool_name_any_of": ["query-trends"]}
 
-    assert result.score == score
+    assert ChartShown()._run_eval_sync(output, expected={"chart_shown": spec}).score == shown
+    assert ChartFromTypedQuery()._run_eval_sync(output, expected={"chart_from_typed_query": spec}).score == typed
 
 
 _LONG_TABLE = "| Week | Signups |\n|---|---|\n| W1 | 10 |\n| W2 | 12 |\n| W3 | 9 |\n| W4 | 14 |"
@@ -284,14 +300,47 @@ _SUMMARY_TABLE = "| Period | Signups |\n| :--- | ---: |\n| Last 7 days | 45 |\n|
 
 @parameterized.expand(
     [
-        ("long_table", f"Signups rose.\n\n{_LONG_TABLE}\n\nThey peaked in W4.", 0.0),
-        ("summary_table", f"Signups rose 18%.\n\n{_SUMMARY_TABLE}", 1.0),
-        ("prose_with_pipes", "Signups rose 18% | weekly peak in W4 | no drop.", 1.0),
+        ("long_table", [f"Signups rose.\n\n{_LONG_TABLE}\n\nThey peaked in W4."], 0.0),
+        ("long_table_before_closing_line", [f"Signups rose.\n\n{_LONG_TABLE}", "I added two buttons above."], 0.0),
+        ("summary_table", [f"Signups rose 18%.\n\n{_SUMMARY_TABLE}"], 1.0),
+        ("prose_with_pipes", ["Signups rose 18% | weekly peak in W4 | no drop."], 1.0),
     ]
 )
-def test_no_markdown_data_table_flags_long_tables(_name: str, last_message: str, score: float) -> None:
+def test_no_markdown_data_table_flags_long_tables(_name: str, texts: list[str], score: float) -> None:
+    messages = [{"role": "assistant", "content": [{"type": "text", "text": text}]} for text in texts]
+
     result = NoMarkdownDataTable()._run_eval_sync(
-        {"last_message": last_message}, expected={"no_markdown_data_table": {}}
+        {"messages": messages, "last_message": texts[-1]}, expected={"no_markdown_data_table": {}}
+    )
+
+    assert result.score == score
+
+
+def _sql(query: str) -> tuple:
+    return ("mcp__posthog__execute-sql", {"query": query}, "rows")
+
+
+@parameterized.expand(
+    [
+        ("typed_only", [_TRENDS_RESULT], 1.0),
+        (
+            "catalog_lookup_then_typed",
+            [_sql("SELECT id, name FROM system.insights WHERE name ILIKE '%x%'"), _TRENDS_RESULT],
+            1.0,
+        ),
+        ("catalog_cte", [_sql("WITH a AS (SELECT id FROM system.actions) SELECT count() FROM a")], 1.0),
+        ("events_sql", [_sql("SELECT count() FROM events WHERE event = 'signed_up'")], 0.0),
+        (
+            "typed_then_events_sql",
+            [_TRENDS_RESULT, _sql("SELECT toStartOfWeek(timestamp), count() FROM events GROUP BY 1")],
+            0.0,
+        ),
+        ("join_to_events", [_sql("SELECT i.name FROM system.insights i JOIN events e ON e.uuid = i.id")], 0.0),
+    ]
+)
+def test_no_analytics_sql_allows_only_catalog_lookups(_name: str, calls: list[tuple], score: float) -> None:
+    result = NoAnalyticsSql()._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls), "prompt": "Weekly signups"}, expected={"no_analytics_sql": {}}
     )
 
     assert result.score == score

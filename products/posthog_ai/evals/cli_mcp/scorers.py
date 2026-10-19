@@ -32,9 +32,12 @@ unrelated cases don't drag the rollup down.
 * ``DidNotCiteRawSqlAfterTypedQuery`` — after a typed query tool succeeded,
   did the final answer avoid hand-writing the equivalent raw SQL?
 * ``ChartShown`` — did the user see the query result as a chart, through
-  ``render-ui`` or the client's inline view?
-* ``NoMarkdownDataTable`` — did the final answer avoid retyping the result as
-  a long Markdown table?
+  ``render-ui``, the client's inline view, or a chart link in the answer?
+* ``ChartFromTypedQuery`` — was that chart the typed query, not rewritten SQL?
+* ``NoMarkdownDataTable`` — did the agent avoid retyping the result as a long
+  Markdown table?
+* ``NoAnalyticsSql`` — did the agent avoid SQL against event data, apart from
+  ``system.*`` catalog lookups?
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "CalledTargetTool",
+    "ChartFromTypedQuery",
     "ChartShown",
     "DidNotCiteRawSqlAfterTypedQuery",
     "DidNotRenderUi",
@@ -54,6 +58,7 @@ __all__ = [
     "ExecBeforeRender",
     "InfoBeforeCall",
     "FirstRelevantTool",
+    "NoAnalyticsSql",
     "NoMarkdownDataTable",
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
@@ -1100,53 +1105,136 @@ class DidNotRenderUi(Scorer):
 # query result when the client already displays that result's UI app inline.
 INLINE_VIEW_NOTE = "already sees this result as an interactive view"
 
+# A Markdown link alone in its paragraph, which PostHog Desktop draws as a full-size chart card.
+# The URL runs to the closing parenthesis because SQL in ``open_query`` keeps unencoded ``(`` and ``)``.
+_CHART_LINK_RE = re.compile(r'^\[[^\]]+\]\((https?://\S+?)(?:\s+"[^"]*")?\)$')
+# Block-display object tags, the other chart syntax in ``products/desktop/packages/ui/src/utils/remarkObjectTags.ts``.
+_CHART_TAG_RE = re.compile(r'<(insight|hogql)\b[^>]*\bdisplay="block"', re.IGNORECASE)
+# Desktop chart cards resolve a saved insight by short ID; an unsaved ``/insights/new#q=`` link is not a chart.
+_SAVED_INSIGHT_URL_RE = re.compile(r"/insights/(?!new\b)[A-Za-z0-9]+")
+
+
+def assistant_text(output: dict | None) -> str:
+    """All text the agent wrote to the user, across every assistant message.
+
+    ``last_message`` is only the final text block, which is often a closing line written after
+    a follow-up tool call, so presentation checks read the whole conversation instead.
+    """
+    texts: list[str] = []
+    for message in (output or {}).get("messages") or []:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            texts.extend(
+                block["text"]
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+            )
+    if not texts:
+        last_message = (output or {}).get("last_message")
+        if isinstance(last_message, str):
+            texts.append(last_message)
+    return "\n\n".join(text for text in texts if text)
+
+
+def chart_references(text: str) -> list[str]:
+    """Kinds of the full-size charts in ``text``: ``insight`` (a typed query) or ``sql``, in order."""
+    kinds: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        match = _CHART_LINK_RE.match(paragraph.strip())
+        if match is None:
+            continue
+        url = match.group(1)
+        if _SAVED_INSIGHT_URL_RE.search(url):
+            kinds.append("insight")
+        elif "/sql?" in url and "open_query=" in url:
+            kinds.append("sql")
+    kinds.extend("insight" if tag.lower() == "insight" else "sql" for tag in _CHART_TAG_RE.findall(text))
+    return kinds
+
+
+def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> list[str]:
+    """How the user saw a chart: ``render-ui``, ``inline`` (the client's UI app), ``insight``, or ``sql``."""
+    paths: list[str] = []
+    for call in _render_ui_calls(parser):
+        if not call.is_error and _rendered_tool_name(call) in tools:
+            paths.append("render-ui")
+    for call in parser.get_tool_calls():
+        if not call.is_error and call.name in tools and INLINE_VIEW_NOTE in call.output:
+            paths.append("inline")
+    paths.extend(chart_references(assistant_text(output)))
+    return paths
+
+
+def _chart_tools(expected: dict | None, scorer_name: str) -> set[str] | None:
+    spec = _read_spec(expected, scorer_name)
+    if spec is None:
+        return None
+    allowed = spec.get("tool_name_any_of")
+    return {t for t in allowed if isinstance(t, str) and t} if isinstance(allowed, list) else set()
+
 
 class ChartShown(Scorer):
     """Binary: did the user get the analytics result as a chart?
 
     ``expected = {"chart_shown": {"tool_name_any_of": ["query-trends"]}}``
 
-    Two paths show a chart. The agent calls ``render-ui`` with one of the listed query
-    tools, or a listed query tool result says the client already displays it inline
-    (``INLINE_VIEW_NOTE``). Score 1.0 for either path, 0.0 for neither — including an
-    answer built only from ``execute-sql``, which has no chart. ``None`` if the spec is absent.
+    Any chart path counts: ``render-ui`` with a listed query tool, a listed query tool result
+    that the client already displays inline (``INLINE_VIEW_NOTE``), or a full-size chart link or
+    block tag in the answer (a saved insight or a SQL query). ``ChartFromTypedQuery``
+    grades which of these the agent chose. ``None`` if the spec is absent.
     """
 
     def _name(self) -> str:
         return "chart_shown"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _read_spec(expected, self._name())
-        if spec is None:
+        tools = _chart_tools(expected, self._name())
+        if tools is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
-
         parser = _build_parser(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-
-        allowed = spec.get("tool_name_any_of")
-        allowed_set = {t for t in allowed if isinstance(t, str) and t} if isinstance(allowed, list) else set()
-
-        rendered: list[str | None] = []
-        for call in _render_ui_calls(parser):
-            tool_name = _rendered_tool_name(call)
-            rendered.append(tool_name)
-            if not call.is_error and tool_name in allowed_set:
-                return Score(name=self._name(), score=1.0, metadata={"path": "render-ui", "tool_name": tool_name})
-
-        for call in parser.get_tool_calls():
-            if not call.is_error and call.name in allowed_set and INLINE_VIEW_NOTE in call.output:
-                return Score(name=self._name(), score=1.0, metadata={"path": "inline", "tool_name": call.name})
-
+        paths = _chart_paths(output, parser, tools)
+        if paths:
+            return Score(name=self._name(), score=1.0, metadata={"paths": paths})
         return Score(
             name=self._name(),
             score=0.0,
-            metadata={
-                "reason": "No chart was shown for the expected query tools",
-                "expected_any_of": sorted(allowed_set),
-                "rendered_tool_names": rendered,
-            },
+            metadata={"reason": "No chart was shown for the expected query tools", "expected_any_of": sorted(tools)},
         )
+
+
+class ChartFromTypedQuery(Scorer):
+    """Binary: when a chart was shown, did it come from the typed query rather than rewritten SQL?
+
+    ``expected = {"chart_from_typed_query": {"tool_name_any_of": ["query-trends"]}}``
+
+    An agent that answers with ``query-trends`` and then links a hand-written SQL chart shows
+    numbers computed by a different query, without PostHog's standard definitions such as the
+    project timezone or test-account filtering. Score 1.0 when any chart comes from
+    ``render-ui``, the inline view, or an insight link; 0.0 when every chart is a SQL query.
+    ``None`` when no chart was shown (graded by ``ChartShown``) or the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "chart_from_typed_query"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        tools = _chart_tools(expected, self._name())
+        if tools is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        paths = _chart_paths(output, parser, tools)
+        if not paths:
+            return Score(name=self._name(), score=None, metadata={"reason": "No chart was shown"})
+        typed = [path for path in paths if path != "sql"]
+        return Score(name=self._name(), score=1.0 if typed else 0.0, metadata={"paths": paths})
 
 
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
@@ -1170,14 +1258,14 @@ def markdown_table_row_counts(text: str) -> list[int]:
 
 
 class NoMarkdownDataTable(Scorer):
-    """Binary: did the final answer avoid restating the query result as a Markdown table?
+    """Binary: did the agent avoid restating the query result as a Markdown table?
 
     ``expected = {"no_markdown_data_table": {}}`` or ``{"no_markdown_data_table": {"max_rows": 3}}``
 
     A chart already shows the series, so a table that retypes it adds length and hides
     the conclusion. Small summary tables (at most ``max_rows`` data rows, default 3, such as
-    this period against the previous one) still pass. Score 0.0 when any table in the final
-    message is longer. ``None`` if the spec is absent or the agent wrote no final message.
+    this period against the previous one) still pass. Score 0.0 when any table in the agent's
+    messages is longer. ``None`` if the spec is absent or the agent wrote no text.
     """
 
     DEFAULT_MAX_ROWS = 3
@@ -1190,15 +1278,65 @@ class NoMarkdownDataTable(Scorer):
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
 
-        last_message = (output or {}).get("last_message")
-        if not isinstance(last_message, str) or not last_message.strip():
-            return Score(name=self._name(), score=None, metadata={"reason": "No final message"})
+        text = assistant_text(output)
+        if not text.strip():
+            return Score(name=self._name(), score=None, metadata={"reason": "No agent text"})
 
         max_rows = spec.get("max_rows", self.DEFAULT_MAX_ROWS)
-        row_counts = markdown_table_row_counts(last_message)
+        row_counts = markdown_table_row_counts(text)
         too_long = [rows for rows in row_counts if rows > max_rows]
         return Score(
             name=self._name(),
             score=0.0 if too_long else 1.0,
             metadata={"table_row_counts": row_counts, "max_rows": max_rows},
+        )
+
+
+_SQL_SOURCE_RE = re.compile(r"\b(?:from|join)\s+([A-Za-z_][\w.]*)", re.IGNORECASE)
+_CTE_NAME_RE = re.compile(r"(?:\bwith|,)\s*([A-Za-z_]\w*)\s+as\s*\(", re.IGNORECASE)
+
+
+def is_catalog_sql(call: ToolCall) -> bool:
+    """True when an ``execute-sql`` call reads only PostHog entity tables (``system.*``).
+
+    Catalog lookups, such as checking for a saved insight or an action, are justified SQL
+    under the routing rules, so they never count as an analytics query.
+    """
+    if is_schema_discovery_call(call):
+        return True
+    query = call.input.get("query")
+    if not isinstance(query, str):
+        return False
+    ctes = {name.lower() for name in _CTE_NAME_RE.findall(query)}
+    sources = [source for source in _SQL_SOURCE_RE.findall(query) if source.lower() not in ctes]
+    return bool(sources) and all(source.lower().startswith("system.") for source in sources)
+
+
+class NoAnalyticsSql(Scorer):
+    """Binary: did the agent answer without an analytics ``execute-sql`` query?
+
+    ``expected = {"no_analytics_sql": {}}``
+
+    Mirrors the online evaluation "MCP SQL: typed query runner choice": a request that a
+    typed runner can answer fails on any successful SQL call against event data, even when a
+    typed query also ran. ``system.*`` catalog lookups are allowed (``is_catalog_sql``).
+    Event discovery written as SQL over ``events`` fails, which is stricter than the judge:
+    ``read-data-schema`` answers which events exist. ``None`` if the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "no_analytics_sql"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if _read_spec(expected, self._name()) is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        sql_calls = [call for call in parser.get_tool_calls("execute-sql") if not call.is_error]
+        analytics = [call.call_id for call in sql_calls if not is_catalog_sql(call)]
+        return Score(
+            name=self._name(),
+            score=0.0 if analytics else 1.0,
+            metadata={"analytics_sql_calls": analytics, "catalog_sql_calls": len(sql_calls) - len(analytics)},
         )

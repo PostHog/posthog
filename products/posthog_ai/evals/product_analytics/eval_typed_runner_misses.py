@@ -13,6 +13,8 @@ Each case reproduces, on Hedgebox, a request shape that the online evaluation
   conversion window that ``query-funnel`` and ``query-retention`` keep.
 - A justified ``system.*`` lookup, followed by an analysis that stays on SQL.
 
+``NoAnalyticsSql`` grades a case the way the online judge does: any SQL call against event data
+fails it, while ``system.*`` catalog lookups pass.
 ``eval_justified_sql_controls`` holds requests where SQL is the right tool, so a guidance
 change that removes these misses cannot pass by sending everything to typed runners.
 
@@ -31,7 +33,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
-from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
+from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool, NoAnalyticsSql
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, TYPED_QUERY_TOOLS, InsightShape
 
 from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
@@ -39,7 +41,9 @@ from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
 
 def _case(name: str, prompt: str, *, first_tool: str | None = None, **shape: Any) -> SandboxedEvalCase:
     expected: dict[str, Any] = {}
-    if first_tool is not None:
+    if first_tool is None:
+        expected["no_analytics_sql"] = {}
+    else:
         expected["first_relevant_tool"] = {"tool": first_tool}
     if shape:
         expected["insight_shape"] = shape
@@ -49,10 +53,9 @@ def _case(name: str, prompt: str, *, first_tool: str | None = None, **shape: Any
 async def eval_typed_runner_misses(ctx: EvalContext) -> None:
     cases = [
         _case(
-            "scorecard_upload_download_counts_and_uploaders",
+            "scorecard_counts_and_uploaders",
             "For the last 7 days, give me the number of uploaded_file events, the number of downloaded_file events, "
             "and how many unique users uploaded a file.",
-            first_tool="query-trends",
             tool="query-trends",
             events=["uploaded_file", "downloaded_file", "uploaded_file"],
             math=["total", "dau"],
@@ -60,14 +63,12 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         _case(
             "count_with_file_name_present",
             "How many uploaded_file events were there in the last 30 days, and how many of them had a file_name?",
-            first_tool="query-trends",
             tool="query-trends",
             events=["uploaded_file", "uploaded_file"],
         ),
         _case(
             "unique_signups_yesterday",
             "How many unique users signed up yesterday?",
-            first_tool="query-trends",
             tool="query-trends",
             events=["signed_up"],
             math=["dau"],
@@ -76,7 +77,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "active_users_excluding_internal",
             "What were our weekly and monthly active users over the last 30 days, excluding internal and test "
             "accounts? Count anyone who fired logged_in.",
-            first_tool="query-trends",
             tool="query-trends",
             math=["weekly_active", "monthly_active"],
             filter_test_accounts=True,
@@ -85,7 +85,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "downloads_by_file_type_counts_and_uniques",
             "Break down yesterday's downloaded_file events by file_type, with the event count and the number of "
             "unique users for each type.",
-            first_tool="query-trends",
             tool="query-trends",
             breakdown="file_type",
             math=["total", "dau"],
@@ -93,7 +92,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         _case(
             "uploads_by_os_vs_previous_week",
             "Compare uploaded_file events per operating system over the last 7 days with the 7 days before.",
-            first_tool="query-trends",
             tool="query-trends",
             breakdown="$os",
             compare=True,
@@ -102,7 +100,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         _case(
             "net_plan_upgrades_formula",
             "What's the net number of plan upgrades minus downgrades per week over the last 8 weeks?",
-            first_tool="query-trends",
             tool="query-trends",
             events=["upgraded_plan", "downgraded_plan"],
             formula=True,
@@ -111,7 +108,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "file_size_percentiles_vs_previous_period",
             "What are the median and 95th percentile file_size_b of uploaded files by file_type over the last 7 "
             "days, compared with the 7 days before?",
-            first_tool="query-trends",
             tool="query-trends",
             breakdown="file_type",
             compare=True,
@@ -120,7 +116,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         _case(
             "pricing_session_share_weekly",
             "What share of weekly sessions with a pageview included a pageview of /pricing/, over the last 8 weeks?",
-            first_tool="query-trends",
             tool="query-trends",
             events=["$pageview", "$pageview"],
             math=["unique_session"],
@@ -130,7 +125,6 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "dashboard_tile_signup_funnel",
             "I'm preparing an operations dashboard tile. Compute the 30-day signup funnel: a pageview of /signup/, "
             "then signed_up, then uploaded_file, then upgraded_plan. Don't save anything yet.",
-            first_tool="query-funnel",
             tool="query-funnel",
             event_sequence=["$pageview", "signed_up", "uploaded_file", "upgraded_plan"],
         ),
@@ -138,24 +132,22 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
             "signup_to_upload_last_14_days_vs_prior",
             "Did conversion from signed_up to uploaded_file change in the last 14 days compared with the 14 days "
             "before?",
-            first_tool="query-funnel",
             tool="query-funnel",
             event_sequence=["signed_up", "uploaded_file"],
         ),
         _case(
             "day1_day7_return_rates",
             "For users who first fired logged_in in the last 30 days, what are their day-1 and day-7 return rates?",
-            first_tool="query-retention",
             tool="query-retention",
         ),
-        # The system.* lookup is justified SQL, so only the answer query is graded here.
+        # The system.* lookup is justified SQL, so NoAnalyticsSql allows it.
         _case(
             "existing_insight_check_then_query",
-            "Check whether we already have a saved insight for weekly shared file links by file type. If we don't, "
-            "show me weekly shared_file_link counts by file_type over the last 8 weeks.",
+            "Check whether we already have a saved insight for weekly logins by browser. If we don't, show me "
+            "weekly logged_in counts by $browser over the last 8 weeks.",
             tool="query-trends",
-            breakdown="file_type",
-            events=["shared_file_link"],
+            breakdown="$browser",
+            events=["logged_in"],
         ),
     ]
 
@@ -164,7 +156,7 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS),
+            NoAnalyticsSql(),
             AnswerToolCallNot("execute-sql", TYPED_QUERY_TOOLS),
             InsightShape(),
         ],

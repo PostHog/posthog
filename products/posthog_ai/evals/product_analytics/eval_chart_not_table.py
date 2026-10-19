@@ -6,10 +6,15 @@ natural answer is a time series, a breakdown, a funnel, or a retention grid. The
 when the user sees the result as a chart and the final message states the conclusion
 without a long table.
 
-``ChartShown`` accepts both chart paths in ``services/mcp/src/templates/render-ui-prompt.md``:
-the client shows the query result inline, or the agent calls ``render-ui`` with the same
-query tool and input. The ``table_request_keeps_typed_runner`` control asks for a table
-explicitly. A table is then a correct answer, but the request alone does not justify SQL.
+``ChartShown`` accepts every chart path a harness offers: the MCP client shows the query
+result inline, the agent calls ``render-ui`` with the same query tool and input, or the answer
+holds a full-size chart link or block tag (the PostHog Desktop syntax). ``ChartFromTypedQuery``
+then fails a chart that rewrites the typed result as SQL. PostHog Desktop draws a chart card
+only for a saved insight or a HogQL query, so an agent that does not save an insight can
+reach a chart only through SQL; this scorer measures how often that happens.
+
+The ``table_request_keeps_typed_runner`` control asks for a table explicitly. A table is
+then a correct answer, but the request alone does not justify SQL.
 
 Run on the latest Claude Opus and GPT Sol models, one runtime per run:
 
@@ -24,14 +29,13 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.evals.cli_mcp.scorers import (
+    ChartFromTypedQuery,
     ChartShown,
     DidNotCiteRawSqlAfterTypedQuery,
-    FirstRelevantTool,
+    NoAnalyticsSql,
     NoMarkdownDataTable,
 )
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
-
-from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
 
 
 def _chart_case(name: str, prompt: str, tool: str) -> SandboxedEvalCase:
@@ -39,8 +43,9 @@ def _chart_case(name: str, prompt: str, tool: str) -> SandboxedEvalCase:
         name=name,
         prompt=prompt,
         expected={
-            "first_relevant_tool": {"tool": tool},
+            "no_analytics_sql": {},
             "chart_shown": {"tool_name_any_of": [tool]},
+            "chart_from_typed_query": {"tool_name_any_of": [tool]},
             "no_markdown_data_table": {},
             "did_not_cite_raw_sql_after_typed_query": {"tool": tool},
         },
@@ -61,7 +66,7 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         ),
         _chart_case(
             "weekly_file_activity_scorecard",
-            "Give me weekly uploads, downloads, and deletes for the last 8 weeks.",
+            "Give me weekly uploads, downloads, and signups for the last 8 weeks.",
             "query-trends",
         ),
         _chart_case(
@@ -83,7 +88,7 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         SandboxedEvalCase(
             name="table_request_keeps_typed_runner",
             prompt="List the weekly signup counts for the last 8 weeks as a table.",
-            expected={"first_relevant_tool": {"tool": "query-trends"}},
+            expected={"no_analytics_sql": {}},
         ),
     ]
 
@@ -92,8 +97,9 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS),
+            NoAnalyticsSql(),
             ChartShown(),
+            ChartFromTypedQuery(),
             NoMarkdownDataTable(),
             DidNotCiteRawSqlAfterTypedQuery(),
         ],
