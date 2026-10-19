@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 
-from posthog.models.event_ingestion_restriction_config import RestrictionType, regenerate_redis_for_restriction_type
+from posthog.models.event_ingestion_restriction_config import RestrictionType
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -232,14 +232,20 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> ErrorTrackingSettings:
     settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
-    ingestion_toggled = "ingestion_enabled" in updates and updates["ingestion_enabled"] != settings.ingestion_enabled
     for key, value in updates.items():
         setattr(settings, key, value)
     if updates:
         settings.save(update_fields=list(updates))
-    if ingestion_toggled:
+    if "ingestion_enabled" in updates:
+        # posthog.tasks imports the error tracking facade, which imports this module, so a module-level import is circular.
+        from posthog.tasks.event_ingestion_restrictions import regenerate_restriction_type_in_redis  # noqa: PLC0415
+
         # Capture reads the drop rules from Redis, so the kill switch only takes effect once they are rebuilt.
-        transaction.on_commit(lambda: regenerate_redis_for_restriction_type(RestrictionType.DROP_EVENT_FROM_INGESTION))
+        # Rebuild on every write of the field, also when the value is unchanged. If a rebuild fails after the save,
+        # the next write repairs the drop rules.
+        transaction.on_commit(
+            lambda: regenerate_restriction_type_in_redis.delay(RestrictionType.DROP_EVENT_FROM_INGESTION.value)
+        )
     return settings
 
 
