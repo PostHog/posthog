@@ -303,7 +303,7 @@ export const ReportCardRankingTags: Story = {
         </CardList>
     ),
     play: async ({ canvas }) => {
-        await userEvent.hover(await canvas.findByText('2.1x engage'))
+        await userEvent.hover(await canvas.findByText('Very likely'))
     },
 }
 
