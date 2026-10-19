@@ -49,14 +49,16 @@ class TestClarifaiTransport:
         return SourceDriver(ClarifaiSource(), config)
 
     @pytest.mark.parametrize(
-        ("endpoint", "data_key", "extra_params"),
+        ("endpoint", "path", "data_key", "extra_params"),
         [
-            ("models", "models", {}),
-            ("workflows", "workflows", {}),
-            ("datasets", "datasets", {}),
-            ("concepts", "concepts", {}),
-            ("annotations", "annotations", {"list_all_annotations": ["true"]}),
-            ("evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
+            ("models", "models", "models", {}),
+            ("workflows", "workflows", "workflows", {}),
+            ("datasets", "datasets", "datasets", {}),
+            ("concepts", "concepts", "concepts", {}),
+            ("inputs", "inputs", "inputs", {}),
+            ("concept_relations", "concepts/relations", "concept_relations", {}),
+            ("annotations", "annotations", "annotations", {"list_all_annotations": ["true"]}),
+            ("evaluations", "evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
         ],
     )
     @pytest.mark.parametrize("resume_page", [None, 4])
@@ -65,6 +67,7 @@ class TestClarifaiTransport:
         config: ClarifaiSourceConfig,
         manager: MagicMock,
         endpoint: str,
+        path: str,
         data_key: str,
         extra_params: dict[str, list[str]],
         resume_page: int | None,
@@ -75,7 +78,7 @@ class TestClarifaiTransport:
         first_page = resume_page or 1
         with requests_mock.Mocker() as http:
             http.get(
-                BASE_URL + endpoint,
+                BASE_URL + path,
                 [
                     {"json": {"status": {"code": 10000}, data_key: [{"id": "row-1"}]}},
                     {"json": {"status": {"code": 10000}, data_key: [{"id": "row-2"}]}},

@@ -55,8 +55,9 @@ class TestBuildParams:
     @parameterized.expand(
         [
             ("Constituents", "Id"),
-            # Refunds and SoftCredits reject `orderBy=Id`.
+            # Refunds, SoftCredits, and Notes reject `orderBy=Id`.
             ("SoftCredits", "CreatedDate"),
+            ("Notes", "CreatedDate"),
         ]
     )
     def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(
@@ -179,6 +180,13 @@ class TestBloomerangSourceTransport:
         assert result.raised is None
         assert result.requests[0].param("lastModified") == "2026-03-04T02:58:14Z"
         assert result.requests[0].param("orderBy") == "LastModifiedDate"
+
+    def test_tasks_requests_every_status(self) -> None:
+        result = self._driver().run("Tasks", [_response([{"Id": 1}], total_filtered=1)])
+
+        assert result.raised is None
+        assert result.requests[0].param("status") == "Active|Complete|Archived"
+        assert result.requests[0].param("orderBy") == "CreatedDate"
 
     def test_audit_trail_endpoint_flattens_rows(self) -> None:
         result = self._driver().run(
