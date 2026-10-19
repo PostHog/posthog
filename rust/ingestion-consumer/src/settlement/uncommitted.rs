@@ -5,6 +5,7 @@ use std::time::Instant;
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::gauge;
 
+use super::Accounting;
 use crate::commit_pacer::CommitPacer;
 
 const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
@@ -17,7 +18,7 @@ const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
 ///
 /// Every call runs on the consumer loop task, one at a time, so a move between
 /// the ledger and the pacer never interleaves with a read of both.
-pub(super) struct Uncommitted {
+pub(crate) struct Uncommitted {
     ledger: Arc<TopicOffsetLedger>,
     pacer: Mutex<CommitPacer>,
 }
@@ -30,7 +31,15 @@ impl Uncommitted {
         }
     }
 
-    pub(super) fn charge(
+    fn publish_window(&self, due: &HashMap<TopicPartition, Offset>) {
+        for topic_partition in due.keys() {
+            publish(topic_partition, self.ledger.held(topic_partition));
+        }
+    }
+}
+
+impl Accounting for Uncommitted {
+    fn charge(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
@@ -44,11 +53,7 @@ impl Uncommitted {
         Ok(uncommitted)
     }
 
-    /// Called after a group run or a poll settles: mark its offsets complete
-    /// and move the frontier that results, with its charge, to the pacer.
-    /// Returns that frontier, `None` while the front of the window is still
-    /// incomplete.
-    pub(super) fn settled(
+    fn settled(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
@@ -66,22 +71,19 @@ impl Uncommitted {
         Ok(frontier)
     }
 
-    /// Refunds the charge of every frontier handed out; the consumer submits
-    /// their commit right after.
-    pub(super) fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let due = self.pacer.lock().unwrap().take_due(now)?;
         self.publish_window(&due);
         Some(due)
     }
 
-    /// Like `take_due`, without waiting for the interval.
-    pub(super) fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
         let due = self.pacer.lock().unwrap().take_all()?;
         self.publish_window(&due);
         Some(due)
     }
 
-    pub(super) fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.ledger.forget_partitions(
             topic_partitions
                 .iter()
@@ -96,14 +98,8 @@ impl Uncommitted {
         }
     }
 
-    pub(super) fn held(&self, topic_partition: &TopicPartition) -> Held {
+    fn held(&self, topic_partition: &TopicPartition) -> Held {
         self.ledger.held(topic_partition) + self.pacer.lock().unwrap().pending(topic_partition)
-    }
-
-    fn publish_window(&self, due: &HashMap<TopicPartition, Offset>) {
-        for topic_partition in due.keys() {
-            publish(topic_partition, self.ledger.held(topic_partition));
-        }
     }
 }
 

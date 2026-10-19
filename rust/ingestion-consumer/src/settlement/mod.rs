@@ -5,10 +5,11 @@ mod group;
 mod poll;
 mod uncommitted;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use crate::config::CompletionGranularity;
 use crate::order_sentinel::OffsetSpan;
@@ -45,6 +46,67 @@ pub(crate) trait Settlement: Send + Sync {
 
     /// The oldest poll retired with every message accepted.
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()>;
+
+    fn take_due(&self, now: Instant) -> Option<Commit>;
+
+    fn take_all(&self) -> Option<Commit>;
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+
+    fn paused(&self) -> Vec<TopicPartition>;
+}
+
+/// A partition's uncommitted charge: what it has charged and no handed-out
+/// frontier covers yet.
+pub(crate) trait Accounting: Send + Sync {
+    /// Returns the partition's uncommitted charge after this one.
+    fn charge(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        charges: &[(Offset, Charge)],
+    ) -> Result<Held, Rejection>;
+
+    /// Called after a group run or a poll settles: marks offsets complete.
+    /// Returns the frontier that results, `None` while the front of the
+    /// partition's window is still incomplete. Leaves the uncommitted charge
+    /// unchanged.
+    fn settled(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: impl IntoIterator<Item = Offset>,
+    ) -> Result<Option<Offset>, Rejection>;
+
+    /// Hands out the frontiers due for commit, and their charge stops
+    /// counting: the consumer submits their commit right after.
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
+
+    /// Like `take_due`, without waiting for the interval.
+    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>>;
+
+    /// Drops everything the partitions hold.
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+
+    fn held(&self, topic_partition: &TopicPartition) -> Held;
+}
+
+/// Pause and resume decisions over the uncommitted charge.
+pub(crate) trait Admission: Send + Sync {
+    fn charge(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        charges: &[(Offset, Charge)],
+    ) -> Result<Option<Pause>, Rejection>;
+
+    /// Marks offsets complete, as `Accounting::settled`; decides nothing.
+    fn settled(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: impl IntoIterator<Item = Offset>,
+    ) -> Result<Option<Offset>, Rejection>;
 
     fn take_due(&self, now: Instant) -> Option<Commit>;
 

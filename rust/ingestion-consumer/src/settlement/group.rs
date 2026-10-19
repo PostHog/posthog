@@ -3,14 +3,14 @@ use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
-use super::{ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted};
+use super::{Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
 use crate::partition_budget::BudgetLimits;
 
-pub(crate) struct GroupSettlement {
-    budget: PartitionBudget,
+pub(crate) struct GroupSettlement<B: Admission = PartitionBudget> {
+    budget: B,
 }
 
 impl GroupSettlement {
@@ -28,7 +28,7 @@ impl GroupSettlement {
     }
 }
 
-impl Settlement for GroupSettlement {
+impl<B: Admission + 'static> Settlement for GroupSettlement<B> {
     fn charge(
         &self,
         topic_partition: &TopicPartition,

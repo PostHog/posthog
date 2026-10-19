@@ -5,12 +5,12 @@ use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicP
 use metrics::counter;
 use tracing::warn;
 
-use super::{ChargedSlice, Commit, Pause, Settlement, Uncommitted};
+use super::{Accounting, ChargedSlice, Commit, Pause, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 
-pub(crate) struct PollSettlement {
-    uncommitted: Uncommitted,
+pub(crate) struct PollSettlement<A: Accounting = Uncommitted> {
+    uncommitted: A,
 }
 
 impl PollSettlement {
@@ -21,7 +21,7 @@ impl PollSettlement {
     }
 }
 
-impl Settlement for PollSettlement {
+impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
     fn charge(
         &self,
         topic_partition: &TopicPartition,
@@ -91,7 +91,7 @@ impl NoFrontier {
 }
 
 fn settle_slices(
-    uncommitted: &Uncommitted,
+    uncommitted: &impl Accounting,
     slices: &[ChargedSlice<'_>],
 ) -> anyhow::Result<Option<NoFrontier>> {
     let mut settled = false;

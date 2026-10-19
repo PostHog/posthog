@@ -7,6 +7,7 @@ use metrics::{counter, gauge};
 use tracing::info;
 
 use super::uncommitted::Uncommitted;
+use super::{Accounting, Admission};
 use crate::partition_budget::BudgetLimits;
 
 const PAUSED_PARTITIONS: &str = "ingestion_consumer_budget_paused_partitions";
@@ -29,30 +30,54 @@ impl Commit {
     }
 }
 
-pub(super) struct PartitionBudget {
-    uncommitted: Uncommitted,
+pub(crate) struct PartitionBudget<A: Accounting = Uncommitted> {
+    accounting: A,
     limits: BudgetLimits,
     paused: Mutex<HashSet<TopicPartition>>,
 }
 
-impl PartitionBudget {
-    pub(super) fn new(uncommitted: Uncommitted, limits: BudgetLimits) -> Self {
+impl<A: Accounting> PartitionBudget<A> {
+    pub(super) fn new(accounting: A, limits: BudgetLimits) -> Self {
         gauge!(PAUSED_PARTITIONS).set(0.0);
         Self {
-            uncommitted,
+            accounting,
             limits,
             paused: Mutex::new(HashSet::new()),
         }
     }
 
-    pub(super) fn charge(
+    /// Only a commit lowers a partition's uncommitted charge, so only the
+    /// partitions it covers can resume.
+    fn commit(&self, offsets: HashMap<TopicPartition, Offset>) -> Commit {
+        let mut paused = self.paused.lock().unwrap();
+        let mut resume = Vec::new();
+        for topic_partition in offsets.keys() {
+            if !paused.contains(topic_partition) {
+                continue;
+            }
+            let uncommitted = self.accounting.held(topic_partition).charge;
+            if self.limits.resumes(uncommitted) {
+                paused.remove(topic_partition);
+                log_transition(topic_partition, "resume", uncommitted);
+                resume.push(topic_partition.clone());
+            }
+        }
+        if !resume.is_empty() {
+            gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
+        }
+        Commit { offsets, resume }
+    }
+}
+
+impl<A: Accounting> Admission for PartitionBudget<A> {
+    fn charge(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
     ) -> Result<Option<Pause>, Rejection> {
         let uncommitted = self
-            .uncommitted
+            .accounting
             .charge(topic_partition, generation, charges)?;
         if !self.limits.pauses(uncommitted.charge) {
             return Ok(None);
@@ -69,59 +94,37 @@ impl PartitionBudget {
         Ok(Some(Pause))
     }
 
-    pub(super) fn settled(
+    fn settled(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
         offsets: impl IntoIterator<Item = Offset>,
     ) -> Result<Option<Offset>, Rejection> {
-        self.uncommitted
+        self.accounting
             .settled(topic_partition, generation, offsets)
     }
 
-    pub(super) fn take_due(&self, now: Instant) -> Option<Commit> {
-        let offsets = self.uncommitted.take_due(now)?;
+    fn take_due(&self, now: Instant) -> Option<Commit> {
+        let offsets = self.accounting.take_due(now)?;
         Some(self.commit(offsets))
     }
 
-    pub(super) fn take_all(&self) -> Option<Commit> {
-        let offsets = self.uncommitted.take_all()?;
+    fn take_all(&self) -> Option<Commit> {
+        let offsets = self.accounting.take_all()?;
         Some(self.commit(offsets))
     }
 
-    pub(super) fn paused(&self) -> Vec<TopicPartition> {
+    fn paused(&self) -> Vec<TopicPartition> {
         self.paused.lock().unwrap().iter().cloned().collect()
     }
 
-    pub(super) fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.uncommitted.forget_partitions(topic_partitions);
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        self.accounting.forget_partitions(topic_partitions);
         let mut paused = self.paused.lock().unwrap();
         for topic_partition in topic_partitions {
             paused.remove(topic_partition);
         }
         gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
-    }
-
-    /// Only a commit lowers a partition's uncommitted charge, so only the
-    /// partitions it covers can resume.
-    fn commit(&self, offsets: HashMap<TopicPartition, Offset>) -> Commit {
-        let mut paused = self.paused.lock().unwrap();
-        let mut resume = Vec::new();
-        for topic_partition in offsets.keys() {
-            if !paused.contains(topic_partition) {
-                continue;
-            }
-            let uncommitted = self.uncommitted.held(topic_partition).charge;
-            if self.limits.resumes(uncommitted) {
-                paused.remove(topic_partition);
-                log_transition(topic_partition, "resume", uncommitted);
-                resume.push(topic_partition.clone());
-            }
-        }
-        if !resume.is_empty() {
-            gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
-        }
-        Commit { offsets, resume }
     }
 }
 
