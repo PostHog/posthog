@@ -24,10 +24,7 @@ const CARD_CLASSES =
  * flow skips product selection.
  */
 export function Onboarding(): JSX.Element | null {
-    const { productKey, flowVariant, isOnSimpleFlowArm } = useValues(onboardingLogic)
-    // The arm reaches `/onboarding` first and is redirected to the simple flow, so product
-    // selection must not render in between.
-    const showSimpleFlow = flowVariant === 'simple' || (isOnSimpleFlowArm && !productKey)
+    const { productKey, flowVariant } = useValues(onboardingLogic)
 
     return (
         <div className="OnboardingDottedBg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
@@ -35,7 +32,7 @@ export function Onboarding(): JSX.Element | null {
                 <Logo size="lg" />
             </span>
             <div className={clsx(CARD_CLASSES, productKey ? 'max-w-5xl' : 'max-w-6xl')}>
-                {showSimpleFlow ? (
+                {flowVariant === 'simple' ? (
                     <SimpleOnboarding />
                 ) : productKey ? (
                     <OnboardingFlowHost />

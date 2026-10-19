@@ -431,6 +431,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             }
         }
 
-        reportOnboardingStarted()
+        reportOnboardingStarted('default')
     }),
 ])

@@ -70460,6 +70460,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding
+     */
+    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
+
+
+    export const OnboardingFlowVariantEnum = {
+      Legacy: 'legacy',
+      Simple: 'simple',
+    } as const;
+
+    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -70551,6 +70563,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
+      /** Which onboarding flow the user skipped from, for analytics only.
+       *
+       * * `legacy` - Default onboarding
+       * * `simple` - Simple onboarding */
+      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**

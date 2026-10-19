@@ -10,8 +10,9 @@ import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { reportOnboardingCompleted } from 'scenes/onboarding/onboardingUsage'
+import { reportOnboardingCompleted, reportOnboardingStarted } from 'scenes/onboarding/onboardingUsage'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -40,18 +41,12 @@ import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlo
 import { appendSharedTrailingSteps, mayBeAppendedLater } from './sharedSteps'
 import { buildSimpleOnboardingFlow, SIMPLE_ONBOARDING_PRODUCT_KEY } from './simple/simpleOnboardingFlow'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
-import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
+import { type OnboardingFlowContext, type OnboardingFlowVariant, type OnboardingStepDescriptor } from './types'
 
 /** Interface kept for step components that import it. */
 export interface OnboardingStepComponentType<P = object> extends React.FC<P> {
     stepKey: OnboardingStepKey
 }
-
-/**
- * - `default`: product selection, then the chosen products' steps (`/onboarding/<product>`).
- * - `simple`: the experiment arm's short install, MCP and card flow (`/onboarding/simple`).
- */
-export type OnboardingFlowVariant = 'default' | 'simple'
 
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
@@ -106,6 +101,13 @@ export interface onboardingLogicActions {
         billing: BillingType | null
         payload?: any
     } // billingLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
@@ -132,6 +134,9 @@ export interface onboardingLogicActions {
     }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
+    }
+    enterSimpleFlowIfOnArm: () => {
+        value: true
     }
     goToNextStep: () => {
         value: true
@@ -267,6 +272,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
         actions: [
             billingLogic,
             ['loadBillingSuccess'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
             sidePanelStateLogic,
@@ -298,6 +305,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setIsCompleting: (isCompleting: boolean) => ({ isCompleting }),
         setFlowVariant: (flowVariant: OnboardingFlowVariant) => ({ flowVariant }),
         skipSimpleOnboarding: true,
+        enterSimpleFlowIfOnArm: true,
         setIsSkippingOnboarding: (isSkippingOnboarding: boolean) => ({ isSkippingOnboarding }),
     }),
     reducers(() => ({
@@ -777,7 +785,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // changing dashboards. Secondary products are still recorded via
             // `recordProductIntentOnboardingComplete` and `has_completed_onboarding_for`,
             // but don't fire an additional `onboarding completed` analytics event.
-            reportOnboardingCompleted(primary)
+            reportOnboardingCompleted(primary, values.flowVariant)
             props.onCompleteOnboarding?.(primary)
             // Error Tracking has a side-effect tied to onboarding completion (set up in the
             // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
@@ -864,17 +872,33 @@ export const onboardingLogic = kea<onboardingLogicType>([
             actions.setIsSkippingOnboarding(true)
             const stepAtSkip = values.currentStepKey ?? ''
             try {
-                await usersOnboardingSkipCreate('@me', { reason: 'later', step_at_skip: stepAtSkip })
+                await usersOnboardingSkipCreate('@me', {
+                    reason: 'later',
+                    step_at_skip: stepAtSkip,
+                    flow_variant: 'simple',
+                })
                 // Load the user before navigating: sceneLogic reads the skip from it, and a stale
                 // user sends the redirect straight back to onboarding.
                 await userLogic.asyncActions.loadUser()
-                // pinned: analytics event name and properties, dashboards read them
-                posthog.capture('onboarding skipped', { flow_variant: 'simple', step_at_skip: stepAtSkip })
-                router.actions.push(urls.onboardingWelcome())
+                router.actions.push(values.onCompleteOnboardingRedirectUrl)
             } catch {
                 lemonToast.error("Couldn't skip onboarding. Please try again.")
             } finally {
                 actions.setIsSkippingOnboarding(false)
+            }
+        },
+        enterSimpleFlowIfOnArm: () => {
+            if (!values.isOnSimpleFlowArm) {
+                return
+            }
+            reportOnboardingStarted('simple')
+            router.actions.replace(urls.simpleOnboarding(), router.values.searchParams)
+        },
+        setFeatureFlags: () => {
+            // Flags can land after product selection rendered, so the arm is decided again here.
+            // Only on bare `/onboarding`: reading the flag elsewhere would log an exposure.
+            if (removeProjectIdIfPresent(router.values.location.pathname) === urls.onboarding()) {
+                actions.enterSimpleFlowIfOnArm()
             }
         },
         skipOnboarding: () => {
@@ -1116,6 +1140,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // Declared before `/onboarding/:productKey`: kea-router runs the first route that matches.
             [urls.simpleOnboarding()]: (_, params: Record<string, unknown>) => {
                 applyFlowUrl('simple', SIMPLE_ONBOARDING_PRODUCT_KEY, params)
+                // Mirrors product selection: the page the user signed up to reach beats the welcome page.
+                const nextUrl = getRelativeNextPath(typeof params.next === 'string' ? params.next : null, location)
+                if (nextUrl && nextUrl !== '/' && nextUrl !== values.onCompleteOnboardingRedirectUrlOverride) {
+                    actions.setOnCompleteOnboardingRedirectUrl(nextUrl)
+                }
             },
             '/onboarding/:productKey': ({ productKey }, params: Record<string, unknown>) => {
                 if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
@@ -1123,12 +1152,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
                 applyFlowUrl('default', productKey as ProductKey, params)
             },
-            '/onboarding': (_, params: Record<string, unknown>) => {
-                // The app holds its first render until flags arrive, so the arm is known here.
-                if (values.isOnSimpleFlowArm) {
-                    router.actions.replace(urls.simpleOnboarding(), params)
-                    return
-                }
+            '/onboarding': () => {
                 // Land on the product-selection page. We can't dispatch `setProductKey(null)`
                 // because that listener treats null as "invalid product" and hard-redirects
                 // to the home page — preventing users from returning here from inside an
@@ -1140,6 +1164,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     actions.clearProductKey()
                 }
                 actions.resetOnboardingFlowState()
+                actions.enterSimpleFlowIfOnArm()
             },
         }
     }),

@@ -18,7 +18,10 @@ export function OnboardingMcpStep(): JSX.Element {
             title="Connect your AI agent"
             subtitle="The PostHog MCP server lets agents like Claude Code, Cursor, and Codex read your PostHog data and set up features for you."
             stepKey={OnboardingStepKey.MCP}
-            continueDisabledReason={hasConnectedAgent ? undefined : 'Connect your agent to PostHog to continue'}
+            continueDisabledReason={
+                hasConnectedAgent === false ? 'Connect your agent to PostHog to continue' : undefined
+            }
+            showSkip
         >
             <div className="max-w-xl mx-auto mt-6 space-y-6">
                 <WizardCommandBlock

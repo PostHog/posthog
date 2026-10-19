@@ -6589,6 +6589,18 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 /**
+ * * `legacy` - Default onboarding
+ * * `simple` - Simple onboarding
+ */
+export type OnboardingFlowVariantEnumApi =
+    (typeof OnboardingFlowVariantEnumApi)[keyof typeof OnboardingFlowVariantEnumApi]
+
+export const OnboardingFlowVariantEnumApi = {
+    Legacy: 'legacy',
+    Simple: 'simple',
+} as const
+
+/**
  * Request body for POST /api/users/{id}/onboarding/skip/.
  *
  * Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
@@ -6606,6 +6618,11 @@ export interface OnboardingSkipRequestApi {
      * @maxLength 64
      */
     step_at_skip?: string
+    /** Which onboarding flow the user skipped from, for analytics only.
+     *
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding */
+    flow_variant?: OnboardingFlowVariantEnumApi
 }
 
 /**

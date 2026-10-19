@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -40,6 +41,7 @@ describe('onboardingLogic — flow composition', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     /** Convenience: list step ids for the active flow. */
@@ -706,14 +708,34 @@ describe('onboardingLogic — flow composition', () => {
         const currentPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
 
         it.each([
-            ['test', '/onboarding/simple', 'simple'],
-            ['control', '/onboarding', 'default'],
-        ])('the %s arm entering /onboarding lands on %s', async (variant, pathname, flowVariant) => {
-            assignSimpleFlowArm(variant)
-            router.actions.push('/onboarding')
+            ['test arm', 'test', '/onboarding', false, '/onboarding/simple', 'simple'],
+            ['test arm with late flags', 'test', '/onboarding', true, '/onboarding/simple', 'simple'],
+            ['control arm', 'control', '/onboarding', false, '/onboarding', 'default'],
+            [
+                'test arm on a product url',
+                'test',
+                '/onboarding/product_analytics',
+                true,
+                '/onboarding/product_analytics',
+                'default',
+            ],
+        ])('%s lands on the right flow', async (_, variant, entryPath, flagsLandLate, pathname, flowVariant) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            if (!flagsLandLate) {
+                assignSimpleFlowArm(variant)
+            }
+            router.actions.push(entryPath)
+            if (flagsLandLate) {
+                assignSimpleFlowArm(variant)
+            }
             await expectLogic(logic).toFinishAllListeners()
             expect(currentPath()).toBe(pathname)
             expect(logic.values.flowVariant).toBe(flowVariant)
+            expect(capture.mock.calls.filter(([event]) => event === 'onboarding started')).toEqual(
+                flowVariant === 'simple'
+                    ? [['onboarding started', expect.objectContaining({ flow_variant: 'simple' })]]
+                    : []
+            )
         })
 
         it('the simple flow is install, MCP, then invite, and advancing stays on its own URL', async () => {
@@ -735,7 +757,10 @@ describe('onboardingLogic — flow composition', () => {
             )
         })
 
-        it('skipping the simple flow records the skip before landing on the welcome page', async () => {
+        it.each([
+            ['the welcome page', '', urls.onboardingWelcome()],
+            ['the page the user signed up to reach', '?next=%2Finsights', '/insights'],
+        ])('skipping the simple flow records the skip before landing on %s', async (_, search, landingPath) => {
             const skipRequests: unknown[] = []
             useMocks({
                 post: {
@@ -745,13 +770,15 @@ describe('onboardingLogic — flow composition', () => {
                     },
                 },
             })
-            router.actions.push(urls.simpleOnboarding())
+            router.actions.push(urls.simpleOnboarding() + search)
             await expectLogic(logic, () => {
                 logic.actions.skipSimpleOnboarding()
             }).toFinishAllListeners()
 
-            expect(skipRequests).toEqual([{ reason: 'later', step_at_skip: OnboardingStepKey.INSTALL }])
-            expect(currentPath()).toBe(urls.onboardingWelcome())
+            expect(skipRequests).toEqual([
+                { reason: 'later', step_at_skip: OnboardingStepKey.INSTALL, flow_variant: 'simple' },
+            ])
+            expect(currentPath()).toBe(landingPath)
             expect(logic.values.isSkippingOnboarding).toBe(false)
         })
     })
