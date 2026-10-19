@@ -34,6 +34,7 @@ const isSetupEvidence = (record: EmailDomainStatusRecordApi): boolean =>
 export interface emailDomainStatusLogicValues {
     domain: string | null // emailDomainSenderLogic
     currentTeamId: number | null // teamLogic
+    allRecordsFound: boolean
     foundCount: number
     integrationId: number | null
     lastCheckFailed: boolean
@@ -113,6 +114,7 @@ export interface emailDomainStatusLogicActions {
 export interface emailDomainStatusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        allRecordsFound: (records: EmailDomainStatusRecordApi[], foundCount: number) => boolean
         integrationId: (arg: string) => number | null
         records: (status: EmailDomainStatusApi | null) => EmailDomainStatusRecordApi[]
         foundCount: (records: EmailDomainStatusRecordApi[]) => number
@@ -182,7 +184,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                     } catch (error) {
                         lemonToast.error(
                             (error instanceof ApiError && error.detail) ||
-                                'Could not restart verification. Try again in a moment.'
+                                'Could not reach the email provider. Try again in a moment.'
                         )
                         return false
                     }
@@ -240,6 +242,11 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         foundCount: [
             (s) => [s.records],
             (records: EmailDomainStatusRecordApi[]): number => records.filter(isRecordFound).length,
+        ],
+        allRecordsFound: [
+            (s) => [s.records, s.foundCount],
+            (records: EmailDomainStatusRecordApi[], foundCount: number): boolean =>
+                records.length > 0 && foundCount === records.length,
         ],
         setupEvidenceFound: [
             (s) => [s.records],

@@ -71,6 +71,7 @@ interface StepsInput {
     domain: string | null
     records: EmailDomainStatusRecordApi[]
     foundCount: number
+    allRecordsFound: boolean
     pollingStopped: boolean
 }
 
@@ -80,18 +81,18 @@ const verificationStepsOf = ({
     domain,
     records,
     foundCount,
+    allRecordsFound,
     pollingStopped,
 }: StepsInput): VerificationStep[] => {
     const verified = phase === 'ready'
     const verifying = phase === 'verifying'
-    const allFound = records.length > 0 && foundCount === records.length
     const sesFailed = status?.status === 'failed'
-    const stuck = (pollingStopped && !allFound) || status?.status === 'temporary_failure'
+    const stuck = (pollingStopped && !allRecordsFound) || status?.status === 'temporary_failure'
     const foundState: VerificationStep['state'] = verified
         ? 'done'
         : stuck
           ? 'stuck'
-          : allFound
+          : allRecordsFound
             ? 'done'
             : verifying
               ? 'active'
@@ -100,7 +101,7 @@ const verificationStepsOf = ({
         ? 'done'
         : sesFailed
           ? 'stuck'
-          : allFound
+          : allRecordsFound
             ? 'active'
             : 'todo'
     const foundDetail =
@@ -113,7 +114,7 @@ const verificationStepsOf = ({
         ? 'Inboxes trust your emails'
         : sesFailed
           ? 'Verification stopped. Restart it below.'
-          : allFound
+          : allRecordsFound
             ? 'Records look right, waiting for confirmation'
             : 'Takes about a minute after the settings are found'
     return [
@@ -132,6 +133,7 @@ export interface emailDomainLogicValues {
     sender: IntegrationConfigApi | null // emailDomainSenderLogic
     senderFailed: boolean // emailDomainSenderLogic
     senderLoading: boolean // emailDomainSenderLogic
+    allRecordsFound: boolean // emailDomainStatusLogic
     foundCount: number // emailDomainStatusLogic
     pollingStopped: boolean // emailDomainStatusLogic
     records: EmailDomainStatusRecordApi[] // emailDomainStatusLogic
@@ -175,6 +177,7 @@ export interface emailDomainLogicMeta {
             domain: string | null,
             records: EmailDomainStatusRecordApi[],
             foundCount: number,
+            allRecordsFound: boolean,
             pollingStopped: boolean
         ) => VerificationStep[]
         breadcrumbs: (domain: string | null, integrationId: any) => Breadcrumb[]
@@ -199,6 +202,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             ['domain', 'integrationId', 'sender', 'senderFailed', 'senderLoading'],
             emailDomainStatusLogic(props),
             [
+                'allRecordsFound',
                 'foundCount',
                 'pollingStopped',
                 'records',
@@ -251,16 +255,17 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 }),
         ],
         verificationSteps: [
-            (s) => [s.status, s.phase, s.domain, s.records, s.foundCount, s.pollingStopped],
+            (s) => [s.status, s.phase, s.domain, s.records, s.foundCount, s.allRecordsFound, s.pollingStopped],
             (
                 status: EmailDomainStatusApi | null,
                 phase: EmailDomainPhase,
                 domain: string | null,
                 records: EmailDomainStatusRecordApi[],
                 foundCount: number,
+                allRecordsFound: boolean,
                 pollingStopped: boolean
             ): VerificationStep[] =>
-                verificationStepsOf({ status, phase, domain, records, foundCount, pollingStopped }),
+                verificationStepsOf({ status, phase, domain, records, foundCount, allRecordsFound, pollingStopped }),
         ],
         breadcrumbs: [
             (s) => [s.domain, s.integrationId],
