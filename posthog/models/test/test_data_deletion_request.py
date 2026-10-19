@@ -387,6 +387,8 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         ("NOT elements_chain ILIKE '%checkout%'", "elements_chain"),
         ("properties.plan = 'pro'", "property-group map"),
         ("properties.`$feature/beta` = 'true'", "property-group map"),
+        # Events reads a non-$ person property from person_properties_map_custom.
+        ("person.properties.email = 'a@example.com'", "person_properties_map_custom"),
         # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
         ("properties.$browser = ''", "materialized column mat_$browser"),
         ("properties.$browser IS NULL", "materialized column mat_$browser"),
@@ -401,6 +403,7 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         "elements_chain",
         "custom_property",
         "feature_flag_property",
+        "custom_person_property",
         "materialized_property_equals_empty_string",
         "materialized_property_is_null",
         "builtin_group_column_is_null",
@@ -455,6 +458,7 @@ def _matches_by_row(read_table: str, team_id: int, fragment: str, values: dict) 
         pytest.param(None, "properties.$plan LIKE 'pr%'", id="like"),
         pytest.param("Numeric", "properties.$plan > 1", id="numeric_greater"),
         pytest.param("Boolean", "properties.$plan = true", id="boolean_equals"),
+        pytest.param(None, "person.properties.$plan = 'pro'", id="person_property_equals"),
     ],
 )
 def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matches(team, property_type, predicate):
@@ -468,9 +472,10 @@ def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matche
     flag_sql, flag_values = compile_hogql_predicate(request, hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE)
 
     now = timezone.now()
-    rows = [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, uuid_lib.uuid4(), now, p) for p in _PARITY_ROW_PROPERTIES]
-    sync_execute("INSERT INTO writable_events (team_id, event, uuid, timestamp, properties) VALUES", rows)
-    sync_execute("INSERT INTO writable_flag_evaluations (team_id, event, uuid, timestamp, properties) VALUES", rows)
+    rows = [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, uuid_lib.uuid4(), now, p, p) for p in _PARITY_ROW_PROPERTIES]
+    columns = "(team_id, event, uuid, timestamp, properties, person_properties)"
+    sync_execute(f"INSERT INTO writable_events {columns} VALUES", rows)
+    sync_execute(f"INSERT INTO writable_flag_evaluations {columns} VALUES", rows)
 
     events_matches = _matches_by_row("events", team.id, events_sql, events_values)
     assert events_matches.keys() == set(_PARITY_ROW_PROPERTIES)
