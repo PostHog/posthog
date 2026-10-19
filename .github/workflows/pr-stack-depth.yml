@@ -1,10 +1,14 @@
 name: PR stack depth
 
-# Fails a pull request above the fifth open layer of its GitHub stack, because
-# each layer starts its own CI runs on every push and restack.
+# Fails a pull request above the configured number of open layers in its GitHub
+# stack, because each layer starts its own CI runs on every push and restack.
 
 on:
     workflow_call:
+        inputs:
+            max-open-depth:
+                type: number
+                default: 5
 
 permissions:
     contents: read
@@ -14,12 +18,11 @@ jobs:
     stack-depth:
         name: Stack depth
         # `stack.position` counts merged layers too, so it is an upper bound on the open
-        # depth and a PR at position 5 or lower cannot fail. Keep 5 equal to MAX_OPEN_DEPTH
-        # in check-stack-depth.mjs. A PR outside a stack, which
+        # depth and a PR at or below the limit cannot fail. A PR outside a stack, which
         # includes every merge queue batch PR, has no `stack`. The skip sits here, not on
         # the caller job, because a skipped caller reports only `stack-depth` and never the
         # `stack-depth / Stack depth` context that the ruleset requires.
-        if: ${{ github.event.pull_request.stack.position > 5 }}
+        if: ${{ github.event.pull_request.stack.position > inputs.max-open-depth }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
 
@@ -34,4 +37,6 @@ jobs:
             - name: Check open layers below this pull request
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  MAX_OPEN_DEPTH: ${{ inputs.max-open-depth }}
+                  STACK_NUMBER: ${{ github.event.pull_request.stack.number }}
               run: node .github/scripts/check-stack-depth.mjs
