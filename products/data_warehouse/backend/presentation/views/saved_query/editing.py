@@ -591,11 +591,8 @@ class DataWarehouseSavedQuerySerializer(
                 detail=Detail(name=view.name, changes=changes),
             )
 
-            # Best effort sync to the data modeling DAG representation. It reads the node's
-            # placement, so it stays under the row lock a move also takes: outside it a move can
-            # land between the read and the sync, which would then create a second node in the
-            # DAG the move just left. The savepoint keeps a failed sync best effort without
-            # poisoning the update's own transaction.
+            # Best effort sync to the data modeling DAG representation. The savepoint keeps a
+            # failed sync best effort without poisoning the update's own transaction.
             if "query" in validated_data:
                 try:
                     with transaction.atomic():

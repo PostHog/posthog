@@ -280,7 +280,7 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
 
 
 def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
-    """The DAG nodes that stand for this saved query, cross-DAG proxy table nodes included."""
+    """The DAG nodes that stand for this saved query."""
     return _node_ids_standing_for(team_id, {str(saved_query_id)})
 
 

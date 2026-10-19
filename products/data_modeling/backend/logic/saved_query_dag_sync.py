@@ -308,15 +308,10 @@ def sync_saved_query_to_dag(
     Args:
         saved_query: The SavedQuery to sync to the DAG
         extra_properties: Optional dict of properties to merge into created nodes and edges
-        dag: Optional DAG to use. If not provided, uses the default team DAG.
-        allow_managed: Whether placement into a system-managed DAG is permitted. Only the
-            internal managed-viewset sync passes this; user-initiated callers must not, so a
-            same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
         database: An optional prebuilt database to reuse for dependency resolution.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
-    Raises ManagedDAGError if dag is system-managed and allow_managed is False.
     """
 
     extra_properties = extra_properties or {}

@@ -95,7 +95,7 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
         # A non-materialized view is computed at query time — it must never be scheduled for
-        # materialization, nor get a managed (revenue-analytics) DAG.
+        # materialization.
         mock_schedule.assert_not_called()
         self.assertEqual(DAG.objects.filter(team=self.team).count(), 1)
         self.assertEqual(
