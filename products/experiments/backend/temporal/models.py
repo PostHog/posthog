@@ -89,7 +89,7 @@ METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS = 3
 METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 120
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
