@@ -291,7 +291,6 @@ export const FEATURE_FLAGS = {
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
-    BOOT_RENDER_APP_AS_UPDATE: 'boot-render-app-as-update', // owner: @pauldambra, see `src/index.tsx`, renders App as a plain update so React does not throttle the first logged-in commit
     BROADCASTS_AI_FIRST_NEW: 'broadcasts-ai-first-new', // owner: @dmarchuk #team-workflows
     BUSINESS_KNOWLEDGE_GITHUB_REPOS: 'business-knowledge-github-repos', // owner: @veryayskiy #team-conversations
     CANVAS_COMMENTS: 'posthog-desktop-canvas-comments', // owner: @k11kirky, shows canvas comments and selection comments on web canvases, shared with PostHog Desktop

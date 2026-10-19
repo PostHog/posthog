@@ -442,7 +442,13 @@ export function InsightVizDisplay({
                 return (
                     <ChunkLoadErrorBoundary>
                         {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
-                        <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                        <Suspense
+                            fallback={
+                                <div className="flex justify-center my-8">
+                                    <Spinner className="text-3xl" />
+                                </div>
+                            }
+                        >
                             <WebAnalyticsInsight context={context} editMode={editMode} />
                         </Suspense>
                     </ChunkLoadErrorBoundary>

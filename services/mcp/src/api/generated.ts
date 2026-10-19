@@ -16267,6 +16267,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `APPEND` - Append
+     * * `MERGE` - Merge
+     */
+    export type IncrementalModeEnum = typeof IncrementalModeEnum[keyof typeof IncrementalModeEnum];
+
+
+    export const IncrementalModeEnum = {
+      Append: 'APPEND',
+      Merge: 'MERGE',
+    } as const;
+
+    /**
      * Serializer for a BatchExport model.
      */
     export interface BatchExport {
@@ -16322,6 +16334,21 @@ export namespace Schemas {
       hogql_query?: string | null;
       /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'.
+         * @nullable
+         */
+      primary_key?: string[] | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+         * @nullable
+         */
+      version_key?: string[] | null;
+      /** How this batch export handles incremental updates.
+       *
+       * * `APPEND` - Append
+       * * `MERGE` - Merge */
+      incremental_mode?: IncrementalModeEnum;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -17171,6 +17198,21 @@ export namespace Schemas {
       hogql_query?: string | null;
       /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+         * @nullable
+         */
+      primary_key?: string[] | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+         * @nullable
+         */
+      version_key?: string[] | null;
+      /** How this batch export handles incremental updates.
+       *
+       * * `APPEND` - Append
+       * * `MERGE` - Merge */
+      incremental_mode?: IncrementalModeEnum;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -79224,6 +79266,21 @@ export namespace Schemas {
       hogql_query?: string | null;
       /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+         * @nullable
+         */
+      primary_key?: string[] | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+         * @nullable
+         */
+      version_key?: string[] | null;
+      /** How this batch export handles incremental updates.
+       *
+       * * `APPEND` - Append
+       * * `MERGE` - Merge */
+      incremental_mode?: IncrementalModeEnum;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -96813,6 +96870,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt
+     */
+    export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
+
+
+    export const ReportTaskActionKindEnum = {
+      GetItMerged: 'get_it_merged',
+      SuggestedPrompt: 'suggested_prompt',
+    } as const;
+
+    /**
      * * `ready` - Ready
      * * `warming` - Warming
      */
@@ -102732,6 +102801,77 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+    }
+
+    /**
+     * One report action that starts an agent run, with whether the report offers it now.
+     */
+    export interface SignalReportTaskAction {
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+       *
+       * * `get_it_merged` - Get it merged
+       * * `suggested_prompt` - Suggested prompt */
+      action: ReportTaskActionKindEnum;
+      /** Whether a run of this action can start now. */
+      available: boolean;
+      /**
+         * Why the action cannot start now. Null when `available` is true.
+         * @nullable
+         */
+      disabled_reason: string | null;
+      /**
+         * Position of the prompt in the report's suggested prompts. Null for other actions.
+         * @nullable
+         */
+      suggested_prompt_index: number | null;
+      /** The message the run gets as its first request. */
+      text: string;
+    }
+
+    export interface SignalReportTaskActionError {
+      /** Machine-readable error code. */
+      code: string;
+      /** Human-readable error message. */
+      detail: string;
+      /** For `report_action_run_active`: the task of the run that is still working. */
+      task_id?: string;
+      /** For `report_action_run_active`: the run that is still working. */
+      run_id?: string;
+    }
+
+    export interface SignalReportTaskActionListResponse {
+      /** Every action the report has, available or not, in a stable order. */
+      results: SignalReportTaskAction[];
+    }
+
+    export interface SignalReportTaskActionRunRequest {
+      /** The action to run. Use a value from the actions list.
+       *
+       * * `get_it_merged` - Get it merged
+       * * `suggested_prompt` - Suggested prompt */
+      action: ReportTaskActionKindEnum;
+      /**
+         * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
+         * @minimum 0
+         */
+      suggested_prompt_index?: number;
+    }
+
+    export interface SignalReportTaskActionRunResponse {
+      /** The task the action created. It is linked to the report. */
+      task_id: string;
+      /**
+         * The background run that started, if one did.
+         * @nullable
+         */
+      run_id: string | null;
+      /** Link to the task in PostHog. */
+      task_url: string;
+      /**
+         * Why the run did not start. Null when it started. The task exists either way.
+         * @nullable
+         */
+      run_error: string | null;
     }
 
     export interface SignalReportsForYouResponse {
