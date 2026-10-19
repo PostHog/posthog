@@ -152,6 +152,12 @@ DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
 # `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
 # without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
 DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
+# A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
+# this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
+DATA_WAREHOUSE_REBUILD_COMPACTION = get_from_env("DATA_WAREHOUSE_REBUILD_COMPACTION", True, type_cast=str_to_bool)
+DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
+    "DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES", 20_000, type_cast=int
+)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs

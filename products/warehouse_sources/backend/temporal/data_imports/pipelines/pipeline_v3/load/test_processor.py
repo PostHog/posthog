@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
@@ -22,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
@@ -36,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
+    _compacts_during_rebuild,
     _enrich_cdc_rows,
     _file_count_after_write,
     _get_write_type,
@@ -51,7 +55,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GroupTableHandles,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
 
@@ -1990,3 +1996,94 @@ class TestTableHandleReuse:
             rows = DeltaTable(tmp).to_pyarrow_table()
             assert rows.sort_by("id").column("id").to_pylist() == [0, 1, 4, 5, 6, 6, 7, 8, 100]
             assert rows.schema.names == ["id", "name", "added"]
+
+
+class TestCompactionDuringRebuild:
+    @staticmethod
+    def _schema(source_type: str = "Postgres") -> MagicMock:
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        return schema
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {"sync_type": "full_refresh"}, None, None, True),
+            ("first_sync_incremental", {"is_first_ever_sync": True}, None, None, True),
+            ("first_sync_append", {"sync_type": "append", "is_first_ever_sync": True}, None, None, True),
+            ("incremental_on_an_existing_table", {}, None, None, False),
+            ("append_on_an_existing_table", {"sync_type": "append"}, None, None, False),
+            ("cdc", {"is_first_ever_sync": True, "cdc_write_mode": "upsert"}, None, None, False),
+            ("partial_data_loading", {"is_first_ever_sync": True}, ExternalDataSourceType.STRIPE, None, False),
+            ("set_spanning_two_runs", {"sync_type": "full_refresh"}, None, [("run-0", 9), ("run-1", 10)], False),
+            (
+                "set_crossing_a_check",
+                {"sync_type": "full_refresh", "batch_index": 9},
+                None,
+                [("run-1", 9), ("run-1", 10)],
+                True,
+            ),
+            ("between_checks", {"sync_type": "full_refresh", "batch_index": 11}, None, None, False),
+            ("first_batch", {"sync_type": "full_refresh", "batch_index": 0}, None, None, False),
+        ]
+    )
+    def test_which_writes_check_for_compaction(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        source_type: str | None,
+        members: list[tuple[str, int]] | None,
+        expected: bool,
+    ) -> None:
+        signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
+        members = members or [(signal.run_uuid, signal.batch_index)]
+        assert _compacts_during_rebuild(signal, self._schema(source_type or "Postgres"), members) is expected
+
+    @override_settings(DATA_WAREHOUSE_REBUILD_COMPACTION=False)
+    def test_the_setting_turns_it_off(self) -> None:
+        signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
+        assert _compacts_during_rebuild(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+
+    def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
+        write_deltalake(table_path, TestTableHandleReuse._SEED)
+        with (
+            override_settings(
+                DATA_WAREHOUSE_REBUILD_COMPACTION=enabled, DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES=3
+            ),
+            patch(f"{_PROCESSOR}.REBUILD_COMPACT_CHECK_EVERY", 5),
+            TestTableHandleReuse()._loader(table_path, []),
+        ):
+            for index in range(first_index, first_index + 12):
+                process_message(TestTableHandleReuse._batch(index, sync_type=sync_type))
+
+    @parameterized.expand(
+        [
+            ("rebuild_run_compacts_as_it_loads", "full_refresh", 0, True),
+            ("append_on_an_existing_table_waits_for_post_load", "append", 1, False),
+        ]
+    )
+    def test_compaction_between_batches_keeps_the_rows(
+        self, _name: str, sync_type: str, first_index: int, compacts: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            on_path, off_path = f"{tmp}/on", f"{tmp}/off"
+            self._load(on_path, sync_type, first_index, enabled=True)
+            self._load(off_path, sync_type, first_index, enabled=False)
+
+            on_table, off_table = DeltaTable(on_path), DeltaTable(off_path)
+            assert (
+                on_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
+                == off_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
+            )
+            assert (len(on_table.file_uris()) < len(off_table.file_uris())) is compacts
+
+    def test_a_failed_compaction_does_not_fail_the_batch(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(
+                DeltaMaintenance, "compact_during_rebuild", AsyncMock(side_effect=RuntimeError("boom"))
+            ) as compact,
+        ):
+            self._load(tmp, "full_refresh", 0, enabled=True)
+
+            assert compact.await_count == 2
+            assert DeltaTable(tmp).to_pyarrow_table().num_rows == 12 * 3

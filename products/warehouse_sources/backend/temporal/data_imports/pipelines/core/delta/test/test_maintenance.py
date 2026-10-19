@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
     _COMPACT_RATIO_SAMPLE_FILES,
+    COMPACT_MAX_BINS_PER_COMMIT,
     COMPACT_OFFSET_OVERFLOW_RETRIES,
     DEFAULT_COMPACT_TARGET_SIZE_BYTES,
     DELTA_DELETED_FILE_RETENTION,
@@ -41,7 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     ObjectStorePermissionDeniedError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    make_local_table_ref,
+    make_logger,
+)
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
 _MB = 1024 * 1024
@@ -640,6 +644,7 @@ class TestDeltaliteCompaction:
             slot_budget_bytes=int(self._SLOT_MB * _MB),
             commit_metadata={"compact_engine": "deltalite", "job_id": "job-1"},
             min_partition_removable_files=1,
+            max_bins_per_commit=COMPACT_MAX_BINS_PER_COMMIT,
         )
         assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
         [done] = self._info_calls(table_ref, "compact: done")
@@ -738,6 +743,65 @@ class TestDeltaliteCompaction:
         assert "_delta_log" not in str(raised.value)
         assert "_delta_log" not in str(table_ref.logger.method_calls)
         assert isinstance(raised.value.__cause__, deltalite.DeltaLiteError)
+
+
+class TestCompactDuringRebuild:
+    @staticmethod
+    def _fill(path: str, partitions: int, files_per_partition: int) -> None:
+        for part in range(partitions):
+            for i in range(files_per_partition):
+                deltalake.write_deltalake(
+                    path,
+                    pa.table({"p": [f"b{part:02d}"], "id": [part * 1000 + i]}),
+                    mode="append",
+                    partition_by=["p"],
+                )
+
+    @parameterized.expand(
+        [
+            # Two partitions of seven tiny files: a compaction removes six files from each.
+            ("below_the_budget_delta_rs", False, 13, False),
+            ("at_the_budget_delta_rs", False, 12, True),
+            ("below_the_budget_deltalite", True, 13, False),
+            ("at_the_budget_deltalite", True, 12, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compacts_once_enough_files_are_removable(
+        self, _name: str, deltalite_engine: bool, budget: int, expected_ran: bool
+    ):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=deltalite_engine),
+        ):
+            self._fill(path, partitions=2, files_per_partition=7)
+            version_before = deltalake.DeltaTable(path).version()
+            rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
+
+            ran = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=budget)
+
+            table = deltalake.DeltaTable(path)
+            assert ran is expected_ran
+            assert (table.version() > version_before) is expected_ran
+            assert len(table.file_uris()) == (2 if expected_ran else 14)
+            assert table.to_pyarrow_table().sort_by("id").to_pydict() == rows_before
+
+    @pytest.mark.asyncio
+    async def test_deltalite_commits_a_long_compaction_in_chunks(self):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=True),
+            patch(f"{_MAINTENANCE_MODULE}.COMPACT_MAX_BINS_PER_COMMIT", 1),
+        ):
+            self._fill(path, partitions=3, files_per_partition=4)
+            version_before = deltalake.DeltaTable(path).version()
+
+            ran = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=1)
+
+            table = deltalake.DeltaTable(path)
+            assert ran is True
+            assert table.version() - version_before == 3
+            assert len(table.file_uris()) == 3
 
 
 class TestVacuum:

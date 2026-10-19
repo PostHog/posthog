@@ -104,6 +104,9 @@ COMPACT_MIN_TARGET_SIZE_BYTES = 8 * 1024 * 1024
 _COMPACT_TASK_MEMORY_FACTOR = 2
 # Footers of the largest files only: compacted files are the largest, and they set the worst case.
 _COMPACT_RATIO_SAMPLE_FILES = 2
+# deltalite commits after this many bins instead of once at the end. A pass that a deploy or the load
+# worker's stuck-batch timeout stops then keeps the bins it finished, and the next pass plans only the rest.
+COMPACT_MAX_BINS_PER_COMMIT = 16
 
 
 @frozen
@@ -536,6 +539,7 @@ class DeltaMaintenance:
             # `has_batch_been_committed` would then read a compaction as a committed batch.
             "commit_metadata": {"compact_engine": "deltalite", "job_id": str(self._table.job.id)},
             "min_partition_removable_files": 1,
+            "max_bins_per_commit": COMPACT_MAX_BINS_PER_COMMIT,
         }
 
         def _run() -> dict[str, Any]:
@@ -772,6 +776,32 @@ class DeltaMaintenance:
 
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
         return await self._compact(table, plan)
+
+    async def compact_during_rebuild(self, min_removable_files: int) -> bool:
+        """Compact a table that a rebuild run is still loading, once a compaction removes enough files.
+
+        A rebuild run replaced the table at its first batch, so every file here is one that the same
+        run wrote. The trigger counts the files a compaction is sure to remove, which bounds the work
+        of one pass at any partition count. Returns True if compaction ran.
+        """
+        table = await self._table.get_delta_table()
+        if table is None:
+            return False
+
+        partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+        removable_files = sum(partition.removable_files for partition in partitions)
+        if removable_files < min_removable_files:
+            return False
+
+        await self._logger.ainfo(
+            f"compact_during_rebuild: triggering compact (removable_files={removable_files}, "
+            f"partitions={len(partitions)}, min_removable_files={min_removable_files})"
+        )
+        if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
+            compacted = await self._compact_with_deltalite(table)
+            if compacted is not None:
+                return compacted
+        return await self._compact(table)
 
     def _vacuumed_during_job(self, watermarks: VacuumWatermarks) -> bool:
         # The pre-write pass vacuums before it writes, and it never checks small files. The post-load
