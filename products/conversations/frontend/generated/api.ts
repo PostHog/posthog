@@ -28,6 +28,7 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
@@ -88,6 +89,40 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/signing_secret/`
+}
+
+/**
+ * The signing secret used for widget identity verification in this project.
+ */
+export const conversationsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SigningSecretApi> => {
+    return apiMutator<SigningSecretApi>(getConversationsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. Identity hashes signed with the previous secret stop verifying immediately.
+ */
+export const conversationsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SigningSecretApi> => {
+    return apiMutator<SigningSecretApi>(getConversationsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

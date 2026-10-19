@@ -1,8 +1,38 @@
 # TaxonomicFilter performance
 
 Use this reference when you change TaxonomicFilter search, loading, pagination, or result reveal behavior.
-For the full profiling workflow, use
-[`profiling-slow-api-endpoints`](../../profiling-slow-api-endpoints/SKILL.md).
+For the full profiling workflow, use [`profiling-slow-api-endpoints`](../../profiling-slow-api-endpoints/SKILL.md).
+
+## Where users wait
+
+Measured with `taxonomic filter search latency` (`time_to_see_data_ms`).
+Only the legacy picker sends it, so these numbers say nothing about the rebuild.
+Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.md).
+
+- The median search is fast (~200ms) in every large group.
+- The slow tail is concentrated.
+  Persons search has a p90 of ~4s and a p99 over 10s.
+  Pageview URLs have a slow p99.
+- Customers rarely report slowness.
+  Failures that look like loading or like "no results" hurt more (see below).
+  Rank latency work against [failure-modes](failure-modes.md), not on its own.
+
+## A failed request must show as an error
+
+`taxonomic filter fetch failed` fires ~0.2 times per 100 legacy search queries (query 10).
+One search can send several events, so this is not a share of failed searches.
+The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
+Cohorts, events, person properties and flags make up most of the failures.
+Both surfaces end loading on a failure and show "Couldn't load results" with a retry, except for a 403.
+A 403 must not look like "no results".
+
+- Legacy: `InfiniteListErrorState` in `InfiniteList.tsx`, fed by `infiniteListLogic.ts`.
+  Its `remoteFetchForbidden` shows an access-denied message with no retry for a `permission_denied` 403.
+- Rebuild: the error block in `menu/Combobox.tsx`, fed by `showErrorState` from `hooks/useGroupList.ts`.
+  `useGroupList` keeps `showErrorState` and `showEmptyState` apart, so a failure never reads as an empty result.
+  It has no forbidden handling, so a 403 shows the generic retry instead of legacy's access-denied message.
+- Keep `taxonomic filter fetch failed` firing with `groupType`, `searchQuery` and `surface` on both surfaces.
+  The rebuild sends no `groupType` on its `all`, `recent` and `pinned` scopes, so per-group analysis stays on legacy.
 
 ## Backend search plan
 
@@ -39,7 +69,8 @@ Check both `infiniteListLogic.ts` and `hooks/useGroupList.ts` because the legacy
 - Compare both Postgres predicate forms with safe production `EXPLAIN` queries.
 - State whether each measured query used a warm or cold cache.
 - Run the definition API tests against Postgres.
-- Test the legacy and rebuild loading paths.
+- Test the legacy and rebuild loading paths, including a failed request.
+- After shipping, compare p90 and p99 by group and the fetch failure rate.
 
 Result tests alone do not protect the plan choice because both plans return the same rows.
 When plan selection changes, test the boundary, cache failure, and SQL shape.

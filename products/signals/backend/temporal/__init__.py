@@ -14,6 +14,7 @@ from products.signals.backend.temporal.agentic.scout_rubrics import (
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
     cancel_failed_scout_trial_activity,
+    check_signals_scout_config_runnable_activity,
     evaluate_signals_scout_precheck_activity,
     resume_signals_scout_workflow_step,
     run_signals_scout_activity,
@@ -94,6 +95,11 @@ from products.signals.backend.temporal.signal_queries import (
     run_signal_semantic_search_activity,
     wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.spend import (
+    UpdateSignalSpendWorkflow,
+    confirm_signal_spend_activity,
+    update_signal_spend_activity,
+)
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
@@ -105,6 +111,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     maybe_autostart_implementation_activity,
     publish_report_completed_activity,
+    publish_report_spend_activity,
     report_has_assigned_signals_activity,
     report_is_candidate_activity,
     reset_report_to_potential_activity,
@@ -112,6 +119,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
@@ -135,6 +143,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    update_signal_spend_activity,
+    confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,
     dispatch_scout_trial_comparison_activity,
     fail_scout_trial_comparison_activity,
@@ -178,6 +188,7 @@ ACTIVITIES = [
     implementation_buffer_seconds_activity,
     report_is_candidate_activity,
     publish_report_completed_activity,
+    publish_report_spend_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     delete_team_reports_activity,
@@ -192,6 +203,7 @@ ACTIVITIES = [
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
     evaluate_signals_scout_precheck_activity,
+    check_signals_scout_config_runnable_activity,
     cancel_failed_scout_trial_activity,
     plan_scout_suggestion_runs_activity,
     resume_signals_scout_workflow_step,

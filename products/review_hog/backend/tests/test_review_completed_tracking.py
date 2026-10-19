@@ -1,10 +1,13 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
@@ -16,11 +19,13 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
 )
+from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
+    finalize_review_report,
     persist_findings,
     persist_pr_snapshot,
     persist_verdicts,
@@ -28,6 +33,7 @@ from products.review_hog.backend.reviewer.persistence import (
 )
 from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 from products.review_hog.backend.temporal.activities import (
     FlashSessionStats,
@@ -36,6 +42,7 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewFailedInput,
     TrackReviewStartedInput,
     _gate_push,
+    _notify_review_finished,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
@@ -47,12 +54,12 @@ from products.signals.backend.enums import ReportPriority
 _PR_URL = "https://github.com/o/r/pull/7"
 
 
-def _pr_metadata() -> PRMetadata:
+def _pr_metadata(*, draft: bool = False) -> PRMetadata:
     return PRMetadata(
         number=7,
         title="t",
         state="open",
-        draft=False,
+        draft=draft,
         created_at="",
         updated_at="",
         author="octocat",
@@ -135,7 +142,8 @@ class TestTrackReviewCompleted(BaseTest):
             team_id=self.team.id,
             report_id=report_id,
             head_sha="sha1",
-            pr_metadata=_pr_metadata(),
+            # The report row says not a draft, so the draft property must come from the turn's snapshot.
+            pr_metadata=_pr_metadata(draft=True),
             pr_comments=[],
             # One reviewable file: raw PR additions (120) vs reviewable additions (80) must diverge
             # so the assertions below can't pass with the two properties swapped.
@@ -198,9 +206,27 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_changed_files"] == 7
         assert props["pr_commits"] == 3
         assert props["pr_reviewable_additions"] == 80
+        assert props["pr_draft"] is True
+        # The finding budget's effect is measured by splitting on this, so it must be on every turn.
+        assert props["finding_budget_arm"] == budget_arm("o/r", 7)
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
+
+        hooks = (MagicMock(side_effect=RuntimeError("callback down")), MagicMock())
+        with patch("products.review_hog.backend.temporal.activities.get_finished_review_hooks", return_value=hooks):
+            _notify_review_finished(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                review_mode="full",
+                failed=False,
+                published=published,
+            )
+        finished = hooks[1].call_args.args[0]
+        assert (finished.repository, finished.pr_number, finished.findings_count) == ("o/r", 7, 1)
+        assert (finished.failed, finished.published) == (False, published)
+        assert finished.review_url.endswith(f"/project/{self.team.id}/code-review?review={report_id}")
 
     def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
         # The cap, the dedup calls, and the lens sessions are only measurable through these
@@ -217,6 +243,10 @@ class TestTrackReviewCompleted(BaseTest):
             dropped={"dedup_anchor": 2, "cap": 1},
             kept=4,
             dedup_fell_back=True,
+            budget_left=3,
+            changed_lines=40,
+            must_fix_on_change=1,
+            must_fix_off_change=2,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
 
@@ -236,9 +266,14 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_dropped": {"dedup_anchor": 2, "cap": 1},
             "flash_kept": 4,
             "flash_dedup_fallback": True,
+            "flash_budget_left": 3,
+            "flash_changed_lines": 40,
+            "flash_must_fix_on_change": 1,
+            "flash_must_fix_off_change": 2,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
+            "flash_coordinator": False,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
 
@@ -254,6 +289,8 @@ class TestTrackReviewCompleted(BaseTest):
         props = capture.call_args.kwargs["properties"]
         assert props["pr_additions"] is None
         assert props["pr_reviewable_additions"] is None
+        # Unknown is not "not a draft": a False here would count the turn as a ready PR.
+        assert props["pr_draft"] is None
         assert props["findings_total"] == 0
         # A turn without a marker ran on an unknown release; the current deploy's version would mislabel it.
         assert props["reviewhog_version"] is None
@@ -311,12 +348,12 @@ class TestTrackReviewCompleted(BaseTest):
         # A skipped turn ends before any stage that returns the report to rest, and a skipped turn
         # keeps the next turn's run_index, so a run_index-keyed event would merge two skipped pushes.
         report_id = self._review_report()
-        for head_sha in ("sha1", "sha2"):
+        for head_sha, draft in (("sha1", True), ("sha2", False)):
             persist_pr_snapshot(
                 team_id=self.team.id,
                 report_id=report_id,
                 head_sha=head_sha,
-                pr_metadata=_pr_metadata(),
+                pr_metadata=_pr_metadata(draft=draft),
                 pr_comments=[],
                 pr_files=[],
             )
@@ -327,6 +364,7 @@ class TestTrackReviewCompleted(BaseTest):
             probability=0.03,
             model="jevk5",
             own_commits=2,
+            own_code_lines=14,
         )
 
         with (
@@ -335,32 +373,191 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
-            for head_sha in ("sha1", "sha2"):
-                assert (
-                    _gate_push(
-                        GatePushInput(
-                            team_id=self.team.id,
-                            report_id=report_id,
-                            repository="o/r",
-                            previous_head_sha="sha0",
-                            head_sha=head_sha,
-                            run_index=2,
-                            review_mode=REVIEW_MODE_FLASH,
-                        )
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
+            results = [
+                _gate_push(
+                    GatePushInput(
+                        team_id=self.team.id,
+                        report_id=report_id,
+                        repository="o/r",
+                        previous_head_sha="sha0",
+                        head_sha=head_sha,
+                        run_index=2,
+                        review_mode=REVIEW_MODE_FLASH,
                     )
-                    == decision
                 )
+                for head_sha in ("sha1", "sha2")
+            ]
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
+        assert [(result.skip, result.reason) for result in results] == [(True, "system_one_below_threshold")] * 2
+        recorded = gate.return_value.record_small_change_streak.call_args_list
+        assert [call.args[0] for call in recorded] == results
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
-        assert (props["skipped"], props["reason"], props["system_one_probability"]) == (
+        assert (props["skipped"], props["reason"], props["system_one_probability"], props["own_code_lines"]) == (
             True,
             "system_one_below_threshold",
             0.03,
+            14,
         )
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
+        # Each push reports the draft state of its own head, and only a ready PR gets a next push chance.
+        assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
+        assert (props["next_push_probability"], second.kwargs["properties"]["next_push_probability"]) == (None, 0.559)
+
+    @parameterized.expand(
+        [
+            ("quiet_previous_review", False, False, (True, "quiet_small_push", 0, 400)),
+            ("previous_review_found_a_bug", True, False, (False, "system_one_above_threshold", 1, 400)),
+            # A retry after a failed publish runs one run_index higher at the head its first attempt finalized.
+            ("retry_of_a_finalized_head", False, True, (False, "system_one_above_threshold", None, None)),
+        ]
+    )
+    def test_the_gate_reads_the_previous_turns_findings_and_the_pr_size(
+        self,
+        _name: str,
+        previous_finding: bool,
+        head_finalized: bool,
+        expected: tuple[bool, str, int | None, int | None],
+    ) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename="a.py", status="modified", additions=300, deletions=100),
+                PRFile(filename="pnpm-lock.yaml", status="modified", additions=900, deletions=0),
+            ],
+        )
+        if previous_finding:
+            issues = [_issue("1-1-1")]
+            persist_findings(team_id=self.team.id, report_id=report_id, issues=issues, run_index=1)
+            persist_verdicts(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=issues,
+                run_index=1,
+                validations={"1-1-1": IssueValidation(is_valid=True, argumentation="real")},
+            )
+        if head_finalized:
+            finalize_review_report(
+                team_id=self.team.id, report_id=report_id, body_markdown="# r", run_index=1, head_sha="sha1"
+            )
+        decision = PushGateDecision(
+            skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.8, own_code_lines=12
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
+            result = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+
+        props = capture.call_args.kwargs["properties"]
+        assert (result.skip, result.reason, props["previous_findings"], props["reviewable_lines"]) == expected
+
+    def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
+        live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
+        live.return_value.json.return_value = live_pr
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch(
+                "products.review_hog.backend.reviewer.push_gate.github_api_request",
+                side_effect=GitHubAPIError("gone", status=404),
+            ),
+            patch("products.review_hog.backend.temporal.activities.github_api_request", live),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            decision = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+        return decision, capture
+
+    @parameterized.expand(
+        [
+            ("still_a_draft", [True], {"draft": True}, True, "draft"),
+            # The author marks the PR ready without a push: the ready turn re-fetches the same head.
+            ("marked_ready_at_the_same_head", [True, False], {"draft": True}, False, "compare_unavailable"),
+            # The queue drops a ready request for the head a running turn gates, so the gate reads GitHub again.
+            ("marked_ready_while_the_turn_runs", [True], {"draft": False}, False, "compare_unavailable"),
+            ("live_read_fails", [True], GitHubAPIError("boom", status=502), False, "compare_unavailable"),
+            (
+                "live_read_rate_limited",
+                [True],
+                GitHubRateLimitError("limited", retry_after=60),
+                False,
+                "compare_unavailable",
+            ),
+            ("live_read_over_budget", [True], GitHubEgressBudgetExhausted("shed"), False, "compare_unavailable"),
+        ]
+    )
+    def test_the_gate_reads_the_draft_state_of_the_latest_fetch(
+        self,
+        _name: str,
+        fetched_drafts: list[bool],
+        live_pr: dict[str, object] | Exception,
+        skip: bool,
+        reason: str,
+    ) -> None:
+        report_id = self._review_report()
+        for draft in fetched_drafts:
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha="sha1",
+                pr_metadata=_pr_metadata(draft=draft),
+                pr_comments=[],
+                pr_files=[],
+            )
+
+        decision, _capture = self._gate_draft_push(report_id, live_pr)
+
+        assert (decision.skip, decision.reason) == (skip, reason)
+
+    def test_a_draft_skip_and_the_ready_decision_at_one_head_stay_two_events(self) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(draft=True),
+            pr_comments=[],
+            pr_files=[],
+        )
+
+        _skip, draft_capture = self._gate_draft_push(report_id, {"draft": True})
+        _review, ready_capture = self._gate_draft_push(report_id, {"draft": False})
+
+        draft_event, ready_event = draft_capture.call_args.kwargs, ready_capture.call_args.kwargs
+        assert draft_event["uuid"] != ready_event["uuid"]
+        assert (draft_event["properties"]["pr_draft"], ready_event["properties"]["pr_draft"]) == (True, False)
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any
@@ -449,6 +646,9 @@ class TestTrackReviewCompleted(BaseTest):
         assert completed.kwargs["properties"]["turn_trigger_source"] == "label"
         assert failed.kwargs["properties"]["turn_trigger_source"] == "inbox"
         assert started.kwargs["properties"]["turn_trigger_source"] == "inbox"
+        # No snapshot for this head, so the draft state is unknown on both events that carry it.
+        assert completed.kwargs["properties"]["pr_draft"] is None
+        assert started.kwargs["properties"]["pr_draft"] is None
         # Three events per turn, three uuid namespaces: a shared one would dedupe a start or a
         # failure against the completion of the same turn.
         assert len({call.kwargs["uuid"] for call in (completed, failed, started)}) == 3

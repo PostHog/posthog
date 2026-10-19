@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -65,9 +64,3 @@ class TestDiscourseSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 42
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nope"
-        with pytest.raises(ValueError, match="Unknown Discourse schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

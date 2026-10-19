@@ -3,9 +3,13 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash import lightdash as lightdash_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash import (
     HOST_NOT_ALLOWED_ERROR,
@@ -50,34 +54,18 @@ class TestNormalizeHost:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, get_response: Any = None, raises: Exception | None = None):
-        session = mock.MagicMock()
-        if raises is not None:
-            session.get.side_effect = raises
-        else:
-            session.get.return_value = get_response
-        return mock.patch.object(lightdash_module, "make_tracked_session", return_value=session)
-
-    @staticmethod
-    def _response(status_code: int) -> mock.MagicMock:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        response.is_redirect = status_code in (301, 302, 303, 307, 308)
-        response.is_permanent_redirect = status_code in (301, 308)
-        return response
-
     def test_invalid_token(self) -> None:
-        with self._patch_session(self._response(401)):
+        with scripted_network([ScriptedResponse(status=401)]):
             valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
             assert valid is False
             assert msg is not None
 
     def test_403_at_source_create_is_accepted(self) -> None:
-        with self._patch_session(self._response(403)):
+        with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("https://x.lightdash.cloud", "tok", schema_name=None) == (True, None)
 
     def test_403_for_scoped_probe_fails(self) -> None:
-        with self._patch_session(self._response(403)):
+        with scripted_network([ScriptedResponse(status=403)]):
             valid, msg = validate_credentials("https://x.lightdash.cloud", "tok", schema_name="projects")
             assert valid is False
             assert msg is not None
@@ -89,40 +77,44 @@ class TestValidateCredentials:
         assert msg == "Invalid Lightdash instance URL"
 
     def test_rejects_redirect_response(self) -> None:
-        with self._patch_session(self._response(302)) as patched:
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://other.example.com/api/v1/user"})]
+        ) as network:
             valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
             assert valid is False
             assert msg == HOST_NOT_ALLOWED_ERROR
-            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+            assert [request.path for request in network.requests_log] == ["/api/v1/user"]
 
     def test_blocks_unsafe_host(self) -> None:
         with (
             mock.patch.object(lightdash_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(self._response(200)) as patched,
+            scripted_network([ScriptedResponse(status=200)]) as network,
         ):
             valid, msg = validate_credentials("https://10.0.0.1", "tok", team_id=99)
             assert valid is False
             assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+            assert network.requests_log == []
 
     def test_unexpected_status(self) -> None:
-        with self._patch_session(self._response(500)):
+        with scripted_network(always(ScriptedResponse(status=500))):
             valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
             assert valid is False
             assert msg is not None and "500" in msg
 
     def test_handles_request_exception(self) -> None:
-        with self._patch_session(raises=requests.exceptions.RequestException("boom")):
+        with scripted_network(always(ConnectionError("boom"))):
             valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
             assert valid is False
             assert msg is not None and "boom" in msg
 
     def test_probes_user_endpoint_with_api_key_header(self) -> None:
-        with self._patch_session(self._response(200)) as patched:
-            validate_credentials("https://x.lightdash.cloud", "tok")
-            call = patched.return_value.get.call_args
-            assert call.args[0] == "https://x.lightdash.cloud/api/v1/user"
-            assert call.kwargs["headers"]["Authorization"] == "ApiKey tok"
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("https://x.lightdash.cloud", "tok") == (True, None)
+            assert len(network.requests_log) == 1
+            request = network.requests_log[0]
+            assert request.method == "GET"
+            assert request.url == "https://x.lightdash.cloud/api/v1/user"
+            assert request.headers["authorization"] == "ApiKey tok"
 
 
 class TestGetResource:

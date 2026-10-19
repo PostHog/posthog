@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CratesIOSource(SimpleSource[CratesIOSourceConfig]):
+    codebase_detection = detect(env=("^(CRATES_IO|CRATESIO)_", "^CARGO_REGISTRY_TOKEN$"))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://doc.rust-lang.org/cargo/reference/registry-web-api.html"
@@ -58,7 +61,7 @@ tokio
 posthog-rs
 ```
 
-Each sync fetches the current data for every configured crate. The dependency table covers the 25 most recent versions of each crate. The category and keyword tables cover the whole registry, so they do not depend on the crates you list. crates.io has no server-side "changed since" filter, and daily download counts only cover the trailing ~90 days, so all tables sync as a full refresh.""",
+Each sync fetches the current data for every configured crate. The dependency and version download tables cover the 25 most recent versions of each crate. The category and keyword tables cover the whole registry, so they do not depend on the crates you list. crates.io has no server-side "changed since" filter, and daily download counts only cover the trailing ~90 days, so all tables sync as a full refresh.""",
             iconPath="/static/services/crates_io.png",
             docsUrl="https://posthog.com/docs/cdp/sources/crates-io",
             fields=cast(

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,35 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class Neo4jSource(SimpleSource[Neo4jSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^NEO4J_",),
+        npm=("neo4j-driver",),
+        pypi=("neo4j",),
+        cargo=("neo4rs",),
+        go=("github.com/neo4j/neo4j-go-driver",),
+        hex=("bolt_sips",),
+        maven=(
+            "org.neo4j.driver:neo4j-java-driver",
+            "org.neo4j.driver:neo4j-java-driver-all",
+            "org.neo4j.driver:neo4j-java-driver-encryption-aws-kms",
+            "org.neo4j.driver:neo4j-java-driver-encryption-azure-keyvault",
+            "org.neo4j.driver:neo4j-java-driver-encryption-google-cloud-kms",
+            "org.neo4j.driver:neo4j-java-driver-observation-metrics",
+            "org.neo4j.driver:neo4j-java-driver-observation-micrometer",
+            "org.neo4j.driver:neo4j-java-driver-slim",
+            "org.neo4j.driver:neo4j-java-driver-spring-boot-autoconfigure",
+            "org.neo4j.driver:neo4j-java-driver-spring-boot-starter",
+        ),
+        rubygems=(
+            "neo4j-ruby-driver",
+            "cancancan-neo4j",
+            "neo4j",
+            "neo4j-core",
+            "neo4j-java-driver",
+            "neo4j-rake_tasks",
+        ),
+    )
+
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
     api_docs_url = "https://neo4j.com/docs/query-api/current/"

@@ -665,6 +665,7 @@ describe('cohortEditLogic', () => {
                         has_more: true,
                     },
                     cohorts: { results: [], total: 0, has_more: false },
+                    workflows: { results: [], total: 0, hidden: 0, has_more: false },
                 },
             },
         }

@@ -142,6 +142,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             // selected. Passing it as the initial scope would reapply it each time the tab
                             // remounts and overwrite a scope the user picked in the tab.
                             onOpenRelatedErrors={() => setActiveTab('related-errors')}
+                            onLeave={closeLogDetails}
                         />
                     </div>
                 </LemonDrawer.Header>

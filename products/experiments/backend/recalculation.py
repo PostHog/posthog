@@ -4,9 +4,8 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 
 - ``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job.
 - ``get_latest_recalculation`` — most recent recalc row for an experiment, or ``None``.
-- ``get_run_results`` — read-back of per-metric results for a specific run, scoped by recomputing each metric's
-  per-run recalc fingerprint (no FK on ExperimentMetricResult; the scoping key lives entirely on the job row +
-  the run id).
+- ``get_run_results`` — read-back of per-metric results for a specific run, through ``MetricResultStore.for_run``
+  (no FK on ExperimentMetricResult; the store finds a run's rows from the job row and the current metric config).
 """
 
 import asyncio
@@ -32,6 +31,8 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
+from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -42,21 +43,21 @@ from products.experiments.backend.temporal.models import (
     METRICS_RECALCULATION_WORKFLOW_NAME,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
-# stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
-# (discovery retries + per-metric calc retries + progress activities) so a legitimately-slow run can finish
-# without being clobbered, but tight enough that an operator can recover within an hour if the workflow
-# never started (Temporal connect failure, transient infra issue, etc.). See the rollback in
-# start_metrics_recalculation_workflow for the happy-path failure handling; this TTL is the defense-in-depth
-# backstop if that rollback itself fails.
+# stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
+# after the start activity: the calc budget (METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS), the failure
+# backstop and the finish step. test_in_progress_phase_ends_before_the_staleness_ttl keeps that sum below this
+# value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
+# can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
+# etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
+# is the defense-in-depth backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
+RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -271,6 +272,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
                     fairness_key=organization_id,
+                    activity_task_queue=_activity_task_queue(organization_id),
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
                 task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -309,21 +311,34 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def _refresh_window_enforced(experiment: Experiment) -> bool:
-    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
-    if settings.DEBUG and not settings.TEST:
-        return False
-    organization_id = str(experiment.team.organization_id)
-    # Evaluated locally: this sits on the POST path, and a miss would otherwise block the request on a call
+def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
+    # Evaluated locally: callers sit on request and start paths, and a miss would otherwise block them on a call
     # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
     return feature_enabled_or_false(
-        RECALCULATION_RATE_LIMIT_FEATURE_FLAG,
+        flag_key,
         organization_id,
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+
+
+def _activity_task_queue(organization_id: str) -> str | None:
+    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
+    try:
+        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
+
+
+def _refresh_window_enforced(experiment: Experiment) -> bool:
+    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
+    if settings.DEBUG and not settings.TEST:
+        return False
+    return _organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
 
 
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
@@ -403,7 +418,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
-        metrics = discover_experiment_metrics(experiment)
+        metrics = get_metrics_for_calculation(experiment)
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=experiment.team,
             experiment=experiment,
@@ -411,20 +426,28 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             status=ExperimentMetricsRecalculation.Status.PENDING,
             created_by=user,
             total_metrics=len(metrics),
-            metric_uuids=[m.metric_uuid for m in metrics],
+            metric_uuids=[m.uuid for m in metrics],
         )
         return build_job_payload(recalc, is_existing=False)
 
 
+def active_recalculation_filter() -> Q:
+    """The rows that block a new recalculation: PENDING or IN_PROGRESS, inside the staleness bound.
+
+    The scheduled discovery applies the same filter to many experiments in one query, so the two
+    readers cannot disagree on which run is active.
+    """
+    threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+    return Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold) | Q(
+        status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold
+    )
+
+
 def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
         return (
             ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
-            .filter(
-                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
-                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
-            )
+            .filter(active_recalculation_filter())
             .order_by("-created_at")
             .first()
         )
@@ -464,50 +487,19 @@ def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> Ex
         ).first()
 
 
-def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetricsRecalculation) -> dict[str, str]:
-    """Recompute each metric's per-run recalc fingerprint (strategy 'a': no extra storage).
-
-    Returns ``{metric_uuid: recalc_fp}`` for metrics still resolvable on the experiment. A uuid present on the job
-    but no longer on the experiment is skipped (metric removed mid-run).
-
-    Divergence hazard: the fingerprint is derived from mutable experiment fields (start_date, exposure_criteria,
-    stats method, only_count_matured_users). If any of these change between the workflow's writes and a later
-    read, the recomputed fingerprints will not match the on-disk ones and the corresponding result rows become
-    unreachable (until the experiment fields revert). This is the explicit trade-off of "no FK on
-    ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
-    """
-    calculation_configs = {
-        calculation_config.metric_id: calculation_config for calculation_config in build_calculation_configs(experiment)
-    }
-    fingerprints: dict[str, str] = {}
-    for metric_uuid in recalc.metric_uuids or []:
-        calculation_config = calculation_configs.get(metric_uuid)
-        if calculation_config is None:
-            continue
-        fingerprints[metric_uuid] = compute_recalc_fingerprint(calculation_config.calculation_key())
-    return fingerprints
-
-
 def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     """Return the ExperimentMetricResult rows that belong to THIS run.
 
-    Scopes by recomputing each metric's recalc fingerprint and filtering ``fingerprint__in`` — never returns
-    rows from a previous run or from the timeseries workflow (which uses config fingerprints).
+    Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
 
-    See `_recalc_fingerprints_for_run` for the fingerprint-divergence hazard: if experiment fields that feed
-    the fingerprint change after the run wrote its rows, this can return [] for what is on-disk a successful
-    run. Symptom: "results disappeared after editing exposure_criteria / start_date / stats config."
+    Divergence hazard: the store finds a run's rows by recomputing each metric's fingerprint from mutable
+    experiment fields (start_date, exposure_criteria, stats method, only_count_matured_users). If any of these
+    change after the run wrote its rows, this can return [] for what is on-disk a successful run, until the
+    experiment fields revert. Symptom: "results disappeared after editing exposure_criteria / start_date / stats
+    config." This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the
+    fingerprint, not in a stored column.
     """
-    fingerprints = _recalc_fingerprints_for_run(recalc.experiment, recalc)
-    if not fingerprints or recalc.query_to is None:
-        return []
-
-    # Scope to this run's window. The recalc fingerprint is now deterministic per config (not per run), so a
-    # running experiment accumulates one row per query_to under the same fingerprint; without this filter a
-    # later run would return every prior window's row and overcount. recalc.query_to pins the run's window.
-    rows = ExperimentMetricResult.objects.filter(
-        experiment=recalc.experiment, fingerprint__in=list(fingerprints.values()), query_to=recalc.query_to
-    )
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
     return [
         {
             "metric_uuid": row.metric_uuid,
@@ -533,24 +525,14 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     """
     with team_scope(experiment.team_id, canonical=True):
         calculation_configs = build_calculation_configs(experiment)
+        store = MetricResultStore(experiment_id=experiment.id)
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
         for calculation_config in calculation_configs:
-            row = (
-                ExperimentMetricResult.objects.filter(
-                    experiment=experiment,
-                    metric_uuid=calculation_config.metric_id,
-                    fingerprint=calculation_config.calculation_key(),
-                    status=ExperimentMetricResult.Status.COMPLETED,
-                    # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
-                    # a future query_to that would surface here as a future completion time.
-                    query_to__gte=now - TIMESERIES_FALLBACK_MAX_AGE,
-                    query_to__lte=now,
-                )
-                .order_by("-query_to")
-                .first()
-            )
+            # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
+            # query_to that would surface here as a future completion time.
+            row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:
                 continue
             results.append(

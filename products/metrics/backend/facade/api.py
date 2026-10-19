@@ -8,8 +8,14 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import replace
+from functools import partial
 from typing import Any
+
+import structlog
+
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -22,10 +28,12 @@ from posthog.models import Team, User
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
     DashboardImportStatus,
+    DashboardTemplateSummary,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
@@ -39,8 +47,15 @@ from products.metrics.backend.facade.contracts import (
     MetricsOverview,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
+    SuggestedDashboard,
 )
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.facade.enums import (
+    DashboardTemplateStatus,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -53,6 +68,11 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
+from products.metrics.backend.variables import from_dashboard, with_values
+
+logger = structlog.get_logger(__name__)
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -111,15 +131,31 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
 
 
 def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
-    """The unit of one output series, resolved from the physical series it
+    """The ingested unit shared by the physical series one output series
     aggregated. The unit only applies when every contributing series carries
-    the same one — a disagreement, or a series with no unit at all, means the
-    merge has no correct single unit, so it carries none."""
-    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    the same one. A disagreement, or a mix of unit and no unit, means the
+    merge has no correct single unit, so it returns None. Series that all
+    carry no unit return "", which `_output_unit` needs to tell a unitless
+    counter (whose rate is still per second) apart from a disagreement."""
+    units = {units_by_fingerprint.get(fp, "") for fp in fingerprints}
     if len(units) != 1:
         return None
     (unit,) = units
     return unit
+
+
+def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
+    """The unit of the values a clause returns, which differs from the
+    ingested unit when the clause transforms the values. COUNT returns a
+    number of series, so it has no unit, even after a range function. RATE
+    divides by the bucket length in seconds, so it returns the ingested unit
+    per second, as a UCUM string the frontend formatter reads. Every other
+    aggregation keeps the ingested unit."""
+    if ingested is None or clause.aggregation is MetricAggregation.COUNT:
+        return None
+    if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
+        return f"{ingested or '1'}/s"
+    return ingested or None
 
 
 # Hard cap on series returned per clause; the largest series (by summed
@@ -131,8 +167,7 @@ MAX_SERIES_PER_CLAUSE = MAX_RAW_SERIES
 def _assemble_series(
     rows: list[dict[str, Any]],
     *,
-    metric_name: str,
-    clause_name: str,
+    clause: MetricQueryClause,
     grid: list[str],
     units_by_fingerprint: dict[int, str],
 ) -> list[MetricSeries]:
@@ -160,9 +195,9 @@ def _assemble_series(
         MetricSeries(
             labels=dict(key[0]),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
-            metric_name=metric_name,
-            clause=clause_name,
-            unit=_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
+            metric_name=clause.metric_name,
+            clause=clause.name,
+            unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -351,8 +386,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     series_by_clause = {
         clause.name: _assemble_series(
             rows_by_clause[clause.name],
-            metric_name=clause.metric_name,
-            clause_name=clause.name,
+            clause=clause,
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
         )
@@ -468,6 +502,55 @@ def list_metric_attribute_values(
         team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
     )
     return runner.run()
+
+
+def check_metric_variable_regex(regex: str | None) -> None:
+    """Raises `ValueError` for a variable regex that the options cannot use."""
+    compile_regex(regex)
+
+
+def list_metric_variable_options(
+    *,
+    team: Team,
+    source: MetricsDashboardVariableSource,
+    query: str | None = None,
+    custom_values: list[str] | None = None,
+    regex: str | None = None,
+    variables: Sequence[MetricsDashboardVariable] = (),
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    """`variables` are the selections of the other variables, which the query can refer to as `$name`.
+
+    `date_from` and `date_to` are a dashboard date filter, such as `-7d`, and resolve as they do for tiles.
+    Raises `ValueError` for a bad query or window, and `ConcurrencyLimitExceeded` when the organization
+    runs too many queries.
+    """
+    # `all` looks up the earliest event, which is a query, so it counts against the same limits.
+    lookup = query_concurrency_slots(team) if date_from == "all" else nullcontext()
+    try:
+        with lookup:
+            window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
+            resolved_from, resolved_to = window.date_from(), window.date_to()
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("The window of the variable options is not a valid date range.") from exc
+    check_options_window(resolved_from, resolved_to)
+    # The caller sends the options that All stands for, so an empty list is a known empty set.
+    selections = {
+        name: with_values(variable, variable.values) if variable.is_all else variable
+        for name, variable in from_dashboard(variables).items()
+    }
+    return list_variable_options(
+        team=team,
+        source=source,
+        query=query,
+        custom_values=custom_values,
+        regex=regex,
+        variables=selections,
+        date_from=resolved_from,
+        date_to=resolved_to,
+        slot=partial(query_concurrency_slots, team),
+    )
 
 
 def list_metric_event_samples(
@@ -702,3 +785,100 @@ def check_dashboard_panel_queries(
     )
 
     return check_panel_queries(team=team, user=user, panels=panels, import_id=import_id)
+
+
+def list_suggested_dashboards(*, team: Team) -> list[SuggestedDashboard]:
+    """The approved bank dashboards that suit the metrics of the team, best fit first.
+
+    The first call for a team that was never analyzed starts its analysis, so suggestions appear without
+    waiting for its metric names to change.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        discovery,
+        service,
+    )
+    from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        start_team_analysis,
+    )
+
+    discovery.record_opened(team.id)
+    if discovery.needs_analysis_on_open(team.id):
+        try:
+            start_team_analysis(team.id, force=True)
+        except Exception:
+            discovery.forget_analysis_on_open(team.id)
+            logger.warning("metrics_suggested_dashboards_first_analysis_not_started", team_id=team.id)
+    return service.list_suggestions(team)
+
+
+def create_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) -> int:
+    """Create the dashboard of a suggestion as the user, and return its id. A second call returns the same id.
+
+    Raises `SuggestedDashboardError` with a message for the user.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.create_from_suggestion(team, user, suggestion_id)
+
+
+def analyze_team_metrics_now(*, team: Team) -> None:
+    """Start an analysis of the team's metric names now, even when nothing changed. For the staff review."""
+    from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        start_team_analysis,
+    )
+
+    start_team_analysis(team.id, force=True)
+
+
+def list_dashboard_templates(*, status: DashboardTemplateStatus | None = None) -> list[DashboardTemplateSummary]:
+    """The templates of the metrics dashboard bank, newest first. Instance-wide, for the staff review."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.list_templates(status)
+
+
+def get_dashboard_template(*, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.get_template(template_id)
+
+
+def open_dashboard_template_preview(*, team: Team, user: User, template_id: str) -> int:
+    """The id of an unlisted dashboard in the team that shows the template with live data. Builds it when needed."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.open_preview(team, user, template_id)
+
+
+def approve_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    """Approve a template. The changes on its preview dashboard become the template first."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.approve(user, template_id)
+
+
+def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.reject(user, template_id)
+
+
+def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:
+    """The PNG that a generation round rendered of the preview dashboard."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.picture(template_id, round_number)

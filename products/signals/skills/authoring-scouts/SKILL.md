@@ -22,8 +22,9 @@ A **scout** is a scheduled agent that wakes on its own interval, looks at one Po
 PostHog ships a fleet of **canonical scouts** (a cross-product generalist plus per-surface specialists).
 This skill helps you and your agent **adapt those canonical scouts to a specific project**, or **author new scouts from scratch** for a use case the fleet doesn't cover.
 
-A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
-The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
+A report-producing scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
+Most of the canonical fleet runs this way, and **every new report-producing scout should too** — include the `allowed_tools` opt-in when you author one.
+A scout whose output is a product surface (for example, suggestions on a workflow page) omits both tools; see [Scouts with a product-specific output](references/report-contract.md#scouts-with-a-product-specific-output).
 Where that output _lands_ is a separate, per-scout config decision: the report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (`output_destinations` under Run posture) — so don't rule a scout out of a job because the user wants the result in Slack.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
@@ -84,7 +85,7 @@ And where a built-in signals source already covers the surface (GitHub and Linea
 A scout does not have to stop at describing a fix: the **maintainer / steward** pattern is how a scout holding `write_scopes` keeps a family of dashboards, alerts, warehouse views, or scanner prompts healthy itself, with a write ladder that says which changes it applies, which it verifies and reports, and which it hands to a human.
 Find the closest pattern, then write the body.
 
-Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
+Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every report-producing scout needs; a scout with a [product-specific output](references/report-contract.md#scouts-with-a-product-specific-output) omits it), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
 
 **Write the body feature-forward.** The body is a prompt a run reads in full, every run, for as long as the scout lives — so it states what the scout watches and how it decides, and nothing else. Four things do not belong in it:
 
@@ -128,6 +129,7 @@ A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate f
 For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create` call, including creating it disabled or in dry-run **before it ever runs**.
 When creating a scout to test an idea, set `config.enabled=false` so scheduled runs cannot interfere with the trial.
 The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
+A scout with a product-specific output must stay off the report channel, so create it with `skill-create` and `scout-config-create` instead; see [Scouts with a product-specific output](references/report-contract.md#scouts-with-a-product-specific-output).
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
 
@@ -138,7 +140,19 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   When set it takes precedence over `run_interval_minutes`, so a "slow it down" edit on a cron scout has to change or clear the cron (set `null` to return to the rolling interval).
   A new or edited schedule anchors on the edit time and waits for its next slot rather than catching up on a past one.
   Reach for it when the run should land at a wall-clock time: a digest before standup, a weekday-only watch.
+- A scheduled run starts inside a window, not at an exact minute.
+  Each scout has a fixed offset in that window, so its cadence does not change from run to run.
+  A cron scout starts within 20 minutes of its cron time, so a `0 9 * * *` scout starts at the same minute between 9:00 and 9:20 every day.
+  An interval scout starts within the same 30-minute coordinator tick, and `last_run_at` records the tick, not the start.
+  A scout's first run, a manual run, a workflow run, and a report-check run start at once.
+  When you explain or write a schedule, describe the time as a window.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
+- `precheck_query` — defaults to null: a HogQL `SELECT` that a scheduled run evaluates before it starts, with `{since}`, `{now}`, and `{interval_minutes}` placeholders.
+  No rows, or one row with one false value (such as a zero `count()`), skips the run before it creates a run row or a sandbox. Any other result starts the run, and the rows enter the run prompt. A query error also starts the run.
+  Only scheduled runs evaluate it: a manual, workflow, or report-check run always starts.
+  Set it for a scout that has nothing to do on most ticks. Test the query with `posthog:scout-config-precheck-test` before you save it, because a scheduled check runs as the scout's acting user and the dry run runs as you.
+  A canonical scout can ship a default in its `scout-precheck-query` frontmatter. `precheck_query` overrides that default, null restores it, and `precheck_disabled: true` turns off both.
+  The full recipe, the placeholder semantics, and how to diagnose a tick with no run row are in [`references/scheduled-precheck.md`](references/scheduled-precheck.md).
 - `emit` — defaults to **`true`**: the scout writes its reports straight to the inbox.
   Set **`emit=false` (dry-run)** to inspect an ordinary run's reasoning without publishing reports to the inbox.
   Private trials capture reports and memory separately and work while the source scout is paused or has `emit=false`.
@@ -149,8 +163,9 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
-- `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
-  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `customer_task:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, or `replay_scanner:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+- `write_scopes` — defaults to `["notebook:write"]`: the scout reads the project and writes its findings, its memory, and notebooks.
+  `notebook:write` reaches every notebook in the project, not only the ones the scout made. Send `[]` (or drop it from the list) for a scout that should write nothing but its findings and memory. Unlike the other scopes, a run keeps it when its author no longer resolves and it acts as another project member.
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `customer_task:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, `replay_scanner:write`, or `canvas:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
   The body of such a scout follows the maintainer / steward pattern in `references/scout-patterns.md`: a curated inventory, a write ladder (do-and-log, do-verify-report, hand-to-a-human), a per-run change cap, and a rolling maintenance report naming every object changed.
   Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
   `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
@@ -158,6 +173,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `replay_scanner:write` permits scanner maintenance. A scout must set a `credit_limit` when it creates, copies, or enables a scanner, and before it changes targeting, sampling, or the model of an enabled scanner. It cannot clear a limit, delete a scanner, or start manual scans, retries, or backfills. Use `enabled: false` to stop a scanner and keep its observations. Change a shared rating only to record an explicit user verdict, because ratings steer how the scanner judges later sessions.
   `customer_task:write` covers every Customer analytics task in the project, including tasks assigned to other people: create, update (status, due date, assignee), archive, and restore archived tasks, with no delete. Say in the body whose tasks the scout tends, and whether it may reassign one.
   Customer analytics tasks are still behind the `customer-analytics-customer-tasks` feature flag. On a project without it the task tools do not exist and the grant does nothing, so do not grant it there.
+  `canvas:write` reaches every canvas in a public space and every canvas the acting user created: publish, layout, runtime state, and soft-delete of the acting user's own canvases. A scout run cannot create a canvas, because a scout task has no space to file one in. Create the canvas first, name its id in the body, and follow the one-canvas maintainer variant in `references/scout-patterns.md`. Each published version records the run's task, so version history shows which run published it.
   Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.

@@ -23,6 +23,9 @@ logs-count-ranges
 logs-patterns
 logs-patterns-diff
 logs-sparkline-query
+notebooks-add-cell
+notebooks-create-markdown
+notebooks-update-cell
 org-member-get-github-login
 pr-lifecycle
 pull-requests
@@ -38,6 +41,7 @@ query-stickiness
 query-trends
 read-data-schema
 scout-check-record-result
+scout-config-precheck-test
 scout-edit-report
 scout-emit-report
 scout-lighthouse-audit
@@ -47,6 +51,7 @@ scout-trial-report
 scout-trial-start
 survey-stats
 surveys-global-stats
+switch-project
 view-run-history
 vision-observations-create-task
 vision-observations-retry

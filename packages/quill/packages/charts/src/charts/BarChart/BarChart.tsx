@@ -111,7 +111,8 @@ function BarChartInner<Meta = unknown>({
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
-    const barTrack = trackConfig !== false
+    const solidTrack = trackConfig === 'solid'
+    const barTrack = trackConfig !== false && !solidTrack
     const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -194,6 +195,7 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                groupPadding: bandPadding === 0 ? 0 : undefined,
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 minBarSize,
@@ -291,6 +293,7 @@ function BarChartInner<Meta = unknown>({
                 roundStackEnds,
                 barCornerRadius,
                 barTrack,
+                solidTrack,
                 barShadow,
                 barFillStyle,
                 minBarSizeScope,
@@ -305,6 +308,7 @@ function BarChartInner<Meta = unknown>({
             roundStackEnds,
             barCornerRadius,
             barTrack,
+            solidTrack,
             xTickFormatter,
             barShadow,
             barFillStyle,

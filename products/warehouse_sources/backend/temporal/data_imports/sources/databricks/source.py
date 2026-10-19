@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -57,6 +58,29 @@ DatabricksErrors = {
 
 @SourceRegistry.register
 class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^DATABRICKS_",),
+        npm=("@databricks/sql",),
+        pypi=("databricks-sql-connector", "databricks-sdk", "databricks-connect", "databricks-cli"),
+        go=(
+            "github.com/databricks/databricks-sdk-go",
+            "github.com/databricks/databricks-sql-go",
+            "github.com/databricks/databricks-grafana-datasource",
+            "github.com/databricks/databricks-sql-kernel-bindings",
+        ),
+        maven=(
+            "com.databricks:databricks-sdk-java",
+            "com.databricks:databricks-jdbc",
+            "com.databricks:databricks-connect",
+            "com.databricks:databricks-connect_2.13",
+            "com.databricks:databricks-dbutils-scala-parent_2.12",
+            "com.databricks:databricks-dbutils-scala-parent_2.13",
+            "com.databricks:databricks-dbutils-scala_2.12",
+            "com.databricks:databricks-dbutils-scala_2.13",
+            "com.databricks:databricks-jdbc-thin",
+        ),
+    )
+
     api_docs_url = "https://docs.databricks.com/aws/en/dev-tools/python-sql-connector"
 
     @property
@@ -199,7 +223,20 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # something PostHog's retries can fix. Matched on Databricks' own stable error class,
             # not the redacted JDBC URL around it.
             "[FAILED_JDBC.CONNECTION]": "Databricks couldn't connect to a federated database backing a table you're syncing (a Lakehouse Federation connection). Check that the underlying database is reachable and its connection details in Databricks are still correct, then resync.",
+            # Raised when a synced view's underlying table was altered (a column renamed or dropped)
+            # and the view's own SELECT no longer resolves — a stale view definition on the
+            # customer's side that every retry fails identically until they recreate it. Matched on
+            # Databricks' own stable error class, not the view/column names or the CREATE OR REPLACE
+            # statement it suggests around it.
+            "[INCOMPATIBLE_VIEW_SCHEMA_CHANGE]": "A view this source syncs has an incompatible schema change in Databricks — its underlying table was altered and the view's query can no longer resolve a column. Recreate the view in Databricks to match the new schema, then resync.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Raised when the SQL warehouse auto-suspended (or was manually stopped) while a
+        # command was in flight. Databricks auto-starts a stopped warehouse on the next query
+        # by default, so the fresh connection Temporal opens on its next retry attempt usually
+        # finds the warehouse running again.
+        return {"was stopped."}
 
     def get_schemas(
         self,

@@ -60,8 +60,16 @@ export class ConcurrencyController {
         (a, b) => a._priority < b._priority
     )
 
-    constructor(concurrencyLimit: number) {
+    private _batchStart: boolean
+    private _startScheduled = false
+
+    /**
+     * @param batchStart Wait one task before starting work, so items added in the same render start by priority
+     * instead of in arrival order.
+     */
+    constructor(concurrencyLimit: number, { batchStart = false }: { batchStart?: boolean } = {}) {
         this._concurrencyLimit = concurrencyLimit
+        this._batchStart = batchStart
     }
 
     /**
@@ -87,7 +95,11 @@ export class ConcurrencyController {
 
         this._queue.add(item)
 
-        this._tryRunNext()
+        if (this._batchStart) {
+            this._scheduleStart()
+        } else {
+            this._tryRunNext()
+        }
 
         return item._promise
     }
@@ -103,6 +115,19 @@ export class ConcurrencyController {
                     this._tryRunNext()
                 })
         }
+    }
+
+    private _scheduleStart(): void {
+        if (this._startScheduled) {
+            return
+        }
+        this._startScheduled = true
+        setTimeout(() => {
+            this._startScheduled = false
+            while (this._current.length < this._concurrencyLimit && !this._queue.isEmpty()) {
+                this._runNext()
+            }
+        }, 0)
     }
 
     _tryRunNext(): void {

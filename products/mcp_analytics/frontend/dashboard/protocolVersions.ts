@@ -4,7 +4,7 @@ import { formatPercentage } from 'lib/utils/numbers'
 
 import { MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
 
-import { shadeColor } from './modelColors'
+import { shadeColor } from '../colors'
 
 export const CURRENT_PROTOCOL_VERSION = '2026-07-28'
 

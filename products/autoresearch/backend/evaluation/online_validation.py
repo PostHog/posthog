@@ -44,7 +44,11 @@ from products.autoresearch.backend.dataset.labeling import (
 )
 from products.autoresearch.backend.evaluation.history import latest_validation_runs
 from products.autoresearch.backend.evaluation.maturity import matures_at
-from products.autoresearch.backend.evaluation.segment_thresholds import BASE_RATE_DATES, segment_thresholds
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    champion_training_base_rate,
+    segment_thresholds,
+)
 from products.autoresearch.backend.inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
@@ -347,7 +351,8 @@ def _validate_claimed_date(
         )
         # The cut point the Predictions tab showed for this date comes from the dates checked before it.
         thresholds = segment_thresholds(
-            latest_validation_runs(team.pk, pipeline, limit=BASE_RATE_DATES, before=pending.prediction_date)
+            latest_validation_runs(team.pk, pipeline, limit=BASE_RATE_DATES, before=pending.prediction_date),
+            training_rate=champion_training_base_rate(team.pk, pipeline),
         )
         per_model = {
             model_id: _ModelValidation(

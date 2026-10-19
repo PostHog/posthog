@@ -1,9 +1,15 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.source import ElevenLabsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
+    ElevenLabsSourceConfig,
+)
 
 
 class TestElevenLabsSchemas:
@@ -21,6 +27,9 @@ class TestElevenLabsSchemas:
             ("tools", False, False),
             # Executions take a server-side `start_time` filter, so they merge incrementally.
             ("tool_executions", True, False),
+            ("phone_numbers", False, False),
+            ("batch_calls", False, False),
+            ("subscription", False, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:
@@ -29,10 +38,6 @@ class TestElevenLabsSchemas:
         schemas = {s.name: s for s in ElevenLabsSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
-
-    def test_names_filter_limits_returned_schemas(self) -> None:
-        schemas = ElevenLabsSource().get_schemas(MagicMock(), team_id=1, names=["voices"])
-        assert [s.name for s in schemas] == ["voices"]
 
 
 class TestElevenLabsNonRetryableErrors:
@@ -60,14 +65,12 @@ class TestElevenLabsNonRetryableErrors:
 class TestElevenLabsPipelinePlumbing:
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # When incremental is off, the stored watermark must not leak into the request as a filter.
-        inputs = MagicMock(
-            schema_name="agents",
+        result = SourceDriver(ElevenLabsSource(), ElevenLabsSourceConfig(api_key="sk_test")).run(
+            "history",
+            [ScriptedResponse(json={"history": [], "has_more": False})],
             should_use_incremental_field=False,
             db_incremental_field_last_value=1700000000,
-            incremental_field=None,
         )
-        with patch.object(source_module, "elevenlabs_source") as mocked:
-            ElevenLabsSource().source_for_pipeline(MagicMock(api_key="sk_test"), MagicMock(), inputs)
 
-        _args, kwargs = mocked.call_args
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("date_after_unix") == [None]

@@ -125,6 +125,7 @@ function ReportCardRaw({
     preview = false,
     selectable = false,
     rankingSortField = null,
+    timestampField = 'updated_at',
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -141,6 +142,8 @@ function ReportCardRaw({
     selectable?: boolean
     /** The active model sort, if any. The meta row then shows the report's probability for that head. */
     rankingSortField?: InboxRankingSortField | null
+    /** The time the card shows. Match it to the active time sort, so the list reads in order. */
+    timestampField?: 'created_at' | 'updated_at'
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -158,6 +161,8 @@ function ReportCardRaw({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
+    const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
+    const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
     const redesign = useFeatureFlag('INBOX_REDESIGN')
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     // The impact column carries its own flag on top of the redesign: its figures come from live
@@ -304,9 +309,9 @@ function ReportCardRaw({
                     {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
                         <TZLabel
-                            time={report.updated_at ?? report.created_at}
+                            time={cardTime}
                             className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
-                            title="Last updated"
+                            title={cardTimeTitle}
                         />
                     )}
                 </div>
@@ -318,9 +323,9 @@ function ReportCardRaw({
                 <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
                     <TZLabel
-                        time={report.updated_at ?? report.created_at}
+                        time={cardTime}
                         className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
-                        title="Last updated"
+                        title={cardTimeTitle}
                     />
                 </div>
             ) : null}

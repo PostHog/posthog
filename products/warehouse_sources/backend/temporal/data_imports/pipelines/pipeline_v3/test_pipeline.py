@@ -4,6 +4,7 @@ import inspect
 import threading
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -19,7 +20,9 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from products.warehouse_sources.backend.models import external_data_schema as schema_models
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
+    update_incremental_field_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import (
     PreemptionConfig,
@@ -454,6 +457,7 @@ class TestResetLoadWritesTheQueuedScheme:
         attempt: int = 1,
         can_resume: bool = False,
         webhook_only: bool = False,
+        source_mode: str | None = "md5",
     ) -> dict[str, Any]:
         resource = MagicMock(
             name="users",
@@ -462,7 +466,7 @@ class TestResetLoadWritesTheQueuedScheme:
             partition_size=None,
             partition_keys=["id"],
             partition_format=None,
-            partition_mode="md5",
+            partition_mode=source_mode,
             cdc_write_mode=None,
             lanes=None,
             webhook_only=webhook_only,
@@ -552,6 +556,40 @@ class TestResetLoadWritesTheQueuedScheme:
         assert kwargs["partition_mode"] == "md5"
         assert kwargs["partition_keys"] == ["id"]
 
+    @pytest.mark.parametrize(
+        "saved_layout, reset_pipeline, expected_mode, expected_keys",
+        [
+            ({}, False, "datetime", ["ts"]),
+            (
+                {"partition_mode": "md5", "partition_count": _OLD_COUNT, "partitioning_keys": ["id"]},
+                True,
+                "datetime",
+                ["ts"],
+            ),
+            (
+                {"partition_mode": "md5", "partition_count": _OLD_COUNT, "partitioning_keys": ["id"]},
+                False,
+                "md5",
+                ["id"],
+            ),
+        ],
+        ids=["new_table", "reset_replaces_a_hash_bucket_table", "existing_table_keeps_its_layout"],
+    )
+    def test_an_append_table_is_partitioned_by_its_date_cursor_only_when_it_is_created(
+        self, saved_layout: dict[str, Any], reset_pipeline: bool, expected_mode: str, expected_keys: list[str]
+    ) -> None:
+        schema = ExternalDataSchema(
+            name="events",
+            team_id=1,
+            sync_type="append",
+            sync_type_config={"incremental_field": "ts", "incremental_field_type": "timestamp", **saved_layout},
+        )
+
+        kwargs = self._producer_kwargs(schema, reset_pipeline=reset_pipeline, source_mode=None)
+
+        assert kwargs["partition_mode"] == expected_mode
+        assert kwargs["partition_keys"] == expected_keys
+
     @pytest.mark.asyncio
     async def test_the_reset_load_writes_the_queued_scheme_and_later_attempts_agree(self, tmp_path) -> None:
         schema = self._schema(reset_pipeline=True, repartition_pending=_PENDING_SCHEME, repartition_rewrite={"a": 1})
@@ -605,12 +643,14 @@ class TestResetLoadWritesTheQueuedScheme:
                 {"partition_count_override": 11},
             ),
             ({"repartition_pending": {"attempts": 2}, "repartition_rewrite": {"temp_uri": "x"}}, {}),
+            ({"repartition_pending": {**_PENDING_SCHEME, "dropping": True}}, {}),
             ({}, {}),
         ],
         ids=[
             "queued_target_becomes_the_scheme",
             "operator_pin_stays",
             "bookkeeping_only_marker_goes",
+            "target_being_dropped_goes",
             "nothing_queued",
         ],
     )
@@ -1167,6 +1207,112 @@ class TestFinalizeStagesTheWatermarkFirst:
         assert order == ["stage", "send"]
         schema.stage_source_cursor.assert_called_once_with("run-1", payload)
         schema.update_source_cursor.assert_not_called()
+
+
+class TestDescWatermarkAcrossResumedAttempts:
+    _NEWEST = datetime(2026, 1, 31, tzinfo=UTC)
+
+    def _schema(self) -> ExternalDataSchema:
+        return ExternalDataSchema(
+            name="events",
+            team_id=1,
+            sync_type="incremental",
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": IncrementalFieldType.DateTime,
+            },
+        )
+
+    def _attempt(self, schema: ExternalDataSchema, attempt: int) -> PipelineV3:
+        resource = MagicMock(
+            name="events",
+            primary_keys=["id"],
+            partition_count=None,
+            partition_size=None,
+            partition_keys=["id"],
+            partition_format=None,
+            partition_mode="md5",
+            cdc_write_mode=None,
+            lanes=None,
+            webhook_only=False,
+            sort_mode="desc",
+        )
+        manager = MagicMock(can_resume=MagicMock(return_value=attempt > 1))
+        with (
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=attempt),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer"),
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_resume_manager", return_value=manager),
+        ):
+            return PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=manager,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    schema=schema,
+                    source=MagicMock(source_type="Langfuse"),
+                    table=MagicMock(),
+                ),
+            )
+
+    async def _extract(self, schema: ExternalDataSchema, attempt: int, *, final: bool) -> str:
+        pipeline = self._attempt(schema, attempt)
+        run_uuid = cast(str, pipeline._run_uuid)
+        # Each attempt resumes on an older page than the attempt before it read.
+        newest_row = self._NEWEST - timedelta(hours=10 * (attempt - 1))
+        table = pa.table(
+            {"created_at": pa.array([newest_row, newest_row - timedelta(hours=5)], pa.timestamp("us", tz="UTC"))}
+        )
+        values = await update_incremental_field_values(
+            schema,
+            table,
+            pipeline._resource,
+            pipeline._last_incremental_field_value,
+            pipeline._earliest_incremental_field_value,
+            _make_logger(),
+            staging_run_uuid=run_uuid,
+        )
+        if final:
+            await finalize_desc_sort_incremental_value(
+                pipeline._resource, schema, values.last_value, _make_logger(), staging_run_uuid=run_uuid
+            )
+        return run_uuid
+
+    @pytest.mark.parametrize(
+        "attempts",
+        [
+            pytest.param(2, id="one_resume"),
+            pytest.param(schema_models.STAGED_CURSOR_PENDING_LIMIT + 5, id="the_first_attempt_left_the_parked_list"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_completed_run_promotes_the_newest_value_of_every_attempt(self, attempts: int) -> None:
+        schema = self._schema()
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)),
+            patch.object(ExternalDataSchema, "refresh_from_db"),
+        ):
+            for attempt in range(1, attempts + 1):
+                run_uuid = await self._extract(schema, attempt, final=attempt == attempts)
+            assert schema.sync_type_config.get("incremental_field_last_value") is None
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        parked_run_uuids = {
+            entry["run_uuid"] for entry in schema.sync_type_config.get("incremental_staged_pending", [])
+        }
+        first_attempt_is_parked = schema_models.attempt_run_uuid("wfrun-abc", 1) in parked_run_uuids
+        assert first_attempt_is_parked == (attempts <= schema_models.STAGED_CURSOR_PENDING_LIMIT)
+        oldest_row = self._NEWEST - timedelta(hours=10 * (attempts - 1) + 5)
+        assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
+        assert schema.sync_type_config["incremental_field_earliest_value"] == oldest_row.isoformat()
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:

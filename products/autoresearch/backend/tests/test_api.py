@@ -117,6 +117,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         # Auto-derived output property carries the horizon so same-target/different-horizon
         # pipelines don't $set the same person property.
         assert data["output_person_property"] == "predicted_p_signup_14d"
+        # A new model scores without writing to person profiles until someone opts in.
+        assert data["write_person_property"] is False
         assert AutoresearchPipeline.objects.filter(team=self.team, name="My Pipeline").exists()
 
     def test_create_pipeline_with_action_target(self):
@@ -344,6 +346,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                     "best_holdout_score": 0.72,
                     "latest_agent_description": "try fewer features",
                     "latest_summary": "Plain try fewer features",
+                    "trend": [
+                        {"iteration_number": 0, "best_holdout_score": 0.72},
+                        {"iteration_number": 1, "best_holdout_score": 0.72},
+                    ],
                 },
             ),
             "No positives": (None, 0, 0, [], None),
@@ -582,6 +588,49 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline.refresh_from_db()
         assert pipeline.status == AutoresearchPipeline.Status.ARCHIVED
 
+    @parameterized.expand(
+        [
+            ("turned_off", True, "patch", True, True),
+            ("already_off", False, "patch", False, False),
+            ("archived_while_on", True, "archive", True, True),
+            ("archived_while_off", False, "archive", False, False),
+            ("paused_while_on", True, "pause", False, False),
+            ("deleted_while_on", True, "delete", True, False),
+        ]
+    )
+    def test_property_cleanup_starts_only_when_a_writing_pipeline_stops(
+        self, _name: str, writing: bool, change: str, starts_cleanup: bool, records_run: bool
+    ):
+        pipeline = self._make_pipeline(
+            status=AutoresearchPipeline.Status.RUNNING,
+            output_person_property="predicted_p_pageview_7d",
+            write_person_property=writing,
+        )
+        url = f"{self.base_url}/{pipeline.id}/"
+        with (
+            patch(f"{_FACADE}._start_property_cleanup") as start_cleanup,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if change == "patch":
+                resp = self.client.patch(url, {"write_person_property": False}, format="json")
+            elif change == "delete":
+                resp = self.client.delete(url)
+            else:
+                resp = self.client.post(f"{url}{change}/")
+        assert resp.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), resp.content
+
+        assert start_cleanup.called == starts_cleanup
+        cleanup_runs = AutoresearchRun.objects.for_team(self.team.pk).filter(
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP
+        )
+        assert cleanup_runs.count() == (1 if records_run else 0)
+        if starts_cleanup:
+            kwargs = start_cleanup.call_args.kwargs
+            assert kwargs["output_property"] == "predicted_p_pageview_7d"
+            assert kwargs["pipeline_id"] == str(pipeline.pk)
+            assert kwargs["user_id"] == self.user.pk
+            assert (kwargs["run"] is not None) == records_run
+
     def test_train_archived_pipeline_returns_404(self):
         pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
         # Archived pipelines are excluded from the queryset so the endpoint returns 404
@@ -783,18 +832,95 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_all}")
         assert self.client.post(missing).status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("patch_person_writes", "patch", "", {"write_person_property": False}, None, True),
+            ("patch_other_fields", "patch", "", {"name": "Renamed"}, None, False),
+            ("create_with_person_writes", "post", None, {"write_person_property": True}, None, True),
+            ("archive_writing_pipeline", "post", "archive/", None, True, True),
+            ("archive_other_pipeline", "post", "archive/", None, False, False),
+            ("delete_writing_pipeline", "delete", "", None, True, True),
+        ]
+    )
+    def test_person_writes_need_person_write(
+        self,
+        _name: str,
+        method: str,
+        suffix: str | None,
+        body: dict | None,
+        pipeline_writes: bool | None,
+        needs_person_write: bool,
+    ):
+        if suffix is None:
+            url = f"{self.base_url}/"
+        else:
+            pipeline_id = (
+                self._make_pipeline(
+                    status=AutoresearchPipeline.Status.RUNNING,
+                    output_person_property="predicted_p_pageview_7d",
+                    write_person_property=pipeline_writes,
+                ).id
+                if pipeline_writes is not None
+                else uuid.uuid4()
+            )
+            url = f"{self.base_url}/{pipeline_id}/{suffix}"
+        self.client.logout()
+        with patch(f"{_FACADE}._start_property_cleanup"):
+            for scopes, refused in (
+                (["autoresearch:write"], needs_person_write),
+                (["autoresearch:write", "person:write"], False),
+            ):
+                key = self.create_personal_api_key_with_scopes(scopes)
+                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+                resp = getattr(self.client, method)(url, body, format="json")
+                assert (resp.status_code == status.HTTP_403_FORBIDDEN) == refused, (scopes, resp.content)
+
+    @parameterized.expand(
+        [
+            ("while_writing", True, {}, status.HTTP_400_BAD_REQUEST),
+            ("while_off", False, {}, status.HTTP_200_OK),
+            ("while_turning_writes_off", True, {"write_person_property": False}, status.HTTP_200_OK),
+            ("blank_while_writing", True, {"output_person_property": ""}, status.HTTP_400_BAD_REQUEST),
+            (
+                "blank_while_turning_writes_on",
+                False,
+                {"output_person_property": "", "write_person_property": True},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_renaming_the_person_property_needs_writes_off(self, _name: str, writing: bool, extra: dict, expected: int):
+        pipeline = self._make_pipeline(
+            status=AutoresearchPipeline.Status.RUNNING,
+            output_person_property="predicted_p_pageview_7d",
+            write_person_property=writing,
+        )
+        with patch(f"{_FACADE}._start_property_cleanup"):
+            resp = self.client.patch(
+                f"{self.base_url}/{pipeline.id}/",
+                {"output_person_property": "predicted_p_pageview_renamed", **extra},
+                format="json",
+            )
+        assert resp.status_code == expected, resp.content
+        pipeline.refresh_from_db()
+        renamed = expected == status.HTTP_200_OK
+        assert (pipeline.output_person_property == "predicted_p_pageview_renamed") == renamed
+
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
     def test_start_training(self):
-        pipeline = self._make_pipeline()
+        pipeline = self._make_pipeline(iterations_per_run=8)
 
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
-        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any):
+        def _fake_run_training(
+            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str
+        ):
             return AutoresearchTrainingRun.objects.create(
                 pipeline=pipeline,
                 status=AutoresearchTrainingRun.Status.RUNNING,
                 iteration_budget=iteration_budget,
+                kickoff_reason=kickoff_reason,
             )
 
         with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
@@ -803,6 +929,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data["status"] == "running"
+        assert data["iteration_budget"] == 8
+        assert data["kickoff_reason"] == "manual"
 
     @parameterized.expand(
         [
@@ -983,13 +1111,16 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_trained_pipeline()
         resp = self.client.patch(
             f"{self.base_url}/{pipeline.id}/",
-            {"name": "Renamed", "cadence_days": 3, "iteration_budget": 20},
+            {"name": "Renamed", "cadence_days": 3, "iterations_per_run": 8, "research_interval_days": None},
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["next_research_at"] is None
         pipeline.refresh_from_db()
         assert pipeline.name == "Renamed"
         assert pipeline.cadence_days == 3
+        assert pipeline.iterations_per_run == 8
+        assert pipeline.research_interval_days is None
 
     def test_resubmitting_unchanged_target_after_training_is_allowed(self):
         pipeline = self._make_trained_pipeline()
@@ -1228,6 +1359,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "likely_lift": 3.0,
             "base_rate": None,
             "base_rate_dates": 2,
+            "base_rate_source": "fixed",
             "champion_mean_p_y": None,
             "champion_base_rate": None,
             "scores_miscalibrated": False,
@@ -1864,6 +1996,9 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("cadence_above_max", "cadence_days", 366),
             ("iteration_budget_below_min", "iteration_budget", 0),
             ("iteration_budget_above_max", "iteration_budget", 501),
+            ("iterations_per_run_below_min", "iterations_per_run", 0),
+            ("iterations_per_run_above_max", "iterations_per_run", 51),
+            ("research_interval_days_not_a_choice", "research_interval_days", 10),
             ("plateau_iterations_below_min", "plateau_iterations", 0),
             ("success_auc_below_min", "success_auc", -0.1),
             ("success_auc_above_max", "success_auc", 1.5),

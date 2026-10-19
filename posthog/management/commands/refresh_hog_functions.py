@@ -7,11 +7,11 @@ from django.core.paginator import Paginator
 
 import structlog
 
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, RUNTIME_CONTRACT, compile_filters_bytecode
-from posthog.cdp.validation import generate_template_bytecode
 from posthog.dataclasses import frozen
 
+from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES, RUNTIME_CONTRACT, compile_filters_bytecode
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import generate_template_bytecode
 
 logger = structlog.get_logger(__name__)
 

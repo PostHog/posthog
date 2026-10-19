@@ -2,8 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.structures import CaseInsensitiveDict
@@ -19,14 +17,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.
     AirwallexResumeConfig,
     _to_iso8601,
     _token_lifetime_seconds,
-    airwallex_source,
     base_url_for,
     validate_credentials,
 )
-
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-AIRWALLEX_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.airwallex.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airwallex import (
+    AirwallexSourceConfig,
 )
 
 
@@ -50,116 +51,84 @@ def _response(
     return resp
 
 
-def _login_response(token: str = "tok", expires_at: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = 201
+def _login_response(token: str = "tok", expires_at: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"token": token}
     if expires_at is not None:
         body["expires_at"] = expires_at
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(status=201, json=body)
 
 
-def _make_manager(resume_state: AirwallexResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _page(
+    items: list[dict[str, Any]], *, has_more: bool | None = None, page_after: str | None = None
+) -> ScriptedResponse:
+    body: dict[str, Any] = {"items": items}
+    if has_more is not None:
+        body["has_more"] = has_more
+    if page_after is not None:
+        body["page_after"] = page_after
+    return ScriptedResponse(json=body)
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return airwallex_source(
-        client_id="cid",
-        api_key="key",
-        environment="live",
-        api_version="2026-07-17",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(AirwallexSource(), AirwallexSourceConfig(client_id="cid", api_key="key", environment="live"))
 
 
 class TestAirwallexAuth:
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_login_sends_the_credential_headers_and_sets_a_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _login_response("minted")
+    def test_login_sends_the_credential_headers_and_sets_a_bearer(self) -> None:
         auth = AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)
 
         request = PreparedRequest()
         request.headers = CaseInsensitiveDict()
-        auth(request)
+        with scripted_network([_login_response("minted")]) as network:
+            auth(request)
 
-        headers = session.post.call_args.kwargs["headers"]
+        headers = network.requests_log[0].headers
         assert headers["x-client-id"] == "cid"
         assert headers["x-api-key"] == "key"
+        assert network.requests_log[0].method == "POST"
         assert request.headers["Authorization"] == "Bearer minted"
 
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_login_never_follows_a_redirect(self, MockSession) -> None:
+    def test_login_never_follows_a_redirect(self) -> None:
         # The login call carries the API key in a custom header, which requests would replay to a
         # redirect target.
-        session = MockSession.return_value
-        session.post.return_value = _login_response()
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://example.com/redirect"})]
+        ) as network:
+            try:
+                AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)._get_token()
+            except (AirwallexAuthError, ValueError):
+                pass
 
-        AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)._get_token()
+        assert len(network.requests_log) == 1
 
-        assert session.post.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_token_is_reused_until_it_nears_expiry(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_token_is_reused_until_it_nears_expiry(self) -> None:
         far_future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
-        session.post.return_value = _login_response("minted", far_future)
         auth = AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)
 
-        auth._get_token()
-        auth._get_token()
+        with scripted_network([_login_response("minted", far_future)]) as network:
+            auth._get_token()
+            auth._get_token()
 
-        assert session.post.call_count == 1
+        assert len(network.requests_log) == 1
 
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_missing_token_in_a_successful_login_raises(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.post.return_value = _login_response(token="")
+    def test_missing_token_in_a_successful_login_raises(self) -> None:
+        with scripted_network([_login_response(token="")]):
+            try:
+                AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)._get_token()
+            except AirwallexAuthError:
+                return
+            raise AssertionError("expected AirwallexAuthError")
 
-        try:
-            AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)._get_token()
-        except AirwallexAuthError:
-            return
-        raise AssertionError("expected AirwallexAuthError")
-
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_secret_values_cover_the_key_and_the_minted_token(self, MockSession) -> None:
+    def test_secret_values_cover_the_key_and_the_minted_token(self) -> None:
         # Both must be redacted from logged URLs, headers, sampled bodies, and raised errors.
-        session = MockSession.return_value
-        session.post.return_value = _login_response("minted")
         auth = AirwallexAuth("cid", "key", AIRWALLEX_LIVE_BASE_URL)
 
         assert auth.secret_values() == ("key",)
-        auth._get_token()
+        with scripted_network([_login_response("minted")]) as network:
+            auth._get_token()
         assert set(auth.secret_values()) == {"key", "minted"}
+        assert network.session_options[0]["redact_values"] == ("key",)
+        assert network.session_options[0]["capture"] is False
 
     @parameterized.expand(
         [
@@ -202,58 +171,108 @@ class TestAirwallexTransport:
 
     @parameterized.expand(
         [
-            ("FinancialTransactions", "from_created_at"),
-            ("Settlements", "from_settled_at"),
-            ("Beneficiaries", "from_date"),
-            ("Invoices", "from_created_at"),
+            ("FinancialTransactions", "created_at", "from_created_at"),
+            ("Settlements", "settled_at", "from_settled_at"),
+            ("Beneficiaries", "created_at", "from_date"),
+            ("Invoices", "created_at", "from_created_at"),
+            ("PaymentDisputes", "updated_at", "from_updated_at"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_uses_the_endpoints_own_filter_name(self, endpoint: str, param: str, MockSession) -> None:
+    def test_incremental_uses_the_endpoints_own_filter_name(self, endpoint: str, field: str, param: str) -> None:
         # Airwallex names this filter differently per endpoint, and sends 200 while ignoring a name
         # it does not know, so a wrong name silently full-scans every run.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "1"}], has_more=False)])
-
-        _rows(
-            _source(
-                endpoint,
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
-            )
+        result = _driver().run(
+            endpoint,
+            [_login_response(), _page([{"id": "1"}], has_more=False)],
+            incremental_field=field,
+            db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
         )
 
-        assert params[0][param] == "2021-01-01T00:00:00Z"
+        assert result.raised is None
+        assert result.requests[1].param(param) == "2021-01-01T00:00:00Z"
 
     @parameterized.expand([("PaymentIntents",), ("Customers",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_drops_client_secret(self, endpoint: str, MockSession) -> None:
+    def test_drops_client_secret(self, endpoint: str) -> None:
         # A still-valid client_secret authorizes a browser/app against Airwallex; it must never be
         # persisted to the warehouse.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1", "client_secret": "live_secret"}], has_more=False)])
+        result = _driver().run(
+            endpoint, [_login_response(), _page([{"id": "1", "client_secret": "live_secret"}], has_more=False)]
+        )
 
-        rows = _rows(_source(endpoint, _make_manager()))
+        assert result.raised is None
+        assert result.rows == [{"id": "1"}]
 
-        assert rows == [{"id": "1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cursor_walk_sends_page_after_as_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_cursor_walk_sends_page_after_as_page(self) -> None:
+        result = _driver().run(
+            "Transfers",
             [
-                _response([{"id": "1"}], page_after="cur1"),
-                _response([{"id": "2"}]),
+                _login_response(),
+                _page([{"id": "1"}], page_after="cur1"),
+                _page([{"id": "2"}]),
             ],
         )
 
-        rows = _rows(_source("Transfers", _make_manager()))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert result.params("page") == [None, None, "cur1"]
 
-        assert [row["id"] for row in rows] == ["1", "2"]
-        assert "page" not in params[0]
-        assert params[1]["page"] == "cur1"
+    @parameterized.expand([("PaymentDisputes", "size", "page_size"), ("CreditNotes", "page_size", "size")])
+    def test_page_size_rides_the_endpoints_own_param(self, endpoint: str, param: str, unused: str) -> None:
+        # An unknown size param is ignored, so disputes would fall back to 10 rows per page.
+        result = _driver().run(endpoint, [_login_response(), _page([{"id": "1"}])])
+
+        assert result.raised is None
+        assert result.requests[1].param(param) == "500"
+        assert result.requests[1].param(unused) is None
+
+    def test_subscription_items_fan_out_over_every_subscription(self) -> None:
+        result = _driver().run(
+            "SubscriptionItems",
+            [
+                _login_response(),
+                _page([{"id": "sub_1"}, {"id": "sub_2"}]),
+                _page([{"id": "si_1", "subscription_id": "sub_1"}], page_after="cur1"),
+                _page([{"id": "si_2", "subscription_id": "sub_1"}]),
+                _page([{"id": "si_1", "subscription_id": "sub_2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == [
+            "/api/v1/billing/subscriptions",
+            "/api/v1/billing/subscriptions/sub_1/items",
+            "/api/v1/billing/subscriptions/sub_1/items",
+            "/api/v1/billing/subscriptions/sub_2/items",
+        ]
+        assert result.params("page")[2:] == [None, "cur1", None]
+        assert [(row["subscription_id"], row["id"]) for row in result.rows] == [
+            ("sub_1", "si_1"),
+            ("sub_1", "si_2"),
+            ("sub_2", "si_1"),
+        ]
+        assert result.response is not None
+        # Item ids are only documented as unique within a subscription.
+        assert result.response.primary_keys == ["subscription_id", "id"]
+
+    def test_subscription_items_resume_skips_finished_subscriptions(self) -> None:
+        result = _driver().run(
+            "SubscriptionItems",
+            [
+                _login_response(),
+                _page([{"id": "sub_1"}, {"id": "sub_2"}]),
+                _page([{"id": "si_1", "subscription_id": "sub_2"}]),
+            ],
+            resume_state=AirwallexResumeConfig(
+                fanout_state={
+                    "completed": ["/api/v1/billing/subscriptions/sub_1/items"],
+                    "current": None,
+                    "child_state": None,
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == ["/api/v1/billing/subscriptions", "/api/v1/billing/subscriptions/sub_2/items"]
 
     def test_page_number_paginator_stops_at_the_api_cap(self) -> None:
         # page_num is capped at 2000; walking past it would request pages the API rejects.
@@ -270,41 +289,36 @@ class TestAirwallexTransport:
 
         assert paginator.has_next_page is False
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_page_number_resume_seeds_the_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "1"}], has_more=False)])
+    def test_page_number_resume_seeds_the_page(self) -> None:
+        result = _driver().run(
+            "FinancialTransactions",
+            [_login_response(), _page([{"id": "1"}], has_more=False)],
+            resume_state=AirwallexResumeConfig(page_num=7),
+        )
 
-        _rows(_source("FinancialTransactions", _make_manager(AirwallexResumeConfig(page_num=7))))
+        assert result.raised is None
+        assert result.params("page_num") == [None, "7"]
 
-        assert params[0]["page_num"] == 7
+    def test_cursor_resume_seeds_the_cursor(self) -> None:
+        result = _driver().run(
+            "Transfers", [_login_response(), _page([{"id": "1"}])], resume_state=AirwallexResumeConfig(cursor="saved")
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cursor_resume_seeds_the_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "1"}])])
+        assert result.raised is None
+        assert result.params("page") == [None, "saved"]
 
-        _rows(_source("Transfers", _make_manager(AirwallexResumeConfig(cursor="saved"))))
-
-        assert params[0]["page"] == "saved"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_save_the_field_matching_the_pagination_style(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_checkpoints_save_the_field_matching_the_pagination_style(self) -> None:
+        result = _driver().run(
+            "FinancialTransactions",
             [
-                _response([{"id": "1"}], has_more=True),
-                _response([{"id": "2"}], has_more=False),
+                _login_response(),
+                _page([{"id": "1"}], has_more=True),
+                _page([{"id": "2"}], has_more=False),
             ],
         )
-        manager = _make_manager()
 
-        _rows(_source("FinancialTransactions", manager))
-
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.page_num for s in saved] == [1]
-        assert all(s.cursor is None for s in saved)
+        assert result.raised is None
+        assert result.saved_states == [AirwallexResumeConfig(page_num=1)]
 
     @parameterized.expand(
         [
@@ -313,33 +327,26 @@ class TestAirwallexTransport:
             ("Invoices", ["id"], "created_at"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_key_and_partition_key(self, endpoint: str, keys: list[str], partition: str, MockSession) -> None:
+    def test_primary_key_and_partition_key(self, endpoint: str, keys: list[str], partition: str) -> None:
         # Settlements is the one endpoint with no `id` field. A wrong key seeds duplicate rows that
         # every later merge multi-matches.
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=False)])
+        result = _driver().run(endpoint, [_login_response(), _page([], has_more=False)])
 
-        result = _source(endpoint, _make_manager())
-
-        assert result.primary_keys == keys
-        assert result.partition_keys == [partition]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == keys
+        assert result.response.partition_keys == [partition]
 
 
 class TestValidateCredentials:
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_valid_credentials_mint_a_token(self, MockSession) -> None:
-        MockSession.return_value.post.return_value = _login_response("minted")
+    def test_valid_credentials_mint_a_token(self) -> None:
+        with scripted_network([_login_response("minted")]) as network:
+            assert validate_credentials("cid", "key", "live") == (True, None)
+        assert network.requests_log[0].path == "/api/v1/authentication/login"
 
-        assert validate_credentials("cid", "key", "live") == (True, None)
-
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_a_rejected_login_returns_a_message_rather_than_raising(self, MockSession) -> None:
-        resp = Response()
-        resp.status_code = 401
-        MockSession.return_value.post.return_value = resp
-
-        ok, message = validate_credentials("cid", "key", "live")
+    def test_a_rejected_login_returns_a_message_rather_than_raising(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]):
+            ok, message = validate_credentials("cid", "key", "live")
 
         assert ok is False
         assert message is not None

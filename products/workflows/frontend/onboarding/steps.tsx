@@ -1,13 +1,13 @@
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import {
     WorkflowsSDKInstructions,
     WorkflowsSDKTagOverrides,
-} from 'scenes/onboarding/legacy/sdks/workflows/WorkflowsSDKInstructions'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+} from 'scenes/onboarding/sdks/workflows/WorkflowsSDKInstructions'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

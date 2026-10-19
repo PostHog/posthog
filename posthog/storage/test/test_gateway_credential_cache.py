@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -245,7 +245,7 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         self.assertEqual(GATEWAY_KNOWN_TIERS, {"free", "pro", "enterprise"})
 
 
-class TestOverspendAllowanceFormatting(BaseTest):
+class TestOverspendAllowanceFormatting(SimpleTestCase):
     @parameterized.expand(
         [
             ("whole", Decimal("5"), "5.000000"),

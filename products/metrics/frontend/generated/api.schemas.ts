@@ -234,6 +234,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     clause?: string | null
+    /**
+     * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+     * @nullable
+     */
+    unit?: string | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -649,6 +654,123 @@ export interface PanelQueryCheckResponseApi {
     results: PanelQueryCheckResultApi[]
 }
 
+/**
+ * * `curated` - Curated
+ * * `generated` - Generated
+ */
+export type MetricsDashboardTemplateSourceEnumApi =
+    (typeof MetricsDashboardTemplateSourceEnumApi)[keyof typeof MetricsDashboardTemplateSourceEnumApi]
+
+export const MetricsDashboardTemplateSourceEnumApi = {
+    Curated: 'curated',
+    Generated: 'generated',
+} as const
+
+/**
+ * * `generating` - Generating
+ * * `pending_review` - Pending Review
+ * * `approved` - Approved
+ * * `rejected` - Rejected
+ * * `failed` - Failed
+ */
+export type DashboardTemplateStatusEnumApi =
+    (typeof DashboardTemplateStatusEnumApi)[keyof typeof DashboardTemplateStatusEnumApi]
+
+export const DashboardTemplateStatusEnumApi = {
+    Generating: 'generating',
+    PendingReview: 'pending_review',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Failed: 'failed',
+} as const
+
+export interface MetricsDashboardTemplateRoundApi {
+    /** Check round, from 1. */
+    round: number
+    /** True when the round rendered a picture of the dashboard. */
+    has_picture: boolean
+    /**
+     * The verdict of the model on the picture.
+     * @nullable
+     */
+    looks_good: boolean | null
+    /** The problems that the model saw. */
+    problems: string[]
+    /** True when the model corrected the panels after this round. */
+    revised: boolean
+}
+
+export interface MetricsDashboardTemplateApi {
+    /** Template id. */
+    id: string
+    /** Stable key: the bank file name, or a digest of the metric names. */
+    key: string
+    /** Dashboard name. */
+    name: string
+    /** What the dashboard shows. */
+    description: string
+    /** Curated in code, or generated.
+     *
+     * * `curated` - Curated
+     * * `generated` - Generated */
+    source: MetricsDashboardTemplateSourceEnumApi
+    /** Review status.
+     *
+     * * `generating` - Generating
+     * * `pending_review` - Pending Review
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `failed` - Failed */
+    status: DashboardTemplateStatusEnumApi
+    /** Metric names that the charts read. */
+    metric_names: string[]
+    /** Chart titles, top to bottom. */
+    panel_titles: string[]
+    /** When the template entered the bank. */
+    created_at: string
+    /** Number of projects that have the template suggested. */
+    suggestion_count: number
+    /**
+     * Project whose metrics generated it.
+     * @nullable
+     */
+    source_team_id: number | null
+    /**
+     * Project of the preview dashboard.
+     * @nullable
+     */
+    preview_team_id: number | null
+    /**
+     * Unlisted dashboard that shows the template with live data.
+     * @nullable
+     */
+    preview_dashboard_id: number | null
+    /** The picture check rounds of the generation. */
+    rounds: MetricsDashboardTemplateRoundApi[]
+    /** Drafted charts whose queries failed the checks. */
+    dropped_panels: string[]
+    /**
+     * Why the generation failed.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * Who approved or rejected the template.
+     * @nullable
+     */
+    reviewed_by: string | null
+    /**
+     * When the template was approved or rejected.
+     * @nullable
+     */
+    reviewed_at: string | null
+}
+
+export interface MetricsCreatedDashboardApi {
+    /** The id of the dashboard. */
+    dashboard_id: number
+}
+
 export interface _MetricErrorSpikeApi {
     /** When the error spike was detected, ISO 8601. */
     detected_at: string
@@ -921,9 +1043,9 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601. */
-    dateFrom: string
-    /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    dateFrom?: string
+    /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
 }
 
@@ -1026,6 +1148,30 @@ export interface _MetricSamplesResponseApi {
     results: _MetricEventSampleApi[]
 }
 
+export interface MetricsSuggestedDashboardApi {
+    /** Suggestion id. */
+    id: string
+    /** The bank dashboard that the suggestion is for. */
+    template_id: string
+    /** Dashboard name. */
+    name: string
+    /** What the dashboard shows. */
+    description: string
+    /** Why the dashboard suits this project. Can be empty. */
+    reason: string
+    /** Number of charts on the dashboard. */
+    panel_count: number
+    /** Number of the project's metrics that the dashboard uses. */
+    matched_metric_count: number
+    /** Share of the dashboard's charts that have data in this project. */
+    coverage: number
+    /**
+     * The dashboard that someone in the project created from this suggestion.
+     * @nullable
+     */
+    dashboard_id: number | null
+}
+
 export interface _MetricNameApi {
     /** Metric name as it appears in the team's data. */
     name: string
@@ -1071,6 +1217,92 @@ export interface _MetricCatalogValuesParamsApi {
      * @items.maxLength 255
      */
     names: string[]
+}
+
+/**
+ * * `custom` - custom
+ * * `promql` - promql
+ * * `sql` - sql
+ * * `textbox` - textbox
+ */
+export type MetricVariableSourceEnumApi = (typeof MetricVariableSourceEnumApi)[keyof typeof MetricVariableSourceEnumApi]
+
+export const MetricVariableSourceEnumApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface _MetricVariableSelectionApi {
+    /**
+     * Variable name. Queries refer to it as `$name`.
+     * @maxLength 128
+     * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+     */
+    name: string
+    /**
+     * The selected values. When `all` is true, the options that All stands for.
+     * @maxItems 1000
+     * @items.maxLength 1024
+     */
+    values: string[]
+    /** True when the variable is set to All. */
+    all?: boolean
+    /**
+     * The text that All puts in a PromQL query. `.*` when it is empty.
+     * @maxLength 1024
+     * @nullable
+     */
+    allValue?: string | null
+}
+
+export interface _MetricVariableOptionsRequestApi {
+    /** Where the options come from: a static list, a PromQL query, a SQL query, or free text.
+     *
+     * * `custom` - custom
+     * * `promql` - promql
+     * * `sql` - sql
+     * * `textbox` - textbox */
+    source: MetricVariableSourceEnumApi
+    /**
+     * The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.
+     * @maxLength 10000
+     * @nullable
+     */
+    query?: string | null
+    /**
+     * The options when `source` is `custom`.
+     * @maxItems 1000
+     * @nullable
+     * @items.maxLength 1024
+     */
+    customValues?: string[] | null
+    /**
+     * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
+     * @maxLength 1024
+     * @nullable
+     */
+    regex?: string | null
+    /** The current selection of the other dashboard variables that the query can refer to. */
+    variables?: _MetricVariableSelectionApi[]
+    /**
+     * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+     * @maxLength 64
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+     * @maxLength 64
+     * @nullable
+     */
+    dateTo?: string | null
+}
+
+export interface _MetricVariableOptionsResponseApi {
+    /** The options of the variable, at most 1,000. */
+    results: string[]
 }
 
 export type MetricsAttributeValuesRetrieveParams = {
@@ -1130,6 +1362,31 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+}
+
+export type MetricsDashboardTemplatesListParams = {
+    /**
+     * Only templates with this status.
+     */
+    status?: MetricsDashboardTemplatesListStatus
+}
+
+export type MetricsDashboardTemplatesListStatus =
+    (typeof MetricsDashboardTemplatesListStatus)[keyof typeof MetricsDashboardTemplatesListStatus]
+
+export const MetricsDashboardTemplatesListStatus = {
+    Approved: 'approved',
+    Failed: 'failed',
+    Generating: 'generating',
+    PendingReview: 'pending_review',
+    Rejected: 'rejected',
+} as const
+
+export type MetricsDashboardTemplatesPictureRetrieveParams = {
+    /**
+     * Check round, from 1.
+     */
+    round: number
 }
 
 export type MetricsErrorSpikesRetrieveParams = {

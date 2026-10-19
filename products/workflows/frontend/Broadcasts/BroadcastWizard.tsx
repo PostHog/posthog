@@ -7,6 +7,10 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import {
+    isRealtimeCohortCalculating,
+    realtimeCohortSendBlockedReason,
+} from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -19,9 +23,11 @@ import { BroadcastScheduleStep } from './steps/BroadcastScheduleStep'
 import { useBroadcastAgentPanel } from './useBroadcastAgentPanel'
 
 export function BroadcastWizard(): JSX.Element {
-    const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
+    const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode, blastRadius } =
         useValues(broadcastWizardLogic)
-    const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
+    const realtimeCohort = blastRadius?.realtime_cohort
+    const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast, openInWorkflowEditor } =
+        useActions(broadcastWizardLogic)
     const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
     useBroadcastAgentPanel()
 
@@ -34,6 +40,13 @@ export function BroadcastWizard(): JSX.Element {
                     broadcastId ? (
                         <LemonMenu
                             items={[
+                                {
+                                    label: 'Open in workflow editor',
+                                    onClick: openInWorkflowEditor,
+                                    disabledReason:
+                                        saving || launching ? 'Wait for the broadcast to finish saving' : undefined,
+                                    'data-attr': 'broadcast-open-in-workflow-editor',
+                                },
                                 {
                                     label: 'Archive',
                                     status: 'danger',
@@ -93,12 +106,16 @@ export function BroadcastWizard(): JSX.Element {
                                 disabledReason={
                                     stepValidationErrors.review.length > 0
                                         ? 'Fix the issues above before sending'
-                                        : undefined
+                                        : realtimeCohortSendBlockedReason(realtimeCohort)
                                 }
                                 onClick={launchBroadcast}
                                 data-attr="broadcast-wizard-launch"
                             >
-                                {scheduleMode === 'now' ? 'Send now' : 'Schedule broadcast'}
+                                {scheduleMode !== 'now'
+                                    ? 'Schedule broadcast'
+                                    : isRealtimeCohortCalculating(realtimeCohort)
+                                      ? 'Send when calculated'
+                                      : 'Send now'}
                             </LemonButton>
                         ) : (
                             <LemonButton

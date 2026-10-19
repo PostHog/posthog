@@ -1,7 +1,22 @@
-import { IconGraph, IconLifecycle, IconMagicWand, IconPieChart, IconPulse, IconTrends } from '@posthog/icons'
+import {
+    IconGraph,
+    IconLifecycle,
+    IconMagicWand,
+    IconPieChart,
+    IconPulse,
+    IconScatter,
+    IconTrends,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import {
+    Icon123,
+    IconAreaChart,
+    IconDonutChart,
+    IconHeatmap,
+    IconProportionBarChart,
+    IconTableChart,
+} from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 
@@ -28,9 +43,17 @@ export const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon:
     { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart', icon: <IconTrends /> },
     { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
     { value: ChartDisplayType.ActionsBar, label: 'Bar chart', icon: <IconGraph /> },
+    {
+        value: ChartDisplayType.ActionsBarValue,
+        label: 'Horizontal bar chart',
+        icon: <IconGraph className="rotate-90" />,
+    },
     { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconLifecycle /> },
     { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
     { value: ChartDisplayType.ActionsDonut, label: 'Donut chart', icon: <IconDonutChart /> },
+    { value: ChartDisplayType.ActionsProportionBar, label: 'Proportion bar', icon: <IconProportionBarChart /> },
+    { value: ChartDisplayType.ScatterPlot, label: 'Scatter plot', icon: <IconScatter /> },
+    { value: ChartDisplayType.BoxPlot, label: 'Box plot', icon: <IconGraph /> },
 ]
 
 export function getChartTypeOptions(featureFlags: FeatureFlagsSet): typeof CHART_TYPE_OPTIONS {
