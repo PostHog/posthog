@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from typing import Any, Optional
 
@@ -33,7 +34,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_validation_rules import (
