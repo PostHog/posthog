@@ -6374,6 +6374,10 @@ snapshots:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:
         hash: v1.k794b7964.05ea602d6d9345842a6335a7a5dfd2708b35e7e84582dedab2d4f75daab793c5.R8GtNbF9pB7JrXdEIBpk8XsgLhKJuKMA1UB9qr0Tzbs
+    mcp-apps-workflows--sending-rules-no-cap--light:
+        hash: v1.k794b7964.867f1b4e3d741066f04905b02b7fac75d46359ea5ad0edeaa90f9d628d9d77c3.PT8sl8on2CltpY-AcuDeqrMESYi9vEU9WtCxx0qb3sk
+    mcp-apps-workflows--sending-rules-with-cap--light:
+        hash: v1.k794b7964.1fdf067e0e75418820aadb9c30f5db135a6505da2a04ed16b79fcc8c1c8b42ab.mRdiS_UV-b32KVoSSAeIllMAJvEEbA1HGqeZQDvtoIU
     metrics-group-by--default--dark:
         hash: v1.k794b7964.ce83d5c6298b08ac62a7eeb1365881f3eaad9e77a2ffc762a8683bb5360cf49f.ZybY7nObSqgkgX4qZO0IbHSimFba2tRWMI3lKApT73o
     metrics-group-by--default--light:
