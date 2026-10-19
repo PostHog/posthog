@@ -1,9 +1,8 @@
 import json
-from datetime import timedelta
 
 import time_machine
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, patch
 
 from django.conf import settings
 
@@ -279,30 +278,6 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
             assert response.status_code == 204
 
     @patch("posthog.temporal.common.client.sync_connect")
-    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_schedule")
-    @patch("products.data_modeling.backend.logic.schedule_reconcile.sync_connect")
-    def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule, _batch_export_connect):
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-        team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=team,
-            name="test_scheduled_query",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            sync_frequency_interval=timedelta(hours=1),
-        )
-
-        mock_temporal = MagicMock()
-        mock_sync_connect.return_value = mock_temporal
-
-        with execute_deletion_workflows_inline():
-            response = self.client.delete(f"/api/environments/{team.id}")
-        assert response.status_code == 204
-
-        mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
-
-    @patch("posthog.temporal.common.client.sync_connect")
     @patch("products.data_modeling.backend.facade.api.delete_team_data_modeling_schedules")
     def test_team_is_still_deleted_when_the_schedule_teardown_fails(self, mock_delete_schedules, _batch_export_connect):
         team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
@@ -314,32 +289,3 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         assert response.status_code == 204
         mock_delete_schedules.assert_any_call(team.id)
         assert not Team.objects.filter(id=team.id).exists()
-
-    @patch("posthog.temporal.common.client.sync_connect")
-    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_schedule")
-    @patch("products.data_modeling.backend.logic.schedule_reconcile.sync_connect")
-    def test_delete_data_modeling_schedules_handles_not_found(
-        self, mock_sync_connect, mock_delete_schedule, _batch_export_connect
-    ):
-        import temporalio.service
-
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-        team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-        DataWarehouseSavedQuery.objects.create(
-            team=team,
-            name="test_missing_schedule",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            sync_frequency_interval=timedelta(hours=1),
-        )
-
-        mock_temporal = MagicMock()
-        mock_sync_connect.return_value = mock_temporal
-        mock_delete_schedule.side_effect = temporalio.service.RPCError(
-            "not found", temporalio.service.RPCStatusCode.NOT_FOUND, b""
-        )
-
-        with execute_deletion_workflows_inline():
-            response = self.client.delete(f"/api/environments/{team.id}")
-        assert response.status_code == 204

@@ -9,6 +9,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
     SandboxControlPlaneUnavailableError,
     SandboxNotRunningError,
     SandboxRateLimitedError,
@@ -26,8 +27,15 @@ def test_temporal_failure_type_defaults_to_class_name():
     assert not error.non_retryable
 
 
-@pytest.mark.parametrize("error", [SandboxRateLimitedError("x", {}), SandboxControlPlaneUnavailableError("x", {})])
-def test_control_plane_errors_are_expected_activity_failures(error: Exception):
+@pytest.mark.parametrize(
+    "error",
+    [
+        SandboxRateLimitedError("x", {}),
+        SandboxControlPlaneUnavailableError("x", {}),
+        CredentialUnavailableError("x", {}),
+    ],
+)
+def test_expected_errors_are_not_reported_by_the_activity_interceptor(error: Exception) -> None:
     assert is_expected_activity_failure(error) is True
 
 

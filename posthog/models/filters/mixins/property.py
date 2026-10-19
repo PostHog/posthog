@@ -1,10 +1,11 @@
 import json
+from functools import cached_property
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
 from posthog.models.filters.mixins.base import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
+from posthog.models.filters.mixins.utils import include_dict, include_query_tags
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.parse import parse_properties, parse_property_group_data
 

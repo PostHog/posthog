@@ -336,15 +336,17 @@ class TestMCPToolsAPI(APIBaseTest):
                 "validation",
                 "Tool failed: MaxToolRetryableError: Invalid query input. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 HogQLSyntaxError("Unexpected SELECT"),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Unexpected SELECT. You may retry with adjusted inputs.",
+                error_code="hogql_syntax_error",
             ),
-            (
+            param(
                 QueryError("Unknown field: missing_column"),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Unknown field: missing_column. You may retry with adjusted inputs.",
+                error_code="hogql_query_error",
             ),
             (
                 HogQLNotImplementedError("QueryVisitor has no method visit_select_query"),
@@ -390,13 +392,14 @@ class TestMCPToolsAPI(APIBaseTest):
                 "permission",
                 "Tool failed: MaxToolFatalError: Warehouse table access denied.",
             ),
-            (
+            param(
                 _wrapped_hogql_error(
                     _wrapped_hogql_error(QueryError("Invalid query input"), "Query validation failed"),
                     "Warehouse SQL is invalid",
                 ),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Warehouse SQL is invalid. You may retry with adjusted inputs.",
+                error_code="hogql_query_error",
             ),
             (
                 _wrapped_hogql_error(ConnectionError("connection refused"), "Warehouse connection failed"),

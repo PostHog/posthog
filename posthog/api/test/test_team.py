@@ -1,3 +1,4 @@
+import time
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -7,6 +8,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
@@ -41,7 +43,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -311,6 +313,45 @@ def team_api_test_factory():
                                     "after": "Europe/Lisbon",
                                     "before": "UTC",
                                     "field": "timezone",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        @time_machine.travel("2022-02-08", tick=False)
+        def test_update_revenue_analytics_config_logs_only_the_config_change(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"revenue_analytics_config": {"filter_test_accounts": True}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": {"events": [], "filter_test_accounts": True},
+                                    "before": {"events": [], "filter_test_accounts": False},
+                                    "field": "revenue_analytics_config",
                                     "type": "Team",
                                 },
                             ],
@@ -815,10 +856,48 @@ def team_api_test_factory():
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
             self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
 
+            # Only the mirror row authenticates the new primary, so rotation must create it.
+            self.team.refresh_from_db()
+            new_row = ProjectSecretAPIKey.objects.get(secure_value=hash_key_value(self.team.secret_api_token))
+            self.assertEqual(new_row.team_id, self.team.id)
+            self.assertEqual(new_row.scopes, ["feature_flag:read", "support_ticket:read"])
+
             # Deleting the backup (the rotated-out primary) retires its row too.
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+        def test_writes_from_a_stale_instance_do_not_orphan_mirror_rows(self):
+            # A write computing from stale token fields would leave another rotation's
+            # mirror row authenticating forever, with no column referencing its token.
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            first = Team.objects.get(pk=self.team.pk)
+            stale = Team.objects.get(pk=self.team.pk)
+            first.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            stale.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+            updated = Team.objects.get(pk=self.team.pk)
+            current_primary = updated.secret_api_token
+            current_backup = updated.secret_api_token_backup
+            assert current_primary is not None and current_backup is not None
+            mirrored = set(
+                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
+            )
+            self.assertEqual(mirrored, {hash_key_value(current_primary), hash_key_value(current_backup)})
+
+            # Deleting the backup from an instance that missed the second rotation must not
+            # write its stale primary back over the current token.
+            first.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+            updated = Team.objects.get(pk=self.team.pk)
+            self.assertEqual(updated.secret_api_token, current_primary)
+            self.assertIsNone(updated.secret_api_token_backup)
+            mirrored = set(
+                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
+            )
+            self.assertEqual(mirrored, {hash_key_value(current_primary)})
 
         def test_retiring_a_token_never_touches_another_teams_row(self):
             # secure_value is globally unique, so when two teams hold the same string the
@@ -966,6 +1045,45 @@ def team_api_test_factory():
             # Make sure it's unchanged
             self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
             self.assertIsNone(self.team.secret_api_token_backup)
+
+        def test_rotate_secret_token_rejects_scoped_tokens(self):
+            # Rotation mints a PSAK mirror row, so the endpoint must stay session-only:
+            # opening it to scoped tokens would let them mint a durable credential.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            for scopes in (["project:write"], ["project:write", "feature_flag:read", "support_ticket:read"]):
+                token = self.create_personal_api_key_with_scopes(scopes)
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/rotate_secret_token/",
+                    HTTP_AUTHORIZATION=f"Bearer {token}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, scopes)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+
+        def test_rotate_secret_token_requires_fresh_session(self):
+            # Rotation mints a durable credential, so an aged session must reauthenticate
+            # first, like it must for PSAK creation.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            session = self.client.session
+            # login() stamps both keys and the freshness window takes their max, so age both.
+            stale = time.time() - django_settings.SESSION_SENSITIVE_ACTIONS_AGE - 1
+            session[django_settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+            session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+            session.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1331,18 +1449,18 @@ def team_api_test_factory():
                 },
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day == 250
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day is None
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
         def test_support_raised_limit_survives_an_echoed_update(self) -> None:
             TeamWorkflowsConfig.objects.update_or_create(
@@ -3815,6 +3933,97 @@ class TestChangeOrganizationConcurrency(TransactionTestCase):
         org_b_departure = ActivityLog.objects.get(organization_id=self.org_b.id, scope="Project", team_id=None)
         assert org_b_departure.detail is not None
         assert org_b_departure.detail["changes"][0]["before"] == str(self.org_b.id)
+
+
+class TestRotateSecretTokenConcurrency(TransactionTestCase):
+    """Two rotations of the same team must serialize on the team row lock.
+
+    Without it, both read the same primary before either commits; the second save
+    overwrites the first rotation's token while that token's mirror row keeps
+    authenticating, referenced by no column.
+    """
+
+    LOCK_WAIT_TIMEOUT = 15
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Rotation org")
+        # A previous failed run can leave this user behind: the test database survives between runs.
+        User.objects.filter(email="rotator@example.com").delete()
+        self.user = User.objects.create_and_join(
+            organization=self.organization, email="rotator@example.com", password=None
+        )
+        self.project, self.team = Project.objects.create_with_team(
+            name="Concurrent rotation", organization=self.organization, initiating_user=self.user
+        )
+        self.team.secret_api_token = "phs_initial_primary_token_value"
+        self.team.save()
+
+    def _rotate(self, errors: list) -> None:
+        try:
+            Team.objects.get(pk=self.team.pk).rotate_secret_token_and_save(
+                user=self.user, is_impersonated_session=False
+            )
+        except Exception as error:
+            errors.append(error)
+        finally:
+            from django.db import connections
+
+            connections.close_all()
+
+    def test_concurrent_rotations_serialize_on_the_team_lock(self):
+        errors: list[Exception] = []
+        counter_lock = threading.Lock()
+        select_calls = [0]
+        mint_calls = [0]
+        first_rotation_locked = threading.Event()
+        second_rotation_at_lock = threading.Event()
+        release_first_rotation = threading.Event()
+
+        real_select_for_update = Team.objects.select_for_update
+
+        def traced_select_for_update(*args: Any, **kwargs: Any):
+            with counter_lock:
+                select_calls[0] += 1
+                call_number = select_calls[0]
+            if call_number == 2:
+                # The second rotation's get() is about to block on the row lock.
+                second_rotation_at_lock.set()
+            return real_select_for_update(*args, **kwargs)
+
+        def traced_mint(team_id: int, token: str) -> None:
+            create_project_secret_api_key_for_token(team_id, token)
+            with counter_lock:
+                mint_calls[0] += 1
+                call_number = mint_calls[0]
+            if call_number == 1:
+                # Hold the first rotation's transaction open until the second reaches
+                # the lock, so both reads provably overlap.
+                first_rotation_locked.set()
+                if not release_first_rotation.wait(self.LOCK_WAIT_TIMEOUT):
+                    errors.append(AssertionError("Second rotation never reached the team lock"))
+
+        with (
+            patch.object(Team.objects, "select_for_update", traced_select_for_update),
+            patch("posthog.models.team.team.create_project_secret_api_key_for_token", traced_mint),
+        ):
+            first = threading.Thread(target=self._rotate, args=(errors,))
+            first.start()
+            assert first_rotation_locked.wait(self.LOCK_WAIT_TIMEOUT), "First rotation never acquired the team lock"
+
+            second = threading.Thread(target=self._rotate, args=(errors,))
+            second.start()
+            assert second_rotation_at_lock.wait(self.LOCK_WAIT_TIMEOUT), "Second rotation never reached the team lock"
+
+            release_first_rotation.set()
+            first.join(self.LOCK_WAIT_TIMEOUT)
+            second.join(self.LOCK_WAIT_TIMEOUT)
+
+        assert errors == []
+        updated = Team.objects.get(pk=self.team.pk)
+        assert updated.secret_api_token is not None and updated.secret_api_token_backup is not None
+        # Exactly the final primary and backup: no orphaned row keeps authenticating.
+        mirrored = set(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True))
+        assert mirrored == {hash_key_value(updated.secret_api_token), hash_key_value(updated.secret_api_token_backup)}
 
 
 class TestTeamSerializerHomeViewWins(APIBaseTest):

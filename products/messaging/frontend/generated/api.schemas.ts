@@ -293,7 +293,7 @@ export type EmailTemplateApiDesign = {
 }
 
 export interface EmailTemplateApi {
-    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
+    /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
     subject?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
@@ -395,6 +395,13 @@ export interface MessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /**
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+     * @nullable
+     */
+    readonly transactional_hog_flow_id: string | null
+    /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+    draft_content?: MessageTemplateContentApi | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -432,6 +439,13 @@ export interface PatchedMessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /**
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+     * @nullable
+     */
+    readonly transactional_hog_flow_id?: string | null
+    /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+    draft_content?: MessageTemplateContentApi | null
 }
 
 /**
@@ -490,6 +504,42 @@ export interface DesignOperationApi {
 export interface PatchedDesignPatchApi {
     /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
     operations?: DesignOperationApi[]
+}
+
+export interface MakeTransactionalApi {
+    /**
+     * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+     * @nullable
+     */
+    from_integration_id?: number | null
+}
+
+/**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface SendTransactionalEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendTransactionalEmailApiMessageData
+}
+
+export interface SendTransactionalEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
 }
 
 export type MessagingCategoriesListParams = {
