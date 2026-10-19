@@ -1758,7 +1758,7 @@ async def test_the_pipeline_deletes_the_table_only_for_a_reset_the_source_kept(
             source_response,
             mock.AsyncMock(),
             reset_pipeline=run_reset,
-            shutdown_monitor=mock.MagicMock(),
+            control=_event_control(),
             resumable_source_manager=None,
         )
 
@@ -1944,13 +1944,11 @@ def test_the_progressless_stand_down_needs_a_spent_resumable_cap(
     manager = mock.MagicMock()
     manager.can_resume.return_value = can_resume
 
-    with mock.patch.object(module, "current_import_attempt", return_value=attempt):
-        assert module._spent_resumable_cap_without_resuming(manager, on_resumable_cap) is expected
+    assert module._spent_resumable_cap_without_resuming(manager, on_resumable_cap, attempt) is expected
 
 
 def test_a_source_with_no_resumable_manager_never_stands_down():
-    with mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 5):
-        assert module._spent_resumable_cap_without_resuming(None, True) is False
+    assert module._spent_resumable_cap_without_resuming(None, True, PROGRESSLESS_RESUMABLE_ATTEMPTS + 5) is False
 
 
 def test_an_unreadable_checkpoint_keeps_the_run_retrying():
@@ -1958,8 +1956,7 @@ def test_an_unreadable_checkpoint_keeps_the_run_retrying():
     manager = mock.MagicMock()
     manager.can_resume.side_effect = redis_exceptions.ConnectionError("redis is down")
 
-    with mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 5):
-        assert module._spent_resumable_cap_without_resuming(manager, True) is False
+    assert module._spent_resumable_cap_without_resuming(manager, True, PROGRESSLESS_RESUMABLE_ATTEMPTS + 5) is False
 
 
 @pytest.mark.asyncio
