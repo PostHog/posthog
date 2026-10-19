@@ -680,6 +680,9 @@ depends_on = [
     # Presentation-only: the template design action wraps HTML through
     # products.cdp.backend.presentation.hog_functions.
     "products.cdp",
+    # Facade-only: a change request on a code-managed template starts a PostHog Code task
+    # through products.tasks.backend.facade.
+    "products.tasks",
 ]
 layer = "modules"
 

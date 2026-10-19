@@ -77,6 +77,16 @@ class SandboxedEvalCase(BaseEvalCase):
     through Braintrust telemetry.
     """
 
+    prompt_from_seed: Callable[[dict[str, Any]], str] | None = Field(
+        default=None,
+        exclude=True,
+    )
+    """Optional builder of the first prompt from the ``setup`` result, for a
+    prompt that must name a seeded ID (such as the page context a product
+    attaches). The agent and the scorers get the built prompt; ``prompt`` stays
+    the static text Braintrust shows as the case input.
+    """
+
 
 class AgentArtifacts(BaseModel):
     """Collected outputs from a sandboxed agent run.

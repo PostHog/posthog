@@ -8,6 +8,76 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendEmailApiMessageData = { [key: string]: unknown }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface TemplateReferenceApi {
+    /** Key of the template, as uploaded with `PUT /api/projects/@current/messaging_templates/by_key/{key}/`. Give either `key` or `id`. */
+    key?: string
+    /** Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`. */
+    hash?: string
+    /** ID of the template, for templates made in PostHog. Give either `key` or `id`. */
+    id?: string
+}
+
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** The template to send, by key or by id. */
+    template: TemplateReferenceApi
+}
+
+export interface SendEmailWarningApi {
+    /** Stable warning code to branch on, such as `template_superseded`. */
+    code: string
+    /** What happened. */
+    detail: string
+    /** What you can change, if the warning is not what you want. */
+    fix: string
+}
+
+export interface SendEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
+    /** Things to know about the queued email. Empty in the normal case. */
+    warnings: SendEmailWarningApi[]
+}
+
+export interface TemplateErrorApi {
+    /** Error class, such as `invalid_request`. */
+    type: string
+    /** Stable error code to branch on, such as `invalid_template_key`. */
+    code: string
+    /** What went wrong. */
+    detail: string
+    /**
+     * The request field the error is about, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Why PostHog refuses the request. */
+    why?: string
+    /** What to change before you retry. */
+    fix?: string
+    /** Documentation for this error code. */
+    docs_url?: string
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
@@ -295,6 +365,8 @@ export type EmailTemplateApiDesign = {
 export interface EmailTemplateApi {
     /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
+    /** Inbox preview text shown after the subject. Supports Liquid templating. */
+    preheader?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
     /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
@@ -369,6 +441,17 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * * `gui` - GUI
+ * * `code` - Code
+ */
+export type TemplateManagedByEnumApi = (typeof TemplateManagedByEnumApi)[keyof typeof TemplateManagedByEnumApi]
+
+export const TemplateManagedByEnumApi = {
+    Gui: 'gui',
+    Code: 'code',
+} as const
+
 export interface MessageTemplateApi {
     readonly id: string
     /**
@@ -400,6 +483,51 @@ export interface MessageTemplateApi {
      * @nullable
      */
     readonly transactional_hog_flow_id: string | null
+    /**
+     * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key. Set once, by the first upload or by a PATCH whose only field is `key`.
+     * @nullable
+     */
+    readonly key: string | null
+    /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    readonly managed_by: TemplateManagedByEnumApi | null
+    /**
+     * Repository the template was last uploaded from, such as `github.com/example/app`.
+     * @nullable
+     */
+    readonly source_repository: string | null
+    /**
+     * Path of the template file in the source repository.
+     * @nullable
+     */
+    readonly source_path: string | null
+    /**
+     * Commit or branch the template was last uploaded from.
+     * @nullable
+     */
+    readonly source_ref: string | null
+    /**
+     * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+     * @nullable
+     */
+    readonly content_hash: string | null
+    /**
+     * The start of a sentence that asks a coding agent to change this template's file, such as ``In `emails/welcome.html`, change ``. Complete the sentence, then add a blank line and `change_prompt_context`. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_starter: string | null
+    /**
+     * What a coding agent needs to change this template's file, as a block that starts with `About this file:`: the key, repository and commit, the file format, the `{{ variables.* }}` the file uses, how the change goes live, and a link to the template. An agent that can reach the repository edits the file following it. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_context: string | null
+    /**
+     * Names of the `{{ variables.<name> }}` the published subject, preheader and HTML use, in order of first use, as `change_prompt_context` lists them. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_variables: readonly string[] | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -411,7 +539,17 @@ export interface PaginatedMessageTemplateListApi {
     results: MessageTemplateApi[]
 }
 
-export interface PatchedMessageTemplateApi {
+/**
+ * * `gui` - GUI
+ */
+export type MessageTemplateUpdateManagedByEnumApi =
+    (typeof MessageTemplateUpdateManagedByEnumApi)[keyof typeof MessageTemplateUpdateManagedByEnumApi]
+
+export const MessageTemplateUpdateManagedByEnumApi = {
+    Gui: 'gui',
+} as const
+
+export interface PatchedMessageTemplateUpdateApi {
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -442,6 +580,50 @@ export interface PatchedMessageTemplateApi {
      * @nullable
      */
     readonly transactional_hog_flow_id?: string | null
+    /**
+     * Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.
+     * @maxLength 400
+     */
+    key?: string
+    /** Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. It keeps its key, so the next upload under that key manages it in code again.
+     *
+     * * `gui` - GUI */
+    managed_by?: MessageTemplateUpdateManagedByEnumApi
+    /**
+     * Repository the template was last uploaded from, such as `github.com/example/app`.
+     * @nullable
+     */
+    readonly source_repository?: string | null
+    /**
+     * Path of the template file in the source repository.
+     * @nullable
+     */
+    readonly source_path?: string | null
+    /**
+     * Commit or branch the template was last uploaded from.
+     * @nullable
+     */
+    readonly source_ref?: string | null
+    /**
+     * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+     * @nullable
+     */
+    readonly content_hash?: string | null
+    /**
+     * The start of a sentence that asks a coding agent to change this template's file, such as ``In `emails/welcome.html`, change ``. Complete the sentence, then add a blank line and `change_prompt_context`. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_starter?: string | null
+    /**
+     * What a coding agent needs to change this template's file, as a block that starts with `About this file:`: the key, repository and commit, the file format, the `{{ variables.* }}` the file uses, how the change goes live, and a link to the template. An agent that can reach the repository edits the file following it. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_context?: string | null
+    /**
+     * Names of the `{{ variables.<name> }}` the published subject, preheader and HTML use, in order of first use, as `change_prompt_context` lists them. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_variables?: readonly string[] | null
 }
 
 /**
@@ -510,19 +692,27 @@ export interface MakeTransactionalApi {
     from_integration_id?: number | null
 }
 
+export interface RequestTemplateChangeApi {
+    /**
+     * The change to make, in the person's words, such as `Make the button green.` At most 2,000 characters.
+     * @maxLength 2000
+     */
+    instruction: string
+}
+
+export interface TemplateChangeRequestedApi {
+    /** ID of the PostHog Code task that changes the template's file. */
+    task_id: string
+    /** Link to the task in PostHog. Share it with the person: the task opens a pull request when it is done. */
+    task_url: string
+    /** GitHub repository the task changes, as `owner/name`. */
+    repository: string
+}
+
 /**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
-
-export interface TransactionalEmailIdentifiersApi {
-    /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
-     * @maxLength 400
-     * @nullable
-     */
-    distinct_id?: string | null
-}
 
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */
@@ -536,6 +726,87 @@ export interface SendTransactionalEmailApi {
 export interface SendTransactionalEmailResponseApi {
     /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
     message_id: string
+}
+
+export interface TemplateSourceApi {
+    /**
+     * Host and path of the repository the file is in, such as `github.com/example/app`.
+     * @maxLength 400
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * Path of the template file in the repository, such as `emails/welcome.html`.
+     * @maxLength 400
+     * @nullable
+     */
+    path?: string | null
+    /**
+     * Commit or branch the file was uploaded from.
+     * @maxLength 400
+     * @nullable
+     */
+    ref?: string | null
+}
+
+export interface UploadTemplateApi {
+    /**
+     * Template name shown in the template library.
+     * @maxLength 400
+     */
+    name: string
+    /** Email subject line. Supports Liquid, such as `{{ variables.first_name }}`. */
+    subject: string
+    /** Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. */
+    html: string
+    /** Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one. */
+    text?: string
+    /** Inbox preview text shown after the subject. Leaving it out removes the stored one. */
+    preheader?: string
+    /** Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored. */
+    source?: TemplateSourceApi
+    /** Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content. */
+    if_not_superseded?: boolean
+}
+
+/**
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `unchanged` - Unchanged
+ * * `superseded` - Superseded
+ */
+export type TemplateUploadResultEnumApi = (typeof TemplateUploadResultEnumApi)[keyof typeof TemplateUploadResultEnumApi]
+
+export const TemplateUploadResultEnumApi = {
+    Created: 'created',
+    Updated: 'updated',
+    Unchanged: 'unchanged',
+    Superseded: 'superseded',
+} as const
+
+export interface UploadTemplateResponseApi {
+    /** ID of the template. */
+    id: string
+    /** Key of the template. */
+    key: string
+    /** `created`: the upload made a new template. `updated`: it published the uploaded content. `unchanged`: the template already had this content, so nothing was published. `superseded`: the upload set `if_not_superseded` and newer content already replaced this content, so nothing was published.
+     *
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `unchanged` - Unchanged
+     * * `superseded` - Superseded */
+    result: TemplateUploadResultEnumApi
+    /** Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check PostHog holds the content you hold. After `superseded` it is the hash of the newer content. */
+    content_hash: string
+    /** `code` after every upload except `superseded`, which changes nothing.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    managed_by: TemplateManagedByEnumApi
+    /** Where the template file lives, as stored after the upload. */
+    source: TemplateSourceApi
+    /** The workflow that sends this template. Each upload that changes the content writes a new version of it. */
+    transactional_hog_flow_id: string
 }
 
 export type MessagingCategoriesListParams = {
