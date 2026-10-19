@@ -15,7 +15,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook, transition_events
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
@@ -144,6 +144,47 @@ class _WebhookTransports:
             consecutive_failures=consecutive_failures,
             transition=message.transition,
         )
+
+
+def emit_transition_events(request: AlertDeliveryRequest) -> int:
+    """Emits one `$alert_transition` per transition the evaluation announced, and returns how many.
+
+    Only where native delivery would contact the team, so a workflow never hears about an alert
+    whose source still delivers on its own. Every transition goes out whatever path its destinations
+    take, because a workflow is a separate subscription, not a destination.
+    """
+    if not request.sends_messages:
+        return 0
+    team = Team.objects.filter(id=request.team_id).first()
+    if team is None or not transition_events_enabled(team):
+        return 0
+    if not (request.owned_by_platform or destinations_are_live(team)):
+        return 0
+    announced = announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        part=request.part,
+        parts=request.parts,
+    )
+    if announced is None:
+        return 0
+    events = transition_events.transition_events(request, announced)
+    if events:
+        transition_events.producer()(team_id=request.team_id, configuration_id=request.configuration_id, events=events)
+    return len(events)
+
+
+def transition_events_enabled(team: Team) -> bool:
+    """Fail closed: a flag-eval blip leaves the team without the event, which is where it started."""
+    try:
+        return bool(team_flag_enabled(transition_events.TRANSITION_EVENT_FLAG, team))
+    except Exception:
+        logger.warning(
+            "alerts_platform_transition_event_flag_check_failed_defaulting_off", team_id=team.id, exc_info=True
+        )
+        return False
 
 
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:

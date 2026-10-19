@@ -66,6 +66,19 @@ def emit_logs_legacy_events(
     )
 
 
+def logs_source_facts(
+    *, request: AlertDeliveryRequest, announcement: EvaluationAnnouncement, transition: AnnouncedTransition
+) -> dict[str, Any]:
+    """The properties of the `$logs_alert_*` message event for this transition, for `$alert_transition` to carry."""
+    alert = _Alert(
+        team_id=request.team_id,
+        alert_id=request.destination_alert_id,
+        alert_name=announcement.alert_name,
+        consecutive_failures=announcement.consecutive_failures,
+    )
+    return _message_event(in_utc(transition), alert).properties
+
+
 @frozen
 class _Alert:
     team_id: int

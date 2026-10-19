@@ -81,6 +81,11 @@ class CloseAfterChildStartWorkflow:
         await workflow.wait_condition(lambda: False)
 
 
+@activity.defn(name="alerts_platform_emit_transitions_activity")
+async def emit_nothing(request: AlertDeliveryRequest) -> None:
+    pass
+
+
 @pytest.fixture(scope="module")
 def sdk_metrics() -> MetricBuffer:
     return MetricBuffer(10000)
@@ -342,7 +347,7 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
         environment.client,
         task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
         workflows=DELIVERY_WORKFLOWS,
-        activities=[held_thread],
+        activities=[held_thread, emit_nothing],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await environment.client.start_workflow(
@@ -385,7 +390,7 @@ async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
         environment.client,
         task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
         workflows=DELIVERY_WORKFLOWS,
-        activities=[deliver],
+        activities=[deliver, emit_nothing],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await environment.client.start_workflow(
@@ -408,6 +413,49 @@ async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
 
     assert isinstance(failure.value.cause, ActivityError)
     assert sent_parts == [0, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_transition_emission_still_sends_the_messages_then_fails_the_run(
+    environment: WorkflowEnvironment,
+) -> None:
+    calls: list[str] = []
+
+    @activity.defn(name="alerts_platform_emit_transitions_activity")
+    async def emit(request: AlertDeliveryRequest) -> None:
+        calls.append("emit")
+        raise ApplicationError("broker refused", non_retryable=True)
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def deliver(request: AlertDeliveryRequest) -> None:
+        calls.append("deliver")
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[emit, deliver],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+        )
+        with pytest.raises(WorkflowFailureError) as failure:
+            await handle.result()
+
+    assert isinstance(failure.value.cause, ActivityError)
+    assert calls == ["emit", "deliver"]
 
 
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])

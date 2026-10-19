@@ -25,10 +25,13 @@ _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
 WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
 
+# The alerts platform's transition event. Its properties carry the source product's alert data.
+ALERT_TRANSITION_EVENT = "$alert_transition"
+
 # Internal events that only the product which emits them may consume. A user-created
 # destination cannot subscribe to one, because its properties carry that product's data and
 # forwarding them off-platform would bypass the read permission the product enforces on it.
-RESERVED_INTERNAL_EVENTS = frozenset({WORKFLOW_STEP_RESUME_EVENT})
+RESERVED_INTERNAL_EVENTS = frozenset({WORKFLOW_STEP_RESUME_EVENT, ALERT_TRANSITION_EVENT})
 
 
 def is_reserved_internal_event(event_name: object) -> bool:

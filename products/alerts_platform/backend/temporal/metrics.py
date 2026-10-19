@@ -172,6 +172,13 @@ def increment_root_edit_failures(provider: str) -> None:
     ).add(1)
 
 
+def increment_transition_events_emitted(source: str, count: int) -> None:
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_transition_events_emitted_total",
+        "$alert_transition events put on the internal events topic",
+    ).add(count)
+
+
 def increment_deliveries_previewed(source: str) -> None:
     get_metric_meter({"source": source}).create_counter(
         "alerts_platform_deliveries_previewed_total",

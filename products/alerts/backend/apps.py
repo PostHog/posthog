@@ -17,12 +17,15 @@ class AlertsConfig(AppConfig):
         # The platform cannot import this product, so it reaches this product's destinations here.
         from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
             choose_delivery_path,
+            emit_alert_transition_events,
             list_delivery_destination_groups,
         )
         from products.alerts_platform.backend.facade.delivery import (  # noqa: PLC0415
             register_delivery_path_chooser,
             register_destination_resolver,
+            register_transition_event_producer,
         )
 
         register_destination_resolver(list_delivery_destination_groups)
         register_delivery_path_chooser(choose_delivery_path)
+        register_transition_event_producer(emit_alert_transition_events)

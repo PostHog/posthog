@@ -20,9 +20,13 @@ class LogsConfig(AppConfig):
             register_legacy_event_emitter,
             register_legacy_webhook_body,
             register_source_describer,
+            register_source_facts,
         )
         from products.logs.backend import activity_logging  # noqa: F401, PLC0415
-        from products.logs.backend.platform_alert_legacy_events import emit_logs_legacy_events  # noqa: PLC0415
+        from products.logs.backend.platform_alert_legacy_events import (  # noqa: PLC0415
+            emit_logs_legacy_events,
+            logs_source_facts,
+        )
         from products.logs.backend.platform_alert_wording import (  # noqa: PLC0415
             describe_logs_transition,
             legacy_logs_webhook_body,
@@ -31,3 +35,4 @@ class LogsConfig(AppConfig):
         register_source_describer(SourceKind.LOGS, describe_logs_transition)
         register_legacy_webhook_body(SourceKind.LOGS, legacy_logs_webhook_body)
         register_legacy_event_emitter(SourceKind.LOGS, emit_logs_legacy_events)
+        register_source_facts(SourceKind.LOGS, logs_source_facts)

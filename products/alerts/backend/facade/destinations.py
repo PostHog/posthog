@@ -16,6 +16,7 @@ from uuid import UUID
 from posthog.kafka_client.client import ProduceResult
 
 from products.alerts_platform.backend.facade.contracts import (
+    ALERT_TRANSITION_EVENT,
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
@@ -26,6 +27,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EventKindSpec,
     OwnedAlertDestination,
     SourceKind,
+    TransitionEvent,
 )
 
 from ..logic import (
@@ -46,6 +48,9 @@ from .contracts import (
 )
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
+
+# Below the emitting activity's own timeout, which a flush must not use up.
+TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
 # Each destination is another message every time the alert fires, so a caller in a loop is capped.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
@@ -237,6 +242,24 @@ def emit_alert_internal_events(
     """
     destinations.emit_alert_internal_events(
         team_id=team_id, alert_id=alert_id, events=events, flush_timeout_seconds=flush_timeout_seconds
+    )
+
+
+def emit_alert_transition_events(*, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None:
+    """The platform's `$alert_transition` events. Raises `AlertInternalEventsNotDelivered` when the broker took not all of them."""
+    destinations.emit_alert_internal_events(
+        team_id=team_id,
+        alert_id=configuration_id,
+        events=[
+            AlertInternalEvent(
+                event_name=ALERT_TRANSITION_EVENT,
+                properties=event.properties,
+                timestamp=event.timestamp,
+                uuid=event.uuid,
+            )
+            for event in events
+        ],
+        flush_timeout_seconds=TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS,
     )
 
 
