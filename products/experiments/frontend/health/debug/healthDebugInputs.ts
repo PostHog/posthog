@@ -227,7 +227,7 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
         {
             label: 'Status',
             value: serverValue(state, (inputs) => TRAFFIC_STATUS_LABELS[inputs.condition_set_traffic_status]),
-            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check reads them when such an override was removed after launch.',
+            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check reads them when such an override was removed after launch. The flag-state check reads them when the experiment is running and the flag has a 0% rollout.',
         },
         ...(traffic
             ? [
@@ -239,6 +239,11 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
                       help: 'Only these calls name the condition that served them. Local evaluation and bootstrapped values name none.',
                   },
                   { label: 'People served by a named condition', value: formatCount(people) },
+                  {
+                      label: 'People assigned outside the flag service',
+                      value: formatCount(traffic.people_assigned_outside),
+                      help: 'People who got a variant from a call without a flag version that is no local evaluation, from an hour after the window starts. With a 0% rollout, 10 or more of them show that the variants are assigned outside PostHog.',
+                  },
               ]
             : []),
     ]
