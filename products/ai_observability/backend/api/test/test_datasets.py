@@ -849,11 +849,19 @@ class TestDatasetsApi(APIBaseTest):
         self.addCleanup(flag_client.shutdown)
         flag_client.group_type_mapping = {"0": "organization", "1": "project"}
         flag_client.feature_flags = [{"key": "llm-analytics-datasets", "active": True, "filters": filters}]
+        transaction_depth = len(connection.atomic_blocks)
+        payload_transaction_depths: list[int] = []
+        read_payload = partial(flag_client.get_feature_flag_payload, only_evaluate_locally=True)
+
+        def read_payload_recording_transaction_depth(*args: object, **kwargs: object) -> object:
+            payload_transaction_depths.append(len(connection.atomic_blocks))
+            return read_payload(*args, **kwargs)
+
         with (
             patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 1),
             patch(
                 "products.ai_observability.backend.dataset_service.posthoganalytics.get_feature_flag_payload",
-                side_effect=partial(flag_client.get_feature_flag_payload, only_evaluate_locally=True),
+                side_effect=read_payload_recording_transaction_depth,
             ) as get_payload,
         ):
             self._create_dataset("First dataset")
@@ -862,6 +870,7 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual((response.data["current_count"], response.data["limit"]), (2, 2))
+        self.assertEqual(payload_transaction_depths, [transaction_depth] * 3)
         get_payload.assert_called_with(
             "llm-analytics-datasets",
             str(self.user.distinct_id),

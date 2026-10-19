@@ -446,22 +446,20 @@ def create_dataset(
     name: str,
     description: str = "",
     metadata: dict[str, JSONValue] | None = None,
-    caller_properties: dict[str, str] | None = None,
+    max_datasets: int = MAX_DATASETS_PER_TEAM,
 ) -> Dataset:
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
-    # Read before taking the lock, so a slow flag read never holds it.
-    limit = max_datasets_for_team(team=team, user=created_by, caller_properties=caller_properties)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
     current_count = Dataset.objects.for_team(team.id, canonical=True).count()
-    if current_count >= limit:
+    if current_count >= max_datasets:
         raise DatasetLimitExceeded(
             resource="datasets",
             current_count=current_count,
-            limit=limit,
+            limit=max_datasets,
             detail=(
-                f"No more datasets can be added to this project. The limit is {limit}. "
+                f"No more datasets can be added to this project. The limit is {max_datasets}. "
                 "Contact support if you need more."
             ),
         )
