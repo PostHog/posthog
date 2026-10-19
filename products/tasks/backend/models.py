@@ -59,7 +59,11 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
-from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.metrics import (
+    observe_task_run_created,
+    observe_task_run_dispatch_callback,
+    observe_task_run_terminal,
+)
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
@@ -3038,9 +3042,12 @@ class TaskRun(models.Model):
         ``analytics_properties`` are merged into the ``task_run_completed`` capture so swept
         completions stay distinguishable from organic ones.
         """
+        was_terminal = self.is_terminal
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "completed_at"])
+        if not was_terminal:
+            observe_task_run_terminal(self, error_type=None, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
@@ -3068,10 +3075,13 @@ class TaskRun(models.Model):
 
     def mark_failed(self, error: str, error_type: str | None = None) -> None:
         """Mark the progress as failed with an error message."""
+        was_terminal = self.is_terminal
         self.status = self.Status.FAILED
         self.error_message = error
         self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+        if not was_terminal:
+            observe_task_run_terminal(self, error_type=error_type, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",

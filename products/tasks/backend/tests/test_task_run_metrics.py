@@ -342,6 +342,43 @@ class TestTaskRunMetrics(TestCase):
 
         assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
 
+    @parameterized.expand(
+        [
+            ("mark_failed", "failed", "janitor_timeout"),
+            ("mark_completed", "completed", "unknown"),
+            ("dispatch_failure", "failed", "workflow_start_failed"),
+        ]
+    )
+    def test_writers_outside_the_status_activity_count_the_terminal_transition_once(
+        self, writer: str, status: str, error_type: str
+    ) -> None:
+        from products.tasks.backend.temporal import client
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "status": status,
+            "error_type": error_type,
+            "termination_reason": "unknown",
+        }
+        before = _sample_value("posthog_tasks_task_run_terminal_total", labels)
+
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"),
+            patch.object(client, "resume_workflow_step_for_run"),
+        ):
+            for _ in range(2):  # a repeat write on a terminal run must not count again
+                run.refresh_from_db()
+                if writer == "mark_failed":
+                    run.mark_failed("stuck", error_type="janitor_timeout")
+                elif writer == "mark_completed":
+                    run.mark_completed(notify=False)
+                else:
+                    client._terminalize_unstarted_task_run(str(run.id), "start failed")
+
+        assert _sample_value("posthog_tasks_task_run_terminal_total", labels) == before + 1
+
     def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:
         # Warm Runs provisioned before this ships have await_user_message but no prewarmed marker;
         # activating them must not inflate the numerator (would push hit rate above 1).
