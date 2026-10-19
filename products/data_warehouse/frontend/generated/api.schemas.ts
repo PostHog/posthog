@@ -2482,6 +2482,7 @@ export interface CredentialApi {
  * * `Plaid` - Plaid
  * * `SurveyMonkey` - SurveyMonkey
  * * `Eventbrite` - Eventbrite
+ * * `Everflow` - Everflow
  * * `RingCentral` - RingCentral
  * * `Twilio` - Twilio
  * * `Freshsales` - Freshsales
@@ -3880,6 +3881,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plaid: 'Plaid',
     SurveyMonkey: 'SurveyMonkey',
     Eventbrite: 'Eventbrite',
+    Everflow: 'Everflow',
     RingCentral: 'RingCentral',
     Twilio: 'Twilio',
     Freshsales: 'Freshsales',
