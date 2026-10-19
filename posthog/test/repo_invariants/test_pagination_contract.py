@@ -222,6 +222,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
     # Counts and hover details must use the same complete seven-day window.
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
+    # Returns one team's onboarding state as a single document, so there is nothing to paginate.
+    "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",
