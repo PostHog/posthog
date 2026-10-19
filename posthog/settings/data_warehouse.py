@@ -212,12 +212,19 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
 # so a set must stay inside the memory slice the deltalite governor sizes per concurrent upsert
 # (memory_governor.py): with a 29 GiB pod, 16 groups in flight and a 2 GiB reserve, that slice is
 # about 1.3 GiB, of which 750 MiB goes to four partition workers. The row cap equals one extraction
-# chunk, the largest single batch the loader already takes, and the byte cap counts parquet on disk,
-# which decodes to Arrow several times its size. The count cap is only a backstop.
+# chunk, the largest single batch the loader already takes. The count cap is only a backstop.
+# When each batch records its decoded Arrow size and the pod limit is known, the copies of a set the
+# loader holds may use SLOT_SHARE of that slice, and the set's Arrow size never exceeds
+# MAX_ARROW_BYTES. Otherwise MAX_BYTES caps the parquet on disk, which decodes to Arrow several
+# times its size.
 DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES", 128, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE = get_from_env("DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE", 0.4, type_cast=float)
+DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES", 512 * 1024 * 1024, type_cast=int
 )
 
 # Consecutive configuration errors (bad credentials, unknown database, unreachable host) after which

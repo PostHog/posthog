@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import botocore.exceptions
 from fsspec.implementations.memory import MemoryFileSystem
 from parameterized import parameterized
@@ -149,9 +150,14 @@ class TestBatchByteSize:
 
         result = writer.write_batch(table, 0)
 
-        stored_size = store.info(result.s3_path.split("://", 1)[-1])["size"]
+        stored_path = result.s3_path.split("://", 1)[-1]
+        stored_size = store.info(stored_path)["size"]
         assert result.byte_size == stored_size
         assert result.byte_size > 0
+        # The loader reads the file back into Arrow, so the recorded size must match that, not the parquet.
+        with store.open(stored_path, "rb") as f:
+            loaded_bytes = pq.read_table(f).nbytes
+        assert result.arrow_bytes == pytest.approx(loaded_bytes, rel=0.05, abs=1024)
 
 
 class TestWriteBatchPermissionDenied:

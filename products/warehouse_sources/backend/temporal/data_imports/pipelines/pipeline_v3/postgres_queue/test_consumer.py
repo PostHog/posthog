@@ -1,6 +1,8 @@
 import math
 import time
 import asyncio
+import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
 
@@ -21,6 +23,12 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+    GovernorConfig,
+    MemoryGovernor,
+    PodMemory,
+    reset_governor_for_tests,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DestinationConfigurationError,
@@ -4218,9 +4226,41 @@ def _run_batches(count: int, *, run_uuid: str = "run-1", start: int = 0, **overr
     ]
 
 
+_MIB = 1024 * 1024
+
+
+class _UnlimitedPod(PodMemory):
+    def limit_mb(self) -> float | None:
+        return None
+
+
+def _use_pod_slot(slot_mb: float | None) -> None:
+    # One upsert per pod with no safety margin or reserve, so the slice equals the pod limit.
+    config = GovernorConfig(max_concurrent=1, safety=1.0, reserve_mb=0.0, rss_sample_ms=0.0)
+    pod = _UnlimitedPod() if slot_mb is None else PodMemory(limit_override_mb=slot_mb)
+    reset_governor_for_tests(MemoryGovernor(config=config, pod=pod))
+
+
+def _sized_batches(sizes: list[tuple[object, int]], **overrides: Any) -> list[PendingBatch]:
+    batches = _run_batches(len(sizes), **overrides)
+    return [
+        dataclasses.replace(
+            batch,
+            byte_size=byte_size,
+            metadata={} if arrow_bytes is None else {"arrow_bytes": arrow_bytes},
+        )
+        for batch, (arrow_bytes, byte_size) in zip(batches, sizes)
+    ]
+
+
 class TestCoalesceGroup:
     """Which consecutive batches the Delta sink may load as one write. A set that crosses a run, skips
     an index or grows past the caps would merge rows the writer must never see together."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_governor(self) -> Iterator[None]:
+        yield
+        reset_governor_for_tests(None)
 
     def _sets(self, batches: list[PendingBatch]) -> list[list[int]]:
         return [[b.batch_index for b in s] for s in DeltaBatchConsumerAdapter().coalesce_group(batches)]
@@ -4374,6 +4414,69 @@ class TestCoalesceGroup:
     ):
         with override_settings(**settings_overrides):
             assert self._sets(_run_batches(count, **overrides)) == expected
+
+    @pytest.mark.parametrize(
+        "slot_mb,sizes,expected",
+        [
+            # A 64 MiB slice at share 1.0 leaves 32 MiB of Arrow for the two copies the loader holds.
+            (64, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
+            # Wide rows that compress badly join past the parquet cap while they fit the memory budget.
+            (64, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
+            # A batch bigger than the whole budget still loads, on its own.
+            (64, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
+            # A large slice is still bounded by the hard ceiling.
+            (100_000, [(10 * _MIB, 1)] * 5, [[0, 1, 2, 3], [4]]),
+            # Narrow batches still coalesce until the row cap.
+            (64, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
+            # One batch queued before the producer recorded its size puts the set back on the parquet cap.
+            (64, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
+            # The metadata is free-form JSON, so any other shape counts as unknown.
+            (64, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
+            # An unreadable pod limit gives no slice to size against.
+            (None, [(10 * _MIB, 30 * _MIB)] * 3, [[0, 1], [2]]),
+            # A slice that leaves no memory gives no Arrow budget.
+            (0, [(10 * _MIB, 30 * _MIB)] * 3, [[0, 1], [2]]),
+        ],
+        ids=[
+            "wide_stops_at_memory_budget",
+            "wide_joins_past_parquet_cap",
+            "oversized_batch_alone",
+            "ceiling_binds",
+            "narrow_stops_at_row_cap",
+            "unknown_batch_size_falls_back",
+            "invalid_batch_size_falls_back",
+            "unknown_slot_falls_back",
+            "empty_slot_falls_back",
+        ],
+    )
+    def test_sets_are_capped_by_arrow_memory(
+        self, slot_mb: float | None, sizes: list[tuple[object, int]], expected: list[list[int]]
+    ):
+        _use_pod_slot(slot_mb)
+        with override_settings(
+            DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE=1.0, DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES=45 * _MIB
+        ):
+            assert self._sets(_sized_batches(sizes, row_count=10_000)) == expected
+
+    @pytest.mark.parametrize(
+        "batches,expected",
+        [
+            (_sized_batches([(_MIB, 1)] * 2) + _run_batches(1, start=3, metadata={"arrow_bytes": _MIB}), [[0, 1], [3]]),
+            (
+                _sized_batches([(_MIB, 1)] * 2) + _run_batches(2, run_uuid="run-2", metadata={"arrow_bytes": _MIB}),
+                [[0, 1], [0, 1]],
+            ),
+            (
+                _sized_batches([(_MIB, 1)] * 2)
+                + _run_batches(2, run_uuid="run-2", is_resume=True, metadata={"arrow_bytes": _MIB}),
+                [[0, 1, 0, 1]],
+            ),
+        ],
+        ids=["gap_splits", "fresh_run_splits", "resume_joins"],
+    )
+    def test_arrow_budget_keeps_the_join_rules(self, batches: list[PendingBatch], expected: list[list[int]]):
+        _use_pod_slot(1024)
+        assert self._sets(batches) == expected
 
 
 class _BatchStatus(NamedTuple):

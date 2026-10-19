@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
     COLUMN_TYPE_WIDENED_KEY,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
     CoalesceCaps,
     CoalesceMember,
@@ -1050,7 +1051,7 @@ class DeltaBatchConsumerAdapter:
         Only adjacent batches join, so every set keeps the claim order: the order the loader would
         have taken the batches in one at a time.
         """
-        caps = CoalesceCaps.from_settings()
+        caps = CoalesceCaps.from_settings(slot_budget_mb=get_governor().slot_budget_mb())
         sets: list[list[PendingBatch]] = []
         current: list[PendingBatch] = []
         current_members: list[CoalesceMember] = []
