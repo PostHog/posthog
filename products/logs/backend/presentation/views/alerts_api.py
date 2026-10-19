@@ -50,6 +50,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertHistory,
@@ -84,15 +85,16 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.facade.api import (
-    close_incident_before_delete,
+    ALLOWED_WINDOW_MINUTES,
     close_incident_on_commit,
     follow_logs_alert,
+    has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
 )
+from products.logs.backend.facade.platform_ownership import before_delete, on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
 # argocd for internal dogfood projects whose observability needs exceed the
@@ -817,7 +819,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     instance.clear_next_check()
 
             updated = super().update(instance, validated_data)
-            if enabled_change is True:
+            if updated.platform_owned:
+                try:
+                    on_updated(
+                        team_id=updated.team_id, alert_id=updated.id, snooze_changed=snooze_data is not _SENTINEL
+                    )
+                except InvalidPlatformAlertEdit as error:
+                    raise ValidationError({error.field_name: str(error)}) from error
+            elif enabled_change is True:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
                 )
@@ -849,7 +858,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            if created.enabled:
+            if on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now()):
+                created.refresh_from_db(fields=["owner", "owner_changed_at"])
+            elif created.enabled:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
@@ -865,10 +876,7 @@ def _validate_filters(filters: dict) -> None:
     """
     if not isinstance(filters, dict):
         raise ValidationError({"filters": "Must be a JSON object."})
-    has_severity = bool(filters.get("severityLevels"))
-    has_services = bool(filters.get("serviceNames"))
-    has_filter_group = bool(filters.get("filterGroup"))
-    if not (has_severity or has_services or has_filter_group):
+    if not has_any_filter(filters):
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
@@ -1623,7 +1631,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        close_incident_before_delete(team_id=instance.team_id, alert_id=str(instance.id), state=instance.state)
+        before_delete(team_id=instance.team_id, alert_id=instance.id)
         with transaction.atomic():
             locked_instance = (
                 LogsAlertConfiguration.objects.select_for_update()
@@ -1637,5 +1645,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 alert_id=str(locked_instance.id),
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
+            if locked_instance.platform_owned:
+                on_deleted(team_id=locked_instance.team_id, alert_id=locked_instance.id)
             super().perform_destroy(locked_instance)
             transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)
