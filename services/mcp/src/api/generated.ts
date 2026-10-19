@@ -45580,6 +45580,8 @@ export namespace Schemas {
       calls: number;
       /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
       remotely_evaluated_calls: number;
+      /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
+      people_assigned_outside: number;
     }
 
     export interface ExperimentHealthInputsReaderAccess {

@@ -91,6 +91,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         ],
         calls: 4200,
         remotely_evaluated_calls: 4116,
+        people_assigned_outside: 0,
     },
     reader_access: { can_read_flag_history: true, can_query_events: true, denied_event_properties: [] },
     exposures: {
