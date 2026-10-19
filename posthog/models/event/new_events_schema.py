@@ -44,12 +44,18 @@ def use_new_events_cluster(team_id: int | None, modifiers: "HogQLQueryModifiers 
 
     if modifiers is None or not modifiers.useNewEventsCluster:
         return False
+    if reason := native_events_cluster_ineligibility(team_id):
+        raise ExposedHogQLError(reason)
+    return True
+
+
+def native_events_cluster_ineligibility(team_id: int | None) -> str | None:
     if not get_new_events_cluster_host():
-        raise ExposedHogQLError("The native events cluster host is not configured.")
+        return "The native events cluster host is not configured."
     allowed = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_TEAMS")
     if not isinstance(allowed, list) or any(type(value) is not int for value in allowed) or team_id not in allowed:
-        raise ExposedHogQLError("This project is not enabled for native events cluster queries.")
-    return True
+        return "This project is not enabled for native events cluster queries."
+    return None
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:

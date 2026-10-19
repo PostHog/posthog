@@ -7,13 +7,23 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode, QueryStatus, SessionTableVersion
+from posthog.schema import (
+    EventsNode,
+    GroupsQuery,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    QueryStatus,
+    SessionTableVersion,
+    TrendsQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.api.services.query import NATIVE_EVENTS_CLUSTER_USER_FLAG, native_events_cluster_modifiers_for_user
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -40,6 +50,32 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
                 return_value=True,
             )
+        )
+
+    @parameterized.expand(
+        [
+            ("hogql", HogQLQuery(query="SELECT 1"), True),
+            ("typed_insight", TrendsQuery(series=[EventsNode(event="$pageview")]), True),
+            ("unsupported_kind", GroupsQuery(group_type_index=0), False),
+            ("warehouse_connection", HogQLQuery(query="SELECT 1", connectionId="example-connection"), False),
+            (
+                "explicit_schema_choice",
+                HogQLQuery(query="SELECT 1", modifiers=HogQLQueryModifiers(useNewEventsSchema=True)),
+                False,
+            ),
+        ]
+    )
+    def test_rollout_flag_opts_in_only_queries_the_native_cluster_supports(
+        self, _name: str, query: Any, opted_in: bool
+    ) -> None:
+        with patch(
+            "posthog.api.services.query.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+        ):
+            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query)
+        self.assertEqual(
+            modifiers,
+            HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True) if opted_in else None,
         )
 
     def _enqueue(self, runner: QueryRunner) -> dict[str, Any]:
@@ -365,6 +401,36 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("pre_aggregated", execute.call_args.args[0])
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
+
+    @parameterized.expand(
+        [
+            ("eligible", True, {}, True),
+            ("project_not_eligible", False, {}, False),
+            ("explicit_opt_out", True, {"useNewEventsCluster": False}, False),
+        ]
+    )
+    def test_rollout_flag_routes_app_queries_with_their_own_cache_entry(
+        self, _name: str, eligible: bool, modifiers: dict[str, bool], native: bool
+    ) -> None:
+        query = {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events", "modifiers": modifiers}
+        responses = {}
+        workloads = {}
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
+            patch("posthog.hogql.query.sync_execute", return_value=([(7,)], [("n", "UInt64")])) as execute,
+        ):
+            for flag in (False, True):
+                with patch(
+                    "posthog.api.services.query.posthoganalytics.feature_enabled",
+                    side_effect=lambda key, *args, flag=flag, **kwargs: flag and key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+                ):
+                    responses[flag] = self._run_query(query)
+                workloads[flag] = execute.call_args.kwargs["workload"]
+        for flag in (False, True):
+            self.assertEqual(responses[flag].status_code, 200, responses[flag].json())
+        self.assertNotEqual(workloads[False], Workload.NEW_EVENTS_CLUSTER)
+        self.assertEqual(workloads[True] == Workload.NEW_EVENTS_CLUSTER, native)
+        self.assertEqual(responses[True].json()["cache_key"] != responses[False].json()["cache_key"], native)
 
     @parameterized.expand([(False,), (True,)])
     def test_property_values_native_opt_in_bypasses_the_aggregate_table(self, native: bool) -> None:

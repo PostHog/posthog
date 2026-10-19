@@ -1889,6 +1889,33 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
     }
 
 
+NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
+    HogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    PathsV2Query,
+    StickinessQuery,
+    LifecycleQuery,
+    EventsQuery,
+    ActorsQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    FunnelCorrelationQuery,
+    PropertyValuesQuery,
+    ExperimentQuery,
+    ExperimentTrendsQuery,
+    ExperimentFunnelsQuery,
+    ExperimentExposureQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebVitalsQuery,
+)
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -2452,34 +2479,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         if self.modifiers.useNewEventsCluster:
-            if not isinstance(
-                self.query,
-                (
-                    HogQLQuery,
-                    TrendsQuery,
-                    FunnelsQuery,
-                    RetentionQuery,
-                    PathsQuery,
-                    PathsV2Query,
-                    StickinessQuery,
-                    LifecycleQuery,
-                    EventsQuery,
-                    ActorsQuery,
-                    InsightActorsQuery,
-                    InsightActorsQueryOptions,
-                    FunnelCorrelationQuery,
-                    PropertyValuesQuery,
-                    ExperimentQuery,
-                    ExperimentTrendsQuery,
-                    ExperimentFunnelsQuery,
-                    ExperimentExposureQuery,
-                    WebOverviewQuery,
-                    WebPageURLSearchQuery,
-                    WebStatsTableQuery,
-                    WebGoalsQuery,
-                    WebVitalsQuery,
-                ),
-            ):
+            if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
                 raise ExposedHogQLError("Native cluster comparisons do not support this query type. Use HogQLQuery.")
 
         # Set user for access control during query execution. Some subclasses

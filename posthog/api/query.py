@@ -43,7 +43,7 @@ from posthog.api.monitoring import (
     monitor,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import process_query_model
+from posthog.api.services.query import native_events_cluster_modifiers_for_user, process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
@@ -342,6 +342,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 result = process_query_model(
                     self.team,
                     query,
+                    modifiers=native_events_cluster_modifiers_for_user(self.team, request.user, query),
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]

@@ -5,6 +5,8 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional, overload
 
+from django.contrib.auth.models import AnonymousUser
+
 import structlog
 import pydantic_core
 import posthoganalytics
@@ -60,6 +62,7 @@ from posthog.event_usage import AnalyticsProps
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import (
+    NATIVE_EVENTS_CLUSTER_QUERY_TYPES,
     CacheMissResponse,
     ExecutionMode,
     QueryResponse,
@@ -67,6 +70,7 @@ from posthog.hogql_queries.query_runner import (
     get_query_runner_or_none,
 )
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import native_events_cluster_ineligibility
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -78,6 +82,8 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
+
+NATIVE_EVENTS_CLUSTER_USER_FLAG = "native-events-cluster-queries"
 
 
 @frozen
@@ -466,6 +472,34 @@ def process_query_dict(
         analytics_props=analytics_props,
         allow_raw_results=allow_raw_results,
     )
+
+
+def native_events_cluster_modifiers_for_user(
+    team: Team, user: User | AnonymousUser | None, query: BaseModel
+) -> HogQLQueryModifiers | None:
+    if not isinstance(user, User) or not isinstance(query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+        return None
+    if isinstance(query, HogQLQuery) and query.connectionId:
+        return None
+    query_modifiers = getattr(query, "modifiers", None)
+    if query_modifiers is not None and (
+        query_modifiers.useNewEventsCluster is not None or query_modifiers.useNewEventsSchema is not None
+    ):
+        return None
+    if native_events_cluster_ineligibility(team.pk) is not None:
+        return None
+    enabled = posthoganalytics.feature_enabled(
+        NATIVE_EVENTS_CLUSTER_USER_FLAG,
+        str(user.distinct_id),
+        person_properties={"email": user.email},
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+    if not enabled:
+        return None
+    return HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True)
 
 
 def process_database_schema_query(
