@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -55,7 +57,8 @@ export const manifest: ProductManifest = {
         // `/replay/:id` and shows "Recording not found".
         '/replay/vision': '/replay-vision',
         // Bookmarks and docs still link to the goal step's old path.
-        '/replay-vision/:id/template': ({ id }) => `/replay-vision/${id}/goal`,
+        '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+            combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     },
     urls: {
         replayVision:
