@@ -9,7 +9,8 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "posthog-js": "catalog:"
+        "posthog-js": "catalog:",
+        "re2js": "^0.4.1"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",

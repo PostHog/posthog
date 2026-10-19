@@ -4241,6 +4241,9 @@ importers:
       posthog-js:
         specifier: 'catalog:'
         version: 1.438.12(@types/react@18.3.27)(react@18.3.1)
+      re2js:
+        specifier: ^0.4.1
+        version: 0.4.1
       react:
         specifier: 18.3.1
         version: 18.3.1
