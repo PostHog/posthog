@@ -1662,7 +1662,7 @@ export interface eventUsageLogicActions {
     }) => {
         completedTaskCount: number
         elapsedSeconds: number
-        errorKind: InstallationErrorKind | null
+        errorKind: 'usage_limit' | null
         outcome: string
         skillId: string
         taskCount: number
