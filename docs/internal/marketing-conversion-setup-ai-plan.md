@@ -60,6 +60,8 @@ Worker failures preserve older results and require a manual retry.
 
 Generated MCP tools expose all four operations with project scopes and feature flags.
 Read tools do not start AI; starting analysis is a write operation even though it only creates proposals.
+Starting or refreshing analysis requires `marketing_analytics:write` and project-admin access.
+The generated MCP tool inherits this scope from the API and respects the organization's read-only MCP policy.
 All four tools use the conversion Setup flag; endpoint Setup and project-access checks also apply.
 The compact preview/apply MCP schema keeps the generated API validator as its final parsing step, so specialized filters and validation remain supported.
 See [configuration API details](marketing-analytics-configuration-writes.md) for response fields, permissions, retry behavior, and unsupported combinations.
@@ -87,11 +89,11 @@ The work is ordered in local commits so the final publication can be split witho
 
 The October 15 integration incorporates `origin/master` at `0dfcf980e0c3` and preserves the local commit history.
 It reconciles the modular dashboard with upstream onboarding and table/chart changes, moves the team serializer changes into its new package, and regenerates API contracts.
-The local PostgreSQL migrations now follow upstream migration 1397 as 1398 and 1399; the conversion setup model migration depends on 1399.
+The PostgreSQL configuration migrations are `1402_marketing_initial_conversion_goals` and `1403_teammarketinganalyticsconfig__overview_metrics`; the conversion setup model migration depends on 1403.
 Conversion services initialize the team extension through the shared helper before locking or reading preview evidence, including projects with no existing configuration.
 Warehouse attribution retains its existing session path when the new event-only optimization is enabled.
 Integration validation uses separate test databases; the earlier demo database is not migrated in place.
-No push, public screenshot upload, PR creation, or merge is included.
+The implementation is published in [PR #118305](https://github.com/PostHog/posthog/pull/118305); CI, visual approval, and human review gate merging.
 
 ## Validation
 

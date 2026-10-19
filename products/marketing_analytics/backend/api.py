@@ -1836,7 +1836,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="conversion_recommendations/start",
-        required_scopes=["marketing_analytics:read"],
+        required_scopes=["marketing_analytics:write"],
         throttle_classes=[ConversionRecommendationThrottle],
     )
     def start_conversion_recommendations(self, request: Request, *args: Any, **kwargs: Any) -> Response:

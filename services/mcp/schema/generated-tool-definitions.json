@@ -9487,7 +9487,7 @@
         "feature": "marketing_analytics",
         "summary": "Analyze conversion candidates",
         "title": "Analyze conversion candidates",
-        "required_scopes": ["marketing_analytics:read"],
+        "required_scopes": ["marketing_analytics:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

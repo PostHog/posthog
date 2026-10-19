@@ -202,8 +202,6 @@ tools:
     marketing-analytics-start-conversion-recommendations:
         operation: marketing_analytics_conversion_recommendations_start_create
         enabled: true
-        scopes:
-            - marketing_analytics:read
         annotations:
             readOnly: false
             destructive: false

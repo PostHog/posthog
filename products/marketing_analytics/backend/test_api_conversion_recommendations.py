@@ -10,7 +10,9 @@ from django.utils import timezone
 from anthropic.types import ToolUseBlock
 from parameterized import parameterized
 
+from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -144,6 +146,34 @@ class TestConversionRecommendations(APIBaseTest):
             date_to=now,
         )
         self.assertIsNone(self.client.get(self.base).json()["latest_run"])
+
+    @parameterized.expand(
+        [
+            ("read_scope", "marketing_analytics:read", False, 403),
+            ("write_scope", "marketing_analytics:write", False, 200),
+            ("read_only_mcp", "marketing_analytics:write", True, 403),
+        ]
+    )
+    def test_generation_requires_write_access(
+        self, _name: str, scope: str, read_only_mcp: bool, expected_status: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Security settings"}
+        ]
+        self.organization.read_only_mcp_access = read_only_mcp
+        self.organization.save(update_fields=["available_product_features", "read_only_mcp_access"])
+        key = self.create_personal_api_key_with_scopes([scope])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}", HTTP_USER_AGENT=MCP_USER_AGENT_MARKER)
+
+        self.assertEqual(self.client.get(self.base).status_code, 200)
+        with patch(QUEUE) as enqueue, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.base + "/start", {"refresh": True})
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        expected_runs = 1 if expected_status == 200 else 0
+        self.assertEqual(ConversionRecommendationRun.objects.for_team(self.team.pk).count(), expected_runs)
+        self.assertEqual(enqueue.call_count, expected_runs)
 
     @parameterized.expand([("amount", True), ("invented_amount", False)])
     def test_revenue_proposal_requires_observed_amount_and_keeps_business_questions(
