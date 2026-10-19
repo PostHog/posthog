@@ -69,6 +69,7 @@ function Playground({ fixture, initialMode, initialNodeId }: PlaygroundProps): J
             tree={fixture.tree}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}
+            onPrefetchNode={() => {}}
             onSelectFromView={selectAndShowSpans}
             detail={{
                 ...fixture.details[node.id],

@@ -9,6 +9,18 @@ from .usage import Usage
 ANNOTATION_EVENTS = frozenset({"$ai_feedback", "$ai_metric"})
 
 
+def kind_of_event(event_name: str) -> TraceNodeKind:
+    match event_name:
+        case "$ai_generation":
+            return "generation"
+        case "$ai_embedding":
+            return "embedding"
+        case "$ai_trace":
+            return "trace"
+        case _:
+            return "span"
+
+
 @frozen
 class TraceEvent:
     row: TraceEventRow
@@ -28,15 +40,7 @@ class TraceEvent:
 
     @property
     def kind(self) -> TraceNodeKind:
-        match self.row.event:
-            case "$ai_generation":
-                return "generation"
-            case "$ai_embedding":
-                return "embedding"
-            case "$ai_trace":
-                return "trace"
-            case _:
-                return "span"
+        return kind_of_event(self.row.event)
 
     @property
     def is_trace_event(self) -> bool:

@@ -25,6 +25,14 @@ export const Loading: Story = {
     decorators: [withWidth(720)],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
+export const LoadError: Story = {
+    args: {
+        conversation: {
+            status: 'error',
+            message: 'The conversation could not be loaded. Reload the page to try again.',
+        },
+    },
+}
 export const Empty: Story = { args: ready([{ ...FIXTURE_TURN, messages: [] }]) }
 export const SystemOnly: Story = { args: ready([{ ...FIXTURE_TURN, messages: [FIXTURE_GENERATION_MESSAGES[0]] }]) }
 export const ErrorWithoutMessages: Story = {
