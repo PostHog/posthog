@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 import structlog
-from openai.types.shared_params import ResponseFormatJSONSchema
+from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
@@ -97,7 +97,7 @@ PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
 PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
 PROJECT_ROUTE_MAX_RETRIES = 1
 # With reasoning on, the model argues itself out of a project the message plainly names.
-PROJECT_ROUTE_REASONING_EFFORT = "none"
+PROJECT_ROUTE_REASONING_EFFORT: ReasoningEffort = "none"
 
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-6-luna"
 AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
