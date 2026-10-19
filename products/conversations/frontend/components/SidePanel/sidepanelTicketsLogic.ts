@@ -67,12 +67,10 @@ function ticketActivityTime(ticket: ConversationTicket): number {
 const POLL_INTERVAL_BACKGROUND = 60 * 1000 // support surface not visible: only keep the unread badge fresh
 const POLL_INTERVAL_ACTIVE = 20 * 1000 // support surface open on the ticket list
 const POLL_INTERVAL_THREAD = 10 * 1000 // a ticket thread is open, so replies must land quickly
-// Every app user shares one team-wide widget bucket, so after a 429 wait before asking again,
-// doubling per consecutive 429
 const RATE_LIMIT_BACKOFF_MIN = 30 * 1000
 const RATE_LIMIT_BACKOFF_MAX = 5 * 60 * 1000
 
-// posthog-js marks a 429 with kind 'rate_limit' and does not pass the status code through
+// posthog-js drops the status code and sets kind instead
 function isRateLimited(error: unknown): boolean {
     const e = error as { kind?: string; status?: number } | null
     return e?.kind === 'rate_limit' || e?.status === 429
@@ -620,9 +618,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return
             }
             cache.conversationsRetries = 0
-            // Tab focus and panel opens call this too, so the 429 backoff holds here and not only in
-            // the poll timer. On a support surface the wait ends in a retry; elsewhere the next focus,
-            // panel open, or page load picks it up.
             const backoffRemaining = (cache.ticketsRetryAt ?? 0) - Date.now()
             if (backoffRemaining > 0) {
                 if (onSupportSurface) {
@@ -670,8 +665,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     cache.ticketsBackoff = retryDelay
                     cache.ticketsRetryAt = Date.now() + retryDelay
                 }
-                // The unread badge mounts this logic on every page, so only tell people who are
-                // looking at support, and only once until a load succeeds again
+                // Mounted on every page for the unread badge
                 if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
                     if (!cache.ticketsLoadErrorShown) {
                         cache.ticketsLoadErrorShown = true

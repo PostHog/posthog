@@ -538,13 +538,11 @@ BILLING_EXPORT_CONCURRENT_STREAMS = get_from_env("BILLING_EXPORT_CONCURRENT_STRE
 WIZARD_RUN_CREATE_THROTTLE_RATE = get_from_env("WIZARD_RUN_CREATE_THROTTLE_RATE", "30/hour")
 WIZARD_RUN_READ_THROTTLE_RATE = get_from_env("WIZARD_RUN_READ_THROTTLE_RATE", "120/minute")
 
-# The in-app support panel of both regions sends one widget token, owned by our internal US project,
-# so every app user shares its team-wide poll bucket (posthog.rate_limit.WidgetTeamPollThrottle).
-# Teams listed here get the larger rate. Empty off US Cloud, where team 2 is a customer project.
+# Our in-app support widget token is shared by every app user. Off US Cloud, team 2 is a customer.
 CONVERSATIONS_WIDGET_HIGH_VOLUME_TEAM_IDS = get_list(
     get_from_env("CONVERSATIONS_WIDGET_HIGH_VOLUME_TEAM_IDS", "2" if (CLOUD_DEPLOYMENT or "").upper() == "US" else "")
 )
-# Per minute rather than per hour: DRF keeps one cache entry per request in the window.
+# Per minute: DRF caches one entry per request in the window
 CONVERSATIONS_WIDGET_HIGH_VOLUME_POLL_RATE = get_from_env("CONVERSATIONS_WIDGET_HIGH_VOLUME_POLL_RATE", "600/minute")
 
 # Email domains whose signups are created already-verified (skipping the email round-trip), so

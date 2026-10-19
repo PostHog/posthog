@@ -438,7 +438,6 @@ describe('sidepanelTicketsLogic', () => {
         errorToast.mockRestore()
     })
 
-    // Every page mounts this logic for the unread badge, so a failed background load must not toast
     it('stays quiet when tickets fail to load outside a support surface', async () => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
         ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(new Error('boom'))
@@ -453,7 +452,6 @@ describe('sidepanelTicketsLogic', () => {
         errorToast.mockRestore()
     })
 
-    // All app users share one team-wide widget bucket, so a 429 has to slow every entry point down
     it('backs off after a 429 and toasts only once on the support panel', async () => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
         const getTickets = jest
