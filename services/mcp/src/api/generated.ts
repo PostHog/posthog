@@ -35922,6 +35922,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `native` - Native
+     * * `hog_function` - HogFunction
+     */
+    export type DeliveryPathEnum = typeof DeliveryPathEnum[keyof typeof DeliveryPathEnum];
+
+
+    export const DeliveryPathEnum = {
+      Native: 'native',
+      HogFunction: 'hog_function',
+    } as const;
+
+    /**
      * * `open_to_gate` - Open To Gate
      * * `gate_to_merge` - Gate To Merge
      */
@@ -64489,6 +64501,25 @@ export namespace Schemas {
 
     export interface LogsAlertDestinationResponse {
       hog_function_ids: string[];
+    }
+
+    export interface LogsAlertDestinationSend {
+      /** The HogFunction the message was sent for. It names the lifecycle event that was sent. */
+      hog_function_id: string;
+      /** When the send started. */
+      sent_at: string;
+      /** Which delivery path sent it. `native` is the stock message sent by the alerts platform. `hog_function` is the destination's HogFunction.
+       *
+       * * `native` - Native
+       * * `hog_function` - HogFunction */
+      path: DeliveryPathEnum;
+      /** Whether the destination accepted the message. */
+      succeeded: boolean;
+      /**
+         * Why the send failed. Null when it succeeded.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**
@@ -129574,6 +129605,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type LogsAlertsDestinationsSendsListParams = {
+    /**
+     * Comma-separated HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
+     * @minLength 1
+     */
+    hog_function_ids: string;
     };
 
     export type LogsAlertsEventsListParams = {

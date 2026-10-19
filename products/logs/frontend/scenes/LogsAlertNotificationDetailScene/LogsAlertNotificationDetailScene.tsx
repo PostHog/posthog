@@ -24,6 +24,7 @@ import {
     resolveGroupLabel,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 
+import { DestinationRecentSends } from './DestinationRecentSends'
 import {
     LogsAlertNotificationDetailSceneLogicProps,
     logsAlertNotificationDetailSceneLogic,
@@ -49,9 +50,12 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         hogFunctionId,
         firstSlackIntegration,
         messageCustomized,
+        recentSends,
+        recentSendsLoading,
+        recentSendsError,
     } = useValues(logsAlertNotificationDetailSceneLogic)
     const customizationEnabled = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
-    const { deleteDestination, loadHogFunctions, setHogFunctionEnabled } = useActions(
+    const { deleteDestination, loadHogFunctions, loadRecentSends, setHogFunctionEnabled } = useActions(
         logsAlertNotificationDetailSceneLogic
     )
 
@@ -267,6 +271,20 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                         })}
                     </div>
                 )}
+
+                {customizationEnabled && destinationGroup ? (
+                    <DestinationRecentSends
+                        sends={recentSends}
+                        loading={recentSendsLoading}
+                        error={recentSendsError}
+                        onRetry={loadRecentSends}
+                        eventLabelFor={(id) => {
+                            const fn = destinationGroup.hogFunctions.find((hogFunction) => hogFunction.id === id)
+                            const kind = fn ? getHogFunctionEventKind(fn) : null
+                            return kind ? LOGS_ALERT_EVENT_KIND_META[kind].label : 'Unknown event'
+                        }}
+                    />
+                ) : null}
             </div>
         </SceneContent>
     )

@@ -48,7 +48,12 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
+from products.alerts_platform.backend.facade.api import (
+    history_by_legacy_id,
+    recent_destination_sends,
+    reset_broken,
+    runtime_by_legacy_id,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -59,7 +64,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
@@ -1089,6 +1094,42 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     )
 
 
+MAX_DESTINATION_SENDS: Final = 20
+
+
+class LogsAlertDestinationSendsQuerySerializer(serializers.Serializer):
+    hog_function_ids = serializers.CharField(
+        help_text="Comma-separated HogFunction IDs of one destination group. IDs that are not this alert's are ignored.",
+    )
+
+    def validate_hog_function_ids(self, value: str) -> list[UUID]:
+        try:
+            ids = [UUID(part.strip()) for part in value.split(",") if part.strip()]
+        except ValueError:
+            raise ValidationError("Must be comma-separated UUIDs.")
+        if not ids:
+            raise ValidationError("At least one ID is required.")
+        if len(ids) > MAX_DESTINATION_IDS_PER_DELETE_REQUEST:
+            raise ValidationError("Too many destination IDs.")
+        return ids
+
+
+class LogsAlertDestinationSendSerializer(serializers.Serializer):
+    hog_function_id = serializers.CharField(
+        help_text="The HogFunction the message was sent for. It names the lifecycle event that was sent."
+    )
+    sent_at = serializers.DateTimeField(help_text="When the send started.")
+    path = serializers.ChoiceField(
+        choices=DeliveryPath.choices,
+        help_text=(
+            "Which delivery path sent it. `native` is the stock message sent by the alerts platform. "
+            "`hog_function` is the destination's HogFunction."
+        ),
+    )
+    succeeded = serializers.BooleanField(help_text="Whether the destination accepted the message.")
+    error = serializers.CharField(allow_null=True, help_text="Why the send failed. Null when it succeeded.")
+
+
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -1437,6 +1478,49 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=request,
         )
         return Response(status=204)
+
+    @extend_schema(
+        parameters=[LogsAlertDestinationSendsQuerySerializer],
+        responses={200: LogsAlertDestinationSendSerializer(many=True)},
+        description=(
+            "The last messages sent to one destination of this alert in the past 7 days, newest first, "
+            "on both delivery paths, with whether each one succeeded."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="destinations/sends",
+        required_scopes=["logs:read"],
+        pagination_class=None,
+    )
+    def destination_sends(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        query = LogsAlertDestinationSendsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        groups = list_alert_destination_groups(
+            team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        )
+        owned = {str(hog_function_id) for group in groups for hog_function_id in group.hog_function_ids}
+        destination_ids = [str(i) for i in query.validated_data["hog_function_ids"] if str(i) in owned]
+        sends = recent_destination_sends(
+            team_id=self.team_id, destination_ids=destination_ids, limit=MAX_DESTINATION_SENDS
+        )
+        return Response(
+            LogsAlertDestinationSendSerializer(
+                [
+                    {
+                        "hog_function_id": send.destination_id,
+                        "sent_at": send.sent_at,
+                        "path": send.path,
+                        "succeeded": send.succeeded,
+                        "error": send.error,
+                    }
+                    for send in sends
+                ],
+                many=True,
+            ).data
+        )
 
     @extend_schema(
         request=None,

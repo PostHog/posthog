@@ -7,7 +7,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,9 +21,13 @@ import {
     groupLogsAlertDestinations,
     LogsAlertDestinationGroup,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
-import { logsAlertsDestinationsDeleteCreate, logsAlertsRetrieve } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsDestinationsDeleteCreate,
+    logsAlertsDestinationsSendsList,
+    logsAlertsRetrieve,
+} from 'products/logs/frontend/generated/api'
 
-import type { LogsAlertConfigurationDetailApi } from '../../generated/api.schemas'
+import type { LogsAlertConfigurationDetailApi, LogsAlertDestinationSendApi } from '../../generated/api.schemas'
 
 export interface LogsAlertNotificationDetailSceneLogicProps {
     alertId: string
@@ -32,6 +38,7 @@ export interface LogsAlertNotificationDetailSceneLogicProps {
 export interface logsAlertNotificationDetailSceneLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     alert: LogsAlertConfigurationDetailApi | null
     alertId: string
     alertLoading: boolean
@@ -45,6 +52,9 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     hogFunctionsLoading: boolean
     isDeleting: boolean
     messageCustomized: boolean
+    recentSends: LogsAlertDestinationSendApi[] | null
+    recentSendsError: boolean
+    recentSendsLoading: boolean
     togglingHogFunctionIds: string[]
 }
 
@@ -84,6 +94,21 @@ export interface logsAlertNotificationDetailSceneLogicActions {
         payload?: any
     ) => {
         hogFunctions: HogFunctionType[]
+        payload?: any
+    }
+    loadRecentSends: () => any
+    loadRecentSendsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecentSendsSuccess: (
+        recentSends: LogsAlertDestinationSendApi[] | null,
+        payload?: any
+    ) => {
+        recentSends: LogsAlertDestinationSendApi[] | null
         payload?: any
     }
     setHogFunctionEnabled: (
@@ -136,7 +161,14 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     key((props) => `${props.alertId}:${props.hogFunctionId}`),
 
     connect({
-        values: [teamLogic, ['currentTeamId'], integrationsLogic, ['slackIntegrations']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            integrationsLogic,
+            ['slackIntegrations'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     }),
 
     actions({
@@ -165,6 +197,13 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
             {
                 deleteDestination: () => true,
                 deleteDestinationDone: () => false,
+            },
+        ],
+        recentSendsError: [
+            false,
+            {
+                loadRecentSends: () => false,
+                loadRecentSendsFailure: () => true,
             },
         ],
         togglingHogFunctionIds: [
@@ -203,6 +242,20 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                         full: true,
                     })
                     return response.results
+                },
+            },
+        ],
+        recentSends: [
+            null as LogsAlertDestinationSendApi[] | null,
+            {
+                loadRecentSends: async () => {
+                    const group = values.destinationGroup
+                    if (!values.currentTeamId || !group) {
+                        return null
+                    }
+                    return logsAlertsDestinationsSendsList(String(values.currentTeamId), props.alertId, {
+                        hog_function_ids: group.hogFunctions.map((hogFunction) => hogFunction.id).join(','),
+                    })
                 },
             },
         ],
@@ -261,6 +314,11 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     }),
 
     listeners(({ actions, values, props }) => ({
+        loadHogFunctionsSuccess: () => {
+            if (values.featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] && values.destinationGroup) {
+                actions.loadRecentSends()
+            }
+        },
         deleteDestination: async ({ displayLabel }) => {
             const group = values.destinationGroup
             if (!group || !values.currentTeamId) {

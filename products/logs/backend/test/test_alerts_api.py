@@ -19,6 +19,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -3385,3 +3386,84 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "offset"
+
+
+class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "free": True,
+            },
+        )
+
+    def _log(self, log_source: str, log_source_id: str, instance_id: str, at: datetime, level: str, message: str):
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": self.team.pk,
+                "log_source": log_source,
+                "log_source_id": log_source_id,
+                "instance_id": instance_id,
+                "timestamp": at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "level": level,
+                "message": message,
+            },
+        )
+
+    def test_a_destination_lists_its_sends_on_both_paths_and_nothing_else(self) -> None:
+        response = self.client.post(
+            self.base_url,
+            {"name": "Errors", "threshold_count": 10, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert_id = response.json()["id"]
+        response = self.client.post(
+            f"{self.base_url}{alert_id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        functions = {
+            str(function.id): function.filters["events"][0]["id"]
+            for function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"])
+        }
+        firing = next(i for i, event in functions.items() if event == "$logs_alert_firing")
+        resolved = next(i for i, event in functions.items() if event == "$logs_alert_resolved")
+        other_alerts_function = str(uuid4())
+        now = datetime.now(UTC)
+
+        self._log("alert_destination", firing, "cfg", now - timedelta(minutes=10), "ERROR", "Webhook returned 500")
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "DEBUG", "Executing function")
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=29), "INFO", "Function completed in 12ms.")
+        self._log("hog_function", resolved, "inv-2", now - timedelta(minutes=20), "ERROR", "Error executing function")
+        # Still running, so neither sent nor failed yet.
+        self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "DEBUG", "Executing function")
+        self._log("alert_destination", other_alerts_function, "cfg", now - timedelta(minutes=1), "INFO", "Sent")
+
+        response = self.client.get(
+            f"{self.base_url}{alert_id}/destinations/sends/",
+            {"hog_function_ids": ",".join([*functions, other_alerts_function])},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [
+            (send["hog_function_id"], send["path"], send["succeeded"], send["error"]) for send in response.json()
+        ] == [
+            (firing, "native", False, "Webhook returned 500"),
+            (resolved, "hog_function", False, "Error executing function"),
+            (firing, "hog_function", True, None),
+        ]
