@@ -145,7 +145,7 @@ describe('API helper', () => {
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
             expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError, true)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
@@ -154,6 +154,19 @@ describe('API helper', () => {
 
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
+        })
+
+        it('ends a stream with an unreadable message so a new load can recover', async () => {
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            const options = fetchEventSourceSpy.mock.calls[0][1]
+            options.onmessage?.({ data: 'invalid json', event: '', id: '' })
+            expect(onError).toHaveBeenCalledWith(expect.any(SyntaxError))
+            expect(options.signal?.aborted).toBe(true)
+            fetchEventSourceSpy.mockRestore()
         })
 
         it('reports a stream that closes before completion', async () => {
@@ -166,7 +179,8 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: 'Dashboard stream ended before loading finished. Refresh the page.',
-                })
+                }),
+                false
             )
             fetchEventSourceSpy.mockRestore()
         })
@@ -651,6 +665,14 @@ describe('API helper', () => {
             expect(request.assembleEndpointUrl()).toEqual(
                 'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
             )
+        })
+    })
+
+    describe('tracing', () => {
+        it('sends the trace id as one path segment', async () => {
+            await api.tracing.getTrace('a/b?c')
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/tracing/spans/trace/a%2Fb%3Fc/')
         })
     })
 

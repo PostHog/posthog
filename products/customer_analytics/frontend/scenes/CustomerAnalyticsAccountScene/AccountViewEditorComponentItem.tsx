@@ -2,7 +2,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
@@ -12,6 +12,7 @@ interface AccountViewEditorComponentItemProps {
     component: AccountViewComponentInstance
     label: string
     disabled: boolean
+    onSpanChange: (span: number) => void
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -20,6 +21,7 @@ export function AccountViewEditorComponentItem({
     component,
     label,
     disabled,
+    onSpanChange,
     onDuplicate,
     onRemove,
 }: AccountViewEditorComponentItemProps): JSX.Element {
@@ -27,6 +29,19 @@ export function AccountViewEditorComponentItem({
         id: component.nodeId,
         disabled,
     })
+    const spanOptions = [
+        { value: 6, label: 'Half', 'data-attr': 'account-view-component-span-half' },
+        { value: 12, label: 'Full', 'data-attr': 'account-view-component-span-full' },
+        ...(component.span === 6 || component.span === 12
+            ? []
+            : [
+                  {
+                      value: component.span,
+                      label: `Custom (${component.span}/12)`,
+                      'data-attr': 'account-view-component-span-custom',
+                  },
+              ]),
+    ]
 
     return (
         <div
@@ -51,6 +66,13 @@ export function AccountViewEditorComponentItem({
                 <SortableDragIcon />
             </button>
             <span className="min-w-32 flex-1 font-medium">{label}</span>
+            <LemonSegmentedButton
+                value={component.span}
+                onChange={onSpanChange}
+                options={spanOptions}
+                size="xsmall"
+                disabledReason={disabled ? 'Saving changes' : undefined}
+            />
             <div className="flex items-center gap-1">
                 <LemonButton
                     size="xsmall"

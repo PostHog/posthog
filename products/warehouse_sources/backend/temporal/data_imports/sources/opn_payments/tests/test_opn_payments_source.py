@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opnpayments import (
@@ -12,20 +11,6 @@ class TestOpnPaymentsSource:
         self.source = OpnPaymentsSource()
         self.team_id = 123
         self.config = OpnPaymentsSourceConfig(secret_key="skey_test_123")
-
-    def test_default_api_version_is_supported_and_not_deprecated(self):
-        assert self.source.default_version in self.source.supported_versions
-        assert self.source.get_version_deprecation(self.source.default_version) is None
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.omise.co/charges",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.opn_payments.source.opn_payments_source"

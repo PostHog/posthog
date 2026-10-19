@@ -472,6 +472,9 @@ fn person_property_cases() -> Vec<(&'static str, Value)> {
         ("semver_tilde", json!("1.2")),
         ("semver_caret", json!("1.2.3")),
         ("semver_wildcard", json!("1.2.*")),
+        ("semver_eq", json!("01.2.3-rc.1")),
+        ("semver_eq", json!("1.2.3-alpha+build.01")),
+        ("semver_eq", json!("18446744073709551615.0.0")),
     ]
 }
 
@@ -549,6 +552,14 @@ fn person_properties_are_closed_before_reusing_operator_types() {
         ("semver_eq", json!("+1.2.3")),
         ("semver_eq", json!("1. 2.3")),
         ("semver_eq", json!("1.+2.3")),
+        ("semver_eq", json!("1.2.3.4")),
+        ("semver_tilde", json!("1.2.3.4")),
+        ("semver_wildcard", json!("1.2.3.4.*")),
+        ("semver_eq", json!("1.2.3-")),
+        ("semver_eq", json!("1.2.3-01")),
+        ("semver_eq", json!("1.2.3-a_b")),
+        ("semver_eq", json!("1_0.2.3")),
+        ("semver_eq", json!("18446744073709551616.0.0")),
     ] {
         let mut document = config();
         document["rules"][0]["targeting"]["properties"] =

@@ -7,6 +7,7 @@ from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import (
+    JSON_RETRY_PROMPT,
     end_sandbox_session,
     run_sandbox_review,
     start_sandbox_session,
@@ -55,6 +56,8 @@ class TestRunSandboxReview:
         assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
         assert call_kwargs["internal"] is True
         assert call_kwargs["ai_stage"] == "split"
+        # Without the retry prompt a prose first turn fails the whole activity and reruns the review.
+        assert call_kwargs["json_retry_prompt"] == JSON_RETRY_PROMPT
 
     @pytest.mark.asyncio
     async def test_context_built_from_explicit_identity(self) -> None:
@@ -145,6 +148,75 @@ class TestRunSandboxReview:
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
         # The session path builds its own context, so the least-privilege pin must hold here too.
         assert call_kwargs["context"].posthog_mcp_scopes == ["llm_skill:read", "user:read"]
+
+    @parameterized.expand(
+        [
+            ("single_turn_with_prefix", run_sandbox_review, "review-pr:1:o/r:7:chunking", True),
+            ("warm_session_with_prefix", start_sandbox_session, "review-pr:1:o/r:7:validation-c1", True),
+            ("single_turn_without_prefix", run_sandbox_review, None, False),
+            ("warm_session_without_prefix", start_sandbox_session, None, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_origin_key_carries_the_review_workflow_id(self, _name, entrypoint, prefix, expect_key) -> None:
+        # The workflow id holds the PR (`review-pr:{team}:{owner}/{repo}:{pr}`). Task.origin_key reaches
+        # $ai_generation as task_origin_key, so this is the only way to sum review cost per PR.
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await entrypoint(
+                team_id=1,
+                user_id=2,
+                repository="o/r",
+                branch="b",
+                prompt="p",
+                system_prompt="s",
+                model_to_validate=DummyModel,
+                workflow_id_prefix=prefix,
+            )
+
+        origin_key = mock_start.call_args.kwargs["origin_key"]
+        if expect_key:
+            assert origin_key.endswith(f":{prefix}")
+        else:
+            assert origin_key is None
+
+    @parameterized.expand(
+        [
+            ("short_prefix", "review-pr:1:o/r:7:chunking", "7"),
+            ("prefix_longer_than_the_column", "review-pr:1:" + "o" * 200 + "/r:7:chunking", "7"),
+            ("max_length_owner_and_repo", "review-pr:1:" + "o" * 39 + "/" + "r" * 100 + ":117301:chunking", "117301"),
+            (
+                "long_owner_and_repo_child_workflow",
+                "review-pr:1:" + "o" * 20 + "/" + "r" * 80 + ":117301/validate:x",
+                "117301/validate",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_origin_key_is_unique_per_task_and_fits_the_column(self, _name, prefix, pr_segment) -> None:
+        # Task enforces one origin_key per team (max 128 chars), and one review starts many tasks with
+        # the same prefix, so the unique part must lead and survive truncation.
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            for _ in range(2):
+                await run_sandbox_review(
+                    team_id=1,
+                    user_id=2,
+                    repository="o/r",
+                    branch="b",
+                    prompt="p",
+                    system_prompt="s",
+                    model_to_validate=DummyModel,
+                    workflow_id_prefix=prefix,
+                )
+
+        first, second = (call.kwargs["origin_key"] for call in mock_start.call_args_list)
+        assert first != second
+        assert len(first) <= 128 and len(second) <= 128
+        assert first.split(":")[1:5] == second.split(":")[1:5]
+        assert first.split(":")[4] == pr_segment
 
     @parameterized.expand(
         [

@@ -3,8 +3,16 @@
 `POST /api/projects/{team_id}/tasks/` creates a task without starting a run by default.
 Set `start_run` to `true` to create the task and start its first background run in one request.
 This mode uses the `tasks-mcp-agent-run-start` feature flag and the internal-project restriction.
-Sandbox tokens cannot start another cloud run.
-This restriction also applies to warm creation, warm activation, warm resumes, and cloud resumes.
+A sandbox token can start a background agent run through `start_run` or the task `run` endpoint, within these rules:
+
+- The token must be bound to a run of a task that the token's user created. Otherwise the response is `403` with code `no_actor`.
+- A run that a sandbox started cannot start more runs, and neither can a resume of that run. A sandbox also cannot start a run of its own task. These cases return `403` with code `nested`.
+- Every other gate runs as the token's user: the internal project, the `tasks-mcp-agent-run-start` feature flag, Desktop access, usage limits, and task visibility.
+- One parent run can start up to 10 runs. A start that fails gives its slot back. Past the cap, the response is `429` with code `agent_run_fanout_cap`.
+- Each user has hourly and daily limits on runs that sandboxes start. Past them, the response is `429` with code `agent_run_rate_limited`.
+- The new run is always a background run. Its state records `agent_parent_task_id` and `agent_parent_run_id`, and callers cannot change or remove them.
+
+Sandbox tokens still cannot start runs through warm creation, warm activation, warm resumes, cloud resumes, or the endpoints under `/tasks/{task_id}/runs/`.
 Requests through a PostHog connection keep the sandbox origin and the same run restrictions.
 The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
@@ -48,6 +56,7 @@ Run responses omit internal cost accounting, including gateway request IDs.
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
+The bundled Codex 0.159.2 runtime supports this model with ChatGPT subscription billing.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.
 Adding the model does not change the default model or the capability slider.
@@ -96,5 +105,5 @@ Other task streams include the effective summary.
 - `tasks-run-create` starts a run for an existing task.
 
 The two run-start tools require the agent-run feature flag.
-They are not available to sandbox tokens.
+Sandbox tokens can use them only within the sandbox rules above.
 These operations are not idempotent. If a response is lost, inspect the task and its runs before you retry.

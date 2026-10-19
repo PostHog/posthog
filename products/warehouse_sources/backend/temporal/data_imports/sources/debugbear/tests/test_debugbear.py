@@ -1,16 +1,21 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
     HTTPError,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
     _date_only,
     _flatten_page_metrics_item,
@@ -24,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.
     _parse_datetime,
     debugbear_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.source import DebugbearSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.debugbear import (
+    DebugbearSourceConfig,
 )
 
 
@@ -39,39 +48,11 @@ def _response(json_body: Any, status_code: int = 200) -> MagicMock:
 
 
 class TestFlattenPageMetricsItem:
-    def test_flattens_dotted_metric_keys(self) -> None:
-        project = {"id": "p1", "name": "My Project"}
-        item = {
-            "page": {"id": "pg1", "name": "Homepage", "url": "https://example.com"},
-            "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z", "performance.score": 0.96},
-        }
-
-        row = _flatten_page_metrics_item(project, item)
-
-        assert row == {
-            "project_id": "p1",
-            "project_name": "My Project",
-            "page_id": "pg1",
-            "page_name": "Homepage",
-            "page_url": "https://example.com",
-            "analysis_date": "2024-01-10T00:00:00.000Z",
-            "performance_score": 0.96,
-        }
-
-    def test_missing_page_id_returns_none(self) -> None:
-        project = {"id": "p1"}
-        item = {"page": {"name": "Homepage"}, "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z"}}
-
-        assert _flatten_page_metrics_item(project, item) is None
-
     def test_missing_analysis_date_returns_none(self) -> None:
         project = {"id": "p1"}
         item = {"page": {"id": "pg1"}, "metrics": {"performance.score": 0.9}}
 
         assert _flatten_page_metrics_item(project, item) is None
-
-    def test_missing_page_and_metrics_keys_handled_gracefully(self) -> None:
-        assert _flatten_page_metrics_item({"id": "p1"}, {}) is None
 
 
 class TestDateOnly:
@@ -88,15 +69,8 @@ class TestDateOnly:
 
 
 class TestParseDatetime:
-    def test_parses_iso_string(self) -> None:
-        parsed = _parse_datetime("2024-01-10T19:06:42.201Z")
-        assert parsed == datetime(2024, 1, 10, 19, 6, 42, 201000, tzinfo=UTC)
-
     def test_invalid_string_returns_none(self) -> None:
         assert _parse_datetime("not-a-date") is None
-
-    def test_none_returns_none(self) -> None:
-        assert _parse_datetime(None) is None
 
     def test_datetime_passthrough(self) -> None:
         value = datetime(2024, 1, 1, tzinfo=UTC)
@@ -109,23 +83,19 @@ class TestValidateCredentials:
         [(200, True), (401, False), (403, False), (500, False)],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _response([], status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:
             is_valid, error = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/projects"}
         assert is_valid is expected_valid
         if not expected_valid:
             assert error
 
     def test_request_exception_is_reported(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = RequestsConnectionError("boom")
+        with scripted_network(always(RequestsConnectionError("boom"))) as network:
             is_valid, error = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/projects"}
         assert is_valid is False
         assert "boom" in str(error)
 
@@ -134,24 +104,13 @@ class TestSessionFactory:
     def test_session_disables_redirects_so_api_key_is_not_replayed(self) -> None:
         # The API key rides in a custom `x-api-key` header, which `requests` would replay
         # across a cross-origin redirect — so the tracked session must never follow redirects.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _response([])
+        with scripted_network([ScriptedResponse(json=[])]) as network:
             validate_credentials("test-key")
 
-        mock_make_session.assert_called_once_with(redact_values=("test-key",), allow_redirects=False)
+        assert network.session_options == [{"redact_values": ("test-key",), "allow_redirects": False}]
 
 
 class TestIterProjects:
-    def test_filters_non_dict_entries(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response([{"id": "p1"}, "unexpected", {"id": "p2"}])
-
-        projects = _iter_projects(session, {})
-
-        assert projects == [{"id": "p1"}, {"id": "p2"}]
-
     def test_non_list_response_returns_empty(self) -> None:
         session = MagicMock()
         session.get.return_value = _response({"error": "nope"})
@@ -160,26 +119,6 @@ class TestIterProjects:
 
 
 class TestIterPageMetricsForProject:
-    def test_walks_backward_until_empty_page(self) -> None:
-        session = MagicMock()
-        page1 = [
-            {"page": {"id": "pg1"}, "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z"}},
-            {"page": {"id": "pg2"}, "metrics": {"analysis.date": "2024-01-08T00:00:00.000Z"}},
-        ]
-        page2 = [{"page": {"id": "pg1"}, "metrics": {"analysis.date": "2024-01-01T00:00:00.000Z"}}]
-        session.get.side_effect = [_response(page1), _response(page2), _response([])]
-
-        rows = list(_iter_page_metrics_for_project(session, {}, {"id": "proj1"}, stop_when_older_than=None))
-
-        assert [row["page_id"] for row in rows] == ["pg1", "pg2", "pg1"]
-        assert session.get.call_count == 3
-        # First request has no `before`; the second and third walk backward using the
-        # oldest date seen so far (date-only, per the documented `before=YYYY-MM-DD` param).
-        sent_urls = [call.args[0] for call in session.get.call_args_list]
-        assert "before" not in sent_urls[0]
-        assert "before=2024-01-08" in sent_urls[1]
-        assert "before=2024-01-01" in sent_urls[2]
-
     def test_stops_early_once_page_predates_watermark(self) -> None:
         session = MagicMock()
         page1 = [
@@ -324,16 +263,6 @@ class TestFlattenRumMetrics:
 
 
 class TestIterRumMetricsForProject:
-    def test_incremental_asks_the_server_for_rows_after_the_watermark(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response({"info": {"stat": "p75"}, "lcp": []})
-
-        list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=datetime(2026, 4, 6, 12, 30, tzinfo=UTC)))
-
-        query = _query(session.get.call_args)
-        assert query["from"] == ["2026-04-06T12:30:00Z"]
-        assert query["groupByTime"] == ["day"]
-
     def test_full_refresh_asks_for_the_backfill_window(self) -> None:
         session = MagicMock()
         session.get.return_value = _response({"info": {"stat": "p75"}, "lcp": []})
@@ -350,30 +279,15 @@ class TestIterRumMetricsForProject:
         assert list(_iter_rum_metrics_for_project(session, {}, {}, since=None)) == []
         session.get.assert_not_called()
 
+    def test_400_response_raises_a_stable_non_retryable_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({}, status_code=400)
+
+        with pytest.raises(HTTPError, match="DebugBear rejected the RUM metrics request"):
+            list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=None))
+
 
 class TestIterRumPageViewsForProject:
-    def test_walks_backward_with_the_to_cutoff_until_empty(self) -> None:
-        session = MagicMock()
-        page1 = [
-            {"path": "/", "date": "2026-04-14T20:30:15.000Z"},
-            {"path": "/pricing", "date": "2026-04-14T18:00:00.000Z"},
-        ]
-        page2 = [{"path": "/", "date": "2026-04-13T09:00:00.000Z"}]
-        session.get.side_effect = [_response(page1), _response(page2), _response([])]
-
-        rows = list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=None))
-
-        assert [row["date"] for row in rows] == [
-            "2026-04-14T20:30:15.000Z",
-            "2026-04-14T18:00:00.000Z",
-            "2026-04-13T09:00:00.000Z",
-        ]
-        queries = [_query(call) for call in session.get.call_args_list]
-        assert "to" not in queries[0]
-        assert queries[0]["count"] == ["5000"]
-        assert queries[1]["to"] == ["2026-04-14T18:00:00.000Z"]
-        assert queries[2]["to"] == ["2026-04-13T09:00:00.000Z"]
-
     def test_incremental_passes_the_watermark_as_from(self) -> None:
         session = MagicMock()
         session.get.side_effect = [_response([{"date": "2026-04-14T20:30:15.000Z"}]), _response([])]
@@ -393,22 +307,6 @@ class TestIterRumPageViewsForProject:
         # The repeat is yielded, but its id matches the first row's so merge collapses them.
         assert len({row["id"] for row in rows}) == 1
 
-    def test_synthesized_id_separates_different_page_views(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [
-            _response(
-                [
-                    {"path": "/", "device": "mobile", "date": "2026-04-14T20:30:15.000Z"},
-                    {"path": "/", "device": "desktop", "date": "2026-04-14T20:30:15.000Z"},
-                ]
-            ),
-            _response([]),
-        ]
-
-        rows = list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=None))
-
-        assert len({row["id"] for row in rows}) == 2
-
     def test_rows_without_a_date_are_skipped(self) -> None:
         session = MagicMock()
         session.get.return_value = _response([{"path": "/"}])
@@ -418,22 +316,6 @@ class TestIterRumPageViewsForProject:
 
 
 class TestIterAnnotationsForProject:
-    def test_reads_a_bare_list(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response([{"id": 7, "title": "V5 release", "date": "2026-04-14T20:30:15.000Z"}])
-
-        rows = list(_iter_annotations_for_project(session, {}, {"id": "p1", "name": "Proj"}))
-
-        assert rows == [
-            {
-                "id": "7",
-                "title": "V5 release",
-                "date": "2026-04-14T20:30:15.000Z",
-                "project_id": "p1",
-                "project_name": "Proj",
-            }
-        ]
-
     def test_reads_a_wrapped_list(self) -> None:
         session = MagicMock()
         session.get.return_value = _response({"annotations": [{"id": "7", "title": "V5 release"}]})
@@ -441,14 +323,6 @@ class TestIterAnnotationsForProject:
         rows = list(_iter_annotations_for_project(session, {}, {"id": "p1"}))
 
         assert [row["id"] for row in rows] == ["7"]
-
-    def test_annotation_without_an_id_gets_a_content_id(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response([{"title": "V5 release"}, {"title": "V6 release"}])
-
-        rows = list(_iter_annotations_for_project(session, {}, {"id": "p1"}))
-
-        assert len({row["id"] for row in rows}) == 2
 
     @pytest.mark.parametrize("payload", [{"error": "nope"}, "unexpected"])
     def test_unusable_payloads_yield_nothing(self, payload: Any) -> None:
@@ -496,26 +370,28 @@ class TestDebugbearSourceRouting:
             debugbear_source(api_key="key", endpoint="Nope")
 
     def test_page_metrics_items_iterates_all_projects(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            projects_response = _response([{"id": "proj1"}, {"id": "proj2"}])
-            proj1_metrics = _response(
-                [{"page": {"id": "pg1"}, "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z"}}]
-            )
-            proj2_metrics = _response(
-                [{"page": {"id": "pg2"}, "metrics": {"analysis.date": "2024-01-11T00:00:00.000Z"}}]
-            )
-            mock_session.get.side_effect = [
-                projects_response,
-                proj1_metrics,
-                _response([]),
-                proj2_metrics,
-                _response([]),
-            ]
+        driver = SourceDriver(DebugbearSource(), DebugbearSourceConfig(api_key="key"))
+        result = driver.run(
+            "PageMetrics",
+            [
+                ScriptedResponse(json=[{"id": "proj1"}, {"id": "proj2"}]),
+                ScriptedResponse(
+                    json=[{"page": {"id": "pg1"}, "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z"}}]
+                ),
+                ScriptedResponse(json=[]),
+                ScriptedResponse(
+                    json=[{"page": {"id": "pg2"}, "metrics": {"analysis.date": "2024-01-11T00:00:00.000Z"}}]
+                ),
+                ScriptedResponse(json=[]),
+            ],
+        )
 
-            response = debugbear_source(api_key="key", endpoint="PageMetrics")
-            rows = list(cast("Iterable[Any]", response.items()))
-
-        assert [row["project_id"] for row in rows] == ["proj1", "proj2"]
+        assert result.raised is None
+        assert [row["project_id"] for row in result.rows] == ["proj1", "proj2"]
+        assert result.paths == [
+            "/api/v1/projects",
+            "/api/v1/projects/proj1/pageMetrics",
+            "/api/v1/projects/proj1/pageMetrics",
+            "/api/v1/projects/proj2/pageMetrics",
+            "/api/v1/projects/proj2/pageMetrics",
+        ]

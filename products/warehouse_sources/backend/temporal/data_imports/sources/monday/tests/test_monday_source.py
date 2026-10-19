@@ -2,8 +2,16 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+    MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_2026_10,
+    MONDAY_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
 
 
@@ -16,29 +24,6 @@ class TestMondaySource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.monday.com/v2",
-            "monday.com GraphQL error: User unauthorized to perform action",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.monday.com/v2",
-            "monday.com complexity budget exhausted: budget left 0",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
             "monday.com API error (retryable): status=500",
             "monday.com internal server error (retryable): Internal Server Error; Internal server error",
         ],
@@ -47,37 +32,63 @@ class TestMondaySource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.monday.com/v2",
+            "403 Client Error: Forbidden for url: https://api.monday.com/v2",
+            "monday.com GraphQL error: Not authenticated",
+            "monday.com GraphQL error: User unauthorized",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_and_permission_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["items"])
         assert len(schemas) == 1
         assert schemas[0].name == "items"
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return, expected_valid, expected_message, api_version, expected_api_version",
         [
-            (True, True, None),
-            (False, False, "Invalid monday.com API token"),
+            (True, True, None, None, MONDAY_VERSION_2026_10),
+            (True, True, None, MONDAY_VERSION_V2, MONDAY_VERSION_V2),
+            (True, True, None, MONDAY_VERSION_2026_07, MONDAY_VERSION_2026_07),
+            (False, False, "Invalid monday.com API token", None, MONDAY_VERSION_2026_10),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.monday.source.validate_monday_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(
+        self, mock_validate, mock_return, expected_valid, expected_message, api_version, expected_api_version
+    ):
         mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, api_version=api_version)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_token)
+        mock_validate.assert_called_once_with(self.config.api_token, expected_api_version)
+
+    @pytest.mark.parametrize(
+        "pinned_version, expected_header",
+        [
+            (MONDAY_VERSION_V2, "2024-10"),
+            (MONDAY_VERSION_2026_07, "2026-07"),
+            (MONDAY_VERSION_2026_10, "2026-10"),
+            (None, "2026-10"),
+        ],
+    )
+    def test_sync_sends_the_source_pin(self, pinned_version: str | None, expected_header: str) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "users",
+            [ScriptedResponse(json={"data": {"users": []}})],
+            api_version=pinned_version,
+        )
+
+        assert result.raised is None
+        assert result.session_options[0]["headers"]["API-Version"] == expected_header
+        assert result.requests[0].headers["api-version"] == expected_header

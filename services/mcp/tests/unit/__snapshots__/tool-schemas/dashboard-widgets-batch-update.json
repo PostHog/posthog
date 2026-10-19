@@ -185,6 +185,7 @@
                                                                 "in",
                                                                 "not_in",
                                                                 "is_cleaned_path_exact",
+                                                                "is_cleaned_path_not_exact",
                                                                 "flag_evaluates_to",
                                                                 "semver_eq",
                                                                 "semver_neq",
@@ -289,6 +290,7 @@
                                                                 "in",
                                                                 "not_in",
                                                                 "is_cleaned_path_exact",
+                                                                "is_cleaned_path_not_exact",
                                                                 "flag_evaluates_to",
                                                                 "semver_eq",
                                                                 "semver_neq",
@@ -459,7 +461,14 @@
                                     "orderBy": {
                                         "default": "occurrences",
                                         "description": "Issue ranking column.",
-                                        "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                                        "enum": [
+                                            "last_seen",
+                                            "first_seen",
+                                            "occurrences",
+                                            "users",
+                                            "sessions",
+                                            "severity"
+                                        ],
                                         "type": "string"
                                     },
                                     "orderDirection": {
@@ -518,6 +527,7 @@
                                                                 "in",
                                                                 "not_in",
                                                                 "is_cleaned_path_exact",
+                                                                "is_cleaned_path_not_exact",
                                                                 "flag_evaluates_to",
                                                                 "semver_eq",
                                                                 "semver_neq",
@@ -735,6 +745,7 @@
                                                                 "in",
                                                                 "not_in",
                                                                 "is_cleaned_path_exact",
+                                                                "is_cleaned_path_not_exact",
                                                                 "flag_evaluates_to",
                                                                 "semver_eq",
                                                                 "semver_neq",
@@ -1253,6 +1264,53 @@
                             },
                             "widget_type": {
                                 "enum": ["conversations_recent_tickets"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["tile_id", "widget_type"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "New configuration for the canvas app widget. Omit to leave unchanged.",
+                                "properties": {
+                                    "canvasId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Canvas to render in the tile. Null until the user picks one in the widget settings."
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "New markdown description for the widget. Omit to leave unchanged.",
+                                "type": "string"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "New display name for the widget. Empty string or null clears it; omit to leave unchanged."
+                            },
+                            "tile_id": {
+                                "description": "ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+                                "type": "number"
+                            },
+                            "widget_type": {
+                                "enum": ["canvas_app"],
                                 "type": "string"
                             }
                         },

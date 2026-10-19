@@ -27,6 +27,8 @@ Hosted forms do not use in-app targeting. Their public form URL is different fro
 
 Appearance customization is optional. Removing PostHog branding with `whiteLabel: true` requires the organization's white-labelling entitlement. Popup delays must be non-negative. An agent should explain unsupported settings rather than silently changing your branding or widening the audience.
 
+To change the appearance of an existing survey, the agent reads the survey with `survey-get` first and sends back the whole `appearance` object with its changes. An update replaces the saved appearance, so a setting left out goes back to its default. Placement settings are part of that object: `position` sets where a popover appears, and `tabPosition` sets which edge of the page holds a tab widget.
+
 ## Launch and check results
 
 Review the saved questions, audience, schedule, and response limit before launch. Ask the agent to launch with `survey-launch` when ready. If you already requested immediate launch, the agent can continue after checking the configuration and delivery requirements.

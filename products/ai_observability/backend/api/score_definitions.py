@@ -26,16 +26,22 @@ from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.query import EmptyQuerySerializer, StrictQuerySerializer
+from products.ai_observability.backend.api.resource_tags import (
+    ResourceTagFilterSerializer,
+    ResourceTagsReadSerializer,
+    ResourceTagsWriteSerializer,
+)
 from products.ai_observability.backend.models.score_definitions import (
     ScoreDefinition,
     ScoreDefinitionVersion,
     StaleScoreDefinitionVersion,
 )
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
+from products.ai_observability.backend.resource_tags import ResourceTags
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
 
-class ScoreDefinitionSerializer(serializers.ModelSerializer):
+class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSerializer):
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -63,6 +69,7 @@ class ScoreDefinitionSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "tags",
             "kind",
             "archived",
             "current_version",
@@ -134,7 +141,7 @@ def _score_definition_version_page(
     )
 
 
-class ScoreDefinitionCreateSerializer(serializers.Serializer):
+class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
     name = serializers.CharField(max_length=255, help_text="Human-readable scorer name.")
     description = serializers.CharField(
         required=False,
@@ -165,7 +172,7 @@ class ScoreDefinitionCreateSerializer(serializers.Serializer):
         return attrs
 
 
-class ScoreDefinitionMetadataSerializer(serializers.Serializer):
+class ScoreDefinitionMetadataSerializer(ResourceTagsWriteSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Updated scorer name.")
     description = serializers.CharField(
         required=False,
@@ -186,6 +193,15 @@ class ScoreDefinitionMetadataSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255, required=False, help_text="Updated scorer name, saved with this version."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Updated scorer description, saved with this version.",
+    )
     config = ScoreDefinitionConfigField(help_text="Next immutable scorer configuration.")
     base_version = serializers.IntegerField(
         required=False,
@@ -196,6 +212,12 @@ class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
             "Omit to skip the optimistic-concurrency check."
         ),
     )
+
+    def validate_name(self, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise serializers.ValidationError("`name` cannot be blank.")
+        return normalized_value
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
@@ -266,7 +288,13 @@ class ScoreDefinitionViewSet(
         elif self.action in {"versions", "retrieve_version"}:
             queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
 
-        return queryset
+        if self.action == "list":
+            tag_query = ResourceTagFilterSerializer(data=self.request.query_params)
+            tag_query.is_valid(raise_exception=True)
+            queryset = ResourceTags.filter(
+                queryset, self.team_id, tag_query.validated_data.get("tags", []), tag_query.validated_data["tag_match"]
+            )
+        return queryset.prefetch_related(ResourceTags.prefetch())
 
     @staticmethod
     def _event_properties(definition: ScoreDefinition) -> dict[str, str | bool | int]:
@@ -285,6 +313,7 @@ class ScoreDefinitionViewSet(
     def _create_definition(self, validated_data: dict[str, Any]) -> ScoreDefinition:
         definition_data = dict(validated_data)
         config = definition_data.pop("config")
+        tags = definition_data.pop("tags", [])
         definition_data.pop("archived", None)
         definition_data["description"] = definition_data.get("description") or ""
 
@@ -294,11 +323,18 @@ class ScoreDefinitionViewSet(
             **definition_data,
         )
         definition.create_new_version(config=config, created_by=cast(User, self.request.user))
+        ResourceTags.set(definition, tags)
         return definition
 
-    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
+    @transaction.atomic
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> None:
         definition_data = dict(validated_data)
         changed_fields: list[str] = []
+        if "tags" in definition_data:
+            tags = definition_data.pop("tags")
+            if tags != ResourceTags.names(definition):
+                ResourceTags.set(definition, tags)
+                changed_fields.append("tags")
 
         if "description" in definition_data:
             definition_data["description"] = definition_data["description"] or ""
@@ -308,11 +344,28 @@ class ScoreDefinitionViewSet(
                 setattr(definition, field, value)
                 changed_fields.append(field)
 
-        if changed_fields:
-            definition.save(update_fields=[*changed_fields, "updated_at"])
+        if not changed_fields:
+            return
 
-        return changed_fields
+        definition.save(update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at"])
+        event_properties: dict[str, str | bool | int | list[str]] = {
+            **self._event_properties(definition),
+            "changed_fields": changed_fields,
+        }
+        if "archived" in changed_fields:
+            event_properties["archived_new_value"] = definition.archived
 
+        transaction.on_commit(
+            lambda: report_user_action(
+                self.request.user,
+                "llma scorer updated",
+                event_properties,
+                team=self.team,
+                request=self.request,
+            )
+        )
+
+    @transaction.atomic
     def _create_definition_version(
         self, definition: ScoreDefinition, validated_data: dict[str, Any]
     ) -> ScoreDefinition:
@@ -321,11 +374,16 @@ class ScoreDefinitionViewSet(
             created_by=cast(User, self.request.user),
             base_version=validated_data.get("base_version"),
         )
-        definition.refresh_from_db(fields=["current_version", "updated_at"])
+        # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
+        definition.refresh_from_db()
+        self._update_definition_metadata(
+            definition, {field: validated_data[field] for field in ("name", "description") if field in validated_data}
+        )
         return definition
 
     @extend_schema(
         parameters=[
+            ResourceTagFilterSerializer,
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
@@ -378,24 +436,7 @@ class ScoreDefinitionViewSet(
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         definition = self.get_object()
-        changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
-
-        if changed_fields:
-            event_properties: dict[str, Any] = {
-                **self._event_properties(definition),
-                "changed_fields": changed_fields,
-            }
-
-            if "archived" in changed_fields:
-                event_properties["archived_new_value"] = definition.archived
-
-            report_user_action(
-                request.user,
-                "llma scorer updated",
-                event_properties,
-                team=self.team,
-                request=request,
-            )
+        self._update_definition_metadata(definition, dict(request.validated_data))
 
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
 

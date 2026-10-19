@@ -57,7 +57,6 @@ const meta: Meta<typeof ScoutsRoster> = {
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: true,
         },
         testOptions: { waitForLoadersToDisappear: false },
     },
@@ -105,7 +104,8 @@ export const Stale: Story = {
     ],
 }
 
-// One long motivation beside two short ones: the check that a row no longer stretches to its tallest card.
+// One long motivation above two short ones: the check that the motivation clamps to two lines and
+// the actions stay in line on every row.
 export const UnevenMotivations: Story = {
     decorators: [
         mswDecorator({
@@ -128,8 +128,8 @@ export const UnevenMotivations: Story = {
     ],
 }
 
-// A batch shrinks on its own as its picks get created, so one card has to look deliberate.
-export const SingleCard: Story = {
+// A batch shrinks on its own as its picks get created, so one row has to look deliberate.
+export const SingleRow: Story = {
     decorators: [
         mswDecorator({
             get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ items: [mockScoutSuggestions[1]] })] },
@@ -203,7 +203,7 @@ export const NeverGenerated: Story = {
     ],
 }
 
-// An empty fleet gets the same cards as the body of the empty state.
+// An empty fleet gets the same rows as the body of the empty state.
 export const EmptyFleet: Story = {
     decorators: [
         mswDecorator({
@@ -216,10 +216,10 @@ export const EmptyFleet: Story = {
     ],
 }
 
-// The narrow scene a sidebar plus an open side panel leaves: the card grid drops to one column.
+// The narrow scene a sidebar plus an open side panel leaves: the actions wrap under the text.
 export const Narrow: Story = {
     parameters: {
-        testOptions: { viewport: { width: 600, height: 900 }, waitForLoadersToDisappear: false },
+        testOptions: { viewport: { width: 520, height: 900 }, waitForLoadersToDisappear: false },
     },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }

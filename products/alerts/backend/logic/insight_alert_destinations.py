@@ -10,14 +10,17 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
-
-from products.alerts.backend.facade.contracts import AlertDestinationConfig, AlertDestinationData, DestinationType
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
     clip_hog_function_name,
     destination_filter,
 )
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationConfig,
+    AlertDestinationData,
+    DestinationType,
+)
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 SLACK_TEMPLATE_ID: Final = DESTINATION_SPECS[DestinationType.SLACK].template_id
 

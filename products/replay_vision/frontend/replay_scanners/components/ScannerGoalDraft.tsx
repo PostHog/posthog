@@ -15,7 +15,7 @@ import { replayScannerLogic } from '../replayScannerLogic'
 export function ScannerGoalDraft(): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalDraftLoading, experimentContext } = useValues(logic)
+    const { goalDraftInput, goalDraftLoading, linkedExperimentContext } = useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput } = useActions(logic)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
@@ -65,10 +65,10 @@ export function ScannerGoalDraft(): JSX.Element {
                     />
                     {/* The page-level scope note sits above the template grid, so someone who
                         scrolled down to this box has lost sight of it. */}
-                    {experimentContext ? (
+                    {linkedExperimentContext ? (
                         <div className="px-4 pb-2 text-xs text-muted">
                             Whatever you describe, this scanner keeps watching people exposed to{' '}
-                            {experimentContext.experiment.name}. You don't have to mention the experiment.
+                            {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
                         </div>
                     ) : null}
                     <div className="flex items-center justify-between px-4 pb-3">

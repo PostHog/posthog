@@ -17,8 +17,6 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from types_aiobotocore_s3.client import S3Client
 
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
 from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
@@ -33,6 +31,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import assert_clickhouse_records_in_s3
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.tests.temporal.utils.workflow import (
     NeverFinishingActivity,
     mocked_start_batch_export_run,
@@ -248,7 +247,6 @@ async def test_s3_export_workflow_with_request_timeouts(
     to a `RequestTimeout` on the first run of the batch export. The second run should work normally.
     """
     batch_export_model = BatchExportModel(name="events", schema=None)
-    batch_export_schema = None
 
     raised = 0
 
@@ -284,7 +282,6 @@ async def test_s3_export_workflow_with_request_timeouts(
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         interval=interval,
         integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,

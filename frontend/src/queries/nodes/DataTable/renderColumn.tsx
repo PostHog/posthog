@@ -42,7 +42,7 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
+import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityGlobalColumns'
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
@@ -184,6 +184,14 @@ export function renderColumn(
                 // do nothing
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
+                // ClickHouse returns the epoch for min() or max() over no rows, because DateTime is not Nullable
+                if (new Date(value).getTime() === 0 && !/\.\d*[1-9]/.test(value)) {
+                    return (
+                        <Tooltip title="Unix epoch. An aggregate like min() or max() returns this when no rows match.">
+                            <span className="cursor-default">{value}</span>
+                        </Tooltip>
+                    )
+                }
                 return (
                     <TZLabel
                         time={value}

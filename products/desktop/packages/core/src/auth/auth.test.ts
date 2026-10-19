@@ -6,7 +6,7 @@ import {
   OAUTH_SCOPE_VERSION,
 } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthService } from "./auth";
+import { AuthService, type FetchLike } from "./auth";
 import type {
   AuthOrgProjectPreferenceRecord,
   AuthPreferenceRecord,
@@ -220,7 +220,10 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(extraFetchOrigins: string[] = []): AuthService {
+  function createService(
+    extraFetchOrigins: string[] = [],
+    fetchImpl?: FetchLike,
+  ): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
@@ -231,6 +234,7 @@ describe("AuthService", () => {
       mockLogger,
       null,
       extraFetchOrigins,
+      fetchImpl,
     );
   }
 
@@ -522,6 +526,62 @@ describe("AuthService", () => {
     const response = await service.authenticatedFetch(fetch, url);
 
     expect(response.status).toBe(200);
+  });
+
+  it("applies a desktop access denial reported by another endpoint", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+
+    service.reportDesktopAccessBlocked(99, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+    expect(service.getState().desktopAccess.status).not.toBe("blocked");
+    service.reportDesktopAccessBlocked(42, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+
+    expect(service.getState().desktopAccess).toEqual({
+      projectId: 42,
+      status: "blocked",
+      reason: "startup_plan",
+    });
+  });
+
+  it("changes the session epoch on a sign-in over a live session only", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    const first = service.getSessionEpoch();
+    expect(first).not.toBeNull();
+
+    await service.refreshAccessToken();
+    expect(service.getSessionEpoch()).toBe(first);
+
+    let finishFlow: (value: unknown) => void = () => undefined;
+    oauthFlow.startFlow.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishFlow = resolve;
+      }),
+    );
+    const pending = service.login("us");
+    await service.refreshAccessToken().catch(() => undefined);
+    expect(service.getSessionEpoch()).toBe(first);
+    finishFlow(mockTokenResponse());
+    await pending;
+    expect(service.getSessionEpoch()).not.toBe(first);
+    const second = service.getSessionEpoch();
+
+    oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
+    await service.login("us");
+    expect(service.getSessionEpoch()).not.toBe(second);
+
+    await service.logout();
+    expect(service.getSessionEpoch()).toBeNull();
   });
 
   it("requires scope reauthentication when the stored scope version is stale", async () => {
@@ -2395,6 +2455,25 @@ describe("AuthService", () => {
         status: "error",
         reason: null,
       });
+    });
+
+    it("checks access through the injected fetch when the global fetch fails", async () => {
+      stubAuthFetch();
+      const injectedFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+      );
+      service = createService([], injectedFetch);
+
+      await service.initialize();
+
+      expect(service.getState().desktopAccess).toEqual({
+        projectId: 42,
+        status: "allowed",
+        reason: null,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
     it("retries after a technical failure", async () => {

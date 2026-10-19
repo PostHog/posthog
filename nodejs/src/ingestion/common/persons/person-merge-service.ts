@@ -17,6 +17,7 @@ import { PersonContext } from './person-context'
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
+    PersonMergeRaceConditionError,
     PersonMergeResponseMismatchError,
     PersonMergeResult,
     PersonMergeUnsettledError,
@@ -95,6 +96,16 @@ function foldAbandonReason(error: unknown): MergeFoldAbortReason {
  */
 export class PersonMergeService {
     constructor(private context: PersonContext) {}
+
+    /**
+     * Settled verdicts the identity service decides alone are its warnings
+     * to publish; emitting them here too would show each refusal twice.
+     * Unsettled conflicts, call failures, raw refusals and unknown verdicts
+     * stay here, because only this side knows its retries and policy.
+     */
+    private identityOwnsVerdictWarnings(): boolean {
+        return this.context.personStore.backend === 'personhog' && this.context.identityEmitsMergeWarnings
+    }
 
     async handleIdentifyOrAlias(): Promise<PersonMergeResult> {
         /**
@@ -303,14 +314,16 @@ export class PersonMergeService {
                 [ConnectError, PersonMergeResponseMismatchError]
             )
         } catch (error) {
-            if (!(error instanceof PersonMergeUnsettledError)) {
+            if (!(error instanceof PersonMergeUnsettledError || error instanceof PersonMergeRaceConditionError)) {
                 throw error
             }
-            // Retries exhausted without a settled answer: dropped with the
-            // race warning, as Postgres drops a persistent conflict. The
-            // drop also counts on the claim-drop series, so the drop rate
-            // reads whole across both backends.
-            mergeUnsettledCounter.inc()
+            // Retries exhausted without a settled answer, or a creation race that
+            // outlasted them: dropped with the race warning, as Postgres drops a
+            // persistent conflict. The drop also counts on the claim-drop series,
+            // so the drop rate reads whole across both backends.
+            if (error instanceof PersonMergeUnsettledError) {
+                mergeUnsettledCounter.inc()
+            }
             mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
             const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
                 type: 'merge_race_condition',
@@ -323,9 +336,10 @@ export class PersonMergeService {
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             }).then(() => undefined)
-            logger.warn('🤔', 'merge unsettled through every retry; dropped with the race warning', {
+            logger.warn('🤔', 'merge unresolved through every retry; dropped with the race warning', {
                 team_id: teamId,
                 distinct_id: mergeIntoDistinctId,
+                error: error.constructor.name,
             })
             return mergeSuccess(undefined, warningAck, true)
         }
@@ -547,19 +561,21 @@ export class PersonMergeService {
             case 'skipped_already_identified': {
                 // Warning acks ride the result's kafkaAck to the batch-end
                 // await rather than blocking the merge here.
-                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
-                    type: 'cannot_merge_already_identified',
-                    details: {
-                        sourcePersonDistinctId: otherPersonDistinctId,
-                        targetPersonDistinctId: mergeIntoDistinctId,
-                        distinctId: mergeIntoDistinctId,
-                        eventUuid: this.context.event.uuid,
-                        personId: survivor?.uuid,
-                        otherPersonId: sourceResult?.sourcePersonUuid,
-                    },
-                    pipelineStep: 'person-merge',
-                    alwaysSend: true,
-                })
+                const warningAck = this.identityOwnsVerdictWarnings()
+                    ? Promise.resolve()
+                    : emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                          type: 'cannot_merge_already_identified',
+                          details: {
+                              sourcePersonDistinctId: otherPersonDistinctId,
+                              targetPersonDistinctId: mergeIntoDistinctId,
+                              distinctId: mergeIntoDistinctId,
+                              eventUuid: this.context.event.uuid,
+                              personId: survivor?.uuid,
+                              otherPersonId: sourceResult?.sourcePersonUuid,
+                          },
+                          pipelineStep: 'person-merge',
+                          alwaysSend: true,
+                      })
                 logger.warn(
                     '🤔',
                     'refused to merge an already identified user via an $identify or $create_alias call',
@@ -574,11 +590,13 @@ export class PersonMergeService {
             case 'skipped_illegal': {
                 // Both ids are pre-checked in merge(); the saga's own list
                 // can be wider, so honor its verdict with the same warning.
-                const warningAck = this.emitIllegalDistinctIdWarning(
-                    otherPersonDistinctId,
-                    mergeIntoDistinctId,
-                    this.context.event.uuid
-                )
+                const warningAck = this.identityOwnsVerdictWarnings()
+                    ? Promise.resolve()
+                    : this.emitIllegalDistinctIdWarning(
+                          otherPersonDistinctId,
+                          mergeIntoDistinctId,
+                          this.context.event.uuid
+                      )
                 return mergeSuccess(
                     survivor,
                     Promise.all([kafkaAck, warningAck]).then(() => undefined),
@@ -590,19 +608,21 @@ export class PersonMergeService {
                 // A rival operation kept the persons through every retry;
                 // the merge drops with pg's race warning.
                 mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
-                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
-                    type: 'merge_race_condition',
-                    details: {
-                        sourcePersonDistinctId: otherPersonDistinctId,
-                        targetPersonDistinctId: mergeIntoDistinctId,
-                        distinctId: mergeIntoDistinctId,
-                        eventUuid: this.context.event.uuid,
-                        personId: survivor?.uuid,
-                        otherPersonId: sourceResult?.sourcePersonUuid,
-                    },
-                    pipelineStep: 'person-merge',
-                    alwaysSend: true,
-                })
+                const warningAck = this.identityOwnsVerdictWarnings()
+                    ? Promise.resolve()
+                    : emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                          type: 'merge_race_condition',
+                          details: {
+                              sourcePersonDistinctId: otherPersonDistinctId,
+                              targetPersonDistinctId: mergeIntoDistinctId,
+                              distinctId: mergeIntoDistinctId,
+                              eventUuid: this.context.event.uuid,
+                              personId: survivor?.uuid,
+                              otherPersonId: sourceResult?.sourcePersonUuid,
+                          },
+                          pipelineStep: 'person-merge',
+                          alwaysSend: true,
+                      })
                 logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                     team_id: this.context.team.id,
                 })
@@ -637,21 +657,24 @@ export class PersonMergeService {
                 if (outcome !== 'unknown') {
                     mergeSettledFailureCounter.inc()
                 }
-                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
-                    type: 'merge_settled_failure',
-                    details: {
-                        sourcePersonDistinctId: otherPersonDistinctId,
-                        targetPersonDistinctId: mergeIntoDistinctId,
-                        distinctId: mergeIntoDistinctId,
-                        eventUuid: this.context.event.uuid,
-                        // Both travel because each backend names the person
-                        // differently.
-                        otherPersonId: sourceResult.sourcePersonUuid,
-                        sourcePersonId: sourceResult.sourcePersonId,
-                        outcome,
-                    },
-                    pipelineStep: 'person-merge',
-                })
+                const warningAck =
+                    outcome !== 'unknown' && this.identityOwnsVerdictWarnings()
+                        ? Promise.resolve()
+                        : emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                              type: 'merge_settled_failure',
+                              details: {
+                                  sourcePersonDistinctId: otherPersonDistinctId,
+                                  targetPersonDistinctId: mergeIntoDistinctId,
+                                  distinctId: mergeIntoDistinctId,
+                                  eventUuid: this.context.event.uuid,
+                                  // Both travel because each backend names the person
+                                  // differently.
+                                  otherPersonId: sourceResult.sourcePersonUuid,
+                                  sourcePersonId: sourceResult.sourcePersonId,
+                                  outcome,
+                              },
+                              pipelineStep: 'person-merge',
+                          })
                 logger.warn(
                     '🤔',
                     outcome === 'unknown'
@@ -683,10 +706,14 @@ export class PersonMergeService {
         // Produces are collected and awaited together so a plan full of
         // refused pairs does not serialize warning round-trips.
         const warningAcks: Promise<unknown>[] = []
+        const identityOwnsWarnings = this.identityOwnsVerdictWarnings()
         for (const sourceResult of results) {
             const eventUuid = eventUuidBySource.get(sourceResult.sourceDistinctId) ?? this.context.event.uuid
             switch (sourceResult.outcome) {
                 case 'skipped_already_identified':
+                    if (identityOwnsWarnings) {
+                        break
+                    }
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {
                             type: 'cannot_merge_already_identified',
@@ -704,6 +731,9 @@ export class PersonMergeService {
                     )
                     break
                 case 'skipped_illegal':
+                    if (identityOwnsWarnings) {
+                        break
+                    }
                     warningAcks.push(
                         this.emitIllegalDistinctIdWarning(
                             sourceResult.sourceDistinctId,
@@ -717,6 +747,9 @@ export class PersonMergeService {
                     // The same drop the single-source path counts; skipping
                     // it here makes the drop rate read low by the folded share.
                     mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
+                    if (identityOwnsWarnings) {
+                        break
+                    }
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {
                             type: 'merge_race_condition',
@@ -737,6 +770,9 @@ export class PersonMergeService {
                     // answer; a fold must record the settled failure or the
                     // loss is invisible.
                     mergeSettledFailureCounter.inc()
+                    if (identityOwnsWarnings) {
+                        break
+                    }
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {
                             type: 'merge_settled_failure',

@@ -1,0 +1,144 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "models": {
+        "description": "Models in the selected Clarifai app, including details of their latest versions.",
+        "docs_url": "https://docs.clarifai.com/create/models/manage/",
+        "columns": {
+            "id": "Model identifier within the app.",
+            "name": "Model name.",
+            "app_id": "Identifier of the app that contains the model.",
+            "user_id": "Identifier of the model owner.",
+            "model_version": "Details of the latest model version.",
+        },
+    },
+    "workflows": {
+        "description": "Workflows that connect models in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/workflows/manage/",
+        "columns": {
+            "id": "Workflow identifier within the app.",
+            "nodes": "Model nodes and their connections in the workflow.",
+        },
+    },
+    "datasets": {
+        "description": "Datasets that organize inputs in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/datasets/manage/",
+        "columns": {
+            "id": "Dataset identifier within the app.",
+            "description": "Description of the dataset.",
+            "metadata": "Custom metadata attached to the dataset.",
+        },
+    },
+    "concepts": {
+        "description": "Concept labels in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/concepts/manage/",
+        "columns": {
+            "id": "Concept identifier within the app.",
+            "name": "Concept name.",
+            "language": "Language of the concept name.",
+            "created_at": "Time when the concept was created.",
+            "app_id": "Identifier of the app that contains the concept.",
+        },
+    },
+    "annotations": {
+        "description": "Annotations on inputs in the selected Clarifai app, including untrusted annotations.",
+        "docs_url": "https://docs.clarifai.com/resources/api-overview/",
+        "columns": {
+            "id": "Annotation identifier within the app.",
+            "input_id": "Identifier of the annotated input.",
+            "data": "Annotation content, such as concepts, regions, or frames.",
+            "user_id": "Identifier of the user who created the annotation.",
+            "model_version_id": "Identifier of the model version that created the annotation, if any.",
+            "status": "Annotation status, such as success, pending, or awaiting review.",
+            "trusted": "Whether the annotation is trusted.",
+            "task_id": "Identifier of the labeling task that produced the annotation, if any.",
+            "created_at": "Time when the annotation was created.",
+            "modified_at": "Time when the annotation was last modified.",
+        },
+    },
+    "evaluations": {
+        "description": "Model evaluation results in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/resources/api-overview/",
+        "columns": {
+            "id": "Evaluation identifier within the app.",
+            "status": "Status of the evaluation run.",
+            "model": "Model and model version that were evaluated.",
+            "ground_truth_dataset": "Dataset version used as ground truth.",
+            "summary": "Summary metrics of the evaluation, such as accuracy, precision, and recall.",
+        },
+    },
+    "dataset_inputs": {
+        "description": "Inputs that belong to each dataset in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/datasets/manage/",
+        "columns": {
+            "dataset_id": "Identifier of the dataset that contains the input.",
+            "input_id": "Identifier of the input.",
+            "input": "The input, including its data and metadata.",
+            "created_at": "Time when the input was added to the dataset.",
+        },
+    },
+    "model_versions": {
+        "description": "All versions of each model in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/models/manage/",
+        "columns": {
+            "model_id": "Identifier of the model that the version belongs to.",
+            "id": "Model version identifier.",
+            "status": "Training status of the model version.",
+            "created_at": "Time when the model version was created.",
+            "completed_at": "Time when training of the model version completed.",
+            "total_input_count": "Number of inputs used to train the model version.",
+            "metrics": "Evaluation metrics of the model version.",
+        },
+    },
+    "inputs": {
+        "description": "Inputs, such as images, videos, and text, stored in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/resources/api-overview/",
+        "columns": {
+            "id": "Input identifier within the app.",
+            "data": "Input content and metadata, such as the media URL and custom metadata.",
+            "status": "Processing status of the input.",
+            "dataset_ids": "Identifiers of the datasets that contain the input.",
+            "created_at": "Time when the input was added.",
+            "modified_at": "Time when the input was last modified.",
+        },
+    },
+    "concept_relations": {
+        "description": "Relations between concepts in the knowledge graph of the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/concepts/manage/",
+        "columns": {
+            "id": "Concept relation identifier within the app.",
+            "subject_concept": "Concept that is the subject of the relation.",
+            "object_concept": "Concept that is the object of the relation.",
+            "predicate": "Type of relation, such as hypernym, hyponym, or synonym.",
+            "knowledge_graph_id": "Identifier of the knowledge graph that contains the relation.",
+        },
+    },
+    "dataset_versions": {
+        "description": "Snapshots of each dataset in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/datasets/manage/",
+        "columns": {
+            "dataset_id": "Identifier of the dataset that the version belongs to.",
+            "id": "Dataset version identifier.",
+            "status": "Processing status of the dataset version.",
+            "description": "Description of the dataset version.",
+            "metrics": "Metrics of the dataset version, such as input and annotation counts.",
+            "created_at": "Time when the dataset version was created.",
+            "modified_at": "Time when the dataset version was last modified.",
+        },
+    },
+    "workflow_versions": {
+        "description": "All versions of each workflow in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/workflows/manage/",
+        "columns": {
+            "workflow_id": "Identifier of the workflow that the version belongs to.",
+            "id": "Workflow version identifier.",
+            "nodes": "Model nodes and their connections in the workflow version.",
+            "description": "Description of the workflow version.",
+            "is_deprecated": "Whether the workflow version is deprecated.",
+            "created_at": "Time when the workflow version was created.",
+            "modified_at": "Time when the workflow version was last modified.",
+        },
+    },
+}

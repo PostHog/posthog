@@ -1316,9 +1316,14 @@ export async function queryEvaluationRuns(params: {
     /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
      * which read a single unit's runs and have always been unbounded. */
     lookbackDays?: number
+    /** Reads the page of runs older than `timestamp`. Runs at exactly `timestamp` are kept unless
+     * their id is in `excludeIds`, so runs that share a timestamp across a page edge are not skipped. */
+    before?: { timestamp: string; excludeIds: string[] }
+    filterHogQL?: string | null
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, sessionId, backfillId, dateRange, lookbackDays, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, backfillId, dateRange, lookbackDays, before, filterHogQL, forceRefresh } =
+        params
 
     const propertyValue = evaluationId || traceId || sessionId
 
@@ -1362,6 +1367,8 @@ export async function queryEvaluationRuns(params: {
             ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
             ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
+            ${before ? hogql.raw(hogql`AND timestamp <= toDateTime(${before.timestamp}) AND uuid NOT IN ${before.excludeIds}`) : hogql.raw('')}
+            ${filterHogQL ? hogql.raw(`AND (${filterHogQL})`) : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `

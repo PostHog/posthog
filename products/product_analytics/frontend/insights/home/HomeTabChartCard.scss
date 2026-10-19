@@ -1,0 +1,33 @@
+.HomeTabChartCard {
+    .HomeTabChartCard__header {
+        min-height: 4.5rem;
+    }
+
+    .HomeTabChartCard__visualization {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        min-width: 0;
+        padding: 0.5rem;
+
+        .InsightVizDisplay {
+            --insight-viz-min-height: 11rem;
+        }
+
+        .RetentionContainer__graph {
+            min-height: 10rem;
+        }
+    }
+
+    .HomeTabChartCard__visualization--primary {
+        height: 14rem;
+    }
+
+    .HomeTabChartCard__visualization--supporting {
+        height: 21rem;
+    }
+
+    .HomeTabChartCard__visualization--ranking {
+        height: 15rem;
+    }
+}

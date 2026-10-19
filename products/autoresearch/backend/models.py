@@ -21,6 +21,19 @@ def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
     )
 
 
+class ResearchIntervalDays(models.IntegerChoices):
+    """The research intervals a user can pick, in days."""
+
+    DAYS_7 = 7, "7 days"
+    DAYS_14 = 14, "14 days"
+    DAYS_30 = 30, "30 days"
+    DAYS_60 = 60, "60 days"
+    DAYS_90 = 90, "90 days"
+
+
+RESEARCH_INTERVAL_DAYS_CHOICES = tuple(ResearchIntervalDays.values)
+
+
 def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool = False) -> models.CheckConstraint:
     at_least = models.Q(**{f"{field}__gte": minimum})
     if nullable:
@@ -94,6 +107,21 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     iteration_budget_remaining = models.IntegerField(
         null=True, blank=True, default=None, validators=[MinValueValidator(0)]
     )
+    iterations_per_run = models.IntegerField(
+        default=5,
+        db_default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(50)],
+        help_text="Experiments the agent may try in each training run",
+    )
+    # Null means no scheduled research: training starts only when someone asks for it.
+    research_interval_days = models.IntegerField(
+        null=True,
+        blank=True,
+        default=7,
+        db_default=7,
+        choices=ResearchIntervalDays.choices,
+        help_text="Days between scheduled research runs once the first burst of daily runs ends",
+    )
 
     # Stop criteria
     success_auc = models.FloatField(
@@ -114,6 +142,11 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         blank=True,
         default="",
         help_text="Person property name for champion scores, e.g. 'predicted_p_pageview'",
+    )
+    write_person_property = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether live scoring writes the champion's score to output_person_property on each scored person",
     )
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
@@ -235,6 +268,13 @@ class AutoresearchModel(PipelineScopedModel):
     )
     calibration_error = models.FloatField(null=True, blank=True)
     metrics = models.JSONField(default=dict, help_text="Full metrics bundle (train/holdout/realized)")
+    negative_sample_rate = models.FloatField(
+        default=1.0,
+        db_default=1.0,
+        validators=UNIT_INTERVAL_VALIDATORS,
+        help_text="Fraction of negative training anchors the fit kept by case-control sampling; every positive "
+        "is kept. 1.0 means no sampling. Scoring adds log(rate) to the logit.",
+    )
 
     # Provenance
     source_training_run = models.ForeignKey(
@@ -290,6 +330,12 @@ class AutoresearchTrainingRun(PipelineScopedModel):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
+    class KickoffReason(models.TextChoices):
+        EXPLORE = "explore", "Explore"
+        SCHEDULED = "scheduled", "Scheduled"
+        RESCUE = "rescue", "Rescue"
+        MANUAL = "manual", "Manual"
+
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="training_runs")
 
     # Link to the Task/TaskRun sandbox (nullable for stubs).
@@ -299,6 +345,8 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     task_run_id = models.UUIDField(null=True, blank=True, help_text="TaskRun ID in the tasks product sandbox")
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # Null on runs started before the field existed.
+    kickoff_reason = models.CharField(max_length=20, choices=KickoffReason.choices, null=True, blank=True)
     iteration_budget = models.IntegerField(default=50, validators=[MinValueValidator(1)])
     iteration_count = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     best_holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
@@ -308,6 +356,10 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     # recorded iterations; the agent enriches recommended_next + distillation via the complete tool.
     # Read back by a new run via the training_runs/history endpoint to orient before iterating.
     summary = models.JSONField(default=dict, blank=True)
+    # Written for people who read the Agent research tab. The agent's own notes stay in `summary`.
+    reader_summary = models.TextField(null=True, blank=True)
+    headline = models.TextField(null=True, blank=True)
+    next_steps = models.JSONField(null=True, blank=True)
 
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -323,6 +375,11 @@ class AutoresearchTrainingRun(PipelineScopedModel):
             min_value_constraint("iteration_budget", 1, "autoresearch_training_run_iteration_budget_positive"),
             min_value_constraint("iteration_count", 0, "autoresearch_training_run_iteration_count_nonnegative"),
         ]
+
+    @property
+    def anchor_ts(self) -> int:
+        """The instant this run labels against, so its materializations and its completion fit share one anchor set."""
+        return int((self.started_at or self.created_at).timestamp())
 
 
 class AutoresearchIteration(PipelineScopedModel):
@@ -347,6 +404,8 @@ class AutoresearchIteration(PipelineScopedModel):
     holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
     status = models.CharField(max_length=20, choices=Status.choices)
     agent_description = models.TextField(blank=True, default="")
+    summary = models.TextField(null=True, blank=True)
+    headline = models.TextField(null=True, blank=True)
     agent_confidence = models.FloatField(
         null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -432,11 +491,12 @@ class AutoresearchSuggestion(PipelineScopedModel):
 
 
 class AutoresearchRun(PipelineScopedModel):
-    """Generic operational run: inference or validation."""
+    """Generic operational run: inference, validation, or person property cleanup."""
 
     class RunType(models.TextChoices):
         INFERENCE = "inference", "Inference"
         VALIDATION = "validation", "Validation"
+        PROPERTY_CLEANUP = "property_cleanup", "Property cleanup"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -458,9 +518,20 @@ class AutoresearchRun(PipelineScopedModel):
     )
     run_type = models.CharField(max_length=20, choices=RunType.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    scheduled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the daily sweep started this run. False for a manual run or a command.",
+    )
 
     rows_scored = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     metrics = models.JSONField(default=dict)
+    negative_sample_rate = models.FloatField(
+        default=1.0,
+        db_default=1.0,
+        validators=UNIT_INTERVAL_VALIDATORS,
+        help_text="The negative sample rate whose prior correction this run applied. 1.0 means none.",
+    )
     error = models.TextField(blank=True, default="")
 
     started_at = models.DateTimeField(null=True, blank=True)

@@ -48,6 +48,68 @@ pub enum Evaluation<'a> {
     },
 }
 
+impl RuleKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TargetedRelease => "targeted_release",
+            Self::PercentageRollout => "percentage_rollout",
+        }
+    }
+}
+
+impl<'a> Evaluation<'a> {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TargetingMatch { .. } => "targeting_match",
+            Self::RolloutMiss { .. } => "rollout_miss",
+            Self::NoRuleMatch { .. } => "no_rule_match",
+        }
+    }
+
+    pub fn value(self) -> Option<&'a Value> {
+        match self {
+            Self::TargetingMatch { value, .. } => Some(value),
+            Self::RolloutMiss { value, .. } | Self::NoRuleMatch { value } => value,
+        }
+    }
+
+    pub fn rule(self) -> Option<MatchedRule> {
+        match self {
+            Self::TargetingMatch { rule, .. } | Self::RolloutMiss { rule, .. } => Some(rule),
+            Self::NoRuleMatch { .. } => None,
+        }
+    }
+
+    pub fn description(self) -> String {
+        match self {
+            Self::TargetingMatch { rule, .. } => format!("Matched rule {}", rule.index + 1),
+            Self::RolloutMiss { rule, .. } => format!("Rule {} rollout miss", rule.index + 1),
+            Self::NoRuleMatch { .. } => "No rule matched".to_string(),
+        }
+    }
+}
+
+/// The parts of an [`Evaluation`] the v3 record reads, owned so they outlive the configuration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluationDetail {
+    pub code: &'static str,
+    /// `Value::Null` is a null default.
+    pub value: Value,
+    pub rule: Option<MatchedRule>,
+    pub description: String,
+}
+
+impl From<Evaluation<'_>> for EvaluationDetail {
+    fn from(evaluation: Evaluation<'_>) -> Self {
+        Self {
+            code: evaluation.code(),
+            value: evaluation.value().cloned().unwrap_or(Value::Null),
+            rule: evaluation.rule(),
+            description: evaluation.description(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvaluationError {
     MissingContext,

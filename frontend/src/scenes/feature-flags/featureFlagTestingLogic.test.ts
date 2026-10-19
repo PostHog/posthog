@@ -445,11 +445,7 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
-    describe('groups validation through testFlagEvaluation', () => {
-        // The invalid-groups cases fail the evaluation loader on purpose; kea-loaders would log each
-        beforeEach(silenceKeaLoadersErrors)
-        afterEach(resumeKeaLoadersErrors)
-
+    describe('form validation through submitTestEvaluation', () => {
         it.each([
             { description: 'valid object succeeds', groups: '{"team": "backend"}', expectedError: null },
             { description: 'empty string succeeds', groups: '', expectedError: null },
@@ -466,13 +462,99 @@ describe('featureFlagTestingLogic', () => {
                 expectedError: 'groups must be a JSON object',
             },
             { description: 'json number fails', groups: '42', expectedError: 'groups must be a JSON object' },
-        ])('$description', async ({ groups, expectedError }) => {
+            { description: 'json null fails', groups: 'null', expectedError: 'groups must be a JSON object' },
+            {
+                description: 'malformed timestamp fails',
+                groups: '',
+                timestamp: '2024-01-01',
+                expectedError: 'Invalid timestamp format',
+            },
+        ])('$description', async ({ groups, timestamp = '', expectedError }) => {
+            logic.actions.setTestFormData({ distinct_id: 'p1', timestamp, groups })
+
+            if (expectedError) {
+                // Invalid input must never reach the loader, where kea-loaders reports it as an exception.
+                await expectLogic(logic, () => {
+                    logic.actions.submitTestEvaluation()
+                })
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['testFlagEvaluation', 'testFlagEvaluationFailure'])
+            } else {
+                await expectLogic(logic, () => {
+                    logic.actions.submitTestEvaluation()
+                }).toDispatchActions(['testFlagEvaluation', 'testFlagEvaluationSuccess'])
+            }
+
+            expect(logic.values.testError).toBe(expectedError)
+        })
+
+        it('runs the batch evaluation for a person with merged distinct IDs', async () => {
+            logic.actions.setSelectedPerson({
+                name: 'Jane Doe',
+                uuid: 'uuid-abc',
+                distinct_ids: ['user-123', 'user-456'],
+            })
+            logic.actions.setTestFormData({ distinct_id: 'user-123', timestamp: '', groups: '' })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitTestEvaluation()
+            })
+                .toDispatchActions([
+                    logic.actionCreators.testAllDistinctIds({
+                        flagId: 1,
+                        distinctIds: ['user-123', 'user-456'],
+                        formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                    }),
+                    'testAllDistinctIdsSuccess',
+                ])
+                .toNotHaveDispatchedActions(['testFlagEvaluation'])
+        })
+    })
+
+    describe('API error messages', () => {
+        // The failing responses fail the evaluation loader on purpose; kea-loaders would log each
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        it.each([
+            {
+                description: 'maps a timestamp failure in the error field',
+                status: 500,
+                body: { error: 'Failed to build person properties at specified timestamp.' },
+                expectedError:
+                    'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.',
+            },
+            {
+                description: 'maps an invalid timestamp in the error field',
+                status: 400,
+                body: { error: 'Invalid timestamp format.' },
+                expectedError: 'Invalid timestamp. Please select a valid date and time.',
+            },
+            {
+                description: 'keeps a specific timestamp reason as is',
+                status: 400,
+                body: { error: "Feature flag 'test-flag' did not exist at the specified timestamp." },
+                expectedError: "Feature flag 'test-flag' did not exist at the specified timestamp.",
+            },
+            {
+                description: 'maps a missing person in the detail field',
+                status: 404,
+                body: { detail: 'Person not found for person_id: abc' },
+                expectedError: 'Person not found. This person may not have existed at the selected timestamp.',
+            },
+        ])('$description', async ({ status, body, expectedError }) => {
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation': () => [status, body],
+                },
+            })
+
             await expectLogic(logic, () => {
                 logic.actions.testFlagEvaluation({
                     flagId: 1,
-                    formData: { distinct_id: 'p1', timestamp: '', groups },
+                    formData: { distinct_id: 'p1', timestamp: '', groups: '' },
                 })
-            }).toFinishAllListeners()
+            }).toDispatchActions(['testFlagEvaluationFailure'])
 
             expect(logic.values.testError).toBe(expectedError)
         })

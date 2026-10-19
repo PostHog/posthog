@@ -6,7 +6,8 @@ import pytest
 import temporalio.client
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
+
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 
 
 async def wait_for_workflows(

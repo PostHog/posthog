@@ -1,3 +1,6 @@
+import time
+from dataclasses import replace
+
 import pytest
 from unittest.mock import patch
 
@@ -5,18 +8,21 @@ from posthoganalytics.ai.prompts import PromptResult
 
 from products.signals.backend.system_one_prompts import (
     DEFAULT_SYSTEM_ONE_MODEL,
+    JEVK_MODEL,
     SystemOnePrompt,
     _parse_prompt,
     _PromptCache,
     _PromptState,
     bundled_prompt,
     fetch_prompt,
+    model_experiment_prompt,
 )
 from products.signals.backend.temporal.report_safety_judge import REPORT_SAFETY_SYSTEM_ONE_PROMPT
 from products.signals.backend.temporal.safety_filter import SIGNAL_SAFETY_SYSTEM_ONE_PROMPT
 
 
-def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> None:
+@pytest.mark.parametrize("model", [JEVK_MODEL, DEFAULT_SYSTEM_ONE_MODEL])
+def test_managed_prompt_keeps_policy_model_question_and_threshold_together(model: str) -> None:
     fallback = bundled_prompt("signals-actionability-issue", "old {description}", "old question", 0.85)
     policy = (
         "When in doubt, classify as ACTIONABLE.\n"
@@ -28,7 +34,7 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
         name=fallback.name,
         version=2,
         prompt=policy,
-        config={"model": DEFAULT_SYSTEM_ONE_MODEL, "question": "new question", "threshold": 0.91},
+        config={"model": model, "question": "new question", "threshold": 0.91},
     )
 
     with (
@@ -41,7 +47,7 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
     assert managed is not None
     assert (managed.policy, managed.model, managed.question, managed.threshold, managed.version, managed.source) == (
         policy,
-        DEFAULT_SYSTEM_ONE_MODEL,
+        model,
         "new question",
         0.91,
         2,
@@ -175,5 +181,44 @@ def test_failed_refresh_reverts_a_managed_safety_prompt_to_bundled() -> None:
 
             cache._refresh(fallback)
             assert cache.current(fallback) == fallback
+    finally:
+        cache._executor.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("changed", [None, "policy", "question", "threshold", "model", "version", "source"])
+def test_model_experiment_requires_a_model_only_candidate(changed: str | None) -> None:
+    primary = replace(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, model=JEVK_MODEL, source="managed", version=2)
+    candidate = replace(primary, model="posthog/hogference/jeeves-0.1", version=3)
+    if changed == "policy":
+        candidate = replace(candidate, policy="different policy")
+    elif changed == "question":
+        candidate = replace(candidate, question="different question")
+    elif changed == "threshold":
+        candidate = replace(candidate, threshold=0.5)
+    elif changed == "model":
+        candidate = replace(candidate, model=primary.model)
+    elif changed == "version":
+        candidate = replace(candidate, version=4)
+    elif changed == "source":
+        candidate = replace(candidate, source="bundled")
+    with patch("products.signals.backend.system_one_prompts.current_prompt", return_value=candidate):
+        assert model_experiment_prompt(primary, 3, "posthog/hogference/jeeves-0.1") == (
+            candidate if changed is None else None
+        )
+
+
+def test_versioned_shadow_refresh_does_not_replace_production() -> None:
+    fallback = SIGNAL_SAFETY_SYSTEM_ONE_PROMPT
+    primary = replace(fallback, source="managed", version=2)
+    candidate = replace(primary, model="posthog/hogference/jeeves-0.1", version=3)
+    cache = _PromptCache()
+    cache._states[fallback.name] = _PromptState(primary)
+    cache._states[fallback.name].refreshed_at = time.monotonic()
+    try:
+        with patch("products.signals.backend.system_one_prompts.fetch_prompt", return_value=candidate):
+            cache.current(fallback, version=3)
+            cache._executor.shutdown(wait=True)
+            assert cache.current(fallback, version=3) == candidate
+            assert cache.current(fallback) == primary
     finally:
         cache._executor.shutdown(wait=True)

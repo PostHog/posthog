@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Self, cast
+from typing import Optional, Self, cast
 
 import posthoganalytics
 
@@ -24,15 +24,12 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, top_level_conjuncts
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import CloningVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.schema_enums import PersonsArgMaxVersion
-
-if TYPE_CHECKING:
-    from posthog.models.organization import Organization
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": UUIDDatabaseField(
@@ -122,6 +119,8 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
+    # The SELECT id FROM persons that transforms/negated_person_filters.py emits inside NOT IN has persons as its own
+    # FROM, so it takes this path and reads only the persons that fail its filters.
     if (
         node.select_from
         and node.select_from.type
@@ -268,25 +267,116 @@ def select_from_persons_table(
     return select
 
 
-def join_with_persons_table(
-    join_to_add: LazyJoinToAdd,
-    context: HogQLContext,
-    node: SelectQuery,
-):
-    from posthog.hogql import ast
+# These return different values in the subquery and in the outer query.
+_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
 
-    if not join_to_add.fields_accessed:
-        raise ResolutionError("No fields requested from persons table")
-    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
 
-    organization: Organization | None = context.team.organization if context.team else None
-    if organization is None:
+class _CopyableConjunctVisitor(TraversingVisitor):
+    def __init__(self, table_type: ast.Type):
+        super().__init__()
+        self.table_type = table_type
+        self.reads_table = False
+        self.copyable = True
+
+    def visit_field(self, node: ast.Field):
+        field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
+        if isinstance(field_type, ast.FieldType) and field_type.table_type is self.table_type:
+            self.reads_table = True
+        else:
+            self.copyable = False
+
+    # A nested subquery already has its lazy joins expanded. A copy of it would also run a second time.
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.copyable = False
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.copyable = False
+
+    def visit_call(self, node: ast.Call):
+        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
+            self.copyable = False
+        super().visit_call(node)
+
+
+# The copy drops the hidden alias that the resolver puts on every field. The resolver adds it back.
+class _AliasStrippingCloner(CloningVisitor):
+    def visit_alias(self, node: ast.Alias) -> Expr:
+        return self.visit(node.expr)
+
+
+def _is_relative_sample(sample: Optional[ast.SampleExpr]) -> bool:
+    """True for `SAMPLE k` with k at most 1, which SAMPLE BY applies to the same rows in the subquery and the outer query.
+
+    ClickHouse turns `SAMPLE n` (a row count) into a ratio from each query's own row estimate.
+    The subquery reads with fewer terms, so its ratio can be smaller and skip rows that the outer query keeps.
+    """
+    if sample is None:
+        return False
+    ratio = sample.sample_value
+    return ratio.left.value <= (ratio.right.value if ratio.right is not None else 1)
+
+
+def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQuery) -> Optional[Expr]:
+    """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+
+    The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
+    A term must read at least one left-table column, because a constant term narrows nothing.
+    Every row that the outer query keeps satisfies all of them. Its person stays in the set. The join returns the same
+    rows. A term is copied whole or left out. Leaving a term out only widens the set.
+    The subquery reads the left table before the outer scan does. A row that arrives between the two reads can lack
+    its person columns.
+    Returns None unless the left table is the query's own FROM table and at least one term qualifies.
+    """
+    left = node.select_from
+    if (
+        left is None
+        or not isinstance(left.table, ast.Field)
+        or left.table_args
+        or left.type is not join_to_add.lazy_join_type.table_type
+    ):
+        return None
+
+    cloner = _AliasStrippingCloner(clear_types=True, clear_locations=True)
+    conjuncts: list[Expr] = []
+    for where in (node.where, node.prewhere):
+        if where is None:
+            continue
+        for conjunct in top_level_conjuncts(where):
+            visitor = _CopyableConjunctVisitor(left.type)
+            visitor.visit(conjunct)
+            if visitor.copyable and visitor.reads_table:
+                conjuncts.append(cloner.visit(conjunct))
+    if not conjuncts:
+        return None
+
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["id"]),
+        # The resolver turns this into GLOBAL IN. GLOBAL IN does not deduplicate the set that it ships to each shard.
+        right=ast.SelectQuery(
+            distinct=True,
+            select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=list(left.table.chain)),
+                alias=left.alias,
+                sample=cloner.visit(left.sample) if _is_relative_sample(left.sample) else None,
+            ),
+            where=conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts),
+        ),
+    )
+
+
+def persons_join_is_inner(context: HogQLContext) -> bool:
+    """True when the persons join drops each row that has no persons row."""
+    team = context.team
+    if team is None or team.organization is None:
         raise ResolutionError("Organization is required to join with persons table")
+    organization = team.organization
     # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
-    use_inner_join = (
+    return bool(
         posthoganalytics.feature_enabled(
             "personless-events-not-supported",
-            str(context.team.uuid),
+            str(team.uuid),
             groups={"organization": str(organization.id)},
             group_properties={
                 "organization": {
@@ -297,13 +387,22 @@ def join_with_persons_table(
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        if organization and context.team
-        else False
     )
-    if use_inner_join:
-        join_expr.join_type = "INNER JOIN"
-    else:
-        join_expr.join_type = "LEFT JOIN"
+
+
+def join_with_persons_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    from posthog.hogql import ast
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from persons table")
+    pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
+    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
+
+    join_expr.join_type = "INNER JOIN" if persons_join_is_inner(context) else "LEFT JOIN"
 
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(

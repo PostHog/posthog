@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -17,9 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+    ADMIN_TOKEN_FORBIDDEN_ERROR,
+    ADMIN_TOKEN_INVALID_ERROR,
+    ADMIN_TOKEN_MISSING_ERROR,
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
     NotionResumeConfig,
+    check_permission_groups_access,
     notion_source,
     validate_credentials as validate_notion_credentials,
 )
@@ -32,6 +37,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
+    codebase_detection = detect(
+        env=("^NOTION_", "^NOTION_TOKEN$"),
+        npm=(
+            "@notionhq/client",
+            "@notionhq/notion-mcp-server",
+            "@notionhq/workers",
+            "@notionhq/apps",
+            "@notionhq/custom-blocks",
+            "@notionhq/custom-blocks-host",
+            "@notionhq/custom-blocks-dev-shell",
+            "@notionhq/lore",
+            "ntn",
+            "notion-to-md",
+            "react-notion-x",
+            "notion-client",
+            "@tryfabric/martian",
+        ),
+        pypi=("notion-client", "notion"),
+        cargo=("notion-client", "notion"),
+        cocoapods=("NotionSwift",),
+        composer=("fiveam-code/laravel-notion-api", "mariosimao/notion-sdk-php"),
+        go=("github.com/jomei/notionapi", "github.com/dstotijn/go-notion"),
+        maven=("com.github.seratch:notion-sdk-jvm-core",),
+        pub=("notion_api",),
+        rubygems=("notion-ruby-client",),
+        swiftpm=("github.com/chojnac/notionswift",),
+    )
+
     supported_versions = (NOTION_VERSION_2025_09_03, NOTION_VERSION_2026_03_11)
     default_version = NOTION_VERSION_2026_03_11
     api_docs_url = "https://developers.notion.com/page/changelog"
@@ -43,7 +76,11 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         return ExternalDataSourceType.NOTION
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # The Admin API entries come first: they share the api.notion.com prefix, and the first match wins.
         return {
+            "Notion permission_groups table requires an organization bot token": ADMIN_TOKEN_MISSING_ERROR,
+            "401 Client Error: Unauthorized for url: https://api.notion.com/admin": ADMIN_TOKEN_INVALID_ERROR,
+            "403 Client Error: Forbidden for url: https://api.notion.com/admin": ADMIN_TOKEN_FORBIDDEN_ERROR,
             "401 Client Error: Unauthorized for url: https://api.notion.com": "Your Notion integration token is invalid or expired. Please generate a new token and reconnect.",
             "403 Client Error: Forbidden for url: https://api.notion.com": "Your Notion integration is missing the required capabilities, or the pages/databases you want to sync have not been shared with it.",
         }
@@ -86,6 +123,8 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
 Create an internal integration at [notion.so/my-integrations](https://www.notion.so/my-integrations) and copy its token (starts with `ntn_` or `secret_`).
 
 Then **share** each page or database you want to sync with the integration (via the page's `•••` menu → Connections), otherwise it will not be visible to the sync.
+
+To sync the `permission_groups` table, also enter an organization bot token with the `permission-group:read` scope. Organization owners create these tokens in the Notion organization console. This needs a Notion Enterprise plan.
 """,
             iconPath="/static/services/notion.png",
             docsUrl="https://posthog.com/docs/cdp/sources/notion",
@@ -98,6 +137,14 @@ Then **share** each page or database you want to sync with the integration (via 
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="ntn_...",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="admin_api_key",
+                        label="Organization bot token (optional)",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
                         secret=True,
                     ),
                 ],
@@ -145,6 +192,20 @@ Then **share** each page or database you want to sync with the integration (via 
         # stamped with); a pinned source revalidates under its own `Notion-Version` header.
         return validate_notion_credentials(config.api_key, self.resolve_api_version(api_version))
 
+    def get_endpoint_permissions(
+        self,
+        config: NotionSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+        if "permission_groups" in permissions:
+            permissions["permission_groups"] = check_permission_groups_access(
+                config.api_key, config.admin_api_key, self.resolve_api_version(api_version)
+            )
+        return permissions
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NotionResumeConfig]:
         return ResumableSourceManager[NotionResumeConfig](inputs, NotionResumeConfig)
 
@@ -160,4 +221,5 @@ Then **share** each page or database you want to sync with the integration (via 
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            admin_token=config.admin_api_key,
         )

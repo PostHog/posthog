@@ -26,7 +26,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import TaskRun as TaskRunModel
 
-from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
+from ee.hogai.sandbox import is_background_turn_complete, is_turn_complete, turn_complete_trace_id
 
 # Reuse the ACP event helpers, signal dispatcher, and SSE reconnect tuning from relay_sandbox_events
 # so the two relays derive/emit signals and drive their SSE transport from identical logic.
@@ -34,9 +34,12 @@ from .relay_sandbox_events import (
     MAX_RECONNECT_ATTEMPTS,
     SSE_CONNECT_TIMEOUT_SECONDS,
     SSE_READ_TIMEOUT_SECONDS,
+    _event_method,
     _extract_agent_message_text,
-    _extract_tool_call_step,
+    _extract_progress_update,
+    _is_session_prompt,
     _is_session_update,
+    _prompt_message_id,
     _signal_safely,
 )
 
@@ -45,6 +48,7 @@ logger = structlog.get_logger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30
 # Terminal SSE frame name emitted when the run's stream is complete (matches the stream endpoints).
 STREAM_END_EVENT_NAME = "stream-end"
+BACKGROUND_TURN_OPENERS = frozenset({"_posthog/task_notification", "_posthog/background_turn_started"})
 
 
 class SlackAgentDesignSignalEmitter:
@@ -52,7 +56,8 @@ class SlackAgentDesignSignalEmitter:
     ``SlackAgentDesignRelayWorkflow`` on the parent ``ProcessTaskWorkflow``.
 
     Stateful per run: a turn is bracketed from the first ``session/update`` after a user
-    ``session/prompt`` until the turn-complete notification, and tool-call ids are de-duplicated
+    ``session/prompt`` or a background task notification until the turn-complete or
+    background-turn-complete notification, and tool-call ids are de-duplicated
     for the lifetime of the run (the set is not cleared between turns). The inline fan-out in
     ``relay_sandbox_events._relay_loop`` shares this bracketing but still opens on any
     ``session/update`` — it needs the same prompt gate to stop trailing updates opening phantom turns.
@@ -73,6 +78,8 @@ class SlackAgentDesignSignalEmitter:
         # starts disarmed and waits for the next prompt.
         self._awaiting_turn = awaiting_turn
         self._emitted_tool_call_ids: set[str] = set()
+        # The message the next turn answers, from the prompt that opens it.
+        self._turn_message_id: str | None = None
 
     @property
     def turn_active(self) -> bool:
@@ -85,9 +92,18 @@ class SlackAgentDesignSignalEmitter:
         if _is_session_prompt(event_data):
             if not self._turn_active:
                 self._awaiting_turn = True
+                self._turn_message_id = _prompt_message_id(event_data)
             return []
 
-        if is_turn_complete(event_data):
+        # A finished background task makes the agent start a turn without a user prompt. The Claude
+        # adapter reports the task notification, and the Codex adapter reports the turn start.
+        if _event_method(event_data) in BACKGROUND_TURN_OPENERS:
+            if not self._turn_active:
+                self._awaiting_turn = True
+                self._turn_message_id = None
+            return []
+
+        if is_turn_complete(event_data) or is_background_turn_complete(event_data):
             if self._turn_active:
                 self._turn_active = False
                 # The trace id rides the signal because this event is the only place it
@@ -100,10 +116,15 @@ class SlackAgentDesignSignalEmitter:
         if not self._turn_active and self._awaiting_turn and _is_session_update(event_data):
             self._turn_active = True
             self._awaiting_turn = False
-            signals.append(("turn_started", {"slack_thread_context": self._slack_thread_context}))
+            signals.append(
+                (
+                    "turn_started",
+                    {"slack_thread_context": self._slack_thread_context, "message_id": self._turn_message_id},
+                )
+            )
 
         if self._turn_active:
-            step_payload = _extract_tool_call_step(event_data, self._emitted_tool_call_ids)
+            step_payload = _extract_progress_update(event_data, self._emitted_tool_call_ids)
             if step_payload is not None:
                 signals.append(("agent_status_update", step_payload))
             if _is_session_update(event_data):
@@ -135,19 +156,6 @@ def _agent_proxy_base_url() -> str | None:
         or settings.TASKS_AGENT_PROXY_PUBLIC_URL
         or settings.TASKS_AGENT_PROXY_INGEST_URL
     )
-
-
-def _event_method(event_data: dict) -> str | None:
-    """ACP notification method for the event, for tracing (e.g. ``session/update``)."""
-    notification = event_data.get("notification")
-    if isinstance(notification, dict):
-        return notification.get("method")
-    return None
-
-
-def _is_session_prompt(event_data: dict) -> bool:
-    """Whether the event is a user ``session/prompt`` — the start of a new conversational turn."""
-    return _event_method(event_data) == "session/prompt"
 
 
 def _resume_position() -> tuple[str | None, bool]:

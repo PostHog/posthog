@@ -18,9 +18,9 @@ import {
     featureFlagsStaffCacheWarmRunRetrieve,
     featureFlagsStaffTeamsList,
 } from '../generated/api'
+import { FlagEvaluationsModeEnumApi } from '../generated/api.schemas'
 import type {
     FeatureFlagsStaffCacheEntryRetrieveCache,
-    FlagEvaluationsModeEnumApi,
     StaffCacheEntryResponseApi,
     StaffCacheKindEnumApi,
     StaffCacheMutationResponseApi,
@@ -69,6 +69,8 @@ export interface FlagEvaluationsModePreviewSummary {
     organizations: StaffOrganizationModeChangeApi[]
     organizationsChanged: number
     organizationsLeftAboveMode: number
+    organizationsLoweredFromFlagEvaluationsOnly: number
+    experimentsLosingExposures: number
 }
 
 const DEFAULT_FLAG_EVALUATIONS_MODE_REQUEST: FlagEvaluationsModeRequest = {
@@ -664,6 +666,20 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     organizationsLeftAboveMode: preview.response.organizations.filter(
                         (organization) => organization.left_above_mode
                     ).length,
+                    organizationsLoweredFromFlagEvaluationsOnly: preview.response.organizations.filter(
+                        (organization) =>
+                            organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number2
+                    ).length,
+                    experimentsLosingExposures:
+                        preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2
+                            ? preview.response.organizations
+                                  .filter((organization) => organization.changed)
+                                  .reduce(
+                                      (total, organization) =>
+                                          total + organization.running_experiments_on_feature_flag_called,
+                                      0
+                                  )
+                            : 0,
                 },
         ],
     }),

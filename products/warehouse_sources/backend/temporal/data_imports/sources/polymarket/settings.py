@@ -1,11 +1,14 @@
 from dataclasses import field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
-PaginationStyle = Literal["keyset", "offset"]
+PaginationStyle = Literal["keyset", "offset", "cursor"]
+
+GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
+DATA_API_BASE_URL = "https://data-api.polymarket.com"
 
 
 @frozen
@@ -13,12 +16,14 @@ class PolymarketEndpointConfig:
     name: str
     path: str
     pagination: PaginationStyle
-    # Wrapper key holding the array on the keyset endpoints. The offset endpoints return a bare
-    # JSON array, so they select nothing.
+    base_url: str = GAMMA_BASE_URL
+    # Wrapper key holding the array on the keyset and cursor endpoints. The offset endpoints
+    # return a bare JSON array, so they select nothing.
     data_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = None
     page_size: int = 500
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 # Gamma exposes no server-side filter on `createdAt` or `updatedAt`, so every table is full
@@ -54,6 +59,19 @@ POLYMARKET_ENDPOINTS: dict[str, PolymarketEndpointConfig] = {
         path="/tags",
         pagination="offset",
         partition_key="createdAt",
+    ),
+    # The top winning positions by realized profit, read from the Data API. The board holds at most
+    # 500 rows per window, so `time_period=all` keeps the all-time board rather than one day's.
+    # One position can be won by many wallets, so the wallet is part of the key.
+    "biggest_winners": PolymarketEndpointConfig(
+        name="biggest_winners",
+        path="/v2/biggest-winners",
+        pagination="cursor",
+        base_url=DATA_API_BASE_URL,
+        data_key="data",
+        primary_keys=["position_id", "user_id"],
+        page_size=1000,
+        params={"time_period": "all"},
     ),
 }
 

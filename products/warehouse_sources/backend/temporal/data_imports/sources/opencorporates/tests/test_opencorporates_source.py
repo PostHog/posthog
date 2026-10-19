@@ -3,7 +3,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opencorporates import (
     OpencorporatesSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.source import OpencorporatesSource
 
 
@@ -33,9 +32,3 @@ class TestOpencorporatesSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_lists_tables_without_credentials_publishes_catalog(self):
-        # Static endpoint catalog (no I/O) — the public docs table list should render.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)

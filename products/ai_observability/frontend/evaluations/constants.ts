@@ -1,6 +1,6 @@
 import { escapeHogQLString } from '~/queries/utils'
 
-import type { EvaluationConfig, EvaluationOutputConfig } from './types'
+import type { EvaluationConfig, EvaluationOutputConfig, EvaluationRunsFilter } from './types'
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
 export const EVALUATION_RUNS_QUERY_LIMIT = 250
@@ -21,11 +21,14 @@ const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
-export function numericOutputConfigError(config: EvaluationOutputConfig): string | null {
+export function numericOutputConfigError(config: EvaluationOutputConfig, requiresBounds = false): string | null {
     const { min, max, step } = config
     const passing_rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
     if ([min, max, step, passing_rule?.threshold].some((value) => value != null && !Number.isFinite(value))) {
         return 'Enter finite numbers for the score bounds, step, and threshold.'
+    }
+    if (requiresBounds && (min == null || max == null || min >= max)) {
+        return 'Numeric evaluations with decision models require a minimum score below the maximum score.'
     }
     if (min != null && max != null && min > max) {
         return 'Minimum must be less than or equal to maximum.'
@@ -85,7 +88,7 @@ export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): s
 }
 
 export function formatNumericEvaluationScore(score: number): string {
-    return Number(Math.abs(score) >= 1 ? score.toFixed(6) : score.toPrecision(6)).toString()
+    return Number(Math.abs(score) >= 1 ? score.toFixed(2) : score.toPrecision(2)).toString()
 }
 
 export function numericScorePasses(
@@ -131,6 +134,38 @@ export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConf
     }
     const categories = rule.categories.map(escapeHogQLString).join(', ')
     return `notEmpty(${EVALUATION_CATEGORIES_HOGQL}) AND hasAll([${categories}], ${EVALUATION_CATEGORIES_HOGQL})`
+}
+
+// The table pages through the newest runs, so the filter runs in the query to reach every match in the range.
+// Keep it in step with filterEvaluationRuns in llmEvaluationLogic.ts.
+export function evaluationRunsFilterHogQL(
+    filter: EvaluationRunsFilter,
+    evaluation: Pick<EvaluationConfig, 'output_type' | 'output_config'> | null
+): string | null {
+    if (filter === 'all') {
+        return null
+    }
+    if (filter === 'negative' || filter === 'positive' || filter === 'neutral') {
+        return `lower(properties.$ai_sentiment_label) = '${filter}'`
+    }
+    if (evaluation?.output_type === 'numeric' || evaluation?.output_type === 'categorical') {
+        if (filter === 'na') {
+            return `properties.$ai_evaluation_applicable = 'false' AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+        }
+        if (!evaluation.output_config.passing_rule) {
+            return 'false'
+        }
+        const [graded, passed] =
+            evaluation.output_type === 'numeric'
+                ? [EVALUATION_NUMERIC_GRADED_HOGQL, numericEvaluationPassedHogQL(evaluation)]
+                : [EVALUATION_CATEGORICAL_GRADED_HOGQL, categoricalEvaluationPassedHogQL(evaluation)]
+        return `${graded} AND ${filter === 'pass' ? '' : 'NOT '}(${passed})`
+    }
+    if (filter === 'na') {
+        return `properties.$ai_evaluation_result IS NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+    }
+    const passed = evaluation ? evaluationPassedHogQL(evaluation) : EVALUATION_RESULT_TRUE_HOGQL
+    return `${EVALUATION_BOOLEAN_GRADED_HOGQL} AND ${filter === 'pass' ? '' : 'NOT '}(${passed})`
 }
 
 export const MAX_CATEGORICAL_OPTIONS = 100

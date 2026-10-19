@@ -34,7 +34,7 @@ from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.batch_exports.backend.facade.models import BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
@@ -55,6 +55,13 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     serialize_monitoring_series,
     serialize_monitoring_snapshot,
 )
+from products.data_warehouse.backend.presentation.managed_warehouse_trino_monitoring import (
+    ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
+    ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+    WarehouseTrinoStatusState,
+    serialize_trino_monitoring_series,
+    serialize_trino_monitoring_snapshot,
+)
 from products.data_warehouse.backend.presentation.pipeline_stats import (
     CompletedActivityQuerySerializer,
     DataHealthIssuesResponseSerializer,
@@ -63,6 +70,7 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     PipelineErrorSerializer,
     PipelineJobStatsResponseSerializer,
     PipelineRowsStatsResponseSerializer,
+    RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
@@ -90,7 +98,7 @@ _MONITORING_ERROR_RESPONSES = {
     ),
     status.HTTP_404_NOT_FOUND: OpenApiResponse(
         response=ManagedWarehouseMonitoringErrorResponseSerializer,
-        description="The organization does not have a managed warehouse.",
+        description="The organization does not have a managed warehouse, or this endpoint does not match its query engine.",
     ),
     status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(
         response=ManagedWarehouseMonitoringErrorResponseSerializer,
@@ -105,6 +113,23 @@ _MONITORING_ERROR_RESPONSES = {
         description="The managed warehouse monitoring service timed out.",
     ),
 }
+
+
+_TRINO_VARIANT_MONITORING_ERROR = (
+    "This warehouse runs on Trino. Use the Trino monitoring endpoints "
+    "(managed-warehouse-trino-monitoring and managed-warehouse-trino-monitoring-timeseries) instead. "
+    "The matching MCP tools are managed-warehouse-trino-monitoring-get and managed-warehouse-trino-metric-history-get."
+)
+
+_DUCKDB_VARIANT_MONITORING_ERROR = (
+    "This warehouse doesn't run on Trino. Use the managed warehouse monitoring endpoints "
+    "(managed-warehouse-monitoring and managed-warehouse-monitoring-timeseries) instead. "
+    "The matching MCP tools are managed-warehouse-monitoring-get and managed-warehouse-metric-history-get."
+)
+
+
+def _wrong_monitoring_variant_response(message: str) -> Response:
+    return Response({"error": message}, status=status.HTTP_404_NOT_FOUND)
 
 
 def _managed_warehouse_monitoring_error_response(upstream_response: Response) -> Response:
@@ -175,6 +200,7 @@ FAILED_EXTERNAL_JOB_STATUSES = [
 # this is one parameter rather than a second near-copy of the union query.
 ACTIVITY_OUTCOME_COMPLETED = "completed"
 ACTIVITY_OUTCOME_FAILED = "failed"
+ACTIVITY_OUTCOME_ALL = "all"
 
 ACTIVITY_KIND_ALL = "all"
 ACTIVITY_KIND_IMPORT = "import"
@@ -189,6 +215,12 @@ ACTIVITY_OUTCOME_STATUSES: dict[str, tuple[list[str], list[str]]] = {
     ACTIVITY_OUTCOME_FAILED: (
         list(FAILED_EXTERNAL_JOB_STATUSES),
         [DataModelingJob.Status.FAILED],
+    ),
+    # Every run that finished, however it finished. Running jobs are not here; they come
+    # from `running_activity`.
+    ACTIVITY_OUTCOME_ALL: (
+        [ExternalDataJobStatus.COMPLETED, *FAILED_EXTERNAL_JOB_STATUSES],
+        [DataModelingJob.Status.COMPLETED, DataModelingJob.Status.FAILED],
     ),
 }
 
@@ -241,6 +273,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _readable_team_schema_ids(self) -> list:
         return list(self._readable_schema_ids(list(self._team_schemas())))
+
+    def _managed_warehouse_disabled_response(self) -> Response | None:
+        if managed_warehouse.is_enabled(self.team.organization_id):
+            return None
+        return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
@@ -458,10 +495,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return breakdown
 
     @extend_schema(
+        parameters=[RunningActivityQuerySerializer],
         responses={
             200: PipelineActivityResponseSerializer,
             500: OpenApiResponse(response=PipelineErrorSerializer, description="The activity query failed."),
-        }
+        },
     )
     @action(methods=["GET"], detail=False)
     def running_activity(self, request: Request, **kwargs) -> Response:
@@ -469,6 +507,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Returns currently running activities (jobs with status 'Running').
         Supports pagination and cutoff time filtering.
         """
+        kind = request.GET.get("kind", ACTIVITY_KIND_ALL)
+        if kind not in ACTIVITY_KINDS:
+            supported = ", ".join(sorted(ACTIVITY_KINDS))
+            return Response(
+                {"error": f"Invalid kind parameter. Must be one of: {supported}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         DEFAULT_LIMIT = 20
         MAX_LIMIT = 50
         DEFAULT_CUTOFF_DAYS = 30
@@ -495,10 +540,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cursor.execute(
                     """
                     WITH external_jobs AS (
-                        SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
+                        SELECT edj.id, edsrc.source_type as type, COALESCE(NULLIF(eds.label, ''), eds.name) as name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin
+                               null as origin, edj.pipeline_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -510,15 +555,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
-                               dwsq.origin as origin
+                               dwsq.origin as origin, null::uuid as source_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Running' AND dmj.created_at >= %s
                           AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
+                    WHERE %s IN (%s, %s)
                     UNION ALL
                     SELECT * FROM modeling_jobs
+                    WHERE %s IN (%s, %s)
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
@@ -530,6 +577,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         self.team_id,
                         cutoff_time,
                         saved_query_ids,
+                        # Placeholders bind in SQL text order, so both kind filters come after
+                        # every CTE parameter, not next to the CTE they read.
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_IMPORT,
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_MODEL,
                         limit + 1,
                         offset,
                     ],
@@ -618,10 +673,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cursor.execute(
                     """
                     WITH external_jobs AS (
-                        SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
+                        SELECT edj.id, edsrc.source_type as type, COALESCE(NULLIF(eds.label, ''), eds.name) as name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin
+                               null as origin, edj.pipeline_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -633,7 +688,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
-                               dwsq.origin
+                               dwsq.origin, null::uuid as source_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = ANY(%s) AND dmj.created_at >= %s
@@ -931,7 +986,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 results.append(
                     {
                         "id": str(schema.id),
-                        "name": schema.name,
+                        # A Slack schema's name is the raw channel id; `label` is the human one.
+                        "name": schema.label or schema.name,
                         "type": "external_data_sync",
                         "source_type": schema.source.source_type if schema.source else None,
                         "status": sync_status,
@@ -964,41 +1020,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            # Get failed batch exports
-            # get latest run per export, then filter for failures
-            # Exclude paused exports since their last failure is no longer actionable
-            latest_run_ids = (
-                BatchExportRun.objects.filter(
-                    batch_export__team_id=self.team_id,
-                    batch_export__deleted=False,
-                    batch_export__paused=False,
-                )
-                .order_by("batch_export_id", "-created_at")
-                .distinct("batch_export_id")
-                .values_list("id", flat=True)
-            )
-
-            # nosemgrep: idor-lookup-without-team (IDs from team-scoped queryset)
-            failed_runs = BatchExportRun.objects.filter(
-                id__in=latest_run_ids,
-                status__in=[
-                    BatchExportRun.Status.FAILED,
-                    BatchExportRun.Status.FAILED_RETRYABLE,
-                    BatchExportRun.Status.TIMEDOUT,
-                    BatchExportRun.Status.TERMINATED,
-                ],
-            ).select_related("batch_export")
-
-            for run in failed_runs:
+            for failed_run in batch_exports_api.list_latest_failed_runs(self.team_id):
                 results.append(
                     {
-                        "id": str(run.parent.id),
-                        "name": getattr(run.parent, "name", "Batch export on demand"),
+                        "id": str(failed_run.export_id),
+                        "name": failed_run.export_name,
                         "type": "destination",
                         "status": "failed",
-                        "error": run.latest_error,
-                        "failed_at": run.finished_at.isoformat() if run.finished_at else None,
-                        "url": f"/pipeline/batch-exports/{run.parent.id}",
+                        "error": failed_run.error,
+                        "failed_at": failed_run.failed_at.isoformat() if failed_run.failed_at else None,
+                        "url": f"/pipeline/batch-exports/{failed_run.export_id}",
                     }
                 )
 
@@ -1306,7 +1337,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "WarehouseConnection",
                         fields={
                             "host": serializers.CharField(
-                                help_text="Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
+                                help_text="Postgres connection host. The warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
                             ),
                             "port": serializers.IntegerField(help_text="Postgres wire-protocol port"),
                             "database": serializers.CharField(help_text="Database to connect to — always 'ducklake'"),
@@ -1314,6 +1345,36 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         },
                         required=False,
                         allow_null=True,
+                        help_text="Postgres connection target. Null for organizations on the Trino Data ops variant.",
+                    ),
+                    "trino": inline_serializer(
+                        "WarehouseTrinoStatus",
+                        fields={
+                            "state": serializers.ChoiceField(
+                                choices=WarehouseTrinoStatusState.choices,
+                                help_text="Trino lifecycle state for the organization. `unavailable` means the "
+                                "state could not be read.",
+                            ),
+                            "ready_at": serializers.DateTimeField(
+                                allow_null=True, help_text="When Trino became ready for the organization"
+                            ),
+                            "connection": inline_serializer(
+                                "WarehouseTrinoConnection",
+                                fields={
+                                    "host": serializers.CharField(help_text="Trino host to connect to over HTTPS"),
+                                    "port": serializers.IntegerField(help_text="Trino HTTPS port"),
+                                    "catalog": serializers.CharField(
+                                        help_text="Trino catalog that holds the organization's data"
+                                    ),
+                                    "username": serializers.CharField(help_text="Root username"),
+                                },
+                                allow_null=True,
+                                help_text="Trino connection target. Null until Trino is ready and reachable.",
+                            ),
+                        },
+                        required=False,
+                        allow_null=True,
+                        help_text="Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise.",
                     ),
                     "has_backfill": serializers.BooleanField(
                         help_text="Whether this project already has a warehouse backfill configured. When true, its "
@@ -1349,6 +1410,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
             if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
                 managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
+            if managed_warehouse.data_ops_variant(self.team.organization_id) == "trino":
+                # Users of a Trino organization connect only through Trino.
+                resp.data["connection"] = None
+                # Trino's state only matters once the warehouse is ready, and the scene polls while it is not.
+                resp.data["trino"] = (
+                    managed_warehouse.trino_status_for(self.team.organization_id)
+                    if resp.data.get("state") == "ready"
+                    else None
+                )
+            else:
+                resp.data["trino"] = None
         return resp
 
     @extend_schema(
@@ -1372,6 +1444,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
+        # Workers still run a Trino organization's internal writes. That data is not for its users.
+        if managed_warehouse.data_ops_variant(organization_id) == "trino":
+            return _wrong_monitoring_variant_response(_TRINO_VARIANT_MONITORING_ERROR)
         upstream_response = managed_warehouse.monitoring_snapshot_for(organization_id)
         if upstream_response.status_code != status.HTTP_200_OK:
             return _managed_warehouse_monitoring_error_response(upstream_response)
@@ -1411,6 +1486,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "trino":
+            return _wrong_monitoring_variant_response(_TRINO_VARIANT_MONITORING_ERROR)
         metric = cast(
             managed_warehouse.ManagedWarehouseMonitoringMetric,
             request.validated_query_data["metric"],
@@ -1438,6 +1515,97 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
         return Response(data)
 
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+                description="Current organization-scoped Trino query activity.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse Trino monitoring snapshot",
+        description="Get tenant-safe live Trino query totals, limits, and in-flight queries for the current organization.",
+    )
+    # nosemgrep: api-path-underscore -- sits under the shipped data_warehouse prefix, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-trino-monitoring",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_trino_monitoring(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "duckdb":
+            return _wrong_monitoring_variant_response(_DUCKDB_VARIANT_MONITORING_ERROR)
+        upstream_response = managed_warehouse.trino_monitoring_snapshot_for(organization_id)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_trino_monitoring_snapshot(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse Trino monitoring snapshot response failed validation",
+                organization_id=organization_id,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @validated_request(
+        query_serializer=ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSeriesResponseSerializer,
+                description="One organization-scoped Trino monitoring metric over time.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse Trino monitoring time series",
+        description="Get one allow-listed Trino monitoring metric for the current organization and trailing time window.",
+    )
+    # nosemgrep: api-path-underscore -- sits under the shipped data_warehouse prefix, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-trino-monitoring-timeseries",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_trino_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "duckdb":
+            return _wrong_monitoring_variant_response(_DUCKDB_VARIANT_MONITORING_ERROR)
+        metric = cast(
+            managed_warehouse.ManagedWarehouseTrinoMonitoringMetric,
+            request.validated_query_data["metric"],
+        )
+        window = cast(
+            managed_warehouse.ManagedWarehouseMonitoringWindow,
+            request.validated_query_data["window"],
+        )
+        upstream_response = managed_warehouse.trino_monitoring_series_for(organization_id, metric, window)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_trino_monitoring_series(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+                expected_metric=metric,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse Trino monitoring series response failed validation",
+                organization_id=organization_id,
+                metric=metric,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
     @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
@@ -1448,6 +1616,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
         """Get events, persons, and imported source readiness for the managed warehouse."""
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
         return Response(get_managed_warehouse_data_status(self.team_id, user_access_control=self.user_access_control))
 
     @validated_request(
@@ -1465,6 +1635,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["warehouse_view:read", "external_data_source:read"],
     )
     def managed_warehouse_source_schemas(self, request: Request, **kwargs) -> Response:
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
         source_id = str(request.validated_query_data["source_id"])
         return Response(
             {

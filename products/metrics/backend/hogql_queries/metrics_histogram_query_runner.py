@@ -24,22 +24,26 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.variables import (
+    filter_referenced_names,
+    from_dashboard,
+    from_query,
+    substitute_filters,
+    to_query,
+    unresolved_message,
+)
 
 if TYPE_CHECKING:
     from posthog.models import User
-
-# Metrics dashboards are usually about "what is happening now", so the node
-# defaults to a tighter window than the analytics-wide -7d. Mirrors MetricsQueryRunner.
-DEFAULT_DATE_FROM = "-24h"
 
 # The grid materializes bounds x time columns of Python objects, so its size is
 # capped up front: an authenticated user could otherwise pair a fine interval
@@ -88,17 +92,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             "MetricsHistogramQuery reuses MetricQueryRunner's histogram query; there is no single statement"
         )
 
-    def _query_date_range(self) -> QueryDateRange:
-        date_range = DateRange(
-            date_from=(self.query.dateRange.date_from if self.query.dateRange else None) or DEFAULT_DATE_FROM,
-            date_to=self.query.dateRange.date_to if self.query.dateRange else None,
-            explicitDate=True,
-        )
-        return QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime.now())
-
     def _calculate(self) -> MetricsHistogramQueryResponse:
         self._enforce_alpha_gate_for_anonymous_viewers()
-        date_range = self._query_date_range()
+        date_range = metrics_query_date_range(self.team, self.query.dateRange)
         date_from = date_range.date_from()
         date_to = date_range.date_to()
 
@@ -113,6 +109,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             else:
                 interval = _INTERVAL_LADDER[-1][0]
 
+        substitution = substitute_filters(self.query.filters, from_query(self.query.variables))
+        if substitution.unresolved:
+            raise ExposedHogQLError(unresolved_message(substitution.unresolved))
         filters = tuple(
             MetricFilter(
                 key=f.key,
@@ -120,7 +119,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 value=f.value,
                 scope=AttributeScope(f.scope.value) if f.scope is not None else AttributeScope.AUTO,
             )
-            for f in self.query.filters or []
+            for f in substitution.filters
         )
 
         try:
@@ -133,6 +132,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 filters=filters,
                 interval=interval,
                 quantile=0.5,  # unused by the grid query; required by the constructor
+                # One metric name can hold series of more than one OTel type; the
+                # heatmap must grid only the distribution the viewer picked.
+                metric_type=self.query.metricType.value if self.query.metricType else None,
             )
         except ValueError as exc:
             # The runner signals user errors (inverted range, too-wide span, unknown
@@ -157,7 +159,8 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         # The runner floors date_from onto the bucket grid in the team timezone and returns
         # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.
         grid_start = runner.date_from
-        step = _interval_step(interval)
+        # The runner may coarsen the interval to stay within its bucket limit, so read its step.
+        step = _interval_step(runner.interval)
 
         # Rows: (time, bounds, bounds_variants, counts). Bounds variants must agree (same rule
         # as the quantile runner) or the grid has no stable y axis.
@@ -215,4 +218,12 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
+            )
+        if dashboard_filter.metricFilters:
+            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]
+        if dashboard_filter.metricVariables:
+            # The values go into the query, so each selection has its own cache entry and reaches the async worker.
+            self.query.variables = (
+                to_query(from_dashboard(dashboard_filter.metricVariables), filter_referenced_names(self.query.filters))
+                or None
             )

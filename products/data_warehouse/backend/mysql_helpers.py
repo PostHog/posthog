@@ -155,6 +155,7 @@ def reconcile_mysql_schemas(
         )
         schema_models_by_location.setdefault(location, schema_model)
 
+    matched_ids: set[Any] = set()
     for source_schema in source_schemas:
         matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
         if matched is None:
@@ -169,6 +170,7 @@ def reconcile_mysql_schemas(
             matched = schema_models_by_location.get(location)
         if matched is None:
             continue
+        matched_ids.add(matched.id)
 
         resolved_schema, resolved_table = get_mysql_source_location(
             schema_name=source_schema.name,
@@ -239,10 +241,16 @@ def reconcile_mysql_schemas(
         return []
 
     stale_names: list[str] = []
-    stale = ExternalDataSchema.objects.filter(
-        Q(team_id=team_id, source_id=source.id),
-        Q(deleted=False) | Q(table__deleted=False),
-    ).exclude(name__in=source_schema_names)
+    # A row matched by location keeps its old name (e.g. bare `users` for discovered `db.users`),
+    # so a name-only check would hide a table that this refresh just updated.
+    stale = (
+        ExternalDataSchema.objects.filter(
+            Q(team_id=team_id, source_id=source.id),
+            Q(deleted=False) | Q(table__deleted=False),
+        )
+        .exclude(name__in=source_schema_names)
+        .exclude(id__in=matched_ids)
+    )
     for s in stale:
         hide_direct_mysql_table(s.table)
         if not s.deleted:

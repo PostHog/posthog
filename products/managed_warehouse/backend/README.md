@@ -71,7 +71,9 @@ To retry specific failures, select failed or stale rows in `Managed warehouse vi
 
 The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
 
-Data modeling shadow materialization starts only when its feature flag is enabled, the managed warehouse is provisioned, the organization has a ready Trino target, and the saved query has a compiled translation for its current definition. Missing, failed, stale, or empty translations keep the shadow path disabled.
+Data modeling shadow materialization starts when its feature flag is enabled, the managed warehouse is provisioned, and the organization has a ready Trino target. Each dispatched job compiles its current HogQL in Django expansion mode and executes the generated Trino SQL with bound parameters. Endpoint queries are prepared before compilation. The shadow path does not read stored translation results; the manual translation pass remains available for diagnostics. Compilation errors are recorded as failed modeling jobs.
+
+Trino shadow materialization has a six-hour execution deadline. Its Temporal activity allows six hours and five minutes so cancellation and cleanup can finish before the activity times out, and requires a heartbeat every two minutes. Deadline failures retain an explicit timeout message on the modeling job. Alias reconciliation keeps its separate five-minute execution deadline.
 
 ## Environment variables
 
@@ -116,15 +118,17 @@ This path currently supports Parquet only. Support for Azure Blob Storage, CSV, 
 
 ## Feature flag gating
 
-Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` targets the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
+Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` and `managed-warehouse-trino-query` target the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
 
-| Workflow                 | Feature Flag                           |
-| ------------------------ | -------------------------------------- |
-| Data Modeling            | `ducklake-data-modeling-copy-workflow` |
-| Data Imports             | `ducklake-data-imports-copy-workflow`  |
-| Data Import Registration | `data-warehouse-scene`                 |
+| Workflow                 | Feature Flag                                              |
+| ------------------------ | --------------------------------------------------------- |
+| Data Modeling            | `ducklake-data-modeling-copy-workflow`                    |
+| Data Imports             | `ducklake-data-imports-copy-workflow`                     |
+| Data Import Registration | `data-warehouse-scene` or `managed-warehouse-trino-query` |
 
-The data-import copy and registration paths target the same stable DuckLake table. An organization with `data-warehouse-scene` enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
+The data-import copy and registration paths target the same stable DuckLake table. An organization with either managed warehouse flag enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
+
+The two organization flags also select the Data ops variant. `managed-warehouse-trino-query` gives the Trino variant and wins when both are on. `data-warehouse-scene` alone gives the DuckDB variant. `data_ops_variant` in `presentation/views.py` is the single backend implementation of that rule.
 
 ## Data Ops workflow status
 

@@ -16,13 +16,13 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
-from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -53,7 +53,7 @@ ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRu
 EVENT_PROMPT_MAX_CHARS = 16_000
 
 # Matches the in-progress marker the task's own Slack updates use, so the later swap to
-# `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
+# `x` replaces this rather than stacking a second reaction beside it.
 TRIGGER_ACK_EMOJI = "eyes"
 
 # Daily ceilings on created tasks (trailing 24h) on top of the in-flight cap: a workflow
@@ -220,14 +220,9 @@ def create_workflow_task(
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
 
-    # Fast, unlocked pre-checks before the gate call below. The gate mints an
-    # OAuthAccessToken for gate_owner and makes a blocking request to the LLM gateway, so
-    # an owner who already lost team access, or a workflow that's already past its daily
-    # cap, must not reach it: checking first means neither pays for that mint-and-call on
-    # every trigger event. These reads are not authoritative, since nothing holds the
-    # advisory locks here yet, so a concurrent write can move the counts after this check
-    # runs. The same checks run again under the locks below, and that locked run is the
-    # one that decides.
+    # Fast, unlocked pre-checks so an ineligible owner or a capped workflow never reaches
+    # the gate. Nothing holds the advisory locks yet, so these reads are not authoritative;
+    # the same checks run again under the locks below, and that run decides.
     if not user_has_current_team_access(gate_owner, team):
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
@@ -239,10 +234,9 @@ def create_workflow_task(
         observe_workflow_task_create(reason="team_rate_capped")
         raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
-    # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
-    # fails open), and holding the advisory locks across an external call would stall
-    # every workflow fire for the team. Replays never reach it, so engine retries of an
-    # already-created task succeed even for a blocked owner.
+    # The gate stays outside the transaction: it reads Redis (fails open), and holding the
+    # advisory locks across it would stall every workflow fire for the team. Replays never
+    # reach it, so engine retries of an already-created task succeed even for a blocked owner.
     if usage_limit_response(gate_owner, team.id) is not None:
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()

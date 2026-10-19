@@ -189,7 +189,7 @@ vi.mock("node:fs", async (importOriginal) => {
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -225,7 +225,10 @@ function createMockDependencies() {
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
-      ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
+      ensureGatewayProxy: vi.fn().mockResolvedValue({
+        proxyUrl: "http://127.0.0.1:9999",
+        mode: "legacy",
+      }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
         apiUrl: credentials.apiHost,
@@ -481,6 +484,20 @@ describe("AgentService", () => {
     });
   });
 
+  it("lists models from the legacy gateway when the proxy cannot start", async () => {
+    deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
+      new Error("PostHog session ended"),
+    );
+
+    await service.getPreviewConfigOptions("https://us.posthog.com", "claude");
+
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "https://gateway.example.com",
+      authToken: "gateway-token",
+      projectId: 1,
+    });
+  });
+
   it("includes Modal models in Claude preview options", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
       {
@@ -506,8 +523,15 @@ describe("AgentService", () => {
       "claude",
     );
 
-    expect(fetchGatewayModels).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 1 }),
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "http://127.0.0.1:9999",
+      authToken: "gateway-token",
+      projectId: 1,
+    });
+    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
+      "https://us.posthog.com",
+      1,
+      { awaitRecheck: false },
     );
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
@@ -935,6 +959,21 @@ describe("AgentService", () => {
         expect.any(String),
         "run-1",
       );
+    });
+
+    it("pins the session to the gateway mode chosen at start", async () => {
+      deps.agentAuthAdapter.ensureGatewayProxy.mockResolvedValueOnce({
+        proxyUrl: "http://127.0.0.1:9998",
+        mode: "go",
+      });
+
+      const session = await service.startSession(baseSessionParams);
+
+      expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
+        baseSessionParams.apiHost,
+        baseSessionParams.projectId,
+      );
+      expect(session?.gatewayMode).toBe("go");
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {
@@ -1498,7 +1537,7 @@ describe("AgentService", () => {
         const prompt = buildChannelPrompt(systemPromptOverride);
 
         expect(prompt).toContain(PRODUCT_ENGINEER_PROMPT);
-        expect(prompt).toContain(RICH_OUTPUT_TAGS_PROMPT);
+        expect(prompt).toContain(RICH_OUTPUT_PROMPT_LEAD);
         expect(prompt.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
           prompt.indexOf(systemPromptOverride ?? "PostHog context:"),
         );

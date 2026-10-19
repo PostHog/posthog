@@ -459,7 +459,7 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
 
     log(`[run:${runId}] Completing run`)
 
-    let run = await client.completeRun(runId)
+    let run = await client.completeRun(runId, process.env.JOB_CHECK_RUN_ID)
 
     log(`[run:${runId}] Status: ${run.status}`)
 
@@ -484,7 +484,7 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
     return reportRunOutcome(
         client,
         run,
-        `${api}/project/${team}/visual_review/runs/${runId}`,
+        `${api}/project/${team}/visual-review/runs/${runId}`,
         options.purpose ?? 'review',
         options.tolerateDrift ?? false
     )
@@ -692,7 +692,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         }
     }
 
-    let run = await client.completeRun(runId)
+    let run = await client.completeRun(runId, process.env.JOB_CHECK_RUN_ID)
     log(`[run:${runId}] Status: ${run.status}`)
 
     if (run.status !== 'completed' && run.status !== 'failed') {
@@ -717,7 +717,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     return reportRunOutcome(
         client,
         run,
-        `${api}/project/${team}/visual_review/runs/${runId}`,
+        `${api}/project/${team}/visual-review/runs/${runId}`,
         purpose,
         options.tolerateDrift ?? false
     )

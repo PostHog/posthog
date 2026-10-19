@@ -2,6 +2,9 @@ export type { AgentPromptAction, AgentPromptButtonProps, AgentPromptDestination 
 export {
     AgentPromptButton,
     buildClaudeCodeDeepLink,
+    buildClaudeCodeVSCodeDeepLink,
+    buildClaudeCodeWebLink,
+    buildClaudeDesktopDeepLink,
     buildCodexDeepLink,
     buildCursorDeepLink,
     buildPostHogCodeDeepLink,

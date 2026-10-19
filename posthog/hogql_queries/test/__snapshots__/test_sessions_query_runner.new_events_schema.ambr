@@ -12,7 +12,7 @@
   WHERE and(globalIn(sessions.session_id,
                        (SELECT DISTINCT events.properties.`$session_id` AS `$session_id`
                         FROM events_json AS events
-                        WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`)))), 'https://example.com/pricing'), 0), greater(events.timestamp, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'))))), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
+                        WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.`$current_url`, 'Nullable(String)'), 'https://example.com/pricing'), 0), greater(events.timestamp, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'))))), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -27,6 +27,7 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---

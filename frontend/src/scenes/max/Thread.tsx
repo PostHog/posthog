@@ -81,8 +81,9 @@ import {
     ReasoningAnswer,
     RecordingsWidget,
     ThreadView,
-    TurnFeedbackActions,
+    TurnTrailerActions,
     type TurnTrailer,
+    useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -90,7 +91,6 @@ import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogA
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
-import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -129,6 +129,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const { panelId } = useValues(maxLogic)
+    const threadSkin = useThreadSkin()
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
@@ -156,13 +157,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackTaskId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackTaskId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                />
+                <TurnTrailerActions trailer={trailer} sessionId={feedbackTaskId} run={feedbackRun} />
             ) : null,
         [feedbackTaskId, feedbackRun]
     )
@@ -184,7 +179,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
             </div>
         )
@@ -204,7 +199,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
             </div>
         )
@@ -523,7 +518,13 @@ const Message = React.memo(function Message({
 }: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
+    const {
+        threadLoading,
+        isSharedThread,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+        webSearchResultsByToolUseId,
+    } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
@@ -635,7 +636,7 @@ const Message = React.memo(function Message({
                         )
 
                         let thinkingElements = null
-                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        const thinkingBlocks = getThinkingMessageFromResponse(message, webSearchResultsByToolUseId)
                         if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
                             // 1. The thread has finished streaming (thinking might be at the end), OR
@@ -830,13 +831,6 @@ const Message = React.memo(function Message({
                     }
                     return null // We currently skip other types of messages
                 })()}
-                {isFinal &&
-                    isLastInGroup &&
-                    message.status === 'completed' &&
-                    message.id &&
-                    !message.id.startsWith('temp-') && (
-                        <MaxWebAnalyticsNudge message={message} messageId={message.id} />
-                    )}
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">

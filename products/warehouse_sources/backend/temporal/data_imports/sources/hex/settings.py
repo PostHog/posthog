@@ -23,6 +23,8 @@ class HexEndpointConfig:
     parent: Optional[str] = None
     resolve_param: Optional[str] = None
     resolve_field: Optional[str] = None
+    # Parent fields copied onto each child row, as `{parent field: child column}`.
+    include_from_parent: dict[str, str] = field(default_factory=dict)
     sort_mode: Literal["asc", "desc"] = "asc"
 
 
@@ -84,11 +86,59 @@ HEX_ENDPOINTS: dict[str, HexEndpointConfig] = {
         # ListCollections only supports sortBy=NAME (and no sortDirection param).
         params={"sortBy": "NAME"},
     ),
+    "data_connections": HexEndpointConfig(
+        name="data_connections",
+        path="/v1/data-connections",
+        data_selector="values",
+        primary_keys=("id",),
+        pagination="cursor",
+        page_size=100,
+        # createdAt is not returned, but it is the stable sort of the two supported (NAME, CREATED_AT).
+        params={"sortBy": "CREATED_AT", "sortDirection": "ASC"},
+    ),
+    "queried_tables": HexEndpointConfig(
+        name="queried_tables",
+        path="/v1/projects/{projectId}/queriedTables",
+        data_selector="values",
+        # Rows carry no project id, so it is injected from the parent to keep the key table-wide unique.
+        primary_keys=("projectId", "dataConnectionId", "tableName"),
+        pagination="cursor",
+        page_size=100,
+        parent="projects",
+        resolve_param="projectId",
+        resolve_field="id",
+        include_from_parent={"id": "projectId"},
+    ),
+    "cells": HexEndpointConfig(
+        name="cells",
+        # ListCells takes the project as a required query param, which the framework can only
+        # resolve from the path.
+        path="/v1/cells?projectId={projectId}",
+        data_selector="values",
+        primary_keys=("projectId", "id"),
+        pagination="cursor",
+        page_size=100,
+        parent="projects",
+        resolve_param="projectId",
+        resolve_field="id",
+    ),
+    "threads": HexEndpointConfig(
+        name="threads",
+        path="/v1/threads",
+        data_selector="threads",
+        primary_keys=("id",),
+        pagination="cursor",
+        page_size=100,
+        # ListThreads has no sort param and returns the newest threads first.
+        sort_mode="desc",
+        partition_key="createdAt",
+    ),
 }
 
 ENDPOINTS = tuple(HEX_ENDPOINTS.keys())
 
-# The Hex API exposes no server-side timestamp filter on any list endpoint (ListProjects only
+# The Hex API exposes no usable server-side timestamp filter on any list endpoint (ListProjects only
 # filters by status/category/creator/owner/collection; GetProjectRuns only by run status and
-# trigger), so every endpoint is full-refresh only.
+# trigger; ListThreads' `numDays` bounds whole days of creation, but threads keep changing after
+# that), so every endpoint is full-refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

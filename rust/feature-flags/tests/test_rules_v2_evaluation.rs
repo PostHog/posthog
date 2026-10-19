@@ -13,6 +13,29 @@ use uuid::Uuid;
 pub mod common;
 #[path = "test_rules_v2_evaluation/corpus.rs"]
 mod corpus;
+#[path = "test_rules_v2_evaluation/wire.rs"]
+mod wire;
+
+/// `wire::validate_v3` accepts every wire fixture case marked `valid` and fails every other
+/// case at the layer its `expected_failure.layer` declares.
+#[test]
+fn vendored_response_fixtures_agree_with_the_validator() {
+    let fixtures = corpus::load("fixtures/wire/responses.json");
+    let (mut valid, mut invalid) = (0, 0);
+    for case in fixtures["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let verdict = wire::validate_v3(&wire::fixture_case(&fixtures, case));
+        if case["expected"] == "valid" {
+            assert_eq!(verdict, Ok(()), "{id}");
+            valid += 1;
+        } else {
+            let (layer, detail) = verdict.expect_err(id);
+            assert_eq!(layer, case["expected_failure"]["layer"], "{id}: {detail}");
+            invalid += 1;
+        }
+    }
+    assert_eq!((valid, invalid), (25, 125));
+}
 
 #[test]
 fn pinned_evaluation_artifact_subset_is_intact() {
@@ -21,7 +44,7 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     assert_eq!(revision.len(), 40);
     assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
     assert_eq!(source["release_status"], "released");
-    assert_eq!(source["source_release"], "1.13.0");
+    assert_eq!(source["source_release"], "1.13.1");
     let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),
@@ -396,7 +419,8 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
 #[tokio::test]
 async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
     use feature_flags::api::types::{
-        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, LegacyFlagsResponse,
+        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, FlagsResponseV3,
+        LegacyFlagsResponse,
     };
     use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
     use feature_flags::flags::flag_matching::FeatureFlagMatcher;
@@ -565,6 +589,39 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             enabled.then_some(map_value).as_ref(),
             "{id}"
         );
+        let v3 = serde_json::to_value(FlagsResponseV3::from_response(response)).unwrap();
+        wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{id}: {error:?}"));
+        let record = &v3["flags"][&key];
+        assert_eq!(record["metadata"]["config_version"], 2, "{id}");
+        assert_eq!(record.get("enabled"), None, "{id}");
+        if failed {
+            assert_eq!(
+                (
+                    &record["value"],
+                    &record["reason"]["code"],
+                    &record["failed"]
+                ),
+                (&Value::Null, &json!("error"), &json!(true)),
+                "{id}"
+            );
+        } else {
+            assert_eq!(record["value"], expected["value"], "{id}");
+            assert_eq!(record["reason"]["code"], expected["reason"], "{id}");
+            assert_eq!(
+                record["reason"]["condition_index"], expected["rule"]["index"],
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_id"),
+                expected["rule"].get("id"),
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_type"),
+                expected["rule"].get("rule_type"),
+                "{id}"
+            );
+        }
         projected += 1;
     }
     assert_eq!((projected, direct, skipped), (114 + 49, 8, 13));

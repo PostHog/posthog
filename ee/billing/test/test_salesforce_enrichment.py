@@ -2,26 +2,39 @@ import copy
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import fakeredis
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 
+from ee.billing.salesforce_enrichment.constants import (
+    ACCOUNT_FILL_FIELDS,
+    HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
+    SALESFORCE_UPDATE_BATCH_SIZE,
+)
 from ee.billing.salesforce_enrichment.enrichment import (
     _extract_domain,
     _is_yc_funded,
     _normalize_datetime_string,
     _values_match,
+    add_unoccupied_fill_fields,
     enrich_accounts_async,
     get_salesforce_accounts_by_domain,
     is_excluded_domain,
+    prepare_account_update,
+    prepare_mirror_clearing_data,
     prepare_salesforce_update_data,
+    query_salesforce_accounts_chunk_async,
     transform_harmonic_data,
 )
+from ee.billing.salesforce_enrichment.redis_cache import get_accounts_from_redis, store_accounts_in_redis
 
 
 @contextmanager
@@ -32,6 +45,7 @@ def mock_harmonic_client():
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_class.return_value = mock_client
+        mock_client.client_class = mock_class
         yield mock_client
 
 
@@ -230,13 +244,18 @@ class TestHarmonicDataTransformation(SimpleTestCase):
         assert salesforce_data["harmonic_company_type__c"] == "STARTUP"
         assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
         assert "harmonic_last_update__c" in salesforce_data
-        assert salesforce_data["Founded_year__c"] == 1983
 
         # Funding fields
-        assert salesforce_data["Total_Funding__c"] == 900000000
         assert salesforce_data["harmonic_funding_stage__c"] == "EXITED"
         assert salesforce_data["harmonic_last_funding__c"] == 500000000
-        assert salesforce_data["Last_Funding_Date__c"] == "2025-02-25T00:00:00Z"
+
+        for canonical in ("Founded_year__c", "Total_Funding__c", "Last_Funding_Date__c"):
+            assert canonical not in salesforce_data
+        account_update = prepare_account_update(account_id, harmonic_response)
+        assert account_update is not None
+        assert account_update["Founded_year__c"] == 1983
+        assert account_update["Total_Funding__c"] == 900000000
+        assert account_update["Last_Funding_Date__c"] == "2025-02-25T00:00:00Z"
 
         # Current metrics
         assert salesforce_data["harmonic_headcount__c"] == 5015
@@ -264,6 +283,32 @@ class TestHarmonicDataTransformation(SimpleTestCase):
         # Verify no None values remain
         for key, value in salesforce_data.items():
             assert value is not None, f"Field {key} should not be None"
+
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    def test_mirror_clearing_data_covers_every_stamped_field_and_no_canonical_field(self) -> None:
+        transformed_data = transform_harmonic_data(load_harmonic_fixture())
+        assert transformed_data is not None
+        stamped = prepare_salesforce_update_data("001EXAMPLE123", transformed_data)
+        assert stamped is not None
+
+        cleared = prepare_mirror_clearing_data("001EXAMPLE123")
+
+        assert set(stamped) <= set(cleared)
+        assert {k: v for k, v in cleared.items() if v is not None} == {
+            "Id": "001EXAMPLE123",
+            "harmonic_is_yc_company__c": False,
+        }
+        for canonical in (
+            "Total_Funding__c",
+            "Last_Funding_Date__c",
+            "Founded_year__c",
+            "NumberOfEmployees",
+            "Industry",
+            "Company_LinkedIn__c",
+            "LinkedIn_Engineer_Count__c",
+            "LinkedIn_Rolecount__c",
+        ):
+            assert canonical not in cleared
 
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_missing_funding(self):
@@ -588,15 +633,24 @@ class TestSalesforceAccountQuery(SimpleTestCase):
             assert "www." not in actual_query
             assert "https://" not in actual_query
 
-    def test_get_salesforce_accounts_by_domain_returns_empty_for_invalid(self):
-        """Test that invalid domains return empty list."""
-        result = get_salesforce_accounts_by_domain("")
-        assert result == []
+    @parameterized.expand(
+        [
+            ("", "empty string"),
+            ("   ", "whitespace only"),
+        ]
+    )
+    def test_get_salesforce_accounts_by_domain_returns_empty_for_invalid(self, domain, description):
+        """Test that invalid domains return empty list without querying Salesforce."""
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all.return_value = {"records": []}
 
-    def test_get_salesforce_accounts_by_domain_returns_empty_for_whitespace(self):
-        """Test that whitespace-only domains return empty list."""
-        result = get_salesforce_accounts_by_domain("   ")
-        assert result == []
+            result = get_salesforce_accounts_by_domain(domain)
+
+            # A reachable client makes this assert the validation branch, not the connection failure path
+            assert result == [], f"Failed for: {description}"
+            assert not mock_sf.query_all.called, f"Failed for: {description}"
 
     def test_get_salesforce_accounts_by_domain_precise_matching(self):
         """Test that domain matching is precise and doesn't match unintended domains."""
@@ -628,6 +682,38 @@ class TestSalesforceAccountQuery(SimpleTestCase):
 
             # Verify it doesn't use the old %domain% pattern that would match unintended domains
             assert "LIKE '%example.com%'" not in actual_query
+
+    @pytest.mark.asyncio
+    async def test_chunk_reads_rebuild_a_missing_cache_once_and_page_through_it(self) -> None:
+        accounts = [{"Id": f"001SYN{i:03d}", "Website": f"https://company{i}.example.com"} for i in range(7)]
+        sf = MagicMock()
+        sf.query_all.return_value = {"records": accounts}
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()),
+        ):
+            pages = [await query_salesforce_accounts_chunk_async(sf, offset, 3) for offset in (0, 3, 6, 9)]
+
+        assert pages == [accounts[0:3], accounts[3:6], accounts[6:7], []]
+        sf.query_all.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_chunk_read_error_preserves_cached_accounts(self) -> None:
+        accounts = [{"Id": f"001SYN{i:03d}", "Website": f"https://company{i}.example.com"} for i in range(3)]
+        cached_accounts = list(reversed(accounts))
+        sf = MagicMock()
+        sf.query_all.return_value = {"records": accounts}
+        redis_client = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer())
+
+        with patch("ee.billing.salesforce_enrichment.redis_cache.get_async_client", return_value=redis_client):
+            await store_accounts_in_redis(cached_accounts)
+            with patch.object(redis_client, "lrange", side_effect=RedisConnectionError("Synthetic read failure")):
+                page = await query_salesforce_accounts_chunk_async(sf, 0, 2)
+            remaining_accounts = await get_accounts_from_redis(0, 3)
+
+        assert page == accounts[:2]
+        assert remaining_accounts == cached_accounts
 
 
 class TestSpecificDomainEnrichment(SimpleTestCase):
@@ -715,16 +801,25 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
         assert result["summary"]["salesforce_update_succeeded"] is False
         assert "excluded" in result["error"]
 
+    @parameterized.expand(
+        [
+            ("not_found", None),
+            ("empty_record", {}),
+            ("not_a_record", ["not", "a", "company"]),
+        ]
+    )
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    async def test_specific_domain_enrichment_no_harmonic_data(self):
+    async def test_specific_domain_enrichment_no_harmonic_data(
+        self, _name: str, harmonic_result: dict[str, Any] | list[str] | None
+    ) -> None:
         """Test handling when Harmonic returns no data for domain."""
         mock_accounts = [
             {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "unknown-domain.xyz"},
         ]
 
         with mock_harmonic_client() as mock_client:
-            mock_client.enrich_companies_batch = AsyncMock(return_value=[None])
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_result])
 
             with patch(
                 "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
@@ -768,7 +863,10 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
                 "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
                 return_value=mock_accounts,
             ) as mock_get_accounts:
-                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf:
+                    mock_get_sf.return_value.query_all.return_value = {
+                        "records": [{"Id": "001EXAMPLE1", "NumberOfEmployees": None, "Industry": "Retail"}]
+                    }
                     with patch(
                         "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
                     ) as mock_bulk_update:
@@ -779,6 +877,9 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
 
                         # Verify Salesforce was updated
                         mock_bulk_update.assert_called_once()
+                        (update_record,) = mock_bulk_update.call_args[0][1]
+                        assert update_record["NumberOfEmployees"] == 5015
+                        assert "Industry" not in update_record
 
                         # Verify result
                         assert result["summary"]["salesforce_update_succeeded"] is True
@@ -894,6 +995,150 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
 
                         # Verify query_all was called to fetch the updated data
                         assert mock_sf.query_all.called
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_specific_domain_sub_entity_sends_the_clearing_record(self) -> None:
+        sub_entity = {
+            **load_harmonic_fixture(),
+            "website": {"url": "https://example.com/ventures", "domain": "example.com"},
+        }
+        mock_accounts = [{"Id": "001EXAMPLE1", "Name": "Test Company", "Domain__c": "example.com"}]
+
+        with (
+            mock_harmonic_client() as mock_client,
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+            patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts") as mock_bulk_update,
+        ):
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[sub_entity])
+            mock_get_sf.return_value.query_all.return_value = {
+                "records": [{"Id": "001EXAMPLE1", **dict.fromkeys(ACCOUNT_FILL_FIELDS)}]
+            }
+
+            result = await enrich_accounts_async(specific_domain="example.com")
+
+        assert mock_client.client_class.call_args.kwargs["query"] == HARMONIC_ACCOUNT_ENRICHMENT_QUERY
+        assert mock_bulk_update.call_args[0][1] == [prepare_mirror_clearing_data("001EXAMPLE1")]
+        assert result["summary"]["rejected_sub_entity"] is True
+        assert result["records_rejected_sub_entity"] == 1
+        assert result["records_enriched"] == 0
+        assert result["enriched_data"] is None
+
+
+class TestChunkEnrichment(SimpleTestCase):
+    SUB_ENTITY = {
+        **load_harmonic_fixture(),
+        "website": {"url": "https://example.org/ventures", "domain": "example.org"},
+    }
+    NORMAL = {
+        **load_harmonic_fixture(),
+        "socials": {"linkedin": {"url": "https://www.linkedin.example/company/ex"}},
+    }
+    CACHED_ACCOUNTS = [
+        {"Id": "001SUB", "Name": "Synthetic Ventures", "Website": "https://example.org"},
+        {"Id": "001NORMAL", "Name": "Example Corp", "Website": "https://example.com"},
+        {"Id": "001MALFORMED", "Name": "Example Org", "Website": "https://example.net"},
+    ]
+
+    async def _run_chunk(self, query_all: MagicMock) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        with (
+            mock_harmonic_client() as mock_client,
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_accounts_from_redis",
+                new=AsyncMock(return_value=self.CACHED_ACCOUNTS),
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.posthoganalytics.capture"),
+            patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
+        ):
+            mock_client.enrich_companies_batch = AsyncMock(
+                return_value=[self.SUB_ENTITY, self.NORMAL, ["not", "a", "company"]]
+            )
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all = query_all
+            mock_sf.restful.return_value = [{"success": True}, {"success": True}]
+
+            result = await enrich_accounts_async(chunk_number=0, chunk_size=10)
+
+        assert mock_client.client_class.call_args.kwargs["query"] == HARMONIC_ACCOUNT_ENRICHMENT_QUERY
+        mock_sf.restful.assert_called_once()
+        assert mock_sf.restful.call_args.args == ("composite/sobjects",)
+        assert mock_sf.restful.call_args.kwargs["method"] == "PATCH"
+        records = {
+            record["Id"]: {field: value for field, value in record.items() if field != "attributes"}
+            for record in mock_sf.restful.call_args.kwargs["json"]["records"]
+        }
+        return result, records
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_clears_sub_entity_accounts_and_fills_empty_fields_of_normal_ones(self) -> None:
+        empty = dict.fromkeys(ACCOUNT_FILL_FIELDS)
+        current_values = [{"Id": "001SUB", **empty}, {"Id": "001NORMAL", **empty, "NumberOfEmployees": 7}]
+
+        result, records = await self._run_chunk(MagicMock(return_value={"records": current_values}))
+
+        assert set(records) == {"001SUB", "001NORMAL"}
+
+        assert records["001SUB"] == prepare_mirror_clearing_data("001SUB")
+        assert records["001SUB"]["harmonic_company_name__c"] is None
+        assert records["001SUB"]["harmonic_is_yc_company__c"] is False
+
+        normal_record = records["001NORMAL"]
+        assert normal_record["harmonic_company_name__c"] == "Example Corp"
+        assert normal_record["Total_Funding__c"] == 900000000
+        assert normal_record["Company_LinkedIn__c"] == "https://www.linkedin.example/company/ex"
+        assert normal_record["Industry"] == "Software"
+        assert "NumberOfEmployees" not in normal_record
+
+        assert result["records_processed"] == 3
+        assert result["records_rejected_sub_entity"] == 1
+        assert result["records_enriched"] == 1
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_fills_nothing_when_current_values_cannot_be_read(self) -> None:
+        _, records = await self._run_chunk(MagicMock(side_effect=Exception("query failed")))
+
+        normal_record = records["001NORMAL"]
+        assert normal_record["harmonic_company_name__c"] == "Example Corp"
+        assert normal_record["Total_Funding__c"] == 900000000
+        for fill_field in ACCOUNT_FILL_FIELDS:
+            assert fill_field not in normal_record
+
+
+class TestAddUnoccupiedFillFields(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("every_batch_is_read", False, SALESFORCE_UPDATE_BATCH_SIZE + 1),
+            ("a_failed_batch_does_not_stop_the_next", True, 1),
+        ]
+    )
+    def test_reads_accounts_in_batches(self, _name: str, first_batch_fails: bool, expected_filled: int) -> None:
+        account_ids = [f"001{index:015d}" for index in range(SALESFORCE_UPDATE_BATCH_SIZE + 1)]
+        update_records: list[dict[str, Any]] = [{"Id": account_id} for account_id in account_ids]
+
+        def query_all(query: str) -> dict[str, list[dict[str, Any]]]:
+            if first_batch_fails and account_ids[0] in query:
+                raise Exception("query failed")
+            return {
+                "records": [
+                    {"Id": account_id, "NumberOfEmployees": None} for account_id in account_ids if account_id in query
+                ]
+            }
+
+        sf = MagicMock()
+        sf.query_all.side_effect = query_all
+
+        with patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"):
+            add_unoccupied_fill_fields(sf, update_records, dict.fromkeys(account_ids, {"NumberOfEmployees": 120}))
+
+        assert sf.query_all.call_count == 2
+        assert sum(record.get("NumberOfEmployees") == 120 for record in update_records) == expected_filled
 
 
 class TestValuesMatch(SimpleTestCase):

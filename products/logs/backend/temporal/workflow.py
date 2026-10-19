@@ -1,6 +1,7 @@
 """Temporal workflow for logs alert checking — two-phase fan-out."""
 
 import asyncio
+import contextlib
 import dataclasses
 from itertools import batched
 
@@ -40,6 +41,7 @@ from products.logs.backend.temporal.constants import (
 
 RETRY_BUSY_COHORTS_PATCH = "logs-alert-check-retry-busy-cohorts"
 BUSY_COHORT_BACKOFF_PATCH = "logs-alert-check-busy-cohort-backoff"
+_PATCH_BOUNDED_BATCH_FANOUT = "logs-alerting-bounded-batch-fanout"
 
 
 @temporalio.workflow.defn(name=WORKFLOW_NAME)
@@ -86,6 +88,21 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
+        # Bounds ClickHouse concurrency across the whole cycle, which the per-batch cohort
+        # limit alone cannot do. Activity scheduling order is recorded in history, so the
+        # patch keeps runs that started before the bound on the unbounded path.
+        limit = discovery.max_concurrent_batches if workflow.patched(_PATCH_BOUNDED_BATCH_FANOUT) else 0
+        slot = asyncio.Semaphore(limit) if limit > 0 else contextlib.nullcontext()
+
+        async def run_batch(batch: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+            async with slot:
+                return await workflow.execute_activity(
+                    evaluate_cohort_batch_activity,
+                    batch,
+                    start_to_close_timeout=ACTIVITY_TIMEOUT,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+
         # ClickHouse rejects the top-of-minute burst as busy, and the queries succeed a few
         # seconds later. So each round retries the cohorts the previous one deferred, for the
         # same window, and only the last round saves a busy rejection as a skipped check.
@@ -102,13 +119,10 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             # batch's `ActivityError` doesn't abort the cycle.
             results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
                 *(
-                    workflow.execute_activity(
-                        evaluate_cohort_batch_activity,
+                    run_batch(
                         dataclasses.replace(
                             batch, defer_busy_cohorts=defer_busy_cohorts, busy_cohort_attempt=attempt + 1
-                        ),
-                        start_to_close_timeout=ACTIVITY_TIMEOUT,
-                        retry_policy=ACTIVITY_RETRY_POLICY,
+                        )
                     )
                     for batch in batches
                 ),

@@ -1,13 +1,17 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type SignalReportApi,
     type ReportChartApi,
     type ReportMetricApi,
+    type ReportRankingApi,
+    type ReportSourceSuggestionApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
+    type SignalReportSuppressionSourceEnumApi,
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
@@ -82,12 +86,14 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
     'requires_human_input',
 ]
 
-export interface SignalReport {
+export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string
     title: string | null
     summary: string | null
+    /** The opening of `summary` as plain text, before its first section heading. */
+    summary_lead?: string
     status: SignalReportStatus
     total_weight: number
     signal_count: number
@@ -100,6 +106,8 @@ export interface SignalReport {
     metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
+    /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
+    source_suggestion?: ReportSourceSuggestionApi | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
@@ -131,12 +139,20 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** Who or what suppressed the report: a person (`dismissed`) or a judge's verdict. Null unless suppressed. */
+    suppression_source?: SignalReportSuppressionSourceEnumApi | null
+    /** The judge's explanation for a held-back report, when it gave one. */
+    suppression_explanation?: string | null
     /** The report's PR refund, when one exists (one refund per report, ever). */
     refund?: SignalReportRefundApi | null
     /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
+    ranking?: ReportRankingApi | null
+    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    inbox_merge_key?: number | null
 }
 
 export enum SignalReportStatus {
@@ -289,6 +305,7 @@ export const INBOX_REPORT_SECTION_KEYS = [
     'needs-decision',
     'resolved',
     'dismissed',
+    'held-back',
     'not-actionable',
 ] as const
 export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
@@ -304,6 +321,7 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
     'needs-decision': 'Needs decision',
     resolved: 'Resolved',
     dismissed: 'Dismissed',
+    'held-back': 'Held back',
     'not-actionable': 'Not actionable',
 }
 
@@ -313,7 +331,9 @@ export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, str
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
     dismissed:
-        'Reports you dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
+        'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
+    'held-back':
+        'Reports a safety or actionability check removed before anyone reviewed them. Each one shows why it was held back.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
 }
@@ -371,6 +391,7 @@ export const INBOX_SECTION_LEGACY_TAB: Record<InboxReportSectionKey, InboxFlatLi
     'not-actionable': 'not-actionable',
     resolved: 'archived',
     dismissed: 'archived',
+    'held-back': 'archived',
 }
 
 /**

@@ -32,11 +32,12 @@ function PinnedPropertyValue({ property, value }: { property: PinnedProperty; va
             <span className="flex items-center gap-1 min-w-0">
                 <PropertyIcon property={property.key} value={value} />
                 {isUrl ? (
-                    <Link to={value} target="_blank" className="truncate">
+                    <Link data-attr="vision-observation-property-link" to={value} target="_blank" className="truncate">
                         {value}
                     </Link>
                 ) : (
                     <CopyToClipboardInline
+                        data-attr="vision-observation-property-copy"
                         explicitValue={value}
                         description={propertyLabel(property)}
                         iconSize="xsmall"
@@ -87,7 +88,10 @@ export function ObservationPinnedProperties({ sessionId }: { sessionId: string }
             ) : queryablePinnedProperties.length === 0 ? (
                 <p className="text-sm text-muted m-0">
                     None of the pinned session properties exist in this project.{' '}
-                    <Link onClick={resetPinnedProperties}>Reset to the defaults</Link>.
+                    <Link data-attr="vision-observation-reset-pinned" onClick={resetPinnedProperties}>
+                        Reset to the defaults
+                    </Link>
+                    .
                 </p>
             ) : sessionPropertiesLoading ? (
                 <LemonSkeleton.Row repeat={2} className="h-5" />

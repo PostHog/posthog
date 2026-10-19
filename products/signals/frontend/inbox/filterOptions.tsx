@@ -15,11 +15,17 @@ import {
     IconReceipt,
     IconRefresh,
     IconStack,
+    IconStar,
     IconSupport,
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type {
+    InboxCreatedWindow,
+    InboxRankingSortField,
+    InboxSortDirection,
+    InboxSortField,
+} from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
@@ -70,14 +76,102 @@ export interface InboxSortOption {
     field: InboxSortField
     direction: InboxSortDirection
     icon: JSX.Element
+    description?: string
 }
 
 export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
+    {
+        label: 'Recommended',
+        field: 'recommended',
+        direction: 'asc',
+        icon: <IconStar />,
+        description: 'The reports most worth a look come first.',
+    },
     { label: 'Priority first', field: 'priority', direction: 'asc', icon: <IconList /> },
     { label: 'Last updated first', field: 'updated_at', direction: 'desc', icon: <IconRefresh /> },
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
+
+/**
+ * The three ranking model scores the staff UI shows, in display order. Each reads one outcome head.
+ * The model serves more heads, but the sort menu, the card tag and the activity log lead with these.
+ */
+export interface InboxRankingScore {
+    field: InboxRankingSortField
+    head: string
+    name: string
+    sortLabel: string
+    /** The short word the card tag uses after the lift ("2.1x fix"). */
+    tagLabel: string
+    description: string
+}
+
+export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
+    {
+        field: 'ranking_open',
+        head: 'open',
+        name: 'Open',
+        sortLabel: 'Most likely to be opened',
+        tagLabel: 'open',
+        description: 'A person opens the report within 7 days.',
+    },
+    {
+        field: 'ranking_action',
+        head: 'action',
+        name: 'Engage',
+        sortLabel: 'Most likely to be acted on',
+        tagLabel: 'engage',
+        description: 'A person acts on the report within 14 days.',
+    },
+    {
+        field: 'ranking_fixed',
+        head: 'fixed',
+        name: 'Fix',
+        sortLabel: 'Most likely to be fixed',
+        tagLabel: 'fix',
+        description: 'Someone fixes the problem within 30 days.',
+    },
+]
+
+/** Staff-only sorts by the ranking model's served probability for one score. Descending only. */
+export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.map((score) => ({
+    label: score.sortLabel,
+    field: score.field,
+    direction: 'desc',
+    icon: <IconBrain />,
+    description: score.description,
+}))
+
+const RANKING_SCORE_BY_FIELD = Object.fromEntries(INBOX_RANKING_SCORES.map((score) => [score.field, score])) as Record<
+    InboxRankingSortField,
+    InboxRankingScore
+>
+
+export function isRankingSortField(field: InboxSortField): field is InboxRankingSortField {
+    return field in RANKING_SCORE_BY_FIELD
+}
+
+export function rankingScoreForField(field: InboxRankingSortField): InboxRankingScore {
+    return RANKING_SCORE_BY_FIELD[field]
+}
+
+export function rankingScoreForHead(head: string): InboxRankingScore | undefined {
+    return INBOX_RANKING_SCORES.find((score) => score.head === head)
+}
+
+export const INBOX_CREATED_WINDOW_OPTIONS: { value: InboxCreatedWindow; label: string; hours: number }[] = [
+    { value: '24h', label: 'Last 24 hours', hours: 24 },
+    { value: '3d', label: 'Last 3 days', hours: 3 * 24 },
+    { value: '7d', label: 'Last 7 days', hours: 7 * 24 },
+    { value: '14d', label: 'Last 14 days', hours: 14 * 24 },
+]
+
+/** The `created_after` bound for a window, computed at request time so a long-open tab never sends a stale bound. */
+export function createdAfterForWindow(window: InboxCreatedWindow | null, now: number = Date.now()): string | undefined {
+    const option = INBOX_CREATED_WINDOW_OPTIONS.find((o) => o.value === window)
+    return option ? new Date(now - option.hours * 60 * 60 * 1000).toISOString() : undefined
+}
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },

@@ -39,6 +39,9 @@ describe("PostHogAPIClient", () => {
       const [url, request] = fetch.mock.calls[0];
       expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
       expect(request.method).toBe("POST");
+      expect(
+        (request.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe("posthog_desktop");
       expect(JSON.parse(request.body)).toEqual({
         description: "Read the report evidence",
         title: "Review report",
@@ -49,6 +52,45 @@ describe("PostHogAPIClient", () => {
           ? { signal_report_discussion_question: "What caused this?" }
           : {}),
       });
+    },
+  );
+
+  it.each([
+    { provenance: "posthog_mobile", action: "creates" },
+    { provenance: "posthog_web", action: "creates" },
+    { provenance: "posthog_mobile", action: "warms" },
+    { provenance: "posthog_web", action: "warms" },
+  ] as const)(
+    "sends $provenance provenance when it $action a task",
+    async ({ provenance, action }) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "task-1",
+            task_id: "task-1",
+            run_id: "run-1",
+          }),
+          { status: 201 },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch, taskClientProvenance: provenance },
+      );
+
+      if (action === "creates") {
+        await client.createTask({ description: "Create a task" });
+      } else {
+        await client.warmTask({ repository: null, github_integration: null });
+      }
+
+      const request = fetch.mock.calls[0]?.[1];
+      expect(
+        (request?.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe(provenance);
     },
   );
 
@@ -379,6 +421,39 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getInsightSummary", () => {
+    it("reads the insight from cache and falls back to its derived name", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "",
+            derived_name: "Pageview count",
+            description: "",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightSummary("sdyR2Pn8")).resolves.toEqual({
+        name: "Pageview count",
+        description: null,
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("basic")).toBe("true");
+      expect(url.searchParams.get("refresh")).toBe("force_cache");
+    });
+  });
+
   describe("getEvidencePreview", () => {
     it("retrieves an Inbox report from the signals endpoint", async () => {
       const fetch = vi.fn().mockResolvedValue(
@@ -641,6 +716,34 @@ describe("PostHogAPIClient", () => {
       expect(listUrl.pathname).toBe("/api/projects/42/persons/");
       expect(listUrl.searchParams.get("search")).toBe(distinctId);
     });
+  });
+
+  it.each([
+    {
+      sources: ["posthog_desktop", "slack"],
+      sent: ["posthog_desktop", "slack"],
+    },
+    { sources: [], sent: [] },
+  ])("sends task list sources $sources as $sent", async ({ sources, sent }) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage({ sources });
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.getAll("sources")).toEqual(sent);
   });
 
   it("fetches later task pages before reporting complete results", async () => {
@@ -2669,6 +2772,61 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "work_claim",
+        content: { display_name: "Ada" },
+        created_at: "2026-06-01T00:00:14Z",
+      },
+      {
+        id: "a16",
+        type: "work_release",
+        content: { reason: "taken_over" },
+        created_at: "2026-06-01T00:00:15Z",
+      },
+      {
+        id: "a17",
+        type: "ranking_score",
+        content: {
+          scored_at: "2026-06-01T00:00:16Z",
+          manifest_version: "12",
+          served_key: "report_embeddings@2026-05-31",
+          results: {
+            "signal_counts@2026-05-31": {
+              status: "skipped",
+              roles: ["challenger"],
+              skip_reason: "missing report vector",
+              scores: {},
+            },
+            "report_embeddings@2026-05-31": {
+              status: "scored",
+              roles: ["served"],
+              scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+              lifts: { action: 1.3 },
+              metadata: {
+                heads: [
+                  {
+                    head: "action",
+                    readable: true,
+                    refit_classification_threshold: 0.6,
+                  },
+                  {
+                    head: "pr_merged",
+                    readable: true,
+                    refit_classification_threshold: 0.2,
+                  },
+                  {
+                    head: "refund",
+                    readable: false,
+                    refit_classification_threshold: 0,
+                  },
+                ],
+              },
+            },
+          },
+        },
+        created_at: "2026-06-01T00:00:16Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {
@@ -2685,6 +2843,32 @@ describe("PostHogAPIClient", () => {
       expect(results.map((a) => a.id)).toEqual(ROWS.map((r) => r.id));
       expect(results.map((a) => a.type)).toEqual(ROWS.map((r) => r.type));
       expect(results.every((a) => !a.degraded)).toBe(true);
+      expect(results.at(-1)?.content).toEqual({
+        scored_at: "2026-06-01T00:00:16Z",
+        manifest_version: "12",
+        served: {
+          key: "report_embeddings@2026-05-31",
+          roles: ["served"],
+          status: "scored",
+          skip_reason: null,
+          // Stored lifts win, older rows derive lift from a positive base rate,
+          // and a head without one sorts last.
+          heads: [
+            { name: "pr_merged", probability: 0.52, lift: 2.6, readable: true },
+            { name: "action", probability: 0.78, lift: 1.3, readable: true },
+            { name: "refund", probability: 0.04, lift: null, readable: false },
+          ],
+        },
+        challengers: [
+          {
+            key: "signal_counts@2026-05-31",
+            roles: ["challenger"],
+            status: "skipped",
+            skip_reason: "missing report vector",
+            heads: [],
+          },
+        ],
+      });
     });
 
     it("keeps rows whose content does not match the type's shape as degraded previews", async () => {
@@ -2711,6 +2895,13 @@ describe("PostHogAPIClient", () => {
           content: {},
           created_at: "2026-06-01T00:00:02Z",
         },
+        // served model missing from the results
+        {
+          id: "bad4",
+          type: "ranking_score",
+          content: { served_key: "gone@1", results: {} },
+          created_at: "2026-06-01T00:00:03Z",
+        },
       ];
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -2720,7 +2911,12 @@ describe("PostHogAPIClient", () => {
 
       const { results } = await client.getSignalReportArtefacts("r1");
 
-      expect(results.map((a) => a.id)).toEqual(["bad1", "bad2", "bad3"]);
+      expect(results.map((a) => a.id)).toEqual([
+        "bad1",
+        "bad2",
+        "bad3",
+        "bad4",
+      ]);
       expect(results.every((a) => a.degraded)).toBe(true);
       expect(results[0].type).toBe("commit");
       expect((results[1].content as { content: string }).content).toBe(

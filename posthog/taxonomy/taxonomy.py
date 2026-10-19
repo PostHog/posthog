@@ -65,6 +65,8 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "epik",  # pinterest
     "qclid",  # quora
     "sccid",  # snapchat
+    "oppref",  # openai ads
+    "bfcid",  # freebuff
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -183,9 +185,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_called": {
             "label": "Feature flag called",
-            "description": (
-                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
-            ),
+            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.",
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "hidden_in_query_builders": True,
@@ -569,7 +569,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflows_email_bounced": {
             "label": "Workflow email bounced",
-            "description": "Fires when a workflow email bounces.",
+            "description": 'Fires when a workflow email bounces. The `$bounce_type` property holds `hard` when the address will never accept mail (it is also added to the suppression list), `soft` when the failure is temporary such as a full mailbox, and `unknown` when the provider could not tell. `$bounce_sub_type` holds the provider\'s own reason, such as "MailboxFull". Bounces recorded before these properties shipped carry neither.',
         },
         "$workflows_email_blocked": {
             "label": "Workflow email marked as spam",
@@ -813,6 +813,20 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Go version",
             "description": "The Go version that was used to capture the event.",
             "examples": ["go1.23.0"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$react_native_version": {
+            "label": "React Native version",
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$flutter_version": {
+            "label": "Flutter version",
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
             "system": True,
             "ignored_in_assistant": True,
         },
@@ -2064,6 +2078,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "sccid",
             "description": "Snapchat Click ID",
         },
+        "oppref": {
+            "label": "oppref",
+            "description": "OpenAI Ads Click ID",
+        },
+        "bfcid": {
+            "label": "bfcid",
+            "description": "Freebuff Click ID",
+        },
         "irclid": {
             "label": "irclid",
             "description": "Impact Click ID",
@@ -2746,28 +2768,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
             "description": "The type of evaluation that was run.",
             "examples": ["llm_judge", "hog"],
         },
-        "$ai_expected": {
-            "label": "AI expected output (LLM)",
-            "description": "The expected output for comparison in this evaluation.",
-        },
         "$ai_experiment_id": {
             "label": "AI experiment ID (LLM)",
             "description": "The unique identifier of the experiment this event belongs to.",
-        },
-        "$ai_experiment_item_id": {
-            "label": "AI experiment item ID (LLM)",
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-        },
-        "$ai_experiment_item_name": {
-            "label": "AI experiment item name (LLM)",
-            "description": "The name of the individual item being evaluated in an experiment.",
         },
         "$ai_experiment_name": {
             "label": "AI experiment name (LLM)",
@@ -2805,10 +2815,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [1024, 4096],
             "type": "Numeric",
         },
-        "$ai_metric_version": {
-            "label": "AI metric version (LLM)",
-            "description": "The version of the metric used for evaluation.",
-        },
         "$ai_output": {
             "label": "AI output (LLM)",
             "description": "The output text from a generation or the text being evaluated.",
@@ -2816,26 +2822,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_project_name": {
             "label": "AI project name (LLM)",
             "description": "The project name associated with this AI event.",
-        },
-        "$ai_result_type": {
-            "label": "AI result type (LLM)",
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-        },
-        "$ai_score": {
-            "label": "AI score (LLM)",
-            "description": "The numeric score assigned by this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_max": {
-            "label": "AI score max (LLM)",
-            "description": "The maximum possible score for this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_min": {
-            "label": "AI score min (LLM)",
-            "description": "The minimum possible score for this evaluation metric.",
-            "type": "Numeric",
         },
         "$ai_span_type": {
             "label": "AI span type (LLM)",

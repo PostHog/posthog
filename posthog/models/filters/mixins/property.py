@@ -1,14 +1,12 @@
 import json
-from typing import Any, Optional, Union, cast
 
-import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PROPERTIES, PropertyOperatorType
-from posthog.exceptions_capture import capture_exception
+from posthog.constants import PROPERTIES
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
-from posthog.models.property import Property, PropertyGroup, PropertyValidationError
+from posthog.models.property import Property, PropertyGroup
+from posthog.models.property.parse import parse_properties, parse_property_group_data
 
 
 class PropertyMixin(BaseParamMixin):
@@ -17,30 +15,7 @@ class PropertyMixin(BaseParamMixin):
         return self._parse_data(key=PROPERTIES)
 
     def _parse_data(self, key: str) -> PropertyGroup:
-        _props = self._data.get(key)
-
-        if isinstance(_props, str):
-            try:
-                loaded_props = json.loads(_props)
-            except json.decoder.JSONDecodeError:
-                raise ValidationError("Data is unparsable!")
-        else:
-            loaded_props = _props
-
-        # if grouped properties
-        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
-            try:
-                return self._parse_property_group(loaded_props)
-            except ValidationError:
-                raise
-            except ValueError as e:
-                raise ValidationError(f"PropertyGroup is unparsable: {e}")
-        # already a PropertyGroup just return
-        elif isinstance(loaded_props, PropertyGroup):
-            return loaded_props
-
-        # old properties
-        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties(key=key))
+        return parse_property_group_data(self._data.get(key))
 
     def old_properties(self, key: str) -> list[Property]:
         _props = self._data.get(key)
@@ -62,92 +37,7 @@ class PropertyMixin(BaseParamMixin):
             return []
         else:
             # old style dict properties or a list of properties
-            return self._parse_properties(loaded_props)
-
-    def _parse_properties(self, properties: Optional[Any]) -> list[Property]:
-        if isinstance(properties, list):
-            _properties = []
-            for prop_params in properties:
-                if isinstance(prop_params, Property):
-                    _properties.append(prop_params)
-                else:
-                    try:
-                        new_prop = Property(**prop_params)
-                        _properties.append(new_prop)
-                    except (PropertyValidationError, ValidationError, TypeError) as e:
-                        # PropertyValidationError covers every failure Property.__init__ itself
-                        # raises; ValidationError covers validate_group_type_index's own DRF
-                        # error, which Property.__init__ leaves unwrapped so it still reaches
-                        # direct callers as a 400; TypeError covers `Property(**prop_params)`
-                        # failing to unpack prop_params as a mapping before __init__ even runs.
-                        # Dropping an unparsable property changes validation behavior for every
-                        # caller (e.g. cohort.properties.flat missing a behavioral leaf lets
-                        # behavioral-cohort checks pass silently), so this must stay visible
-                        # instead of failing silent. Report structure only — never the
-                        # property's own value/event_filters — since those can carry real user
-                        # data (e.g. an exact-match email filter). Code-variable capture would
-                        # otherwise attach those same values from this frame's locals regardless
-                        # of what we pass as additional_properties, so it's disabled for this call.
-                        prop_dict = prop_params if isinstance(prop_params, dict) else {}
-                        with posthoganalytics.new_context():
-                            posthoganalytics.set_capture_exception_code_variables_context(False)
-                            capture_exception(
-                                e,
-                                additional_properties={
-                                    "property_type": prop_dict.get("type"),
-                                    "property_fields": sorted(prop_dict.keys()) or None,
-                                },
-                            )
-                        continue
-            return _properties
-        if not properties:
-            return []
-
-        # old style dict properties
-        ret = []
-        for key, value in properties.items():
-            key_split = key.split("__")
-            ret.append(
-                Property(
-                    key=key_split[0],
-                    value=value,
-                    operator=key_split[1] if len(key_split) > 1 else None,
-                    type="event",
-                )
-            )
-        return ret
-
-    def _parse_property_group(self, group: Optional[dict]) -> PropertyGroup:
-        if group and "type" in group and "values" in group:
-            return PropertyGroup(
-                PropertyOperatorType(group["type"].upper()),
-                self._parse_property_group_list(group["values"]),
-            )
-
-        return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
-
-    def _parse_property_group_list(self, prop_list: Optional[list]) -> Union[list[Property], list[PropertyGroup]]:
-        if not prop_list:
-            # empty prop list
-            return cast(list[Property], [])
-        has_property_groups = False
-        has_simple_properties = False
-
-        for prop in prop_list:
-            if "type" in prop and "values" in prop:
-                has_property_groups = True
-            elif "key" in prop:
-                has_simple_properties = True
-            else:
-                has_property_groups = True
-
-        if has_simple_properties and has_property_groups:
-            raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")
-
-        if has_property_groups:
-            return [self._parse_property_group(group) for group in prop_list]
-        else:
-            return self._parse_properties(prop_list)
+            return parse_properties(loaded_props)
 
     @include_dict
     def properties_to_dict(self):

@@ -6,7 +6,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
 use sqlx::{Postgres, Row};
 
-use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
+use crate::cache::{CachedPerson, PersonCacheKey};
 
 /// A configured PG fallback: the pool and the table it reads. The table
 /// must be the one the writer maintains (see FALLBACK_TABLE in
@@ -149,7 +149,6 @@ pub async fn load_person_from_pg(
         id,
         uuid,
         team_id: team_id as i64,
-        approx_bytes: approx_person_bytes(properties_bytes.len()),
         properties: properties_bytes,
         created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),

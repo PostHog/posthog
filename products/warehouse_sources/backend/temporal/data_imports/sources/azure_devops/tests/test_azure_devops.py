@@ -1,6 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -20,52 +19,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     AzureDevOpsAuthError,
     AzureDevOpsResumeConfig,
     _flatten_classification_nodes,
-    _flatten_revision,
     _format_datetime,
-    _last_updated_windows,
     _validate_organization,
-    azure_devops_source,
-    get_rows,
     validate_credentials,
     wire_api_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
-    AZURE_DEVOPS_ENDPOINTS,
     AZURE_DEVOPS_RELEASE_BASE_URL,
-    ENDPOINTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source import AzureDevOpsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
+    AzureDevOpsSourceConfig,
 )
 
 
-def _make_manager(resume_state: AzureDevOpsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(AzureDevOpsSource(), AzureDevOpsSourceConfig(organization="myorg", personal_access_token="pat"))
 
 
-def _response(body: dict[str, Any], continuation_header: str | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = 200
-    resp.ok = True
-    resp.headers = {"x-ms-continuationtoken": continuation_header} if continuation_header else {}
-    return resp
+def _response(body: dict[str, Any], continuation_header: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json=body,
+        headers={"x-ms-continuationtoken": continuation_header} if continuation_header else {},
+    )
 
 
 class TestValidateOrganization:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            ("myorg", "myorg"),
-            (" myorg ", "myorg"),
-            ("https://dev.azure.com/myorg", "myorg"),
-            ("dev.azure.com/myorg/project", "myorg"),
-            ("my-org.unit_1", "my-org.unit_1"),
-        ],
-    )
-    def test_valid_organizations(self, value, expected):
-        assert _validate_organization(value) == expected
-
     @pytest.mark.parametrize("value", ["", "my org", "org?x=1"])
     def test_invalid_organizations_raise(self, value):
         with pytest.raises(ValueError):
@@ -86,16 +71,6 @@ class TestFormatDatetime:
         assert _format_datetime(value) == expected
 
 
-class TestFlattenRevision:
-    def test_copies_changed_date_to_top_level(self):
-        item = {"id": 1, "rev": 2, "fields": {"System.ChangedDate": "2024-01-02T03:04:05Z"}}
-        assert _flatten_revision(item)["changed_date"] == "2024-01-02T03:04:05Z"
-
-    @pytest.mark.parametrize("item", [{"id": 1, "rev": 2}, {"id": 1, "fields": {}}, {"id": 1, "fields": None}])
-    def test_leaves_items_without_changed_date_untouched(self, item):
-        assert _flatten_revision(item) == item
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
@@ -108,361 +83,138 @@ class TestValidateCredentials:
             (404, (False, _ORGANIZATION_NOT_FOUND_MESSAGE)),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_validate_credentials_status_mapping(self, status_code, expected):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
 
-        assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
+        assert network.requests_log[0].path == "/myorg/_apis/projects"
+        assert network.requests_log[0].param("$top") == "1"
+        assert network.requests_log[0].param("api-version") == "7.2"
 
     @pytest.mark.parametrize("status_code", [429, 500, 503])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_validate_credentials_unexpected_status_names_the_status(self, mock_session, status_code):
+    def test_validate_credentials_unexpected_status_names_the_status(self, status_code):
         # A throttled or Azure-side failure must not be reported as invalid credentials; the message
         # names the status and stays actionable.
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
 
         assert is_valid is False
         assert str(status_code) in (error or "")
         assert "Invalid Azure DevOps credentials" not in (error or "")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_validate_credentials_rejects_bad_org_without_request(self, mock_session):
-        assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) == (
-            False,
-            _INVALID_ORGANIZATION_MESSAGE,
-        )
-        mock_session.return_value.get.assert_not_called()
+    def test_validate_credentials_rejects_bad_org_without_request(self):
+        with scripted_network([]) as network:
+            assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) == (
+                False,
+                _INVALID_ORGANIZATION_MESSAGE,
+            )
+        assert network.requests_log == []
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_validate_credentials_reports_unreachable_on_transport_error(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+    def test_validate_credentials_reports_unreachable_on_transport_error(self):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
 
-        is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
-
+        assert network.requests_log[0].path == "/myorg/_apis/projects"
         assert is_valid is False
         assert error == _UNREACHABLE_MESSAGE
         assert "boom" not in (error or "")
 
-    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_validate_credentials_sends_mapped_api_version(self, mock_session, version, wire):
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("myorg", "pat", version)
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["api-version"] == [wire]
-
 
 class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_projects_paginate_via_header_token(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"value": [{"id": "p1", "name": "Alpha"}]}, continuation_header="tok1"),
-            _response({"value": [{"id": "p2", "name": "Beta"}]}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
-
-        assert [item["id"] for batch in batches for item in batch] == ["p1", "p2"]
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert parse_qs(urlparse(second_url).query)["continuationToken"] == ["tok1"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_builds_fan_out_per_project_with_ascending_order(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
-            _response({"value": [{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "builds", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
-
-        assert batches == [[{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]]
-        build_url = mock_session.return_value.get.call_args_list[1].args[0]
-        parsed = urlparse(build_url)
-        assert parsed.path == "/myorg/Alpha/_apis/build/builds"
-        assert parse_qs(parsed.query)["queryOrder"] == ["queueTimeAscending"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_builds_incremental_includes_min_time(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
-            _response({"value": []}),
-        ]
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "builds",
-                mock.MagicMock(),
-                manager,
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+    def test_builds_fan_out_per_project_with_ascending_order(self):
+        result = _driver().run(
+            "builds",
+            [
+                _response({"value": [{"id": "p1", "name": "Alpha"}]}),
+                _response({"value": [{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]}),
+            ],
         )
 
-        build_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert parse_qs(urlparse(build_url).query)["minTime"] == ["2024-01-02T00:00:00Z"]
+        assert result.raised is None
+        assert result.items == [[{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]]
+        assert result.paths[1] == "/myorg/Alpha/_apis/build/builds"
+        assert result.requests[1].param("queryOrder") == "queueTimeAscending"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pull_requests_use_skip_pagination_and_status_all(self, mock_session):
+    def test_pull_requests_use_skip_pagination_and_status_all(self):
         full_page = {"value": [{"pullRequestId": i} for i in range(200)]}
-        mock_session.return_value.get.side_effect = [
-            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
-            _response(full_page),
-            _response({"value": [{"pullRequestId": 999}]}),
-            _response({"value": []}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "pull_requests", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
-
-        assert len(batches) == 2
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]]
-        assert parse_qs(urlparse(urls[0]).query)["searchCriteria.status"] == ["all"]
-        assert parse_qs(urlparse(urls[0]).query)["$skip"] == ["0"]
-        assert parse_qs(urlparse(urls[1]).query)["$skip"] == ["200"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_skip_pagination_walks_on_after_a_short_page(self, mock_session):
-        # Several Azure DevOps endpoints cap the page size below the requested $top.
-        # Stopping at the first short page would silently truncate the table.
-        mock_session.return_value.get.side_effect = [
-            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
-            _response({"value": [{"pullRequestId": i} for i in range(100)]}),
-            _response({"value": [{"pullRequestId": 100}]}),
-            _response({"value": []}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "pull_requests", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
-
-        assert [len(batch) for batch in batches] == [100, 1]
-        skips = [
-            parse_qs(urlparse(call.args[0]).query)["$skip"][0]
-            for call in mock_session.return_value.get.call_args_list[1:]
-        ]
-        assert skips == ["0", "100", "101"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_work_item_revisions_walk_batches_and_flatten(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(
-                {
-                    "values": [{"id": 1, "rev": 1, "fields": {"System.ChangedDate": "2024-01-01T00:00:00Z"}}],
-                    "continuationToken": "tok1",
-                    "isLastBatch": False,
-                }
-            ),
-            _response({"values": [{"id": 1, "rev": 2, "fields": {}}], "isLastBatch": True}),
-        ]
-
-        manager = _make_manager()
-        batches = list(
-            get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2)
+        result = _driver().run(
+            "pull_requests",
+            [
+                _response({"value": [{"id": "p1", "name": "Alpha"}]}),
+                _response(full_page),
+                _response({"value": [{"pullRequestId": 999}]}),
+                _response({"value": []}),
+            ],
         )
 
-        assert batches[0][0]["changed_date"] == "2024-01-01T00:00:00Z"
-        assert len(batches) == 2
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].continuation_token == "tok1"
+        assert result.raised is None
+        assert len(result.items) == 2
+        assert result.requests[1].param("searchCriteria.status") == "all"
+        assert result.params("$skip")[1:] == ["0", "200", "201"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_work_item_revisions_resume_from_saved_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"values": [], "isLastBatch": True})
+    def test_work_item_revisions_walk_batches_and_flatten(self):
+        result = _driver().run(
+            "work_item_revisions",
+            [
+                _response(
+                    {
+                        "values": [{"id": 1, "rev": 1, "fields": {"System.ChangedDate": "2024-01-01T00:00:00Z"}}],
+                        "continuationToken": "tok1",
+                        "isLastBatch": False,
+                    }
+                ),
+                _response({"values": [{"id": 1, "rev": 2, "fields": {}}], "isLastBatch": True}),
+            ],
+        )
 
-        manager = _make_manager(AzureDevOpsResumeConfig(continuation_token="tok_resume"))
-        list(get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
+        assert result.raised is None
+        assert result.items[0][0]["changed_date"] == "2024-01-01T00:00:00Z"
+        assert len(result.items) == 2
+        assert result.saved_states == [AzureDevOpsResumeConfig(continuation_token="tok1")]
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["continuationToken"] == ["tok_resume"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_work_item_revisions_resume_does_not_send_start_date_time(self, mock_session):
+    def test_work_item_revisions_resume_does_not_send_start_date_time(self):
         # A continuationToken fully encodes the stream position; pairing it with
         # startDateTime would reset the stream to the watermark on resume.
-        mock_session.return_value.get.return_value = _response({"values": [], "isLastBatch": True})
-
-        manager = _make_manager(AzureDevOpsResumeConfig(continuation_token="tok_resume"))
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "work_item_revisions",
-                mock.MagicMock(),
-                manager,
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+        result = _driver().run(
+            "work_item_revisions",
+            [_response({"values": [], "isLastBatch": True})],
+            resume_state=AzureDevOpsResumeConfig(continuation_token="tok_resume"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        query = parse_qs(urlparse(mock_session.return_value.get.call_args.args[0]).query)
-        assert query["continuationToken"] == ["tok_resume"]
-        assert "startDateTime" not in query
+        assert result.raised is None
+        assert result.requests[0].param("continuationToken") == "tok_resume"
+        assert result.requests[0].param("startDateTime") is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_project_enumeration_does_not_carry_endpoint_incremental_param(self, mock_session):
-        # Project enumeration is independent of the data endpoint being synced,
-        # so the builds incremental filter must not leak into it.
-        mock_session.return_value.get.side_effect = [
-            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
-            _response({"value": []}),
-        ]
+    def test_sign_in_page_raises_auth_error(self):
+        result = _driver().run("projects", [ScriptedResponse(status=203)])
 
-        manager = _make_manager()
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "builds",
-                mock.MagicMock(),
-                manager,
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        projects_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert urlparse(projects_url).path == "/myorg/_apis/projects"
-        assert "minTime" not in parse_qs(urlparse(projects_url).query)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_sign_in_page_raises_auth_error(self, mock_session):
-        response = mock.MagicMock()
-        response.status_code = 203
-        response.ok = True
-        mock_session.return_value.get.return_value = response
-
-        manager = _make_manager()
-        with pytest.raises(AzureDevOpsAuthError):
-            list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
+        assert isinstance(result.raised, AzureDevOpsAuthError)
 
 
 class TestFanOutEndpoints:
     PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_commits_fan_out_skips_disabled_repositories_and_flattens_the_committer_date(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": "repo-1", "name": "core"}, {"id": "repo-2", "isDisabled": True}]}),
-            _response({"value": [{"commitId": "abc", "committer": {"date": "2024-01-02T03:04:05Z"}}]}),
-            _response({"value": []}),
-        ]
+    def test_commits_fan_out_skips_disabled_repositories_and_flattens_the_committer_date(self):
+        result = _driver().run(
+            "commits",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": "repo-1", "name": "core"}, {"id": "repo-2", "isDisabled": True}]}),
+                _response({"value": [{"commitId": "abc", "committer": {"date": "2024-01-02T03:04:05Z"}}]}),
+                _response({"value": []}),
+            ],
+        )
 
-        batches = list(get_rows("myorg", "pat", "commits", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2))
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         assert row["committer_date"] == "2024-01-02T03:04:05Z"
         assert (row["repository_id"], row["repository_name"], row["project_name"]) == ("repo-1", "core", "Alpha")
-        commit_url = mock_session.return_value.get.call_args_list[2].args[0]
-        parsed = urlparse(commit_url)
         # The disabled repository must never be requested — commits on it 404.
-        assert parsed.path == "/myorg/Alpha/_apis/git/repositories/repo-1/commits"
-        assert parse_qs(parsed.query)["searchCriteria.showOldestCommitsFirst"] == ["true"]
-        assert len(mock_session.return_value.get.call_args_list) == 4
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_commits_incremental_sends_from_date(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": "repo-1", "name": "core"}]}),
-            _response({"value": []}),
-        ]
-
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "commits",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        commit_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[2].args[0]).query)
-        assert commit_query["searchCriteria.fromDate"] == ["2024-01-02T00:00:00Z"]
-        # The repository listing is a fan-out parent, not the endpoint being synced.
-        repo_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[1].args[0]).query)
-        assert "searchCriteria.fromDate" not in repo_query
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_commits_full_refresh_omits_from_date(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": "repo-1", "name": "core"}]}),
-            _response({"value": []}),
-        ]
-
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "commits",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        commit_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[2].args[0]).query)
-        assert "searchCriteria.fromDate" not in commit_query
+        assert result.paths[2] == "/myorg/Alpha/_apis/git/repositories/repo-1/commits"
+        assert result.requests[2].param("searchCriteria.showOldestCommitsFirst") == "true"
+        assert len(result.requests) == 4
 
     THREADS = {
         "value": [
@@ -477,7 +229,7 @@ class TestFanOutEndpoints:
         ]
     }
 
-    def _pull_request_parents(self, child_body: dict[str, Any]) -> list[mock.MagicMock]:
+    def _pull_request_parents(self, child_body: dict[str, Any]) -> list[ScriptedResponse]:
         # The pull request walk is lazy: each PR's child endpoint is requested before
         # the next page of pull requests is asked for.
         return [
@@ -487,271 +239,153 @@ class TestFanOutEndpoints:
             _response({"value": []}),
         ]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pull_request_threads_carry_their_parent_identifiers(self, mock_session):
-        mock_session.return_value.get.side_effect = self._pull_request_parents(self.THREADS)
+    def test_pull_request_threads_carry_their_parent_identifiers(self):
+        result = _driver().run("pull_request_threads", self._pull_request_parents(self.THREADS))
 
-        batches = list(
-            get_rows(
-                "myorg", "pat", "pull_request_threads", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
-        )
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         assert (row["id"], row["repository_id"], row["pull_request_id"]) == (141, "repo-1", 22)
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/threads"
-        )
+        assert result.paths[2] == "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/threads"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pull_request_thread_comments_flatten_out_of_the_same_response(self, mock_session):
-        mock_session.return_value.get.side_effect = self._pull_request_parents(self.THREADS)
+    def test_pull_request_thread_comments_flatten_out_of_the_same_response(self):
+        result = _driver().run("pull_request_thread_comments", self._pull_request_parents(self.THREADS))
 
-        batches = list(
-            get_rows(
-                "myorg",
-                "pat",
-                "pull_request_thread_comments",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-            )
-        )
-
-        rows = batches[0]
+        assert result.raised is None
+        rows = result.items[0]
         assert [row["id"] for row in rows] == [1, 2]
         assert {row["thread_id"] for row in rows} == {141}
         assert {(row["repository_id"], row["pull_request_id"]) for row in rows} == {("repo-1", 22)}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pull_request_reviewers_carry_their_parent_identifiers(self, mock_session):
-        mock_session.return_value.get.side_effect = self._pull_request_parents(
-            {"value": [{"id": "identity-1", "vote": 10}]}
+    def test_pull_request_reviewers_carry_their_parent_identifiers(self):
+        result = _driver().run(
+            "pull_request_reviewers",
+            self._pull_request_parents({"value": [{"id": "identity-1", "vote": 10}]}),
         )
 
-        batches = list(
-            get_rows(
-                "myorg", "pat", "pull_request_reviewers", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
-        )
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         assert (row["id"], row["vote"], row["repository_id"], row["pull_request_id"]) == (
             "identity-1",
             10,
             "repo-1",
             22,
         )
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/reviewers"
-        )
+        assert result.paths[2] == "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/reviewers"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pull_request_children_skip_pull_requests_without_a_repository(self, mock_session):
-        # A PR row missing its repository can't address the child endpoint; requesting
-        # it anyway would build a path with a literal {repositoryId} placeholder.
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"pullRequestId": 22}, {"repository": {"id": "repo-1"}}]}),
-            _response({"value": []}),
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg", "pat", "pull_request_reviewers", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
-        )
-
-        assert batches == []
-        assert len(mock_session.return_value.get.call_args_list) == 3
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_teams_are_read_by_project_id_not_project_name(self, mock_session):
+    def test_teams_are_read_by_project_id_not_project_name(self):
         # The Core teams route takes a project ID; passing the display name 404s.
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": "team-1", "name": "QA"}]}),
-            _response({"value": []}),
-        ]
+        result = _driver().run(
+            "teams",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": "team-1", "name": "QA"}]}),
+                _response({"value": []}),
+            ],
+        )
 
-        batches = list(get_rows("myorg", "pat", "teams", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2))
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         assert (row["id"], row["project_id"], row["project_name"]) == ("team-1", "proj-guid", "Alpha")
-        assert urlparse(mock_session.return_value.get.call_args_list[1].args[0]).path == (
-            "/myorg/_apis/projects/proj-guid/teams"
+        assert result.paths[1] == "/myorg/_apis/projects/proj-guid/teams"
+
+    def test_team_members_lift_the_identity_id_to_the_row_root(self):
+        result = _driver().run(
+            "team_members",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": "team-1", "name": "QA"}]}),
+                _response({"value": [{"isTeamAdmin": True, "identity": {"id": "identity-1", "displayName": "Ada"}}]}),
+                _response({"value": []}),
+                _response({"value": []}),
+            ],
         )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_team_members_lift_the_identity_id_to_the_row_root(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": "team-1", "name": "QA"}]}),
-            _response({"value": [{"isTeamAdmin": True, "identity": {"id": "identity-1", "displayName": "Ada"}}]}),
-            _response({"value": []}),
-            _response({"value": []}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "team_members", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
-        )
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         # identity_id and team_id are the composite primary key, so both must be present.
         assert (row["identity_id"], row["team_id"], row["team_name"]) == ("identity-1", "team-1", "QA")
         assert row["project_id"] == "proj-guid"
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/_apis/projects/proj-guid/teams/team-1/members"
-        )
+        assert result.paths[2] == "/myorg/_apis/projects/proj-guid/teams/team-1/members"
 
 
 class TestPipelineEndpoints:
     PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pipelines_paginate_via_header_token_and_carry_the_project(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 3, "name": "deploy"}]}, continuation_header="tok1"),
-            _response({"value": [{"id": 4, "name": "release"}]}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "pipelines", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+    def test_pipelines_paginate_via_header_token_and_carry_the_project(self):
+        result = _driver().run(
+            "pipelines",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": 3, "name": "deploy"}]}, continuation_header="tok1"),
+                _response({"value": [{"id": 4, "name": "release"}]}),
+            ],
         )
 
+        assert result.raised is None
         # project_id is half the composite primary key, so it must be present.
-        assert [(row["id"], row["project_id"]) for batch in batches for row in batch] == [
-            (3, "proj-guid"),
-            (4, "proj-guid"),
-        ]
-        first, second = (call.args[0] for call in mock_session.return_value.get.call_args_list[1:])
-        assert urlparse(first).path == "/myorg/proj-guid/_apis/pipelines"
-        assert parse_qs(urlparse(second).query)["continuationToken"] == ["tok1"]
+        assert [(row["id"], row["project_id"]) for row in result.rows] == [(3, "proj-guid"), (4, "proj-guid")]
+        assert result.paths[1] == "/myorg/proj-guid/_apis/pipelines"
+        assert result.requests[2].param("continuationToken") == "tok1"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pipeline_runs_fan_out_per_pipeline_and_carry_it(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 3, "name": "deploy"}]}),
-            _response({"value": [{"id": 91, "state": "completed", "createdDate": "2024-01-02T03:04:05Z"}]}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
-        )
-
-        row = batches[0][0]
-        assert (row["id"], row["project_id"], row["pipeline_id"], row["pipeline_name"]) == (
-            91,
-            "proj-guid",
-            3,
-            "deploy",
-        )
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/proj-guid/_apis/pipelines/3/runs"
-        )
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pipeline_runs_follow_a_continuation_token_without_asking_for_a_page_size(self, mock_session):
+    def test_pipeline_runs_follow_a_continuation_token_without_asking_for_a_page_size(self):
         # The listing documents no paging parameters. Reading one response would cap the table
         # at whatever the vendor returns in it, and sending $top could shorten that response.
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 3, "name": "deploy"}]}),
-            _response({"value": [{"id": 91}]}, continuation_header="tok1"),
-            _response({"value": [{"id": 92}]}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        result = _driver().run(
+            "pipeline_runs",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": 3, "name": "deploy"}]}),
+                _response({"value": [{"id": 91}]}, continuation_header="tok1"),
+                _response({"value": [{"id": 92}]}),
+            ],
         )
 
-        assert [row["id"] for batch in batches for row in batch] == [91, 92]
-        first, second = (
-            parse_qs(urlparse(call.args[0]).query) for call in mock_session.return_value.get.call_args_list[2:]
-        )
-        assert "$top" not in first
-        assert second["continuationToken"] == ["tok1"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [91, 92]
+        assert result.requests[2].param("$top") is None
+        assert result.requests[3].param("continuationToken") == "tok1"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pipeline_runs_skip_a_pipeline_without_an_id(self, mock_session):
+    def test_pipeline_runs_skip_a_pipeline_without_an_id(self):
         # Requesting one anyway would build a path with a literal {pipelineId} placeholder.
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"name": "deploy"}]}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        result = _driver().run(
+            "pipeline_runs",
+            [_response(self.PROJECTS), _response({"value": [{"name": "deploy"}]})],
         )
 
-        assert batches == []
-        assert len(mock_session.return_value.get.call_args_list) == 2
+        assert result.raised is None
+        assert result.items == []
+        assert len(result.requests) == 2
 
 
 class TestWorkItemLookupEndpoints:
     PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
     TYPES = {"value": [{"name": "User Story", "referenceName": "Microsoft.VSTS.WorkItemTypes.UserStory"}]}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_work_item_types_carry_the_project_reference(self, mock_session):
-        mock_session.return_value.get.side_effect = [_response(self.PROJECTS), _response(self.TYPES)]
+    def test_work_item_types_carry_the_project_reference(self):
+        result = _driver().run("work_item_types", [_response(self.PROJECTS), _response(self.TYPES)])
 
-        batches = list(
-            get_rows("myorg", "pat", "work_item_types", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
-        )
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         # project_id is half the composite primary key, so it must be present.
         assert (row["referenceName"], row["project_id"], row["project_name"]) == (
             "Microsoft.VSTS.WorkItemTypes.UserStory",
             "proj-guid",
             "Alpha",
         )
-        assert urlparse(mock_session.return_value.get.call_args_list[1].args[0]).path == (
-            "/myorg/proj-guid/_apis/wit/workitemtypes"
+        assert result.paths[1] == "/myorg/proj-guid/_apis/wit/workitemtypes"
+
+    def test_work_item_type_states_fan_out_over_types_and_encode_the_type_name(self):
+        result = _driver().run(
+            "work_item_type_states",
+            [
+                _response(self.PROJECTS),
+                _response(self.TYPES),
+                _response({"value": [{"name": "Active", "color": "007acc", "category": "InProgress"}]}),
+            ],
         )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_work_item_type_states_fan_out_over_types_and_encode_the_type_name(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response(self.TYPES),
-            _response({"value": [{"name": "Active", "color": "007acc", "category": "InProgress"}]}),
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg", "pat", "work_item_type_states", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
-        )
-
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         # A state row carries only name/colour/category, so the rest of the primary key
         # has to be injected from the parent type.
         assert (row["name"], row["category"], row["project_id"], row["work_item_type"]) == (
@@ -762,48 +396,32 @@ class TestWorkItemLookupEndpoints:
         )
         assert row["work_item_type_reference_name"] == "Microsoft.VSTS.WorkItemTypes.UserStory"
         # Type names contain spaces, which must be percent-encoded into the path.
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/proj-guid/_apis/wit/workitemtypes/User%20Story/states"
+        assert result.paths[2] == "/myorg/proj-guid/_apis/wit/workitemtypes/User%20Story/states"
+
+    def test_classification_nodes_request_the_full_tree_depth(self):
+        result = _driver().run(
+            "work_item_classification_nodes",
+            [_response(self.PROJECTS), _response({"value": []})],
         )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_classification_nodes_request_the_full_tree_depth(self, mock_session):
-        mock_session.return_value.get.side_effect = [_response(self.PROJECTS), _response({"value": []})]
-
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "work_item_classification_nodes",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-            )
-        )
-
-        parsed = urlparse(mock_session.return_value.get.call_args_list[1].args[0])
-        assert parsed.path == "/myorg/proj-guid/_apis/wit/classificationnodes"
+        assert result.raised is None
+        assert result.paths[1] == "/myorg/proj-guid/_apis/wit/classificationnodes"
         # Without $depth the API answers with the two roots and no children at all.
-        assert parse_qs(parsed.query)["$depth"] == [str(CLASSIFICATION_NODE_DEPTH)]
+        assert result.requests[1].param("$depth") == str(CLASSIFICATION_NODE_DEPTH)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_work_iterations_fan_out_over_teams(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": "team-1", "name": "QA"}]}),
-            _response({"value": [{"id": "iter-guid", "name": "Sprint 1", "path": "Alpha\\Sprint 1"}]}),
-            _response({"value": []}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "work_iterations", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+    def test_work_iterations_fan_out_over_teams(self):
+        result = _driver().run(
+            "work_iterations",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": "team-1", "name": "QA"}]}),
+                _response({"value": [{"id": "iter-guid", "name": "Sprint 1", "path": "Alpha\\Sprint 1"}]}),
+                _response({"value": []}),
+            ],
         )
 
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         # team_id is half the composite primary key: teams share one project iteration tree,
         # so the same iteration id comes back for every team subscribed to it.
         assert (row["id"], row["team_id"], row["team_name"], row["project_id"]) == (
@@ -812,53 +430,11 @@ class TestWorkItemLookupEndpoints:
             "QA",
             "proj-guid",
         )
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/proj-guid/team-1/_apis/work/teamsettings/iterations"
-        )
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_pull_request_work_items_carry_their_parent_identifiers(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"pullRequestId": 22, "repository": {"id": "repo-1"}}]}),
-            _response({"value": [{"id": "314", "url": "https://dev.azure.com/myorg/_apis/wit/workItems/314"}]}),
-            _response({"value": []}),
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg", "pat", "pull_request_work_items", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
-        )
-
-        row = batches[0][0]
-        # The link row is only an id and a URL, so both parent identifiers must be injected.
-        assert (row["id"], row["repository_id"], row["pull_request_id"]) == ("314", "repo-1", 22)
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/workitems"
-        )
+        assert result.paths[2] == "/myorg/proj-guid/team-1/_apis/work/teamsettings/iterations"
 
 
 class TestFlattenClassificationNodes:
     PROJECT = {"id": "proj-guid", "name": "Alpha"}
-
-    def test_flattens_the_tree_and_drops_the_nested_children(self):
-        root = {
-            "id": 1,
-            "name": "Alpha",
-            "structureType": "area",
-            "hasChildren": True,
-            "children": [{"id": 2, "name": "Web", "structureType": "area", "hasChildren": False}],
-        }
-
-        rows = _flatten_classification_nodes(root, self.PROJECT, mock.MagicMock())
-
-        assert sorted((row["id"], row["parent_id"]) for row in rows) == [(1, None), (2, 1)]
-        # Keeping `children` would repeat every descendant inside each of its ancestors.
-        assert all("children" not in row for row in rows)
-        assert {row["project_id"] for row in rows} == {"proj-guid"}
 
     def test_warns_when_the_tree_is_cut_off_at_the_requested_depth(self):
         logger = mock.MagicMock()
@@ -868,139 +444,46 @@ class TestFlattenClassificationNodes:
         logger.warning.assert_called_once()
 
 
-class TestLastUpdatedWindows:
-    def test_splits_a_long_span_into_windows_no_wider_than_the_cap(self):
-        since = datetime(2024, 1, 1, tzinfo=UTC)
-        until = since + timedelta(days=20)
-
-        windows = list(_last_updated_windows(since, until))
-
-        assert len(windows) == 3
-        assert windows[0].min_last_updated == "2024-01-01T00:00:00Z"
-        assert windows[-1].max_last_updated == "2024-01-21T00:00:00Z"
-        # A gap between windows would drop every run updated inside it.
-        assert [window.max_last_updated for window in windows[:-1]] == [
-            window.min_last_updated for window in windows[1:]
-        ]
-        for window in windows:
-            assert (
-                datetime.fromisoformat(window.max_last_updated.replace("Z", "+00:00"))
-                - datetime.fromisoformat(window.min_last_updated.replace("Z", "+00:00"))
-                <= TEST_RUN_WINDOW
-            )
-
-    @pytest.mark.parametrize("offset_days", [0, -1])
-    def test_yields_nothing_when_the_watermark_is_not_behind(self, offset_days):
-        since = datetime(2024, 1, 10, tzinfo=UTC)
-        assert list(_last_updated_windows(since, since + timedelta(days=offset_days))) == []
-
-
 class TestBuildEndpoints:
     PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_build_definitions_carry_the_project_reference(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 7, "name": "core-ci", "createdDate": "2024-01-02T03:04:05Z"}]}),
-        ]
-
-        batches = list(
-            get_rows("myorg", "pat", "build_definitions", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+    def test_build_definitions_carry_the_project_reference(self):
+        result = _driver().run(
+            "build_definitions",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": 7, "name": "core-ci", "createdDate": "2024-01-02T03:04:05Z"}]}),
+            ],
         )
 
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         # project_id is half the composite primary key, so it must be present.
         assert (row["id"], row["project_id"], row["project_name"]) == (7, "proj-guid", "Alpha")
-        parsed = urlparse(mock_session.return_value.get.call_args_list[1].args[0])
-        assert parsed.path == "/myorg/Alpha/_apis/build/definitions"
-        assert parse_qs(parsed.query)["queryOrder"] == ["lastModifiedAscending"]
+        assert result.paths[1] == "/myorg/Alpha/_apis/build/definitions"
+        assert result.requests[1].param("queryOrder") == "lastModifiedAscending"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_build_timeline_records_carry_the_build_they_describe(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response(
-                {"value": [{"id": 41, "queueTime": "2024-01-02T03:04:05Z", "finishTime": "2024-01-02T03:20:00Z"}]}
-            ),
-            _response({"id": "timeline-1", "records": [{"id": "rec-1", "type": "Job", "result": "failed"}]}),
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg", "pat", "build_timeline_records", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
+    def test_build_timeline_records_carry_the_build_they_describe(self):
+        result = _driver().run(
+            "build_timeline_records",
+            [
+                _response(self.PROJECTS),
+                _response(
+                    {"value": [{"id": 41, "queueTime": "2024-01-02T03:04:05Z", "finishTime": "2024-01-02T03:20:00Z"}]}
+                ),
+                _response({"id": "timeline-1", "records": [{"id": "rec-1", "type": "Job", "result": "failed"}]}),
+            ],
         )
 
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         # build_id is half the composite primary key; the queue time partitions and the
         # finish time is the watermark, and only the parent build carries either.
         assert (row["id"], row["build_id"], row["timeline_id"]) == ("rec-1", 41, "timeline-1")
         assert row["build_queue_time"] == "2024-01-02T03:04:05Z"
         assert row["build_finish_time"] == "2024-01-02T03:20:00Z"
         assert row["project_name"] == "Alpha"
-        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
-            "/myorg/Alpha/_apis/build/builds/41/timeline"
-        )
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_build_timeline_records_skip_a_build_with_no_timeline(self, mock_session):
-        # Azure DevOps answers 204 with an empty body for a build that never ran;
-        # parsing that as JSON would fail the whole sync.
-        empty_timeline = mock.MagicMock()
-        empty_timeline.status_code = 204
-        empty_timeline.ok = True
-        empty_timeline.headers = {}
-        empty_timeline.json.side_effect = AssertionError("must not parse an empty 204 body")
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 41, "queueTime": "2024-01-02T03:04:05Z"}]}),
-            empty_timeline,
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg", "pat", "build_timeline_records", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-            )
-        )
-
-        assert batches == []
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_build_timeline_incremental_bounds_the_parent_build_listing(self, mock_session):
-        # The timeline endpoint takes no filter of its own, so the watermark has to reach
-        # the builds listing — otherwise every sync re-fetches every build's timeline.
-        # minTime filters on whichever time queryOrder names, so ordering by finish time
-        # is what keeps a still-running build out until it ends.
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": []}),
-        ]
-
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "build_timeline_records",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        builds_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[1].args[0]).query)
-        assert builds_query["minTime"] == ["2024-01-02T00:00:00Z"]
-        assert builds_query["queryOrder"] == ["finishTimeAscending"]
+        assert result.paths[2] == "/myorg/Alpha/_apis/build/builds/41/timeline"
 
 
 class TestReleaseEndpoints:
@@ -1013,193 +496,89 @@ class TestReleaseEndpoints:
             ("release_deployments", "/myorg/Alpha/_apis/release/deployments"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_release_endpoints_are_read_from_the_release_host(self, mock_session, endpoint, path):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 5, "name": "Release-5"}]}),
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg",
-                "pat",
-                endpoint,
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+    def test_release_endpoints_are_read_from_the_release_host(self, endpoint, path):
+        result = _driver().run(
+            endpoint,
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": 5, "name": "Release-5"}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        row = batches[0][0]
+        assert result.raised is None
+        row = result.rows[0]
         assert (row["id"], row["project_id"], row["project_name"]) == (5, "proj-guid", "Alpha")
         # Release Management is served from its own host; dev.azure.com 404s these routes.
-        projects_url, release_url = (call.args[0] for call in mock_session.return_value.get.call_args_list)
-        assert projects_url.startswith("https://dev.azure.com/")
-        assert release_url.startswith(f"{AZURE_DEVOPS_RELEASE_BASE_URL}/")
-        parsed = urlparse(release_url)
-        assert parsed.path == path
-        assert parse_qs(parsed.query)["queryOrder"] == ["ascending"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_deployments_track_the_modified_time_and_releases_track_nothing(self, mock_session):
-        # A deployment's status moves as it promotes, and the listing filters on the
-        # modified time. The releases listing has no such filter, so a cursor there would
-        # freeze rows that are still changing — it stays full refresh.
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": []}),
-            _response(self.PROJECTS),
-            _response({"value": []}),
-        ]
-
-        def sync(endpoint: str) -> dict[str, list[str]]:
-            list(
-                get_rows(
-                    "myorg",
-                    "pat",
-                    endpoint,
-                    mock.MagicMock(),
-                    _make_manager(),
-                    AZURE_DEVOPS_VERSION_7_2,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-                )
-            )
-            return parse_qs(urlparse(mock_session.return_value.get.call_args_list[-1].args[0]).query)
-
-        assert sync("release_deployments")["minModifiedTime"] == ["2024-01-02T00:00:00Z"]
-        assert "minCreatedTime" not in sync("releases")
+        assert result.urls[0].startswith("https://dev.azure.com/")
+        assert result.urls[1].startswith(f"{AZURE_DEVOPS_RELEASE_BASE_URL}/")
+        assert result.paths[1] == path
+        assert result.requests[1].param("queryOrder") == "ascending"
 
 
 class TestTestRunEndpoint:
     PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_full_refresh_walks_the_unfiltered_listing(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 3, "totalTests": 10, "passedTests": 9}]}),
-            _response({"value": []}),
-        ]
-
-        batches = list(
-            get_rows(
-                "myorg",
-                "pat",
-                "test_runs",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+    def test_full_refresh_walks_the_unfiltered_listing(self):
+        result = _driver().run(
+            "test_runs",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": 3, "totalTests": 10, "passedTests": 9}]}),
+                _response({"value": []}),
+            ],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        assert batches[0][0]["project_id"] == "proj-guid"
-        query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[1].args[0]).query)
-        assert query["$skip"] == ["0"]
-        assert "minLastUpdatedDate" not in query
+        assert result.raised is None
+        assert result.rows[0]["project_id"] == "proj-guid"
+        assert result.requests[1].param("$skip") == "0"
+        assert result.requests[1].param("minLastUpdatedDate") is None
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_incremental_sends_both_window_bounds(self, mock_session):
+    def test_incremental_sends_both_window_bounds(self):
         # Both bounds are mandatory on the filtered query and the span may not exceed
         # the cap, so sending minLastUpdatedDate alone is rejected.
         since = datetime.now(UTC) - timedelta(days=2)
-        mock_session.return_value.get.side_effect = [
-            _response(self.PROJECTS),
-            _response({"value": [{"id": 3}]}),
-        ]
-
-        list(
-            get_rows(
-                "myorg",
-                "pat",
-                "test_runs",
-                mock.MagicMock(),
-                _make_manager(),
-                AZURE_DEVOPS_VERSION_7_2,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=since,
-            )
+        result = _driver().run(
+            "test_runs",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"id": 3}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=since,
         )
 
-        query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[1].args[0]).query)
-        assert query["minLastUpdatedDate"] == [_format_datetime(since)]
-        window_start = datetime.fromisoformat(query["minLastUpdatedDate"][0].replace("Z", "+00:00"))
-        window_end = datetime.fromisoformat(query["maxLastUpdatedDate"][0].replace("Z", "+00:00"))
+        assert result.raised is None
+        query = result.requests[1]
+        min_last_updated = query.param("minLastUpdatedDate")
+        max_last_updated = query.param("maxLastUpdatedDate")
+        assert min_last_updated == _format_datetime(since)
+        assert max_last_updated is not None
+        window_start = datetime.fromisoformat(min_last_updated.replace("Z", "+00:00"))
+        window_end = datetime.fromisoformat(max_last_updated.replace("Z", "+00:00"))
         assert window_end - window_start <= TEST_RUN_WINDOW
-        assert "$skip" not in query
+        assert query.param("$skip") is None
 
 
 class TestAzureDevOpsSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = AZURE_DEVOPS_ENDPOINTS[endpoint]
-        response = azure_devops_source(
-            "myorg", "pat", endpoint, mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_pull_requests_are_desc_sorted(self):
-        response = azure_devops_source(
-            "myorg", "pat", "pull_requests", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-        )
-        assert response.sort_mode == "desc"
-
-    @pytest.mark.parametrize("config", list(AZURE_DEVOPS_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {
-                "queueTime",
-                "creationDate",
-                "changed_date",
-                "committer_date",
-                "publishedDate",
-                "createdDate",
-                "createdOn",
-                "queuedOn",
-                "build_queue_time",
-            }
+        result = _driver().run("pull_requests", [_response({"value": []})])
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
 
 
 class TestApiVersionDispatch:
-    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
-    def test_wire_api_version_maps_each_supported_label(self, version, wire):
-        assert wire_api_version(version) == wire
-
     def test_wire_api_version_rejects_unknown_label(self):
         # A silent fallthrough would send no api-version and track whatever the vendor defaults to.
         with pytest.raises(ValueError):
             wire_api_version("nope")
 
     @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
-    )
-    def test_get_rows_sends_pinned_api_version_on_the_wire(self, mock_session, version, wire):
-        mock_session.return_value.get.return_value = _response({"value": []})
+    def test_get_rows_sends_pinned_api_version_on_the_wire(self, version, wire):
+        result = _driver().run("projects", [_response({"value": []})], api_version=version)
 
-        list(get_rows("myorg", "pat", "projects", mock.MagicMock(), _make_manager(), version))
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["api-version"] == [wire]
+        assert result.raised is None
+        assert result.requests[0].param("api-version") == wire

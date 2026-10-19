@@ -7,6 +7,8 @@ from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable, detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -52,6 +54,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     cdc_pg_connection,
     drop_slot_and_publication,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    CLIENT_DEADLINE_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
@@ -94,6 +99,10 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+_PORT_OUT_OF_RANGE_ERROR = (
+    "The port must be between 1 and 65535. Enter the port your database listens on, usually 5432."
+)
+
 # Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
 # paste most often. The name only resolves inside Railway's own network, and the DNS failure that
 # follows asks them to check a spelling that is already correct, so name the public host instead.
@@ -121,6 +130,13 @@ _HOST_UNREACHABLE_ERROR = (
 _INVALID_CREDENTIALS_ERROR = (
     "The database rejected the username or password. Check the user and password configured for "
     "this source, then re-enable the sync."
+)
+
+# The role exists but has NOLOGIN, the default for a role made with CREATE ROLE. libpq prefixes
+# the refusal with the customer's host and port, so the raw text names nothing they can act on.
+_ROLE_CANNOT_LOG_IN_ERROR = (
+    "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a different "
+    "user, then re-enable the sync."
 )
 
 # A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
@@ -156,6 +172,13 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
     "correct, and that PostHog's IP addresses are allowed through your firewall."
 )
 
+_CONNECT_TIMEOUT_VALIDATION_ERROR = "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option."
+
+_DATABASE_NOT_FOUND_VALIDATION_ERROR = (
+    "The database named in your connection details doesn't exist on this server. Check the database name is "
+    "correct and try again."
+)
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
@@ -182,6 +205,18 @@ PostgresErrors = {
         "Your database connection pooler couldn't find the tenant or user. This usually means the "
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
+    ),
+    # Supavisor runs an `auth_query` against the tenant's database to fetch the user's password
+    # secret. These two "(EAUTHQUERY)" outcomes are permanent, unlike the "secret check timed out"
+    # race `postgres.py` retries: the user doesn't exist, or its password is stored in a format the
+    # pooler can't verify (no password, or a non-SCRAM hash). Setting the password again stores it
+    # as SCRAM.
+    "user not found in the database": (
+        "Your database doesn't have a user with the username you entered. Check the user for this source and try again."
+    ),
+    "unsupported or invalid secret format": (
+        "Your connection pooler can't check this user's password because of how your database "
+        "stores it. Reset the user's password in your database, then try again."
     ),
     # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
     # identify the project from SNI, so the pooler username must embed the project ref (for example
@@ -226,6 +261,28 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
+    # A server using `pam` auth in pg_hba.conf words a bad password this way, so the libpq
+    # password keys above don't match it.
+    "PAM authentication failed": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # A PgBouncer-style pooler (for example Supabase's on port 6543) rejects a username that isn't
+    # in its own user list before Postgres sees it.
+    "no such user": (
+        "Your connection pooler doesn't recognize this username. Use the username your pooler "
+        "expects, such as postgres.<project-ref> for Supabase, then try again."
+    ),
+    # The role exists but has NOLOGIN, which is the default for a role made with CREATE ROLE.
+    "is not permitted to log in": (
+        "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+        "different user, then try again."
+    ),
+    # Supavisor rejects a client IP outside the project's network restrictions with
+    # "FATAL: (EADDRNOTALLOWED) address not in tenant allow_list: ...". `get_non_retryable_errors`
+    # already handles this on the streaming path; map it here too so validation returns an
+    # actionable message instead of the generic fallback.
+    "address not in tenant allow_list": (
+        "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+        "allow list. Add PostHog's IP addresses to that allow list, then try again."
+    ),
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
@@ -243,8 +300,8 @@ PostgresErrors = {
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
-    'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
-    "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
+    'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
@@ -357,6 +414,13 @@ _CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
     "and failovers. This sync is still enabled and will run again on its next schedule."
 )
 
+_CLIENT_DEADLINE_EXHAUSTED_MESSAGE = (
+    "Your database stopped answering in the middle of the sync, and it did so again on every retry. "
+    "A connection pooler, a firewall, or an overloaded database can hold a query without an answer. "
+    "Check those, and check that your database has capacity for the read. This sync is still "
+    "enabled and will run again on its next schedule."
+)
+
 _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
     "Your database wasn't accepting connections, and it was still unavailable after every retry. It "
     "reported that it's starting up, recovering, or shutting down. Check that the database is "
@@ -389,6 +453,14 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
     "schedule."
 )
 
+_SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
+    "Your database canceled one of PostHog's statements, and the sync kept hitting the same "
+    "cancellation on every retry. This can happen when a connection pooler recycles connections "
+    "mid-query, or someone or something on your database canceled it. Check your database and "
+    "pooler logs around the time of the failure. This sync is still enabled and will run again on "
+    "its next schedule."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(
@@ -398,6 +470,131 @@ class PostgresSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    # NOTE: DATABASE_URL is ambiguous - MySQL/SQLite projects (Prisma,
+    # Rails) use it too. We only read key NAMES, not the scheme, so this
+    # is a deliberate precision/recall tradeoff biased toward the most
+    # common convention (DATABASE_URL -> Postgres).
+    # Neon and Supabase are hosted Postgres, and a project on either still
+    # names its connection with the generic signals below. Two sources over
+    # one database import the same tables twice.
+    # Declared with the base type so the Postgres-compatible sources that subclass this one can set NOT_DETECTABLE.
+    codebase_detection: Detection | NotDetectable | None = detect(
+        env=(
+            "^POSTGRES_",
+            "^PG(HOST|DATABASE|USER|PORT)$",
+            "^PGPASSWORD$",
+            "^PGHOSTADDR$",
+            "^PGPASSFILE$",
+            "^PGSERVICE$",
+            "^PGSERVICEFILE$",
+            "^PGSSLMODE$",
+            "^PGSSLROOTCERT$",
+            "^PGSSLCERT$",
+            "^PGSSLKEY$",
+            "^PGAPPNAME$",
+            "^PGOPTIONS$",
+            "^PGCONNECT_TIMEOUT$",
+            "^PGTARGETSESSIONATTRS$",
+            "^PGCHANNELBINDING$",
+            "^PGGSSENCMODE$",
+            "^PGREQUIREAUTH$",
+            "^PGDATA$",
+        ),
+        npm=(
+            "pg",
+            "postgres",
+            "pg-promise",
+            "pg-pool",
+            "pg-native",
+            "pg-cursor",
+            "pg-query-stream",
+            "pg-copy-streams",
+            "pg-format",
+            "pg-hstore",
+            "@sequelize/postgres",
+            "@prisma/adapter-pg",
+            "@mikro-orm/postgresql",
+            "@databases/pg",
+            "@effect/sql-pg",
+            "slonik",
+            "node-pg-migrate",
+            "pg-boss",
+            "pgvector",
+            "@electric-sql/pglite",
+        ),
+        pypi=(
+            "psycopg",
+            "psycopg2",
+            "psycopg2-binary",
+            "asyncpg",
+            "pg8000",
+            "psycopg-binary",
+            "psycopg-c",
+            "psycopg-pool",
+            "psycopg2cffi",
+            "aiopg",
+            "pygresql",
+            "py-postgresql",
+            "pgvector",
+        ),
+        cargo=(
+            "tokio-postgres",
+            "postgres",
+            "sqlx-postgres",
+            "pq-sys",
+            "postgres-types",
+            "postgres-protocol",
+            "postgres-native-tls",
+            "tokio-postgres-rustls",
+            "deadpool-postgres",
+            "bb8-postgres",
+            "r2d2_postgres",
+            "sea-query-postgres",
+            "pgvector",
+            "pgrx",
+        ),
+        cocoapods=("PostgresClientKit",),
+        composer=(
+            "amphp/postgres",
+            "tpetry/laravel-postgresql-enhanced",
+            "martin-georgiev/postgresql-for-doctrine",
+            "umbrellio/laravel-pg-extensions",
+        ),
+        go=(
+            "github.com/jackc/pgx",
+            "github.com/lib/pq",
+            "gorm.io/driver/postgres",
+            "github.com/go-pg/pg",
+            "github.com/uptrace/bun/dialect/pgdialect",
+            "github.com/uptrace/bun/driver/pgdriver",
+            "github.com/jackc/pgconn",
+            "github.com/jackc/pgtype",
+            "github.com/jackc/pgerrcode",
+            "github.com/jackc/pglogrepl",
+            "github.com/pgvector/pgvector-go",
+        ),
+        hex=("postgrex", "epgsql", "pgo", "geo_postgis"),
+        maven=(
+            "org.postgresql:postgresql",
+            "org.postgresql:r2dbc-postgresql",
+            "io.r2dbc:r2dbc-postgresql",
+            "io.vertx:vertx-pg-client",
+            "com.impossibl.pgjdbc-ng:pgjdbc-ng",
+            "com.github.jasync-sql:jasync-postgresql",
+            "org.flywaydb:flyway-database-postgresql",
+            "net.postgis:postgis-jdbc",
+        ),
+        pub=("postgres", "postgres_pool", "postgresql2", "postgres_dart", "drift_postgres"),
+        rubygems=("pg", "sequel_pg", "pg_search", "activerecord-postgis-adapter", "good_job", "que", "scenic"),
+        swiftpm=(
+            "github.com/vapor/postgres-nio",
+            "github.com/vapor/postgres-kit",
+            "github.com/vapor/fluent-postgres-driver",
+            "github.com/codewinsdotcom/postgresclientkit",
+        ),
+        superseded_by=("Neon", "Supabase"),
+    )
+
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
@@ -411,12 +608,15 @@ class PostgresSource(
     def merge_cursors(self, current: XminCursor, candidate: XminCursor) -> XminCursor:
         return max(current, candidate, key=lambda cursor: cursor.ceiling_xid8)
 
-    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
-        # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
-        # its watermark and keeps the incremental budget. And a full load only resumes once the flag
-        # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
-        # and would cost a whole re-read on each extra attempt.
-        return not incremental_or_append and keyset_full_load_enabled
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # Keyset seeking is a full-load path, so an incremental or xmin run resumes from its watermark
+        # and keeps the incremental budget.
+        return not incremental_or_append
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
         return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
@@ -428,6 +628,13 @@ class PostgresSource(
     @property
     def get_implementation(self) -> PostgresImplementation:
         return _POSTGRES_IMPLEMENTATION
+
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        return error in (
+            _CONNECT_TIMEOUT_VALIDATION_ERROR,
+            _HOST_UNREACHABLE_ERROR,
+            _HOST_UNREACHABLE_VALIDATION_ERROR,
+        )
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -515,13 +722,23 @@ class PostgresSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # A serverless provider (observed on Xata) refuses the connection while the branch is
+            # hibernated. A hibernated branch does not wake on connect: the refusal itself asks for a
+            # reactivation, which only the customer can do, so every retry re-hits the same refusal.
+            # Match the stable phrase because libpq prefixes it with the customer's host and port.
+            # This entry comes first because the finalizer takes the first match, and a multi-address
+            # refusal can also carry a generic "Connection refused" or timeout for another address.
+            "branch is hibernated": (
+                "Your database provider hibernated this branch, so PostHog can't connect. "
+                "Reactivate the branch in your provider's dashboard, then re-enable the sync."
+            ),
             # xmin can't run against this relation (server < PG13, no primary key, or a partitioned
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
             "XminUnsupportedError": None,
             "xmin replication": None,
             "NoSuchTableError": None,
-            "is not permitted to log in": None,
+            "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
             # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
@@ -1196,6 +1413,13 @@ class PostgresSource(
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # Sibling of the jsonb_each case above: a view's own definition deletes a key/path from a
+            # jsonb column with the `#-` operator (or `jsonb_delete_path()`) and the column is a scalar
+            # jsonb value (not an object or array) for at least one row — Postgres can only delete a
+            # path from inside an object or array. We only ever run `SELECT ... FROM <relation>`; the
+            # expression lives in the customer's view definition, so it's deterministic against the
+            # source data and retrying re-evaluates the same view into the same row.
+            "cannot delete path in scalar": "A view you're syncing deletes a key or path from a JSON value with the #- operator (or jsonb_delete_path()), and that value is a scalar for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only delete the path when jsonb_typeof(col) is 'object' or 'array'), or remove that view from the sync.",
             # A selected relation's own definition calls date_trunc()/extract() with a unit
             # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
             # `date_trunc('week', some_interval_column)`, since week truncation is only defined
@@ -1286,6 +1510,19 @@ class PostgresSource(
                 "wasn't translated to a real NULL. Fix the remote data or the foreign table's column "
                 "type, or remove the foreign table from the sync, then re-enable the sync."
             ),
+            # A value that isn't a uuid reached a uuid column (InvalidTextRepresentation, SQLSTATE
+            # 22P02). Ordinary tables validate uuid values at write time, so the value comes from the
+            # customer's side: a foreign table or a view that casts text to uuid, or a row filter on a
+            # uuid column. Row filter validation treats uuid as a plain string, so it accepts any
+            # value. No query PostHog builds casts to uuid, and uuid is never an incremental field
+            # type. Every retry runs the same statement again. The volatile value is excluded.
+            "invalid input syntax for type uuid": (
+                "PostgreSQL rejected a value that isn't a valid UUID for a uuid column "
+                '("invalid input syntax for type uuid"). If this table has a row filter on a uuid '
+                "column, change the filter value to a valid UUID. Otherwise the table is likely a view "
+                "or foreign table that converts text to uuid, so fix the data or the column type, or "
+                "remove the table from the sync. Then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -1328,7 +1565,23 @@ class PostgresSource(
         # The bounded lookup in front of every connect raises these two when the resolver does not
         # answer in time or answers "try again". Neither is a verdict on the host, and a fresh
         # attempt recovers, so they belong with the other self-recovering connect failures.
+        #
+        # `CLIENT_DEADLINE_ERROR` is the client-side statement deadline. It acts only when the
+        # server's own statement timeout did not, so it reports a pooler or a server that stopped
+        # answering, not a query that is too slow for its index.
+        #
+        # "canceling statement due to user request" (psycopg's `QueryCanceled`) reaching here is
+        # *not* our own client-side deadline — that path always converts an expired deadline's
+        # cancel into `ClientDeadlineExceededError` first (see `client_side_deadline`). This is the
+        # raw message, so either our own watchdog's cancel request landed on a later statement on
+        # the same connection after its own statement already finished (the race
+        # `_StatementWatchdog.finish` documents), or something external — a pooler recycling the
+        # connection mid-query, or an admin cancel — canceled it. Neither says anything about this
+        # query or schema, and a retry runs on a fresh connection, so it's self-recovering like the
+        # other entries here rather than a verdict to stop retrying.
         return {
+            CLIENT_DEADLINE_ERROR,
+            "canceling statement due to user request",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1354,6 +1607,8 @@ class PostgresSource(
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
+            "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }
@@ -1654,6 +1909,11 @@ class PostgresSource(
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
 
+        # Out of range, the port reaches sshtunnel as a bare AssertionError or libpq as a connection
+        # failure, and both end in the generic "check all connection details" message.
+        if not 1 <= config.port <= 65535:
+            return False, _PORT_OUT_OF_RANGE_ERROR
+
         # A bastion inside the customer's Railway project can reach the private host, so only reject
         # it for a direct connection.
         if not self.ssh_tunnel_enabled(config) and host_value.lower().endswith(_RAILWAY_INTERNAL_HOST_SUFFIX):
@@ -1862,7 +2122,6 @@ class PostgresSource(
             has_batches_in_flight,
             served_lanes,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
         if not served_lanes(schema):
             raise ValueError(
@@ -1870,7 +2129,7 @@ class PostgresSource(
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
             )
 
-        def no_op_tick() -> SourceResponse:
+        def no_op_tick(*, reset_handed_over: bool = False) -> SourceResponse:
             # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
             # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
             # the workflow completes the job on this response — so the stamp comes off, or a batch
@@ -1885,36 +2144,20 @@ class PostgresSource(
                 cdc_write_mode=first_lane.write_mode,
                 # A change stream carries no seekable key, and `supports_resume` defaults to True.
                 supports_resume=False,
+                reset_handed_over=reset_handed_over,
             )
 
-        if parse_ingest_mode(schema.source.job_inputs) != "buffered":
-            # Until capture converts this legacy source, its buffer holds copies of changes the legacy
-            # lane already delivered, which a read would load a second time. Conversion empties the
-            # buffer before it marks the source buffered.
-            inputs.logger.info("cdc_buffered_waiting_for_legacy_conversion", schema_name=schema.name)
-            return no_op_tick()
-
-        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before its table started streaming, or a worker one deploy behind, would consume this
-        # buffer on v2, which stamps no position on the rows it writes, so every later run would
-        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
-        # degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            raise ValueError(
-                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader stamps each row with the position "
-                "the next run resumes from."
-            )
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
-        # replays over it; every reset writer does that. Merging the buffer into a wiped table
-        # instead would leave only the rows changed since.
+        # replays over it. Merging the buffer into a wiped table instead would leave only the rows
+        # changed since. A reset that reaches a streaming table anyway goes to capture, which puts the
+        # table back into snapshot mode. Refusing it would fail every run of the table until a manual reset.
+        # This run must not delete the table itself: capture waits for queued batches to land first.
         if inputs.reset_pipeline:
-            raise ValueError(
-                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
-                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
-            )
+            inputs.logger.warning("cdc_buffered_reset_handed_to_capture", schema_name=schema.name)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick(reset_handed_over=True)
 
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a previous
@@ -2044,10 +2287,9 @@ class PostgresSource(
                 # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
-                byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
+                worker_deaths=inputs.worker_deaths,
                 resumable_source_manager=resumable_source_manager,
-                keyset_full_load_enabled=inputs.keyset_full_load,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

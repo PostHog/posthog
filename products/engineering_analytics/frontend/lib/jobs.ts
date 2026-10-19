@@ -1,4 +1,10 @@
-/** Cache key for a run's jobs, keyed by attempt so a re-run's attempts don't overwrite each other. */
-export function jobCacheKey(runId: number, runAttempt: number | null): string {
-    return `${runId}:${runAttempt ?? 'latest'}`
+import type { WorkflowRunDetailApi } from '../generated/api.schemas'
+
+/** Keep engine and attempt distinct when runs share a compatible integer ID. */
+export function jobCacheKey(
+    runId: number,
+    runAttempt: number | null,
+    ciEngine?: WorkflowRunDetailApi['ci_engine']
+): string {
+    return `${ciEngine ? `${ciEngine}:` : ''}${runId}:${runAttempt ?? 'latest'}`
 }

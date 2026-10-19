@@ -37,7 +37,7 @@ describe("evidence preview analytics", () => {
     await expect(
       fetchEvidencePreviewTimed(client, { kind: "flag", id: "42" }, "hover"),
     ).resolves.toEqual({ title: "Anything" });
-    expect(() => trackEvidencePreviewShown("flag", false)).not.toThrow();
+    expect(() => trackEvidencePreviewShown("flag", false, "tag")).not.toThrow();
   });
 
   it("reports ready with kind, source and load latency — and no reference contents", async () => {
@@ -89,13 +89,14 @@ describe("evidence preview analytics", () => {
   it("reports shown with the cache state and no reference id", () => {
     const track = bindTracker();
 
-    trackEvidencePreviewShown("insight", false);
+    trackEvidencePreviewShown("insight", false, "link");
 
     expect(track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN,
       {
         kind: "insight",
         cache: "miss",
+        reference_source: "link",
       },
     );
   });

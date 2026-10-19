@@ -1,168 +1,65 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from collections.abc import Callable
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
     BlueskyResumeConfig,
-    bluesky_source,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source import PRIMARY_KEYS, BlueskySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluesky import (
+    BlueskySourceConfig,
+)
 
 
 class TestGetResource:
-    @pytest.mark.parametrize(
-        ("name", "expected_path", "expected_selector"),
-        [
-            ("Profile", "/xrpc/app.bsky.actor.getProfile", "$"),
-            ("Posts", "/xrpc/app.bsky.feed.getAuthorFeed", "feed[*].post"),
-            ("Followers", "/xrpc/app.bsky.graph.getFollowers", "followers"),
-            ("Follows", "/xrpc/app.bsky.graph.getFollows", "follows"),
-        ],
-    )
-    def test_endpoint_shape(self, name: str, expected_path: str, expected_selector: str) -> None:
-        resource = get_resource(name, actor="jay.bsky.team")
-        endpoint = resource["endpoint"]
-        assert isinstance(endpoint, dict)
-
-        assert endpoint["path"] == expected_path
-        assert endpoint["data_selector"] == expected_selector
-
-        params = endpoint["params"]
-        assert isinstance(params, dict)
-        assert params["actor"] == "jay.bsky.team"
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(KeyError):
             get_resource("Nope", actor="jay.bsky.team")
 
-    def test_posts_excludes_replies(self) -> None:
-        # Matches what most marketing/brand tracking cares about: the author's own content.
-        resource = get_resource("Posts", actor="jay.bsky.team")
-        endpoint = resource["endpoint"]
-        assert isinstance(endpoint, dict)
-        params = endpoint["params"]
-        assert isinstance(params, dict)
-        assert params["filter"] == "posts_no_replies"
-
-
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
 
 class TestValidateCredentials:
-    _MAKE_SESSION = (
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky.make_tracked_session"
-    )
-
-    @patch(_MAKE_SESSION)
-    def test_valid_actor(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = _make_http_response({"did": "did:plc:abc"}, 200)
-
-        is_valid, message = validate_credentials("jay.bsky.team")
+    def test_valid_actor(self) -> None:
+        with scripted_network([ScriptedResponse(json={"did": "did:plc:abc"})]) as network:
+            is_valid, message = validate_credentials("jay.bsky.team")
 
         assert (is_valid, message) == (True, None)
-        mock_session.get.assert_called_once_with(
-            "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile",
-            params={"actor": "jay.bsky.team"},
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == (
+            "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=jay.bsky.team"
         )
+        assert network.requests_log[0].method == "GET"
 
-    @patch(_MAKE_SESSION)
-    def test_missing_actor_surfaces_api_message(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = _make_http_response(
-            {"error": "InvalidRequest", "message": "Profile not found"}, 400
-        )
-
-        is_valid, message = validate_credentials("missing.bsky.social")
-
-        assert is_valid is False
-        assert message == "Profile not found"
-
-    @patch(_MAKE_SESSION)
-    def test_missing_actor_without_api_message_falls_back(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = _make_http_response({}, 400)
-
-        is_valid, message = validate_credentials("missing.bsky.social")
+    def test_non_json_error_body_falls_back(self) -> None:
+        with scripted_network([ScriptedResponse(status=400, body=b"<html>not json</html>")]):
+            is_valid, message = validate_credentials("missing.bsky.social")
 
         assert is_valid is False
         assert message == "That handle or DID couldn't be found on Bluesky. Check the spelling and try again."
 
-    @patch(_MAKE_SESSION)
-    def test_non_json_error_body_falls_back(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        resp = Response()
-        resp.status_code = 400
-        resp._content = b"<html>not json</html>"
-        mock_session.get.return_value = resp
-
-        is_valid, message = validate_credentials("missing.bsky.social")
-
-        assert is_valid is False
-        assert message == "That handle or DID couldn't be found on Bluesky. Check the spelling and try again."
-
-    @patch(_MAKE_SESSION)
-    def test_unexpected_status_falls_back_to_generic_message(self, mock_make_session: MagicMock) -> None:
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = _make_http_response({}, 503)
-
-        is_valid, message = validate_credentials("jay.bsky.team")
+    def test_unexpected_status_falls_back_to_generic_message(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=503, json={}))):
+            is_valid, message = validate_credentials("jay.bsky.team")
 
         assert is_valid is False
         assert message == "Bluesky returned an unexpected error (503)."
 
 
 class TestBlueskySourceResumeBehavior:
-    """End-to-end resume behaviour of ``bluesky_source`` via ``rest_api_resource``."""
+    """Run Bluesky resume behavior through the source pipeline."""
 
-    _MAKE_SESSION = (
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
-        ".make_tracked_session"
-    )
-
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        """Drive ``bluesky_source`` with a mocked HTTP session.
-
-        Returns ``(mock_session, sent_params)`` where ``sent_params`` is a list of shallow copies
-        of ``request.params`` captured at send-time, since the underlying ``Request`` is mutated
-        in-place by the paginator between pages.
-        """
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(self._MAKE_SESSION) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = bluesky_source(
-                actor="jay.bsky.team",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            list(cast(Iterable[Any], resource))
-            return mock_session, sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor="jay.bsky.team"))
 
     @pytest.mark.parametrize(
         ("endpoint", "list_key", "item"),
@@ -175,83 +72,164 @@ class TestBlueskySourceResumeBehavior:
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(
         self, endpoint: str, list_key: str, item: dict[str, Any]
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={list_key: [item], "cursor": "cursor-1"}),
+                ScriptedResponse(json={list_key: [item], "cursor": "cursor-2"}),
+                ScriptedResponse(json={list_key: [item]}),
+            ],
+        )
 
-        responses = [
-            _make_http_response({list_key: [item], "cursor": "cursor-1"}),
-            _make_http_response({list_key: [item], "cursor": "cursor-2"}),
-            _make_http_response({list_key: [item]}),
-        ]
-        _, sent_params = self._drive(endpoint, manager, responses)
-
-        cursors_sent = [p.get("cursor") for p in sent_params]
-        assert cursors_sent == [None, "cursor-1", "cursor-2"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.params("cursor") == [None, "cursor-1", "cursor-2"]
+        assert result.saved_states == [
             BlueskyResumeConfig(cursor="cursor-1"),
             BlueskyResumeConfig(cursor="cursor-2"),
         ]
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BlueskyResumeConfig(cursor="cursor-resumed")
+        result = self._driver().run(
+            "Followers",
+            [ScriptedResponse(json={"followers": [{"did": "did:plc:1"}]})],
+            resume_state=BlueskyResumeConfig(cursor="cursor-resumed"),
+        )
 
-        responses = [_make_http_response({"followers": [{"did": "did:plc:1"}]})]
-        _, sent_params = self._drive("Followers", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
-        manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"followers": [{"did": "did:plc:1"}]})]
-        self._drive("Followers", manager, responses)
-
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("cursor") == ["cursor-resumed"]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("Followers", [ScriptedResponse(json={"followers": [{"did": "did:plc:1"}]})])
 
-        responses = [_make_http_response({"followers": [{"did": "did:plc:1"}]})]
-        self._drive("Followers", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("cursor") == [None]
 
     def test_profile_endpoint_is_a_single_page_and_never_saves_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("Profile", [ScriptedResponse(json={"did": "did:plc:1", "handle": "jay.bsky.team"})])
 
-        responses = [_make_http_response({"did": "did:plc:1", "handle": "jay.bsky.team"})]
-        _, sent_params = self._drive("Profile", manager, responses)
-
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
     def test_posts_yields_flattened_post_objects(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Posts",
+            [ScriptedResponse(json={"feed": [{"post": {"uri": "at://x", "indexedAt": "2026-01-01T00:00:00Z"}}]})],
+        )
 
-        responses = [_make_http_response({"feed": [{"post": {"uri": "at://x", "indexedAt": "2026-01-01T00:00:00Z"}}]})]
-        with patch(self._MAKE_SESSION) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.headers = {}
-            response_iter = iter(responses)
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = lambda *args, **kwargs: next(response_iter)
+        assert result.raised is None
+        assert result.items == [[{"uri": "at://x", "indexedAt": "2026-01-01T00:00:00Z"}]]
 
-            resource = bluesky_source(
-                actor="jay.bsky.team",
-                endpoint="Posts",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            pages = list(cast(Iterable[Any], resource))
 
-        assert pages == [[{"uri": "at://x", "indexedAt": "2026-01-01T00:00:00Z"}]]
+POST_1 = "at://did:plc:abc/app.bsky.feed.post/1"
+# A did:web AT-URI can carry a percent-encoded port, which must reach the API unchanged.
+POST_2 = "at://did:web:example.com%3A8080/app.bsky.feed.post/2"
+
+
+def _post_fanout_script(
+    list_key: str, child_row: Callable[[int], dict[str, Any]]
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("getAuthorFeed"):
+            if request.param("cursor") is None:
+                return ScriptedResponse(json={"feed": [{"post": {"uri": POST_1}}], "cursor": "feed-2"})
+            return ScriptedResponse(json={"feed": [{"post": {"uri": POST_2}}]})
+        if request.param("cursor") is None:
+            body: dict[str, Any] = {list_key: [child_row(1)]}
+            if request.param("uri") == POST_1:
+                body["cursor"] = "child-2"
+            return ScriptedResponse(json=body)
+        return ScriptedResponse(json={list_key: [child_row(2)]})
+
+    return respond
+
+
+POST_FANOUT_CASES = [
+    (
+        "Likes",
+        "likes",
+        lambda n: {"actor": {"did": f"did:plc:liker{n}"}, "indexedAt": "2026-01-01T00:00:00Z"},
+        [(POST_1, "did:plc:liker1"), (POST_1, "did:plc:liker2"), (POST_2, "did:plc:liker1")],
+    ),
+    (
+        "Quotes",
+        "posts",
+        lambda n: {"uri": f"at://did:plc:quoter/app.bsky.feed.post/{n}", "indexedAt": "2026-01-01T00:00:00Z"},
+        [
+            (POST_1, "at://did:plc:quoter/app.bsky.feed.post/1"),
+            (POST_1, "at://did:plc:quoter/app.bsky.feed.post/2"),
+            (POST_2, "at://did:plc:quoter/app.bsky.feed.post/1"),
+        ],
+    ),
+]
+
+
+class TestBlueskyPostFanout:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor="jay.bsky.team"))
+
+    @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
+    def test_walks_every_post_and_child_page(
+        self,
+        endpoint: str,
+        list_key: str,
+        child_row: Callable[[int], dict[str, Any]],
+        expected_keys: list[tuple[str, str]],
+    ) -> None:
+        result = self._driver().run(endpoint, _post_fanout_script(list_key, child_row))
+
+        assert result.raised is None
+        assert [tuple(row[key] for key in PRIMARY_KEYS[endpoint]) for row in result.rows] == expected_keys
+        child_requests = [r for r in result.requests if not r.path.endswith("getAuthorFeed")]
+        assert [(r.param("uri"), r.param("cursor")) for r in child_requests] == [
+            (POST_1, None),
+            (POST_1, "child-2"),
+            (POST_2, None),
+        ]
+
+    @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_child_requests", "expected_rows"),
+        [
+            (
+                BlueskyResumeConfig(post_uri=POST_1, child_cursor="child-2"),
+                [(POST_1, "child-2"), (POST_2, None)],
+                slice(1, None),
+            ),
+            (BlueskyResumeConfig(feed_cursor="feed-2"), [(POST_2, None)], slice(2, None)),
+        ],
+    )
+    def test_resume_continues_from_saved_position(
+        self,
+        endpoint: str,
+        list_key: str,
+        child_row: Callable[[int], dict[str, Any]],
+        expected_keys: list[tuple[str, str]],
+        resume_state: BlueskyResumeConfig,
+        expected_child_requests: list[tuple[str, str | None]],
+        expected_rows: slice,
+    ) -> None:
+        result = self._driver().run(endpoint, _post_fanout_script(list_key, child_row), resume_state=resume_state)
+
+        assert result.raised is None
+        child_requests = [r for r in result.requests if not r.path.endswith("getAuthorFeed")]
+        assert [(r.param("uri"), r.param("cursor")) for r in child_requests] == expected_child_requests
+        assert [tuple(row[key] for key in PRIMARY_KEYS[endpoint]) for row in result.rows] == expected_keys[
+            expected_rows
+        ]
+
+    @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
+    def test_saves_fixed_size_position_before_each_child_page(
+        self,
+        endpoint: str,
+        list_key: str,
+        child_row: Callable[[int], dict[str, Any]],
+        expected_keys: list[tuple[str, str]],
+    ) -> None:
+        result = self._driver().run(endpoint, _post_fanout_script(list_key, child_row))
+
+        assert result.saved_states == [
+            BlueskyResumeConfig(post_uri=POST_1, child_cursor="child-2"),
+            BlueskyResumeConfig(feed_cursor="feed-2"),
+        ]

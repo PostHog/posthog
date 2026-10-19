@@ -29,6 +29,4 @@ psycopg
 redis
 rich
 trio
-webauthn
-zxcvbn
 # First-party modules with a known, structural import cost:

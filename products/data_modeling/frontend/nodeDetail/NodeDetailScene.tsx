@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -40,7 +41,7 @@ const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     query: 'Query',
     lineage: 'Lineage',
     materialization: 'Materialization',
-    tests: 'Data quality',
+    'data-quality': 'Data quality',
     history: 'History',
 }
 
@@ -48,7 +49,7 @@ function tabLabel(
     tab: NodeDetailSceneTab,
     dataQualitySubject: NodeDetailDataQualitySubject | null
 ): JSX.Element | string {
-    if (tab === 'tests' && dataQualitySubject) {
+    if (tab === 'data-quality' && dataQualitySubject) {
         return <NodeDetailTestsTabLabel {...dataQualitySubject} />
     }
     return TAB_LABELS[tab]
@@ -58,6 +59,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     const {
         node,
         savedQuery,
+        savedQueryDeleted,
         savedQueryLoading,
         nodeLoading,
         availableTabs,
@@ -87,6 +89,19 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
         return <NotFound object="model" />
     }
 
+    if (savedQueryDeleted) {
+        return (
+            <NotFound
+                object="model"
+                caption={
+                    <>
+                        This model was deleted. Go back to <Link to={urls.models()}>Models</Link>.
+                    </>
+                }
+            />
+        )
+    }
+
     const savedQueryId = node.saved_query_id
 
     const tabPanel = (tab: NodeDetailSceneTab): JSX.Element => {
@@ -104,7 +119,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                         id={savedQueryId ?? ''}
                     />
                 )
-            case 'tests':
+            case 'data-quality':
                 return <NodeDetailTests id={id} />
         }
     }

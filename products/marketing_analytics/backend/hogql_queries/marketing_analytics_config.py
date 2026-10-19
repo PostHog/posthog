@@ -111,7 +111,6 @@ class MarketingAnalyticsConfig:
 
     conversion_goal_precomputation_enabled: bool = False
     costs_precomputation_enabled: bool = False
-    sessions_precomputation_enabled: bool = False
     live_session_resolution_enabled: bool = False
 
     @staticmethod
@@ -150,12 +149,6 @@ class MarketingAnalyticsConfig:
             ),
             "live_sessions": feature_enabled_or_false(
                 "marketing-analytics-live-session-resolution",
-                str(team.uuid),
-                groups=groups,
-                group_properties=group_properties,
-            ),
-            "sessions": feature_enabled_or_false(
-                "marketing-analytics-sessions-precomputation",
                 str(team.uuid),
                 groups=groups,
                 group_properties=group_properties,
@@ -213,7 +206,6 @@ class MarketingAnalyticsConfig:
         flags = cls._precompute_flags(team)
         config.conversion_goal_precomputation_enabled = flags["conversion"]
         config.costs_precomputation_enabled = flags["costs"]
-        config.sessions_precomputation_enabled = flags["sessions"]
         config.live_session_resolution_enabled = flags["live_sessions"]
 
         # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled. Evaluated

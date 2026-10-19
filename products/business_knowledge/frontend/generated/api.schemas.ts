@@ -120,6 +120,39 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+export interface KnowledgeLibraryApi {
+    /** Library id. */
+    id: string
+    /** Library name. Unique in this project, ignoring case. */
+    name: string
+    /** True for the library new learned sources join. There is at most one. */
+    is_default: boolean
+    /** How many sources are in this library. */
+    source_count: number
+    /** Selected repositories in this library that this environment is allowed to read. */
+    repos: string[]
+}
+
+export interface KnowledgeLibraryCreateApi {
+    /**
+     * Name for the new library.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedKnowledgeLibraryUpdateApi {
+    /**
+     * New name. Omit to keep the current name.
+     * @maxLength 255
+     */
+    name?: string
+    /** Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all. */
+    source_ids?: string[]
+    /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
+    repos?: string[]
+}
+
 export interface PlaygroundChatListApi {
     /** Playground chat id. */
     id: string
@@ -158,19 +191,25 @@ export interface SandboxSourceApi {
 /**
  * * `business-knowledge-documents-search` - Search
  * * `business-knowledge-document-window-retrieve` - Window
+ * * `business-knowledge-repositories-search` - Repository search
+ * * `business-knowledge-repositories-file-retrieve` - Repository file
  */
 export type SandboxToolNameEnumApi = (typeof SandboxToolNameEnumApi)[keyof typeof SandboxToolNameEnumApi]
 
 export const SandboxToolNameEnumApi = {
     BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
     BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+    BusinessKnowledgeRepositoriesSearch: 'business-knowledge-repositories-search',
+    BusinessKnowledgeRepositoriesFileRetrieve: 'business-knowledge-repositories-file-retrieve',
 } as const
 
 export interface SandboxSearchApi {
     /** Business knowledge tool the agent called.
      *
      * * `business-knowledge-documents-search` - Search
-     * * `business-knowledge-document-window-retrieve` - Window */
+     * * `business-knowledge-document-window-retrieve` - Window
+     * * `business-knowledge-repositories-search` - Repository search
+     * * `business-knowledge-repositories-file-retrieve` - Repository file */
     tool: SandboxToolNameEnumApi
     /** Tool input the agent sent. */
     input: string
@@ -245,6 +284,106 @@ export interface SandboxQuestionApi {
      * @maxLength 4000
      */
     question: string
+}
+
+export interface RepositoryConnectApi {
+    /** Id of a GitHub integration on this environment. */
+    integration_id: number
+}
+
+export interface RepositoryConnectionApi {
+    /** True when a GitHub installation is connected for this environment. */
+    connected: boolean
+    /**
+     * Connected GitHub integration id, or null when GitHub is not connected.
+     * @nullable
+     */
+    integration_id: number | null
+    /** GitHub account name for the connected installation. Empty when GitHub is not connected. */
+    integration_name: string
+    /** Lowercased owner/repo names business knowledge is allowed to read. */
+    repos: string[]
+}
+
+export interface RepositoryFileApi {
+    /** Lowercased owner/repo. */
+    repo: string
+    /** File path that was read. */
+    path: string
+    /** Permalink for this file at the cached commit. Cite this when you use the file. */
+    url: string
+    /** File text, cut off at 32,000 characters. */
+    content: string
+    /** True when content was cut off at 32,000 characters. */
+    truncated: boolean
+}
+
+/**
+ * * `path` - Path
+ * * `readme` - Readme
+ */
+export type RepositoryHitKindEnumApi = (typeof RepositoryHitKindEnumApi)[keyof typeof RepositoryHitKindEnumApi]
+
+export const RepositoryHitKindEnumApi = {
+    Path: 'path',
+    Readme: 'readme',
+} as const
+
+export interface RepositorySearchHitApi {
+    /** Lowercased owner/repo the hit came from. */
+    repo: string
+    /** File path. Empty for a README hit. */
+    path: string
+    /** Permalink for the hit. Cite this when you use the hit. */
+    url: string
+    /** path is a file name match. readme is a short excerpt of the repository README.
+     *
+     * * `path` - Path
+     * * `readme` - Readme */
+    kind: RepositoryHitKindEnumApi
+    /** Short README excerpt. Empty for a path hit. */
+    excerpt: string
+}
+
+/**
+ * * `ready` - Ready
+ * * `warming` - Warming
+ */
+export type RepositoryCacheStatusEnumApi =
+    (typeof RepositoryCacheStatusEnumApi)[keyof typeof RepositoryCacheStatusEnumApi]
+
+export const RepositoryCacheStatusEnumApi = {
+    Ready: 'ready',
+    Warming: 'warming',
+} as const
+
+export interface RepositoryCacheStateApi {
+    /** Lowercased owner/repo. */
+    repo: string
+    /** True when the cached file list is incomplete because the repository has too many files. */
+    tree_truncated: boolean
+    /** ready means the file list was cached recently. warming means a refresh was just queued.
+     *
+     * * `ready` - Ready
+     * * `warming` - Warming */
+    cache_status: RepositoryCacheStatusEnumApi
+    /** GitHub description for this repository. Empty when GitHub has none or the cache has not loaded it. */
+    description: string
+}
+
+export interface RepositorySearchResponseApi {
+    /** Path matches, then README excerpts. */
+    results: RepositorySearchHitApi[]
+    /** Cache state for each repository that was searched. */
+    repositories: RepositoryCacheStateApi[]
+}
+
+export interface RepositorySelectionApi {
+    /**
+     * owner/repo names to allow. At most 100. Replaces the current list.
+     * @maxItems 100
+     */
+    repos: string[]
 }
 
 export interface SandboxRunStartedApi {
@@ -395,6 +534,8 @@ export interface KnowledgeSourceApi {
     /** @nullable */
     readonly file_size_bytes: number | null
     readonly always_include: boolean
+    /** Libraries this source belongs to. Empty when the source is in none. */
+    readonly library_ids: readonly string[]
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -432,6 +573,8 @@ export interface PatchedUpdateTextSourceApi {
     text?: string
     /** When true, this source's content is injected into every support reply prompt as general context. */
     always_include?: boolean
+    /** Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library. */
+    library_ids?: string[]
 }
 
 /**
@@ -484,6 +627,10 @@ export type BusinessKnowledgeDocumentsWindowListParams = {
 
 export type BusinessKnowledgeDocumentsSearchListParams = {
     /**
+     * Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.
+     */
+    library_id?: string
+    /**
      * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
      */
     limit?: number
@@ -512,11 +659,48 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
     ticket_id?: string
 }
 
+export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
+    /**
+     * Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.
+     */
+    library_id?: string
+    /**
+     * File path returned by the repository search.
+     * @minLength 1
+     */
+    path: string
+    /**
+     * owner/repo to read. It must already be selected.
+     * @minLength 1
+     */
+    repo: string
+}
+
+export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * Limit the search to repositories in this library. Pass the same id to document search and file read. Omit to search every selected repository.
+     */
+    library_id?: string
+    /**
+     * File names, path fragments, or identifiers to match. Not a full sentence.
+     * @minLength 1
+     */
+    query: string
+    /**
+     * Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.
+     */
+    repo?: string
+}
+
 export type BusinessKnowledgeSourcesListParams = {
     /**
      * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
      */
     added_by?: BusinessKnowledgeSourcesListAddedBy
+    /**
+     * Return only sources in this library. Do not combine with unfiled.
+     */
+    library_id?: string
     /**
      * Number of results to return per page.
      */
@@ -533,6 +717,10 @@ export type BusinessKnowledgeSourcesListParams = {
      * Filter to a single source type (text, url, or file).
      */
     source_type?: BusinessKnowledgeSourcesListSourceType
+    /**
+     * When true, return only sources that are in no library. Do not combine with library_id.
+     */
+    unfiled?: boolean
 }
 
 export type BusinessKnowledgeSourcesListAddedBy =

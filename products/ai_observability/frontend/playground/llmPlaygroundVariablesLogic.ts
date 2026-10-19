@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
 import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
-import { extractVariables, getVariableValue } from './playgroundTemplating'
+import { extractVariablesFromTexts, getVariableValue } from './playgroundTemplating'
 
 export type LLMPlaygroundVariablesLogicProps = Record<string, never>
 
@@ -82,19 +82,10 @@ export const llmPlaygroundVariablesLogic = kea<llmPlaygroundVariablesLogicType>(
     selectors({
         detectedVariables: [
             (s) => [s.promptConfigs],
-            (promptConfigs: PromptConfig[]): string[] => {
-                const names: string[] = []
-                for (const prompt of promptConfigs) {
-                    for (const text of [prompt.systemPrompt, ...prompt.messages.map((m) => m.content)]) {
-                        for (const name of extractVariables(text)) {
-                            if (!names.includes(name)) {
-                                names.push(name)
-                            }
-                        }
-                    }
-                }
-                return names
-            },
+            (promptConfigs: PromptConfig[]): string[] =>
+                extractVariablesFromTexts(
+                    promptConfigs.flatMap((prompt) => [prompt.systemPrompt, ...prompt.messages.map((m) => m.content)])
+                ),
         ],
         unfilledVariables: [
             (s) => [s.detectedVariables, s.variableValues],

@@ -1,4 +1,4 @@
-import { extractVariables, substituteVariables } from './playgroundTemplating'
+import { extractVariables, segmentTemplateText, substituteVariables } from './playgroundTemplating'
 
 describe('playgroundTemplating', () => {
     // The syntax must stay identical to the SDK compile helpers (@posthog/ai and
@@ -25,5 +25,15 @@ describe('playgroundTemplating', () => {
         // implementation corrupts JSON values that contain them.
         const value = '{"amount": "$& USD",\n "note": "$\' end"}'
         expect(substituteVariables('data: {{payload}}', { payload: value })).toBe(`data: ${value}`)
+    })
+
+    it('segments text without losing a character, tagging only the variable tokens', () => {
+        // The editor backdrop renders these segments behind a transparent textarea;
+        // a dropped or duplicated character pulls the caret off the glyphs under it.
+        const text = 'Hi {{name}}, about {{ spaced }} and {{topic}} tail'
+        const segments = segmentTemplateText(text)
+        expect(segments.map((s) => s.text).join('')).toBe(text)
+        expect(segments.filter((s) => s.variableName !== null).map((s) => s.variableName)).toEqual(['name', 'topic'])
+        expect(segmentTemplateText('')).toEqual([])
     })
 })

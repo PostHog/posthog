@@ -8,8 +8,10 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import type { ScopeAccessLevel } from 'lib/scopes'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
+import { GatewayKeySpend } from './GatewayKeySpend'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
@@ -95,24 +97,27 @@ function EditKeyModal(): JSX.Element {
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map(({ key, label, disabledActions }) => (
-                                <ScopeAccessRow
-                                    key={key}
-                                    label={label}
-                                    value={formScopeRadioValues[key] ?? 'none'}
-                                    onChange={(value) => setScopeRadioValue(key, value)}
-                                    readDisabledReason={
-                                        disabledActions?.includes('read')
-                                            ? 'Not available for project secret API keys'
-                                            : undefined
-                                    }
-                                    writeDisabledReason={
-                                        disabledActions?.includes('write')
-                                            ? 'Not available for project secret API keys'
-                                            : undefined
-                                    }
-                                />
-                            ))
+                            filteredScopes.map(({ key, label, disabledActions }) => {
+                                const disabledReason = (action: 'read' | 'write'): string | undefined =>
+                                    disabledActions?.includes(action)
+                                        ? 'Not available for project secret API keys'
+                                        : undefined
+                                return (
+                                    <ScopeAccessRow
+                                        key={key}
+                                        row={{
+                                            key,
+                                            label,
+                                            value: (formScopeRadioValues[key] ?? 'none') as ScopeAccessLevel,
+                                            disabledReasons: {
+                                                read: disabledReason('read'),
+                                                write: disabledReason('write'),
+                                            },
+                                        }}
+                                        onChange={setScopeRadioValue}
+                                    />
+                                )
+                            })
                         )}
                     </div>
                 </LemonField>
@@ -165,6 +170,8 @@ export function ProjectSecretAPIKeys(): JSX.Element {
                 showCreatedBy={true}
                 showActions={!restrictionReason}
             />
+
+            <GatewayKeySpend />
 
             <EditKeyModal />
         </>

@@ -62,6 +62,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
+ * * `cross_project_dashboard` - cross_project_dashboard
  * * `customer_analytics` - customer_analytics
  * * `customer_task` - customer_task
  * * `customer_journey` - customer_journey
@@ -94,6 +95,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
  * * `hog_function` - hog_function
+ * * `inbox` - inbox
  * * `ingestion_warning` - ingestion_warning
  * * `insight` - insight
  * * `insight_variable` - insight_variable
@@ -142,6 +144,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `tagger` - tagger
  * * `ticket` - ticket
  * * `task` - task
+ * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
  * * `field_note` - field_note
@@ -180,6 +183,7 @@ export const ScopeObjectEnumApi = {
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
+    CrossProjectDashboard: 'cross_project_dashboard',
     CustomerAnalytics: 'customer_analytics',
     CustomerTask: 'customer_task',
     CustomerJourney: 'customer_journey',
@@ -212,6 +216,7 @@ export const ScopeObjectEnumApi = {
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
     HogFunction: 'hog_function',
+    Inbox: 'inbox',
     IngestionWarning: 'ingestion_warning',
     Insight: 'insight',
     InsightVariable: 'insight_variable',
@@ -260,6 +265,7 @@ export const ScopeObjectEnumApi = {
     Tagger: 'tagger',
     Ticket: 'ticket',
     Task: 'task',
+    Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
     FieldNote: 'field_note',
@@ -321,6 +327,7 @@ export interface ProjectAccessSourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -353,6 +360,7 @@ export interface ProjectAccessSourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -401,6 +409,7 @@ export interface ProjectAccessSourceApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -482,6 +491,7 @@ export interface AccessControlObjectRuleApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -514,6 +524,7 @@ export interface AccessControlObjectRuleApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -562,6 +573,7 @@ export interface AccessControlObjectRuleApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -622,6 +634,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
+ * * `business_knowledge` - business_knowledge
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
  * * `customer_task` - customer_task
@@ -679,6 +692,7 @@ export const RuleResourceEnumApi = {
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
+    BusinessKnowledge: 'business_knowledge',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
     CustomerTask: 'customer_task',
@@ -741,6 +755,7 @@ export interface AccessControlRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -865,6 +880,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -897,6 +913,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -945,6 +962,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -979,12 +997,31 @@ export interface AccessControlDefaultsResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Whether the access rules of this project are locked to Terraform. */
+    is_managed_by_terraform: boolean
     /** The default project access level for members. */
     project_access_level: string
     /** The default level per resource type, keyed by resource name. */
     resource_access_levels: AccessControlDefaultsResponseApiResourceAccessLevels
     /** The resource types that accept rules on single objects, with the levels each accepts. */
     object_rule_resources: AccessControlObjectRuleResourceApi[]
+}
+
+export interface AccessControlManagementApi {
+    /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+    managed: boolean
+    /**
+     * When Terraform last wrote an access rule in this project, or null.
+     * @nullable
+     */
+    terraform_last_applied_at: string | null
+    /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+    has_terraform_account: boolean
+}
+
+export interface AccessControlManagementRequestApi {
+    /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+    managed: boolean
 }
 
 /**
@@ -997,6 +1034,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1128,6 +1166,7 @@ export interface ResolvedAccessApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -1160,6 +1199,7 @@ export interface ResolvedAccessApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -1208,6 +1248,7 @@ export interface ResolvedAccessApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -1304,6 +1345,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1454,11 +1496,165 @@ export interface PropertyAccessControlStateApi {
 }
 
 /**
+ * * `$ai_trace_id` - $ai_trace_id
+ * * `$ai_session_id` - $ai_session_id
+ * * `$ai_parent_id` - $ai_parent_id
+ * * `$ai_span_id` - $ai_span_id
+ * * `$ai_span_type` - $ai_span_type
+ * * `$ai_generation_id` - $ai_generation_id
+ * * `$ai_experiment_id` - $ai_experiment_id
+ * * `$ai_span_name` - $ai_span_name
+ * * `$ai_trace_name` - $ai_trace_name
+ * * `$ai_prompt_name` - $ai_prompt_name
+ * * `$ai_model` - $ai_model
+ * * `$ai_provider` - $ai_provider
+ * * `$ai_framework` - $ai_framework
+ * * `$ai_total_tokens` - $ai_total_tokens
+ * * `$ai_input_tokens` - $ai_input_tokens
+ * * `$ai_output_tokens` - $ai_output_tokens
+ * * `$ai_text_input_tokens` - $ai_text_input_tokens
+ * * `$ai_text_output_tokens` - $ai_text_output_tokens
+ * * `$ai_image_input_tokens` - $ai_image_input_tokens
+ * * `$ai_image_output_tokens` - $ai_image_output_tokens
+ * * `$ai_audio_input_tokens` - $ai_audio_input_tokens
+ * * `$ai_audio_output_tokens` - $ai_audio_output_tokens
+ * * `$ai_video_input_tokens` - $ai_video_input_tokens
+ * * `$ai_video_output_tokens` - $ai_video_output_tokens
+ * * `$ai_reasoning_tokens` - $ai_reasoning_tokens
+ * * `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens
+ * * `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens
+ * * `$ai_web_search_count` - $ai_web_search_count
+ * * `$ai_input_cost_usd` - $ai_input_cost_usd
+ * * `$ai_output_cost_usd` - $ai_output_cost_usd
+ * * `$ai_total_cost_usd` - $ai_total_cost_usd
+ * * `$ai_request_cost_usd` - $ai_request_cost_usd
+ * * `$ai_web_search_cost_usd` - $ai_web_search_cost_usd
+ * * `$ai_audio_cost_usd` - $ai_audio_cost_usd
+ * * `$ai_image_cost_usd` - $ai_image_cost_usd
+ * * `$ai_video_cost_usd` - $ai_video_cost_usd
+ * * `$ai_latency` - $ai_latency
+ * * `$ai_time_to_first_token` - $ai_time_to_first_token
+ * * `$ai_is_error` - $ai_is_error
+ * * `$ai_error` - $ai_error
+ * * `$ai_error_type` - $ai_error_type
+ * * `$ai_error_normalized` - $ai_error_normalized
+ * * `$ai_input` - $ai_input
+ * * `$ai_output` - $ai_output
+ * * `$ai_output_choices` - $ai_output_choices
+ * * `$ai_input_state` - $ai_input_state
+ * * `$ai_output_state` - $ai_output_state
+ * * `$ai_tools` - $ai_tools
+ */
+export type AIEventPropertyEnumApi = (typeof AIEventPropertyEnumApi)[keyof typeof AIEventPropertyEnumApi]
+
+export const AIEventPropertyEnumApi = {
+    AiTraceId: '$ai_trace_id',
+    AiSessionId: '$ai_session_id',
+    AiParentId: '$ai_parent_id',
+    AiSpanId: '$ai_span_id',
+    AiSpanType: '$ai_span_type',
+    AiGenerationId: '$ai_generation_id',
+    AiExperimentId: '$ai_experiment_id',
+    AiSpanName: '$ai_span_name',
+    AiTraceName: '$ai_trace_name',
+    AiPromptName: '$ai_prompt_name',
+    AiModel: '$ai_model',
+    AiProvider: '$ai_provider',
+    AiFramework: '$ai_framework',
+    AiTotalTokens: '$ai_total_tokens',
+    AiInputTokens: '$ai_input_tokens',
+    AiOutputTokens: '$ai_output_tokens',
+    AiTextInputTokens: '$ai_text_input_tokens',
+    AiTextOutputTokens: '$ai_text_output_tokens',
+    AiImageInputTokens: '$ai_image_input_tokens',
+    AiImageOutputTokens: '$ai_image_output_tokens',
+    AiAudioInputTokens: '$ai_audio_input_tokens',
+    AiAudioOutputTokens: '$ai_audio_output_tokens',
+    AiVideoInputTokens: '$ai_video_input_tokens',
+    AiVideoOutputTokens: '$ai_video_output_tokens',
+    AiReasoningTokens: '$ai_reasoning_tokens',
+    AiCacheReadInputTokens: '$ai_cache_read_input_tokens',
+    AiCacheCreationInputTokens: '$ai_cache_creation_input_tokens',
+    AiWebSearchCount: '$ai_web_search_count',
+    AiInputCostUsd: '$ai_input_cost_usd',
+    AiOutputCostUsd: '$ai_output_cost_usd',
+    AiTotalCostUsd: '$ai_total_cost_usd',
+    AiRequestCostUsd: '$ai_request_cost_usd',
+    AiWebSearchCostUsd: '$ai_web_search_cost_usd',
+    AiAudioCostUsd: '$ai_audio_cost_usd',
+    AiImageCostUsd: '$ai_image_cost_usd',
+    AiVideoCostUsd: '$ai_video_cost_usd',
+    AiLatency: '$ai_latency',
+    AiTimeToFirstToken: '$ai_time_to_first_token',
+    AiIsError: '$ai_is_error',
+    AiError: '$ai_error',
+    AiErrorType: '$ai_error_type',
+    AiErrorNormalized: '$ai_error_normalized',
+    AiInput: '$ai_input',
+    AiOutput: '$ai_output',
+    AiOutputChoices: '$ai_output_choices',
+    AiInputState: '$ai_input_state',
+    AiOutputState: '$ai_output_state',
+    AiTools: '$ai_tools',
+} as const
+
+/**
  * Request body for upserting a rule (create or update).
  */
 export interface PropertyAccessControlUpdateApi {
-    /** The property definition ID this rule applies to. */
-    property_definition_id: string
+    /** The existing property definition ID. Provide this or ai_property. */
+    property_definition_id?: string
+    /** A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.
+     *
+     * * `$ai_trace_id` - $ai_trace_id
+     * * `$ai_session_id` - $ai_session_id
+     * * `$ai_parent_id` - $ai_parent_id
+     * * `$ai_span_id` - $ai_span_id
+     * * `$ai_span_type` - $ai_span_type
+     * * `$ai_generation_id` - $ai_generation_id
+     * * `$ai_experiment_id` - $ai_experiment_id
+     * * `$ai_span_name` - $ai_span_name
+     * * `$ai_trace_name` - $ai_trace_name
+     * * `$ai_prompt_name` - $ai_prompt_name
+     * * `$ai_model` - $ai_model
+     * * `$ai_provider` - $ai_provider
+     * * `$ai_framework` - $ai_framework
+     * * `$ai_total_tokens` - $ai_total_tokens
+     * * `$ai_input_tokens` - $ai_input_tokens
+     * * `$ai_output_tokens` - $ai_output_tokens
+     * * `$ai_text_input_tokens` - $ai_text_input_tokens
+     * * `$ai_text_output_tokens` - $ai_text_output_tokens
+     * * `$ai_image_input_tokens` - $ai_image_input_tokens
+     * * `$ai_image_output_tokens` - $ai_image_output_tokens
+     * * `$ai_audio_input_tokens` - $ai_audio_input_tokens
+     * * `$ai_audio_output_tokens` - $ai_audio_output_tokens
+     * * `$ai_video_input_tokens` - $ai_video_input_tokens
+     * * `$ai_video_output_tokens` - $ai_video_output_tokens
+     * * `$ai_reasoning_tokens` - $ai_reasoning_tokens
+     * * `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens
+     * * `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens
+     * * `$ai_web_search_count` - $ai_web_search_count
+     * * `$ai_input_cost_usd` - $ai_input_cost_usd
+     * * `$ai_output_cost_usd` - $ai_output_cost_usd
+     * * `$ai_total_cost_usd` - $ai_total_cost_usd
+     * * `$ai_request_cost_usd` - $ai_request_cost_usd
+     * * `$ai_web_search_cost_usd` - $ai_web_search_cost_usd
+     * * `$ai_audio_cost_usd` - $ai_audio_cost_usd
+     * * `$ai_image_cost_usd` - $ai_image_cost_usd
+     * * `$ai_video_cost_usd` - $ai_video_cost_usd
+     * * `$ai_latency` - $ai_latency
+     * * `$ai_time_to_first_token` - $ai_time_to_first_token
+     * * `$ai_is_error` - $ai_is_error
+     * * `$ai_error` - $ai_error
+     * * `$ai_error_type` - $ai_error_type
+     * * `$ai_error_normalized` - $ai_error_normalized
+     * * `$ai_input` - $ai_input
+     * * `$ai_output` - $ai_output
+     * * `$ai_output_choices` - $ai_output_choices
+     * * `$ai_input_state` - $ai_input_state
+     * * `$ai_output_state` - $ai_output_state
+     * * `$ai_tools` - $ai_tools */
+    ai_property?: AIEventPropertyEnumApi
     /** The access level to set for this rule.
      *
      * * `read_write` - read_write

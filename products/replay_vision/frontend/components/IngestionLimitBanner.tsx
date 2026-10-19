@@ -27,7 +27,10 @@ export function IngestionLimitBanner(): JSX.Element | null {
               : 'Your organization has reached its Session replay limit, so new recordings may not be captured. Scanners may have nothing new to scan until the limit is raised.'
     return (
         <LemonBanner type="warning">
-            {message} <Link to={urls.organizationBilling()}>Manage billing limits</Link>
+            {message}{' '}
+            <Link data-attr="vision-open-billing-ingestion-limit" to={urls.organizationBilling()}>
+                Manage billing limits
+            </Link>
         </LemonBanner>
     )
 }

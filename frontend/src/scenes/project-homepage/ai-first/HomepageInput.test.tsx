@@ -19,6 +19,7 @@ jest.mock('scenes/max/components/SidebarQuestionInput', () => ({
 
 describe('HomepageAiInput', () => {
     const APPROVE_LABEL = 'I allow AI analysis in this organization'
+    const patchOrganization = jest.fn()
 
     function renderInput(membershipLevel: OrganizationMembershipLevel): HTMLElement {
         initKeaTests(true, undefined, undefined, {
@@ -36,15 +37,19 @@ describe('HomepageAiInput', () => {
     }
 
     beforeEach(() => {
+        patchOrganization.mockClear()
         useMocks({
             patch: {
-                '/api/organizations/:id': async ({ request }) => [
-                    200,
-                    {
-                        ...MOCK_DEFAULT_ORGANIZATION,
-                        ...((await request.json()) as Partial<typeof MOCK_DEFAULT_ORGANIZATION>),
-                    },
-                ],
+                '/api/organizations/:id': async ({ request }) => {
+                    patchOrganization()
+                    return [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_ORGANIZATION,
+                            ...((await request.json()) as Partial<typeof MOCK_DEFAULT_ORGANIZATION>),
+                        },
+                    ]
+                },
             },
             post: {
                 '/api/organizations/:id/request_ai_access/': () => [200, { success: true }],
@@ -54,14 +59,24 @@ describe('HomepageAiInput', () => {
 
     afterEach(cleanup)
 
-    it('approves AI data processing and swaps in the composer when the button is clicked', async () => {
+    it('approves AI data processing once, and only after the admin confirms the BAA disclaimer', async () => {
         const container = renderInput(OrganizationMembershipLevel.Admin)
 
         fireEvent.click(screen.getByText(APPROVE_LABEL))
+        fireEvent.click(await screen.findByText('Cancel'))
+        await waitFor(() => expect(screen.queryByText(/Business Associate Agreement/)).toBeNull())
+        expect(patchOrganization).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByText(APPROVE_LABEL))
+        expect(await screen.findByText(/Business Associate Agreement/)).toBeTruthy()
+        const confirmButton = screen.getByText('Enable AI analysis')
+        fireEvent.click(confirmButton)
+        fireEvent.click(confirmButton)
 
         await waitFor(() =>
             expect(organizationLogic.values.currentOrganization?.is_ai_data_processing_approved).toBe(true)
         )
+        expect(patchOrganization).toHaveBeenCalledTimes(1)
         expect(container.querySelector('[data-attr="mock-question-input"]')).toBeTruthy()
     })
 

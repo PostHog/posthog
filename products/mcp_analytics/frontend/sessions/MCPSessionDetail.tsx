@@ -6,7 +6,6 @@ import { Button, Spinner } from '@posthog/quill-primitives'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -21,6 +20,15 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
             <span className="text-[11px] leading-none">{icon}</span>
             {label}
         </span>
+    )
+}
+
+function IdTooltip({ label, value }: { label: string; value: string }): JSX.Element {
+    return (
+        <div className="max-w-xs break-all">
+            {label}: <span className="font-mono">{value}</span>
+            <div className="mt-1 opacity-75">Click to copy</div>
+        </div>
     )
 }
 
@@ -83,6 +91,9 @@ export function MCPSessionDetail(): JSX.Element {
                                         explicitValue={selectedSession.distinct_id}
                                         description="distinct id"
                                         iconSize="xsmall"
+                                        tooltipMessage={
+                                            <IdTooltip label="Distinct ID" value={selectedSession.distinct_id} />
+                                        }
                                         className="truncate font-mono text-[11px] text-secondary"
                                     >
                                         {selectedSession.distinct_id}
@@ -103,24 +114,15 @@ export function MCPSessionDetail(): JSX.Element {
                             ) : null}
                             <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
                             <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
-                            <Tooltip
-                                title={
-                                    <div className="max-w-xs break-all">
-                                        Session ID: <span className="font-mono">{selectedSession.session_id}</span>
-                                    </div>
-                                }
+                            <CopyToClipboardInline
+                                explicitValue={selectedSession.session_id}
+                                description="session id"
+                                iconSize="xsmall"
+                                tooltipMessage={<IdTooltip label="Session ID" value={selectedSession.session_id} />}
+                                className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
                             >
-                                <span className="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono">
-                                    <CopyToClipboardInline
-                                        explicitValue={selectedSession.session_id}
-                                        description="session id"
-                                        iconSize="xsmall"
-                                        className="font-mono"
-                                    >
-                                        {shortenSessionId(selectedSession.session_id)}
-                                    </CopyToClipboardInline>
-                                </span>
-                            </Tooltip>
+                                {shortenSessionId(selectedSession.session_id)}
+                            </CopyToClipboardInline>
                         </>
                     )}
                 </div>

@@ -11,6 +11,8 @@ rules:
       owners: team-product-analytics
     - match: ['/element.py', '/event.py', '/event_definition.py']
       owners: team-product-analytics
+    - match: ['/livestream.py', '/test/test_livestream.py']
+      owners: team-web-analytics
     - match: '/mixins.py'
       owners: team-devex
     - match: '/oauth/'

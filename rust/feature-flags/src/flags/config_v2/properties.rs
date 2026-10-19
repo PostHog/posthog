@@ -5,6 +5,9 @@ use serde_json::Value;
 use super::{
     closed, object, required, string, ParseError, MAX_PREDICATES, PROPERTY_FIELDS, TARGETING_FIELDS,
 };
+use crate::cohorts::cohort_models::CohortId;
+use crate::flags::flag_group_type_mapping::GroupTypeIndex;
+use crate::flags::flag_models::FeatureFlagId;
 use crate::properties::property_matching::to_semver_representation;
 use crate::properties::property_models::{
     CompiledRegex, OperatorType, ESTIMATED_COMPILED_REGEX_BYTES,
@@ -12,8 +15,18 @@ use crate::properties::property_models::{
 use crate::properties::relative_date::parse_relative_date_parts;
 use crate::utils::json_size::estimate_json_heap_size;
 
+/// What a predicate reads. The parser admits only person predicates so far.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Subject {
+    Person,
+    Cohort(CohortId),
+    Group(GroupTypeIndex),
+    Flag(FeatureFlagId),
+}
+
 #[derive(Clone)]
-pub struct PersonPredicate {
+pub struct Predicate {
+    pub subject: Subject,
     pub key: String,
     pub value: Option<Value>,
     pub operator: OperatorType,
@@ -21,15 +34,15 @@ pub struct PersonPredicate {
     pub compiled_regex: Option<CompiledRegex>,
 }
 
-impl fmt::Debug for PersonPredicate {
+impl fmt::Debug for Predicate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PersonPredicate")
+        f.debug_struct("Predicate")
             .field("operator", &self.operator)
             .finish_non_exhaustive()
     }
 }
 
-pub(super) fn parse_targeting(value: &Value) -> Result<Vec<PersonPredicate>, ParseError> {
+pub(super) fn parse_targeting(value: &Value) -> Result<Vec<Predicate>, ParseError> {
     let targeting = object(value, "targeting")?;
     closed(targeting, TARGETING_FIELDS, "targeting")?;
     let properties = required(targeting, "properties")?
@@ -38,10 +51,10 @@ pub(super) fn parse_targeting(value: &Value) -> Result<Vec<PersonPredicate>, Par
     if properties.len() > MAX_PREDICATES {
         return Err(ParseError::LimitExceeded("properties"));
     }
-    properties.iter().map(PersonPredicate::parse).collect()
+    properties.iter().map(Predicate::parse).collect()
 }
 
-impl PersonPredicate {
+impl Predicate {
     fn parse(value: &Value) -> Result<Self, ParseError> {
         let property = object(value, "property")?;
         closed(property, PROPERTY_FIELDS, "property")?;
@@ -112,6 +125,7 @@ impl PersonPredicate {
                     .map_or(CompiledRegex::InvalidPattern, CompiledRegex::new)
             });
         Ok(Self {
+            subject: Subject::Person,
             key: key.to_owned(),
             value: value.cloned(),
             operator,

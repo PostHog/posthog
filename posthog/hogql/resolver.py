@@ -13,7 +13,7 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
@@ -38,7 +38,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
-from posthog.hogql.functions.prompt_jev import PromptJevCall
+from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -57,6 +57,7 @@ from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
+    lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
 )
@@ -263,6 +264,14 @@ ResolverFactory = Callable[
     [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
     "Resolver",
 ]
+
+
+def _mark_view_body(query: ast.SelectQuery | ast.SelectSetQuery, view_name: str) -> None:
+    if isinstance(query, ast.SelectQuery):
+        query.view_name = view_name
+        return
+    for branch in query.select_queries():
+        _mark_view_body(branch, view_name)
 
 
 def resolve_types(
@@ -933,8 +942,12 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
+        with self.context.entering_select(node.view_name):
+            return self._resolve_select_query(node)
+
+    def _resolve_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
         # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
         is_root_select = not self._entered_root_select
@@ -1443,10 +1456,7 @@ class Resolver(CloningVisitor):
                         raise
                     database_table = opaque_table
 
-            if isinstance(database_table, SavedQuery):
-                self.context.referenced_saved_query_ids.add(database_table.id)
-            elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
-                self.context.referenced_saved_query_ids.add(database_table.saved_query_id)
+            self._record_read(database_table)
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
@@ -1455,9 +1465,7 @@ class Resolver(CloningVisitor):
                 self.current_view_depth += 1
 
                 node.table = parse_select(str(database_table.query))
-
-                if isinstance(node.table, ast.SelectQuery):
-                    node.table.view_name = database_table.name
+                _mark_view_body(node.table, database_table.name)
 
                 node.alias = table_alias or database_table.name
                 node = self.visit(node)
@@ -2004,12 +2012,12 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if node.name.lower() == "jev":
+        if is_decision_call(node.name):
             spec = PromptJevCall.parse(node)
             node = clone_expr(node, clear_types=True)
             node.args[0] = self.visit(spec.input)
             node.type = ast.CallType(
-                name="jev",
+                name=node.name.lower(),
                 arg_types=[],
                 return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
             )
@@ -2444,6 +2452,13 @@ class Resolver(CloningVisitor):
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
+        # The number of leading chain segments that name the table or field found above.
+        qualifier_length = 1
+        if not type:
+            nested_match = lookup_table_by_nested_name(scope, node)
+            if nested_match:
+                type, qualifier_length = nested_match
+
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
@@ -2525,9 +2540,9 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = str(node.chain[-1])
         loop_type = type
-        chain_to_parse = node.chain[1:]
+        chain_to_parse = node.chain[qualifier_length:]
         previous_types = []
-        resolved_chain: list[str] = [str(node.chain[0])]
+        resolved_chain: list[str] = [str(segment) for segment in node.chain[:qualifier_length]]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -2942,6 +2957,24 @@ class Resolver(CloningVisitor):
             return isinstance(table.table, S3Table)
 
         return False
+
+    def _record_read(self, database_table: Table) -> None:
+        if isinstance(database_table, SavedQuery):
+            self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
+        elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
+            self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+        elif isinstance(database_table, S3Table) and database_table.table_id is not None:
+            self.context.referenced_warehouse_table_ids.add(database_table.table_id)
+            self._record_direct_read(database_table.table_id)
+
+    def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
+        self.context.referenced_saved_query_ids.add(saved_query_id)
+        if is_user_view:
+            self._record_direct_read(saved_query_id)
+
+    def _record_direct_read(self, read_id: str) -> None:
+        if self.context.view_body_depth == 0:
+            self.context.directly_read_ids.add(read_id)
 
     def _record_warehouse_sync_warnings(self, table_id: str) -> None:
         if self.database is None:

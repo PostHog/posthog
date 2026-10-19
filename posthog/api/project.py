@@ -12,8 +12,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -21,45 +20,58 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.schema import ProductKey
 
 from posthog.api import project_tags
+from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
-# These are imported from team.py for now. They are part of the legacy /api/environments/ surface and are
+# These are imported from the team API package for now. They are part of the legacy /api/environments/ surface and are
 # expected to move project-side (or to a neutral module) in a later PR once /api/environments/ is retired —
-# project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
+# project.py must NOT depend on the team API package at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
-from posthog.api.team import (
-    TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
-    TEAM_CONFIG_FIELDS,
-    TEAM_CONFIG_MEMBER_FIELDS_SET,
-    EvaluationContextSuggestionRequestSerializer,
-    EvaluationContextSuggestionResponseSerializer,
-    EventIngestionRestrictionSerializer,
-    TeamCustomerAnalyticsConfigSerializer,
-    TeamFeatureFlagPolicyConfigSerializer,
+from posthog.api.team import query_modifiers, session_recording_settings
+from posthog.api.team.conversations_settings import (
+    LOCKED_CONVERSATIONS_COLUMNS,
+    ConversationsSettingsField,
+    merge_conversations_settings_locked,
+    report_conversations_settings_changes,
+    validate_conversations_settings,
+)
+from posthog.api.team.integration_config import (
     TeamLogsConfigSerializer,
-    TeamMarketingAnalyticsConfigSerializer,
-    TeamRevenueAnalyticsConfigSerializer,
-    TeamSerializer,
     TeamTracingConfigSerializer,
-    TeamWorkflowsConfigSerializer,
-    _default_data_color_theme_id,
-    _format_serializer_errors,
-    get_or_mint_live_events_token,
-    handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
-    heatmaps_screenshot_secret_for_reader,
-    report_conversations_settings_changes,
-    team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
+)
+from posthog.api.team.live_events import _default_data_color_theme_id, live_events_token_for_request
+from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerializer
+from posthog.api.team.settings_validation import (
+    _format_serializer_errors,
+    heatmaps_screenshot_secret_for_reader,
     validate_team_attrs,
     validate_team_workflows_config,
 )
+from posthog.api.team.team_config import (
+    TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
+    TEAM_CONFIG_FIELDS,
+    TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamCustomerAnalyticsConfigSerializer,
+    TeamFeatureFlagPolicyConfigSerializer,
+    TeamRevenueAnalyticsConfigSerializer,
+    TeamWorkflowsConfigSerializer,
+)
+from posthog.api.team.team_serializer import (
+    EvaluationContextSuggestionRequestSerializer,
+    EvaluationContextSuggestionResponseSerializer,
+    TeamSerializer,
+)
+from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
+from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -87,6 +99,7 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -99,6 +112,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
@@ -113,6 +127,7 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     get_field_access_control_map,
     resource_to_display_name,
@@ -122,8 +137,9 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -144,7 +160,7 @@ MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
 # These mirror the behaviour of the legacy /api/environments/ (TeamViewSet/TeamSerializer) endpoints, operating
-# on a project's passthrough Team. They live here — not imported from team.py — so /api/projects/ keeps working
+# on a project's passthrough Team. They live here — not imported from the team API package — so /api/projects/ keeps working
 # after /api/environments/ is retired. Until then both surfaces intentionally carry equivalent logic; the
 # introspection test in test_team_project_parity.py guards against drift.
 def capture_team_config_diff(team: Team, key: str, before: dict, after: dict, *, context: dict) -> None:
@@ -536,6 +552,8 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     context_name = normalize_context_name(context_name)
     if not context_name:
         return response.Response({"error": "context_name is required"}, status=400)
+    if len(context_name) > 255:
+        return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
     hidden = request.method == "POST"
 
@@ -636,9 +654,30 @@ class ProjectBackwardCompatSerializer(
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
+    # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
+    # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
+    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
+    )  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        if isinstance(self.instance, Project):
+            self.context["team_id"] = self.instance.team_id
+        return super().get_fields()
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -655,25 +694,18 @@ class ProjectBackwardCompatSerializer(
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        # Filter out None values from widget_domains if present
-        if "widget_domains" in value and value["widget_domains"] is not None:
-            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
-            validate_authorized_url_wildcards(value["widget_domains"])
-        from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
-        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
-
         # conversations_settings lives on the passthrough Team, not on Project, so a partial
         # update that omits docs_source still normalizes against the saved source.
         existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None
-        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
-        validate_ai_context_conversations_settings(
-            value, team_id=self.instance.passthrough_team.id if self.instance is not None else None
+        return validate_conversations_settings(
+            value,
+            existing=existing if isinstance(existing, dict) else None,
+            team_id=self.instance.passthrough_team.id if self.instance is not None else None,
         )
-        return value
 
     class Meta:
         model = Project
-        fields = (
+        fields: tuple[str, ...] = (
             "id",
             "organization",
             "name",
@@ -723,6 +755,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
+            "home_tab_dashboard",  # Compat with TeamSerializer
             "live_events_columns",  # Compat with TeamSerializer
             "recording_domains",  # Compat with TeamSerializer
             "person_on_events_querying_enabled",  # Compat with TeamSerializer
@@ -835,6 +868,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",
             "week_start_day",
             "primary_dashboard",
+            "home_tab_dashboard",
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
@@ -957,7 +991,9 @@ class ProjectBackwardCompatSerializer(
             representation["default_data_theme"] = _default_data_color_theme_id()
         return representation
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
+        if isinstance(obj, ObjectAccessRef):
+            return super().get_user_access_level(obj)
         # The access-control system is keyed on the Team, so resolve through the passthrough Team
         return super().get_user_access_level(cast(Project, obj).passthrough_team)
 
@@ -973,7 +1009,7 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
+        return get_flag_evaluations_read_mode(obj.organization_id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1005,10 +1041,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.passthrough_team
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
@@ -1070,27 +1103,27 @@ class ProjectBackwardCompatSerializer(
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_linked_flag(value)
+        return session_recording_settings.validate_session_recording_linked_flag(value)
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_network_payload_capture_config(value)
+        return session_recording_settings.validate_session_recording_network_payload_capture_config(value)
 
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_masking_config(value)
+        return session_recording_settings.validate_session_recording_masking_config(value)
 
     @staticmethod
     def validate_session_recording_trigger_groups(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_trigger_groups(value)
+        return session_recording_settings.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
-        return TeamSerializer.validate_session_replay_config(value)
+        return session_recording_settings.validate_session_replay_config(value)
 
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
-        return TeamSerializer.validate_session_replay_ai_summary_config(value)
+        return session_recording_settings.validate_session_replay_ai_summary_config(value)
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
@@ -1100,7 +1133,7 @@ class ProjectBackwardCompatSerializer(
 
     @staticmethod
     def validate_modifiers(value: dict | None) -> dict | None:
-        return TeamSerializer.validate_modifiers(value)
+        return query_modifiers.validate_modifiers(value)
 
     @staticmethod
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
@@ -1115,6 +1148,18 @@ class ProjectBackwardCompatSerializer(
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
+
+        if "tags" in attrs:
+            project_tags.validate_group_change(
+                attrs["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(self.instance))
+                if self.instance
+                else set(),
+                user=cast(User, self.context["request"].user),
+                organization_id=self.instance.organization_id
+                if self.instance
+                else self.context["view"].organization_id,
+            )
 
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
@@ -1135,6 +1180,23 @@ class ProjectBackwardCompatSerializer(
                             {field_name: f"You need {required_level} access to {display_name} to modify this field."}
                         )
         return super().validate(attrs)
+
+    def save(self, **kwargs: Any) -> Project:
+        if self.instance is None or "tags" not in self.validated_data:
+            return super().save(**kwargs)
+        with transaction.atomic():
+            project = get_object_or_404(
+                Project.objects.select_for_update(),
+                pk=self.instance.pk,
+                organization_id=self.instance.organization_id,
+            )
+            project_tags.validate_group_change(
+                self.validated_data["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(project)),
+                user=cast(User, self.context["request"].user),
+                organization_id=project.organization_id,
+            )
+            return super().save(**kwargs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         # Analytics config sub-objects are created with the Team's defaults and only mutated via update;
@@ -1209,9 +1271,19 @@ class ProjectBackwardCompatSerializer(
         # the passthrough loop below setattr()s everything left in validated_data onto the Project
         # or its Team. So tags come out here and are written at the end.
         tags = validated_data.pop("tags", None)
+        # The settings patch persisted under lock below must not be written again from the
+        # stale request snapshot; the token handler can add the key later, so capture the
+        # client's intent now.
+        patch_conversations_settings = "conversations_settings" in validated_data
+        # Captured before the locked block pops the keys, so the refresh/re-cache step
+        # below still knows this request touched the team row.
+        conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
 
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
+        if "home_tab_dashboard" in validated_data:
+            dashboard = team.home_tab_dashboard
+            team_before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
         project_before_update = instance.__dict__.copy()
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
@@ -1228,6 +1300,13 @@ class ProjectBackwardCompatSerializer(
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             update_team_feature_flag_policy_config(team, config_data, context=config_context)
+
+        # Lives on a Team extension, not a Project or Team column, so it can't flow through the
+        # generic passthrough loop below.
+        if "home_tab_dashboard" in validated_data:
+            dashboard = validated_data.pop("home_tab_dashboard")
+            team.home_tab_dashboard = dashboard
+            home_tab_dashboard_id = dashboard.id if dashboard else None
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1291,21 +1370,8 @@ class ProjectBackwardCompatSerializer(
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
-            validated_data["modifiers"] = {
-                **(team.modifiers or {}),
-                **validated_data["modifiers"],
-            }
-
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
-        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = team.conversations_settings or {}
-            new_settings = validated_data["conversations_settings"]
-            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
-
-        validated_data = handle_conversations_token_on_update(
-            validated_data, team.conversations_enabled, team.conversations_settings
-        )
+        if "modifiers" in validated_data:
+            validated_data["modifiers"] = query_modifiers.merge_modifiers(validated_data["modifiers"], team.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
@@ -1315,6 +1381,8 @@ class ProjectBackwardCompatSerializer(
         updated_team_fields = []
         updated_project_fields = []
         for attr, value in validated_data.items():
+            if attr in LOCKED_CONVERSATIONS_COLUMNS:
+                continue
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
                 setattr(instance, attr, value)
@@ -1332,13 +1400,23 @@ class ProjectBackwardCompatSerializer(
 
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        if updated_team_fields:
+        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+        if conversations_lock_applied:
+            locked_conversations = merge_conversations_settings_locked(
+                team, validated_data, patch_conversations_settings, updated_team_fields
+            )
+            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+        elif updated_team_fields:
             # auto_now fields only refresh when included in update_fields
             team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
-        if updated_team_fields:
+        if "home_tab_dashboard" in team_before_update:
+            team_after_update["home_tab_dashboard"] = home_tab_dashboard_id
+        if updated_team_fields or conversations_lock_applied:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
@@ -1383,6 +1461,7 @@ class ProjectBackwardCompatSerializer(
         report_conversations_settings_changes(
             cast(User, self.context["request"].user),
             team_before_update.get("conversations_settings"),
+            team_after_update.get("conversations_settings"),
             team,
         )
 
@@ -1393,8 +1472,17 @@ class ProjectBackwardCompatSerializer(
         return instance
 
 
+class ProjectCreateRequestSerializer(ProjectBackwardCompatSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        return {name: field for name, field in super().get_fields().items() if not field.read_only}
+
+    class Meta(ProjectBackwardCompatSerializer.Meta):
+        fields = tuple(field for field in ProjectBackwardCompatSerializer.Meta.fields if field != "home_tab_dashboard")
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
+    create=extend_schema(request=ProjectCreateRequestSerializer, responses=ProjectBackwardCompatSerializer),
     list=extend_schema(
         parameters=project_tags.LIST_FILTER_PARAMETERS,
     ),
@@ -1467,12 +1555,15 @@ class ProjectViewSet(
         tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
         super().perform_update(serializer)
         if tags_before is not None:
+            tags_after = project_tags.current_names(project)
             project_tags.report_change(
                 user=cast(User, self.request.user),
                 project=project,
                 tags_before=tags_before,
-                tags_after=project_tags.current_names(project),
+                tags_after=tags_after,
             )
+            if tags_before != tags_after:
+                transaction.on_commit(lambda: _bump_org_serializer_cache_version(str(project.organization_id)))
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
@@ -1813,11 +1904,14 @@ class ProjectViewSet(
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
+        # Minting a durable credential needs a fresh session, like PSAK creation does.
+        permission_classes=[TimeSensitiveActionPermission, TeamMemberStrictManagementPermission],
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         validate_secret_token_generation(project.passthrough_team)
+        # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
+        _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
@@ -1980,15 +2074,7 @@ class ProjectViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )
@@ -2155,6 +2241,13 @@ class ProjectViewSet(
                 before=str(current_organization.id),
                 after=str(target_organization.id),
             )
+
+            # The cache invalidation receiver reads organization_id from the saved row, which already
+            # points at the target organization. Without this bump the source organization keeps
+            # listing the project until its cached project list expires. Register it before the saves,
+            # because Django skips the remaining commit hooks when an earlier one raises.
+            source_organization_id = str(current_organization.id)
+            transaction.on_commit(lambda: _bump_org_serializer_cache_version(source_organization_id))
 
             project.organization_id = target_organization.id
             project.save()

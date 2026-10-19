@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]):
+    codebase_detection = detect(env=("^PANDADOC_",), npm=("pandadoc-node-client",), pypi=("pandadoc-python-client",))
+
     # v2 is declared so new sources are stamped with the vendor's current API generation, but the
     # endpoints this source reads are v1-only (see pandadoc.py), so both pins resolve to the same wire.
     supported_versions = (API_VERSION_V1, API_VERSION_V2)

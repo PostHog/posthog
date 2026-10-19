@@ -2275,6 +2275,12 @@
             "description": "Whether the alert is actively being evaluated.",
             "type": "boolean"
         },
+        "evaluation_delay_intervals": {
+            "description": "Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+        },
         "id": {
             "description": "A UUID string identifying this alert configuration.",
             "type": "string"

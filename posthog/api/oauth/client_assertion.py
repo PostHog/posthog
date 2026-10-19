@@ -21,10 +21,13 @@ from django.core.cache import cache
 
 import jwt
 import structlog
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt import PyJWK, PyJWKSet
 
 from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, fetch_client_json_document
 from posthog.dataclasses import frozen
+from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.oauth import OAuthApplication
 
 logger = structlog.get_logger(__name__)
@@ -39,10 +42,15 @@ class ResolvedClientAssertion:
 
 CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-# Asymmetric signatures only. Allowing an HMAC family here would be a key-confusion hole:
-# the "public" key we fetch is attacker-publishable, so an HS256 assertion signed with that
-# same value as the shared secret would verify. "none" is excluded for the same reason.
-ALLOWED_ASSERTION_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+PRIVATE_KEY_REQUIRED_MESSAGE = (
+    "Set token_endpoint_auth_method to private_key_jwt and publish a jwks_uri in your client metadata, "
+    "call client_registration, then sign a client_assertion."
+)
+UNREADABLE_CLIENT_ASSERTION_MESSAGE = (
+    f"Send client_assertion_type {CLIENT_ASSERTION_TYPE_JWT_BEARER} with the client_assertion, "
+    "and name the client in client_id or the assertion's sub claim."
+)
+
 
 # An assertion is a single-use credential presented immediately, so it needs no real
 # lifetime. Capping it bounds how long a captured assertion is replayable if the jti cache
@@ -74,18 +82,13 @@ class UnknownSigningKeyError(ClientAssertionError):
 
 
 def _request_field(request: Any, name: str) -> str:
-    """Read a field from the request body, falling back to the query string.
-
-    RFC 7523 section 2.2 sends these as form parameters, which a GET has nowhere to put. The
-    GitHub grant listing endpoint is a GET, so without the query-string fallback a
-    private_key_jwt client could not authenticate there at all, while a client_secret one
-    could (its credentials ride the Basic header). An assertion is single-use and capped at
-    MAX_ASSERTION_LIFETIME_SECONDS, so one appearing in an access log is already spent.
-    """
+    """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
-    if from_body:
-        return str(from_body)
-    return str(request.query_params.get(name) or "") if hasattr(request, "query_params") else ""
+    return str(from_body or "")
+
+
+def presents_client_assertion(request: Any) -> bool:
+    return bool(_request_field(request, "client_assertion"))
 
 
 def extract_client_assertion(request: Any) -> ResolvedClientAssertion | None:
@@ -201,6 +204,8 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
     keys = parsed.get("keys")
     if isinstance(keys, list) and len(keys) > JWKS_MAX_KEYS:
         raise ClientAssertionError(f"JWKS must not contain more than {JWKS_MAX_KEYS} keys")
+    if isinstance(keys, list) and any(isinstance(key, dict) and key.get("kty") == "oct" for key in keys):
+        raise ClientAssertionError('JWKS contains a symmetric key (kty "oct"). Publish only RSA or EC public keys.')
 
     try:
         PyJWKSet.from_dict(parsed)
@@ -278,13 +283,18 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)
+    # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
+    if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(
+        key.key, (RSAPublicKey, EllipticCurvePublicKey)
+    ):
+        raise ClientAssertionError("Client signing key must be an RSA or EC public key")
     client_identifier = app.client_id
 
     try:
         claims = jwt.decode(
             assertion,
             key=key,
-            algorithms=ALLOWED_ASSERTION_ALGORITHMS,
+            algorithms=[key.algorithm_name],
             audience=audiences if audiences is not None else expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH),
             issuer=client_identifier,
             leeway=ASSERTION_CLOCK_SKEW_SECONDS,

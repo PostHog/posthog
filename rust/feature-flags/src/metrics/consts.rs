@@ -390,14 +390,20 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
     "flags_flag_definitions_reads_dedicated_redis";
 
-// Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
-// worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
+// Flag definitions self-heal: a request enqueued a rebuild request for a Celery worker to
+// drain. Labels: result (ok = enqueued, error = redis zadd failed), trigger (cache_miss =
+// nothing served the request, s3_hit = Redis lost the entry and S3 answered).
 pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
     "flags_flag_definitions_rebuild_requested_total";
 
 // Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
+
+// Transitional (#66179): background comparison of legacy-token auth against the
+// backfilled PSAK mirror rows. Labels: result = match | missing | team_mismatch |
+// revoked (leak-revoked, must stay without a row) | error | timeout | skipped (cap).
+pub const LEGACY_TOKEN_MIRROR_SHADOW_COUNTER: &str = "flags_legacy_token_mirror_shadow_total";
 
 // Counter for /flags requests classified as bot traffic. Fires regardless
 // of whether the request was actually short-circuited, so dashboards can

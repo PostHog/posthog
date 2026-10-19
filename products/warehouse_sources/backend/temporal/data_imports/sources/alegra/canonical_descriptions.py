@@ -67,4 +67,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developer.alegra.com/reference/get_debit-notes",
         "columns": {"id": "Unique identifier of the debit note.", "date": "Debit note document date."},
     },
+    "bank_accounts": {
+        "description": "Bank, cash, and credit card accounts used to receive and make payments.",
+        "docs_url": "https://developer.alegra.com/reference/listbankaccounts",
+        "columns": {
+            "id": "Unique identifier of the bank account.",
+            "type": "Account type, such as bank, credit-card, or cash.",
+            "status": "Account status: active or inactive.",
+            "initialBalance": "Opening balance of the account.",
+            "initialBalanceDate": "Date of the opening balance.",
+        },
+    },
+    "item_categories": {
+        "description": "Categories used to group products and services.",
+        "docs_url": "https://developer.alegra.com/reference/get_item-categories",
+        "columns": {
+            "id": "Unique identifier of the item category.",
+            "status": "Category status: active or inactive.",
+        },
+    },
+    "warehouses": {
+        "description": "Warehouses that hold item inventory.",
+        "docs_url": "https://developer.alegra.com/reference/get_warehouses",
+        "columns": {
+            "id": "Unique identifier of the warehouse.",
+            "isDefault": "Whether this is the company's default warehouse.",
+            "status": "Warehouse status: active or inactive.",
+        },
+    },
+    "inventory_adjustments": {
+        "description": "Manual stock corrections that add or remove item quantities in a warehouse.",
+        "docs_url": "https://developer.alegra.com/reference/get_inventory-adjustments",
+        "columns": {
+            "id": "Unique identifier of the inventory adjustment.",
+            "date": "Inventory adjustment document date.",
+            "warehouse": "Warehouse where the adjustment applies.",
+            "items": "Adjusted items with quantity, direction (in or out), and unit cost.",
+        },
+    },
 }

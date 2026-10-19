@@ -18,6 +18,9 @@ from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
+# Pages that pass an `entry_point`. It comes from the client, so other values aren't recorded on `experiment created`
+AI_ENTRY_POINTS = frozenset({"experiment_wizard_guide", "experiments_list"})
+
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create A/B test experiments that measure the impact of changes.
 
@@ -114,6 +117,11 @@ class CreateExperimentTool(MaxTool):
         if not feature_flag_key or not feature_flag_key.strip():
             return "Feature flag key cannot be empty", {"error": "invalid_flag_key"}
 
+        entry_point = self.context.get("entry_point") if isinstance(self.context, dict) else None
+        analytics_properties = (
+            {"ai_entry_point": entry_point} if isinstance(entry_point, str) and entry_point in AI_ENTRY_POINTS else None
+        )
+
         @database_sync_to_async
         def create_experiment() -> Experiment:
             existing_experiment = Experiment.objects.filter(team=self._team, name=name, deleted=False).first()
@@ -147,6 +155,7 @@ class CreateExperimentTool(MaxTool):
                 description=description or "",
                 type=type,
                 event_source=EventSource.POSTHOG_AI,
+                analytics_properties=analytics_properties,
             )
 
         try:

@@ -31,7 +31,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     BUFFER_LANE,
     cancel_sync_that_could_hand_over,
-    resnapshot_stays_in_buffer,
 )
 
 
@@ -126,12 +125,11 @@ def trigger_ad_hoc_sync(
         # streaming, so ongoing CDC stays billable. The save must precede the workflow start so the
         # source reloads cdc_mode="snapshot" instead of racing on stale "streaming".
         if schema.is_cdc and schema.cdc_mode == "streaming":
-            # Decided while the table still streams. Without the marker, the next capture run would
-            # empty the buffer under the new snapshot, deleting changes an in-flight run wrote.
-            if resnapshot_stays_in_buffer(schema):
-                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+            # Without the marker, the next capture run would empty the buffer under the new snapshot,
+            # deleting changes an in-flight run wrote.
+            updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
             updates["cdc_mode"] = "snapshot"
-            removes += ["cdc_last_log_position", "cdc_deferred_runs"]
+            removes.append("cdc_last_log_position")
             extra_model_fields["initial_sync_complete"] = False
     if paused_now:
         updates["admin_unpause_schedule_after_run"] = True

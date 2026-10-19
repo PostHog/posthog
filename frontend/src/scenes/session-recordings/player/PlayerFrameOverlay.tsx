@@ -58,6 +58,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
         <div className="flex gap-1 mt-4">
             <CommentOnRecordingButton className="text-2xl text-white" data-attr="replay-overlay-comment" />
             <LemonButton
+                data-attr="replay-overlay-emoji"
                 size="xsmall"
                 icon={<IconEmoji className="text-2xl text-white" />}
                 onClick={(e) => {
@@ -158,12 +159,13 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                               : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
-                    <LemonButton to={urls.login()} type="primary" fullWidth center>
+                    <LemonButton data-attr="replay-overlay-sign-in" to={urls.login()} type="primary" fullWidth center>
                         Sign in
                     </LemonButton>
                 )}
                 {isRecoverable && (
                     <LemonButton
+                        data-attr="replay-overlay-retry"
                         onClick={(e) => {
                             e.stopPropagation()
                             retryLoadingSnapshots()
@@ -177,6 +179,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 )}
                 {!isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
                     <LemonButton
+                        data-attr="replay-overlay-reload"
                         onClick={() => {
                             window.location.reload()
                         }}
@@ -187,7 +190,13 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                         Reload
                     </LemonButton>
                 )}
-                <LemonButton onClick={() => openInAppSupport('recording-not-found')} type="secondary" fullWidth center>
+                <LemonButton
+                    data-attr="replay-overlay-contact-support"
+                    onClick={() => openInAppSupport('recording-not-found')}
+                    type="secondary"
+                    fullWidth
+                    center
+                >
                     Contact support
                 </LemonButton>
             </div>

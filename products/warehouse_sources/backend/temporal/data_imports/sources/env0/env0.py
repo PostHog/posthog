@@ -48,7 +48,7 @@ class Env0ResumeConfig:
 
 def _format_date_window_value(value: Any) -> Optional[str]:
     """Format an incremental cursor as YYYY-MM-DDTHH:mm:ss.sssZ, the format env0's
-    fromDate/toDate params require."""
+    date window params require."""
     if isinstance(value, datetime):
         dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     elif isinstance(value, date):
@@ -63,7 +63,7 @@ def _build_date_window_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, str]:
-    """Build the fromDate/toDate server-side window for incremental syncs.
+    """Build the server-side date window for incremental syncs.
 
     env0 requires both params together, so the window runs from the watermark (minus the
     endpoint's lookback, letting rows that mutated after first fetch be re-pulled and merged)
@@ -86,7 +86,8 @@ def _build_date_window_params(
     if from_date is None:
         return {}
 
-    return {"fromDate": from_date, "toDate": _format_date_window_value(datetime.now(UTC)) or ""}
+    from_param, to_param = config.date_window_params
+    return {from_param: from_date, to_param: _format_date_window_value(datetime.now(UTC)) or ""}
 
 
 def _paginator_for(config: Env0EndpointConfig) -> BasePaginator:
@@ -103,10 +104,10 @@ def _paginator_for(config: Env0EndpointConfig) -> BasePaginator:
 
 def _row_transform(
     config: Env0EndpointConfig, parent_resource_name: Optional[str]
-) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Per-item reshape: drop huge free-text blobs and secret-bearing fields, lift a nested object
-    into the row root, rename injected parent fields to their documented columns, and fill blank
-    primary key parts."""
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    """Per-item reshape: drop empty placeholder objects, drop huge free-text blobs and
+    secret-bearing fields, lift a nested object into the row root, rename injected parent fields to
+    their documented columns, and fill blank primary key parts."""
     strip = set(config.strip_fields)
     flatten = config.flatten_field
     injected = (
@@ -121,7 +122,9 @@ def _row_transform(
     # sync instead of updated. Injected columns always carry a parent value, so they are excluded.
     nullable_key_fields = [key for key in config.primary_keys if key not in injected.values()]
 
-    def _transform(row: dict[str, Any]) -> dict[str, Any]:
+    def _transform(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        if config.required_field and row.get(config.required_field) is None:
+            return []
         out = {key: value for key, value in row.items() if key not in strip}
         nested = out.pop(flatten, None) if flatten else None
         if isinstance(nested, dict):
@@ -232,7 +235,7 @@ def _target_resource(
 
 def _build_resources(config: Env0EndpointConfig, date_window_params: dict[str, str]) -> list[EndpointResource | str]:
     if config.scope == "organization":
-        return [_organizations_parent(), _target_resource(config, "organizations", {})]
+        return [_organizations_parent(), _target_resource(config, "organizations", date_window_params)]
     if config.scope == "project":
         return [_organizations_parent(), _projects_parent(), _target_resource(config, "projects", {})]
     if config.scope == "environment":

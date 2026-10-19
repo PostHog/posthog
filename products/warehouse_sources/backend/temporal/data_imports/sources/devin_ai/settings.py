@@ -96,6 +96,13 @@ DEVIN_AI_ENDPOINTS: dict[str, DevinAIEndpointConfig] = {
         path="/v3/organizations/{org_id}/knowledge/notes",
         primary_keys=["note_id"],
     ),
+    # Event-driven workflows that start Devin sessions; they replace the deprecated schedules endpoints.
+    # The listing has no server-side time filter, so full refresh only.
+    "automations": DevinAIEndpointConfig(
+        name="automations",
+        path="/v3/organizations/{org_id}/automations",
+        primary_keys=["automation_id"],
+    ),
     # Org members, carrying user_id + email so the opaque user_id on sessions resolves to a person.
     # Backed by the v3beta1 org-scoped users listing (needs the org-level `ViewOrgMembership`
     # permission): the stable alternatives require credentials this source doesn't store (the v2

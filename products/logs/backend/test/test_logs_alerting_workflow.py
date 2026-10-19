@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import patch
 
 from temporalio import activity, workflow
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
@@ -45,7 +46,10 @@ def temporal_info_logging(caplog: pytest.LogCaptureFixture) -> None:
 
 
 @pytest.mark.asyncio
-async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
+@pytest.mark.parametrize("max_concurrent_batches, expected_peak", [(0, 3), (2, 2), (1, 1)])
+async def test_workflow_chunks_manifests_and_aggregates_results(
+    max_concurrent_batches: int, expected_peak: int
+) -> None:
     # 7 manifests, batch_size=3 → 3 batches: sizes 3, 3, 1.
     manifests = [
         CohortManifest(
@@ -59,7 +63,7 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
 
     @activity.defn(name="discover_cohorts_activity")
     async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
-        return DiscoverCohortsOutput(manifests=manifests, batch_size=3)
+        return DiscoverCohortsOutput(manifests=manifests, batch_size=3, max_concurrent_batches=max_concurrent_batches)
 
     @activity.defn(name="evaluate_cohort_batch_activity")
     async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
@@ -78,16 +82,34 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
             activities=[fake_discover, fake_evaluate],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result: CheckAlertsOutput = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 LogsAlertCheckWorkflow.run,
                 CheckAlertsInput(),
                 id=f"test-workflow-aggregate-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
                 execution_timeout=timedelta(minutes=2),
             )
+            result: CheckAlertsOutput = await handle.result()
+            history = await handle.fetch_history()
+
+    # The semaphore decides when the workflow schedules each batch, so the peak count of
+    # scheduled-but-unfinished evaluate activities in history is the enforced limit.
+    open_batches = 0
+    peak = 0
+    for event in history.events:
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            if event.activity_task_scheduled_event_attributes.activity_type.name == "evaluate_cohort_batch_activity":
+                open_batches += 1
+                peak = max(peak, open_batches)
+        elif event.event_type in (
+            EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,
+            EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
+        ):
+            open_batches = max(0, open_batches - 1)
 
     assert result.alerts_checked == 7
     assert result.alerts_errored == 0
+    assert peak == expected_peak
 
 
 @pytest.mark.parametrize(

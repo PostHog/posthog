@@ -4,12 +4,14 @@ import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 
 import { ApiError, RecordingDeletedError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { setupSessionRecordingTest } from './__mocks__/test-setup'
+import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
@@ -37,6 +39,33 @@ describe('snapshotDataLogic', () => {
             blobV2PollingDisabled: true,
         })
         logic.mount()
+    })
+
+    describe('follow live flag gate', () => {
+        it.each([
+            { flagOn: false, polls: false },
+            { flagOn: true, polls: true },
+        ])(
+            'with the flag on: $flagOn, a live request polls before all sources load: $polls',
+            async ({ flagOn, polls }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_FOLLOW_LIVE]: flagOn })
+                const pollingLogic = snapshotDataLogic({
+                    sessionRecordingId: 'live-gate',
+                    blobV2PollingDisabled: false,
+                })
+                pollingLogic.mount()
+
+                const expectation = expectLogic(pollingLogic, () => pollingLogic.actions.setLivePolling(true))
+                if (polls) {
+                    await expectation.toDispatchActions(['startPolling'])
+                } else {
+                    await expectation.toNotHaveDispatchedActions(['startPolling'])
+                }
+                expect(pollingLogic.values.livePolling).toBe(flagOn)
+
+                pollingLogic.unmount()
+            }
+        )
     })
 
     describe('recording deleted selectors', () => {
@@ -119,6 +148,22 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
             consoleError.mockRestore()
+        })
+    })
+
+    describe('replay proxy token', () => {
+        it.each([
+            ['the token from the sources listing', 'header.payload.signature', 'header.payload.signature'],
+            ['null when the listing has a null token', null, null],
+            ['null when the listing has no token field', undefined, null],
+        ])('stores %s', async (_, replayProxyToken, expected) => {
+            overrideSessionRecordingMocks({ snapshotSources: [BLOB_SOURCE], replayProxyToken })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesSuccess'])
+                .toMatchValues({ replayProxyToken: expected })
         })
     })
 

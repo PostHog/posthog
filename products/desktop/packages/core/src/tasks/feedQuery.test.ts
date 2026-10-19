@@ -111,7 +111,7 @@ describe("feedQuery", () => {
       ["is:sideways", "unknown-value"],
       ["pr:sideways", "unknown-value"],
       ["ci:sideways", "unknown-value"],
-      ["type:canvas", "unknown-value"],
+      ["type:sideways", "unknown-value"],
     ])("flags %s as %s", (query, kind) => {
       const parsed = parseFeedQuery(query);
       expect(parsed.issues).toHaveLength(1);

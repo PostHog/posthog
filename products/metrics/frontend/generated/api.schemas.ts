@@ -40,7 +40,7 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
-    /** Number of distinct values for this attribute in recent series metadata. */
+    /** Number of distinct values for this attribute in recent data. */
     value_count: number
 }
 
@@ -234,6 +234,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     clause?: string | null
+    /**
+     * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+     * @nullable
+     */
+    unit?: string | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -278,6 +283,494 @@ export interface _MetricAnomalyReportApi {
     series: _MetricSeriesApi
 }
 
+/**
+ * * `grafana` - Grafana
+ * * `screenshot` - Screenshot
+ */
+export type DashboardImportSourceEnumApi =
+    (typeof DashboardImportSourceEnumApi)[keyof typeof DashboardImportSourceEnumApi]
+
+export const DashboardImportSourceEnumApi = {
+    Grafana: 'grafana',
+    Screenshot: 'screenshot',
+} as const
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type DashboardImportStatusEnumApi =
+    (typeof DashboardImportStatusEnumApi)[keyof typeof DashboardImportStatusEnumApi]
+
+export const DashboardImportStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `starting` - Starting
+ * * `matching` - Matching
+ * * `building` - Building
+ * * `checking_layout` - Checking Layout
+ */
+export type DashboardImportPhaseEnumApi = (typeof DashboardImportPhaseEnumApi)[keyof typeof DashboardImportPhaseEnumApi]
+
+export const DashboardImportPhaseEnumApi = {
+    Starting: 'starting',
+    Matching: 'matching',
+    Building: 'building',
+    CheckingLayout: 'checking_layout',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `working` - Working
+ * * `done` - Done
+ * * `skipped` - Skipped
+ */
+export type PanelProgressStateEnumApi = (typeof PanelProgressStateEnumApi)[keyof typeof PanelProgressStateEnumApi]
+
+export const PanelProgressStateEnumApi = {
+    Waiting: 'waiting',
+    Working: 'working',
+    Done: 'done',
+    Skipped: 'skipped',
+} as const
+
+export interface DashboardImportPanelProgressApi {
+    /** Panel key in the import. */
+    key: string
+    /** Panel title. */
+    title: string
+    /** 'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.
+     *
+     * * `waiting` - Waiting
+     * * `working` - Working
+     * * `done` - Done
+     * * `skipped` - Skipped */
+    state: PanelProgressStateEnumApi
+}
+
+export interface DashboardImportSummaryApi {
+    /** Number of panels in the input. */
+    total: number
+    /** Panels imported with the same meaning. */
+    imported: number
+    /** Panels imported with a change in what they show. */
+    approximated: number
+    /** Panels that have no working query. */
+    failed: number
+    /** Panels with no PostHog equivalent. */
+    skipped: number
+}
+
+/**
+ * * `imported` - Imported
+ * * `approximated` - Approximated
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type PanelImportOutcomeEnumApi = (typeof PanelImportOutcomeEnumApi)[keyof typeof PanelImportOutcomeEnumApi]
+
+export const PanelImportOutcomeEnumApi = {
+    Imported: 'imported',
+    Approximated: 'approximated',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+export interface DashboardImportPanelApi {
+    /** Panel key in the import, for example 'p12' for Grafana panel 12. */
+    key: string
+    /** Panel title. */
+    title: string
+    /** What happened to the panel.
+     *
+     * * `imported` - Imported
+     * * `approximated` - Approximated
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    outcome: PanelImportOutcomeEnumApi
+    /** What changed, or why the panel failed or was skipped. */
+    reason: string
+}
+
+export interface DashboardImportApi {
+    /**
+     * Id to poll for the status. Null when the import finished in the request, with no agent.
+     * @nullable
+     */
+    id: string | null
+    /** What the import reads.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /** Where the import is.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: DashboardImportStatusEnumApi
+    /** Name of the new dashboard. */
+    dashboard_name: string
+    /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard, or 'checking_layout' against the screenshot.
+     *
+     * * `starting` - Starting
+     * * `matching` - Matching
+     * * `building` - Building
+     * * `checking_layout` - Checking Layout */
+    phase: DashboardImportPhaseEnumApi | null
+    /** Where each panel is, while the import runs. */
+    panel_progress: DashboardImportPanelProgressApi[]
+    /**
+     * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
+     * @nullable
+     */
+    layout_rounds: number | null
+    /**
+     * The comparison that runs, from 1, while the phase is 'checking_layout'.
+     * @nullable
+     */
+    layout_round: number | null
+    /**
+     * Id of the new dashboard, when it exists.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
+     * Why the import failed, when it failed.
+     * @nullable
+     */
+    error: string | null
+    /** Panel counts, when the import ended. */
+    summary: DashboardImportSummaryApi | null
+    /** The outcome for each panel, when the import ended. */
+    panels: DashboardImportPanelApi[]
+}
+
+export interface DashboardImportCreateApi {
+    /** What to import: 'grafana' reads a Grafana dashboard JSON model, 'screenshot' reads an image of a dashboard.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /**
+     * Name of the new dashboard. Defaults to the Grafana dashboard title, or to 'Imported dashboard'.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * The Grafana dashboard JSON model as text, from Dashboard settings > JSON Model or from an export. Required when source is 'grafana'.
+     * @maxLength 5242880
+     */
+    grafana_json?: string
+    /**
+     * The screenshot as base64, without a data URL prefix. PNG, JPEG, WebP or GIF, at most 5 MB. Required when source is 'screenshot'.
+     * @maxLength 7340032
+     */
+    image_base64?: string
+}
+
+/**
+ * * `promql` - Promql
+ * * `builder` - Builder
+ * * `histogram` - Histogram
+ * * `hogql` - Hogql
+ */
+export type PanelQueryLanguageEnumApi = (typeof PanelQueryLanguageEnumApi)[keyof typeof PanelQueryLanguageEnumApi]
+
+export const PanelQueryLanguageEnumApi = {
+    Promql: 'promql',
+    Builder: 'builder',
+    Histogram: 'histogram',
+    Hogql: 'hogql',
+} as const
+
+/**
+ * * `sum` - Sum
+ * * `avg` - Avg
+ * * `count` - Count
+ * * `min` - Min
+ * * `max` - Max
+ * * `p95` - P95
+ * * `rate` - Rate
+ * * `increase` - Increase
+ * * `histogram_quantile` - Histogram Quantile
+ */
+export type PanelBuilderAggregationEnumApi =
+    (typeof PanelBuilderAggregationEnumApi)[keyof typeof PanelBuilderAggregationEnumApi]
+
+export const PanelBuilderAggregationEnumApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Count: 'count',
+    Min: 'min',
+    Max: 'max',
+    P95: 'p95',
+    Rate: 'rate',
+    Increase: 'increase',
+    HistogramQuantile: 'histogram_quantile',
+} as const
+
+export interface PanelFilterApi {
+    /**
+     * Attribute name, for example 'service.name'.
+     * @maxLength 255
+     */
+    key: string
+    /** Comparison. Regex operators use RE2.
+     *
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex */
+    op: OpEnumApi
+    /**
+     * Value or regex to compare against.
+     * @maxLength 1024
+     */
+    value: string
+}
+
+export interface PanelBuilderClauseApi {
+    /**
+     * Alias that a formula uses, for example 'a'.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Exact metric name.
+     * @maxLength 255
+     */
+    metric_name: string
+    /** Aggregation for each bucket, with the same meaning as in the metrics query API.
+     *
+     * * `sum` - Sum
+     * * `avg` - Avg
+     * * `count` - Count
+     * * `min` - Min
+     * * `max` - Max
+     * * `p95` - P95
+     * * `rate` - Rate
+     * * `increase` - Increase
+     * * `histogram_quantile` - Histogram Quantile */
+    aggregation: PanelBuilderAggregationEnumApi
+    /**
+     * Quantile between 0 and 1. Required for 'histogram_quantile'. The other aggregations ignore it.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
+    /** Attribute filters, joined with AND. */
+    filters?: PanelFilterApi[]
+    /**
+     * Attribute names that split the result into series.
+     * @items.maxLength 255
+     */
+    group_by?: string[]
+}
+
+export interface PanelBuilderQueryApi {
+    /** One clause for each series. */
+    clauses: PanelBuilderClauseApi[]
+    /**
+     * Arithmetic over clause aliases, for example 'a / b'.
+     * @nullable
+     */
+    formula?: string | null
+}
+
+export interface PanelQueryCheckApi {
+    /**
+     * Panel key. The result for the panel carries the same key.
+     * @maxLength 64
+     */
+    key: string
+    /**
+     * Panel title, shown in the import progress.
+     * @maxLength 200
+     */
+    title?: string
+    /** 'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.
+     *
+     * * `promql` - Promql
+     * * `builder` - Builder
+     * * `histogram` - Histogram
+     * * `hogql` - Hogql */
+    language: PanelQueryLanguageEnumApi
+    /**
+     * PromQL expression. Used when language is 'promql'.
+     * @nullable
+     */
+    promql?: string | null
+    /** Builder query. Used when language is 'builder'. */
+    builder?: PanelBuilderQueryApi | null
+    /**
+     * Histogram metric name. Used when language is 'histogram'.
+     * @nullable
+     */
+    histogram_metric?: string | null
+    /**
+     * SQL SELECT over logs or posthog.trace_spans with {filters} in the WHERE clause. Used when language is 'hogql'.
+     * @nullable
+     */
+    hogql?: string | null
+}
+
+export interface PanelQueryCheckRequestApi {
+    /**
+     * Up to 20 panel queries to check.
+     * @minItems 1
+     * @maxItems 20
+     */
+    panels: PanelQueryCheckApi[]
+    /**
+     * The import that these panels belong to, from the import instructions. The import progress shows which panels pass.
+     * @nullable
+     */
+    import_id?: string | null
+}
+
+export interface PanelQueryCheckResultApi {
+    /** Panel key from the request. */
+    key: string
+    /** True when the query can go on a dashboard. */
+    valid: boolean
+    /**
+     * Why the query cannot go on a dashboard.
+     * @nullable
+     */
+    error: string | null
+    /** Warnings that do not block the query, such as no recent data. */
+    notes: string[]
+}
+
+export interface PanelQueryCheckResponseApi {
+    /** One result for each checked panel. */
+    results: PanelQueryCheckResultApi[]
+}
+
+/**
+ * * `curated` - Curated
+ * * `generated` - Generated
+ */
+export type MetricsDashboardTemplateSourceEnumApi =
+    (typeof MetricsDashboardTemplateSourceEnumApi)[keyof typeof MetricsDashboardTemplateSourceEnumApi]
+
+export const MetricsDashboardTemplateSourceEnumApi = {
+    Curated: 'curated',
+    Generated: 'generated',
+} as const
+
+/**
+ * * `generating` - Generating
+ * * `pending_review` - Pending Review
+ * * `approved` - Approved
+ * * `rejected` - Rejected
+ * * `failed` - Failed
+ */
+export type DashboardTemplateStatusEnumApi =
+    (typeof DashboardTemplateStatusEnumApi)[keyof typeof DashboardTemplateStatusEnumApi]
+
+export const DashboardTemplateStatusEnumApi = {
+    Generating: 'generating',
+    PendingReview: 'pending_review',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Failed: 'failed',
+} as const
+
+export interface MetricsDashboardTemplateRoundApi {
+    /** Check round, from 1. */
+    round: number
+    /** True when the round rendered a picture of the dashboard. */
+    has_picture: boolean
+    /**
+     * The verdict of the model on the picture.
+     * @nullable
+     */
+    looks_good: boolean | null
+    /** The problems that the model saw. */
+    problems: string[]
+    /** True when the model corrected the panels after this round. */
+    revised: boolean
+}
+
+export interface MetricsDashboardTemplateApi {
+    /** Template id. */
+    id: string
+    /** Stable key: the bank file name, or a digest of the metric names. */
+    key: string
+    /** Dashboard name. */
+    name: string
+    /** What the dashboard shows. */
+    description: string
+    /** Curated in code, or generated.
+     *
+     * * `curated` - Curated
+     * * `generated` - Generated */
+    source: MetricsDashboardTemplateSourceEnumApi
+    /** Review status.
+     *
+     * * `generating` - Generating
+     * * `pending_review` - Pending Review
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `failed` - Failed */
+    status: DashboardTemplateStatusEnumApi
+    /** Metric names that the charts read. */
+    metric_names: string[]
+    /** Chart titles, top to bottom. */
+    panel_titles: string[]
+    /** When the template entered the bank. */
+    created_at: string
+    /** Number of projects that have the template suggested. */
+    suggestion_count: number
+    /**
+     * Project whose metrics generated it.
+     * @nullable
+     */
+    source_team_id: number | null
+    /**
+     * Project of the preview dashboard.
+     * @nullable
+     */
+    preview_team_id: number | null
+    /**
+     * Unlisted dashboard that shows the template with live data.
+     * @nullable
+     */
+    preview_dashboard_id: number | null
+    /** The picture check rounds of the generation. */
+    rounds: MetricsDashboardTemplateRoundApi[]
+    /** Drafted charts whose queries failed the checks. */
+    dropped_panels: string[]
+    /**
+     * Why the generation failed.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * Who approved or rejected the template.
+     * @nullable
+     */
+    reviewed_by: string | null
+    /**
+     * When the template was approved or rejected.
+     * @nullable
+     */
+    reviewed_at: string | null
+}
+
+export interface MetricsCreatedDashboardApi {
+    /** The id of the dashboard. */
+    dashboard_id: number
+}
+
 export interface _MetricErrorSpikeApi {
     /** When the error spike was detected, ISO 8601. */
     detected_at: string
@@ -293,239 +786,6 @@ export interface _MetricErrorSpikeApi {
 export interface _MetricErrorSpikesResponseApi {
     /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
     results: _MetricErrorSpikeApi[]
-}
-
-/**
- * * `gauge` - gauge
- * * `sum` - sum
- * * `histogram` - histogram
- * * `exponential_histogram` - exponential_histogram
- * * `summary` - summary
- */
-export type OtelMetricTypeEnumApi = (typeof OtelMetricTypeEnumApi)[keyof typeof OtelMetricTypeEnumApi]
-
-export const OtelMetricTypeEnumApi = {
-    Gauge: 'gauge',
-    Sum: 'sum',
-    Histogram: 'histogram',
-    ExponentialHistogram: 'exponential_histogram',
-    Summary: 'summary',
-} as const
-
-/**
- * * `second` - second
- * * `minute` - minute
- * * `minute_5` - minute_5
- * * `minute_15` - minute_15
- * * `hour` - hour
- * * `hour_6` - hour_6
- * * `day` - day
- * * `week` - week
- */
-export type MetricQueryIntervalEnumApi = (typeof MetricQueryIntervalEnumApi)[keyof typeof MetricQueryIntervalEnumApi]
-
-export const MetricQueryIntervalEnumApi = {
-    Second: 'second',
-    Minute: 'minute',
-    Minute5: 'minute_5',
-    Minute15: 'minute_15',
-    Hour: 'hour',
-    Hour6: 'hour_6',
-    Day: 'day',
-    Week: 'week',
-} as const
-
-export interface _MetricExplainBodyApi {
-    /**
-     * Exact metric name whose bucket should be taken apart.
-     * @maxLength 255
-     */
-    metricName: string
-    /** Constrain the bucket to one metric type. A name can exist as several types; without this, rows of every type sharing the name are decomposed together.
-     *
-     * * `gauge` - gauge
-     * * `sum` - sum
-     * * `histogram` - histogram
-     * * `exponential_histogram` - exponential_histogram
-     * * `summary` - summary */
-    metricType?: OtelMetricTypeEnumApi | null
-    /** The aggregation whose result should be explained. 'histogram_quantile' is rejected: it reduces bucket-count arrays rather than scalar samples, so there is no per-series value to lay out.
-     *
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `count` - count
-     * * `min` - min
-     * * `max` - max
-     * * `p95` - p95
-     * * `rate` - rate
-     * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile */
-    aggregation?: AggregationEnumApi
-    /**
-     * Quantile in (0, 1) applied across series. Defaults to 0.95 for the 'p95' aggregation.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    quantile?: number | null
-    /** Label predicates ANDed together, matching the chart the point came from. */
-    filters?: _MetricFilterApi[]
-    /** Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601. */
-    bucketStart: string
-    /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
-     *
-     * * `second` - second
-     * * `minute` - minute
-     * * `minute_5` - minute_5
-     * * `minute_15` - minute_15
-     * * `hour` - hour
-     * * `hour_6` - hour_6
-     * * `day` - day
-     * * `week` - week */
-    interval: MetricQueryIntervalEnumApi
-}
-
-export interface _MetricExplainRequestApi {
-    /** The chart point to take apart. */
-    query: _MetricExplainBodyApi
-}
-
-/**
- * * `none` - none
- * * `last` - last
- * * `avg_over_time` - avg_over_time
- * * `sum_over_time` - sum_over_time
- * * `increase` - increase
- * * `pooled_samples` - pooled_samples
- */
-export type TemporalReducerEnumApi = (typeof TemporalReducerEnumApi)[keyof typeof TemporalReducerEnumApi]
-
-export const TemporalReducerEnumApi = {
-    None: 'none',
-    Last: 'last',
-    AvgOverTime: 'avg_over_time',
-    SumOverTime: 'sum_over_time',
-    Increase: 'increase',
-    PooledSamples: 'pooled_samples',
-} as const
-
-/**
- * * `sum` - sum
- * * `avg` - avg
- * * `min` - min
- * * `max` - max
- * * `quantile` - quantile
- * * `count_series` - count_series
- */
-export type SpatialReducerEnumApi = (typeof SpatialReducerEnumApi)[keyof typeof SpatialReducerEnumApi]
-
-export const SpatialReducerEnumApi = {
-    Sum: 'sum',
-    Avg: 'avg',
-    Min: 'min',
-    Max: 'max',
-    Quantile: 'quantile',
-    CountSeries: 'count_series',
-} as const
-
-export interface _MetricSampleViewApi {
-    /** Sample timestamp, ISO 8601. */
-    time: string
-    /** Raw stored reading, before any reduction. */
-    value: number
-}
-
-/**
- * Per-data-point attributes identifying the series.
- */
-export type _MetricSeriesBreakdownApiLabels = { [key: string]: string }
-
-/**
- * Resource attributes identifying the scrape target.
- */
-export type _MetricSeriesBreakdownApiResourceLabels = { [key: string]: string }
-
-export interface _MetricSeriesBreakdownApi {
-    /** Service that reported this series. */
-    service_name: string
-    /** Per-data-point attributes identifying the series. */
-    labels: _MetricSeriesBreakdownApiLabels
-    /** Resource attributes identifying the scrape target. */
-    resource_labels: _MetricSeriesBreakdownApiResourceLabels
-    /** The series' raw samples in this bucket, oldest first, trimmed for display. */
-    samples: _MetricSampleViewApi[]
-    /** How many samples the series actually sent, even when 'samples' was trimmed. */
-    sample_count: number
-    /** Whether 'samples' lists fewer samples than arrived. */
-    samples_truncated: boolean
-    /**
-     * What this series contributed after the per-series reduction. Null for percentiles, which read the pooled readings and so have no single per-series contribution.
-     * @nullable
-     */
-    value: number | null
-}
-
-export interface _MetricBucketDecompositionApi {
-    /** Metric that was decomposed. */
-    metric_name: string
-    /** OTel metric type observed in the bucket. */
-    metric_type: string
-    /** OTel aggregation temporality observed in the bucket ('cumulative', 'delta', or empty for gauges). */
-    temporality: string
-    /** Aggregation that was explained. */
-    aggregation: string
-    /** Start of the explained bucket, ISO 8601. */
-    bucket_start: string
-    /** Bucket size the point was plotted at. */
-    interval: string
-    /** How each series' samples were collapsed to one value: 'last' for an instant gauge reading, 'avg_over_time' for an average, 'sum_over_time' for delta counters, 'increase' for cumulative counters, and 'pooled_samples' for percentiles, which skip the per-series step entirely.
-     *
-     * * `none` - none
-     * * `last` - last
-     * * `avg_over_time` - avg_over_time
-     * * `sum_over_time` - sum_over_time
-     * * `increase` - increase
-     * * `pooled_samples` - pooled_samples */
-    temporal_reducer: TemporalReducerEnumApi
-    /** How the per-series values were combined into the bucket's number.
-     *
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `min` - min
-     * * `max` - max
-     * * `quantile` - quantile
-     * * `count_series` - count_series */
-    spatial_reducer: SpatialReducerEnumApi
-    /** The series behind the point, largest contributors first, trimmed for display. */
-    series: _MetricSeriesBreakdownApi[]
-    /** How many series reported in the bucket. */
-    series_count: number
-    /** How many raw samples the bucket held across all series. */
-    sample_count: number
-    /** Whether 'series' lists fewer series than reported. */
-    series_truncated: boolean
-    /** Whether the bucket held more raw rows than the decomposition reads. Totals are computed only over the rows that were read. */
-    rows_truncated: boolean
-    /**
-     * The bucket's value recomputed from the raw samples, independently of the query builders. Null when no series reported.
-     * @nullable
-     */
-    reference_value: number | null
-    /**
-     * The value the product would plot for this point. Null when the query returned no row.
-     * @nullable
-     */
-    actual_value: number | null
-    /**
-     * Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted. Null when the raw read was truncated, so the two are not comparable.
-     * @nullable
-     */
-    agrees: boolean | null
-}
-
-export interface _MetricExplainResponseApi {
-    /** The bucket taken apart. */
-    decomposition: _MetricBucketDecompositionApi
 }
 
 export interface _HasMetricsResponseApi {
@@ -572,6 +832,62 @@ export interface _MetricsOverviewResponseApi {
     services: _MetricsOverviewServiceApi[]
 }
 
+/**
+ * * `gauge` - gauge
+ * * `sum` - sum
+ * * `histogram` - histogram
+ * * `exponential_histogram` - exponential_histogram
+ * * `summary` - summary
+ */
+export type OtelMetricTypeEnumApi = (typeof OtelMetricTypeEnumApi)[keyof typeof OtelMetricTypeEnumApi]
+
+export const OtelMetricTypeEnumApi = {
+    Gauge: 'gauge',
+    Sum: 'sum',
+    Histogram: 'histogram',
+    ExponentialHistogram: 'exponential_histogram',
+    Summary: 'summary',
+} as const
+
+/**
+ * * `none` - none
+ * * `sum` - sum
+ * * `avg` - avg
+ * * `count` - count
+ * * `min` - min
+ * * `max` - max
+ * * `p95` - p95
+ * * `rate` - rate
+ * * `increase` - increase
+ * * `histogram_quantile` - histogram_quantile
+ */
+export type MetricQueryAggregationEnumApi =
+    (typeof MetricQueryAggregationEnumApi)[keyof typeof MetricQueryAggregationEnumApi]
+
+export const MetricQueryAggregationEnumApi = {
+    None: 'none',
+    Sum: 'sum',
+    Avg: 'avg',
+    Count: 'count',
+    Min: 'min',
+    Max: 'max',
+    P95: 'p95',
+    Rate: 'rate',
+    Increase: 'increase',
+    HistogramQuantile: 'histogram_quantile',
+} as const
+
+/**
+ * * `rate` - rate
+ * * `increase` - increase
+ */
+export type MetricRangeFunctionEnumApi = (typeof MetricRangeFunctionEnumApi)[keyof typeof MetricRangeFunctionEnumApi]
+
+export const MetricRangeFunctionEnumApi = {
+    Rate: 'rate',
+    Increase: 'increase',
+} as const
+
 export interface _MetricGroupByApi {
     /**
      * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -585,6 +901,33 @@ export interface _MetricGroupByApi {
      * * `auto` - auto */
     scope?: MetricAttributeScopeEnumApi
 }
+
+/**
+ * * `second_15` - second_15
+ * * `second_30` - second_30
+ * * `minute` - minute
+ * * `minute_5` - minute_5
+ * * `minute_15` - minute_15
+ * * `minute_30` - minute_30
+ * * `hour` - hour
+ * * `hour_6` - hour_6
+ * * `day` - day
+ * * `week` - week
+ */
+export type MetricQueryIntervalEnumApi = (typeof MetricQueryIntervalEnumApi)[keyof typeof MetricQueryIntervalEnumApi]
+
+export const MetricQueryIntervalEnumApi = {
+    Second15: 'second_15',
+    Second30: 'second_30',
+    Minute: 'minute',
+    Minute5: 'minute_5',
+    Minute15: 'minute_15',
+    Minute30: 'minute_30',
+    Hour: 'hour',
+    Hour6: 'hour_6',
+    Day: 'day',
+    Week: 'week',
+} as const
 
 export interface _MetricClauseApi {
     /**
@@ -607,6 +950,7 @@ export interface _MetricClauseApi {
     metricType?: OtelMetricTypeEnumApi | null
     /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
      *
+     * * `none` - none
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
@@ -616,7 +960,12 @@ export interface _MetricClauseApi {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile */
-    aggregation?: AggregationEnumApi
+    aggregation?: MetricQueryAggregationEnumApi
+    /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+     *
+     * * `rate` - rate
+     * * `increase` - increase */
+    rangeFunction?: MetricRangeFunctionEnumApi | null
     /**
      * Quantile in (0, 1) for 'histogram_quantile'.
      * @minimum 0
@@ -644,8 +993,9 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
      *
+     * * `none` - none
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
@@ -655,7 +1005,12 @@ export interface _MetricQueryBodyApi {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile */
-    aggregation?: AggregationEnumApi
+    aggregation?: MetricQueryAggregationEnumApi
+    /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+     *
+     * * `rate` - rate
+     * * `increase` - increase */
+    rangeFunction?: MetricRangeFunctionEnumApi | null
     /**
      * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
      * @minimum 0
@@ -669,10 +1024,12 @@ export interface _MetricQueryBodyApi {
     groupBy?: _MetricGroupByApi[]
     /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
      *
-     * * `second` - second
+     * * `second_15` - second_15
+     * * `second_30` - second_30
      * * `minute` - minute
      * * `minute_5` - minute_5
      * * `minute_15` - minute_15
+     * * `minute_30` - minute_30
      * * `hour` - hour
      * * `hour_6` - hour_6
      * * `day` - day
@@ -686,9 +1043,9 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601. */
-    dateFrom: string
-    /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    dateFrom?: string
+    /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
 }
 
@@ -700,6 +1057,8 @@ export interface _MetricQueryRequestApi {
 export interface _MetricQueryResponseApi {
     /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
     results: _MetricSeriesApi[]
+    /** Set only when the query returned no points: what to check before querying again. */
+    hint?: string
 }
 
 export interface _MetricSamplesBodyApi {
@@ -789,6 +1148,30 @@ export interface _MetricSamplesResponseApi {
     results: _MetricEventSampleApi[]
 }
 
+export interface MetricsSuggestedDashboardApi {
+    /** Suggestion id. */
+    id: string
+    /** The bank dashboard that the suggestion is for. */
+    template_id: string
+    /** Dashboard name. */
+    name: string
+    /** What the dashboard shows. */
+    description: string
+    /** Why the dashboard suits this project. Can be empty. */
+    reason: string
+    /** Number of charts on the dashboard. */
+    panel_count: number
+    /** Number of the project's metrics that the dashboard uses. */
+    matched_metric_count: number
+    /** Share of the dashboard's charts that have data in this project. */
+    coverage: number
+    /**
+     * The dashboard that someone in the project created from this suggestion.
+     * @nullable
+     */
+    dashboard_id: number | null
+}
+
 export interface _MetricNameApi {
     /** Metric name as it appears in the team's data. */
     name: string
@@ -836,9 +1219,95 @@ export interface _MetricCatalogValuesParamsApi {
     names: string[]
 }
 
+/**
+ * * `custom` - custom
+ * * `promql` - promql
+ * * `sql` - sql
+ * * `textbox` - textbox
+ */
+export type MetricVariableSourceEnumApi = (typeof MetricVariableSourceEnumApi)[keyof typeof MetricVariableSourceEnumApi]
+
+export const MetricVariableSourceEnumApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface _MetricVariableSelectionApi {
+    /**
+     * Variable name. Queries refer to it as `$name`.
+     * @maxLength 128
+     * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+     */
+    name: string
+    /**
+     * The selected values. When `all` is true, the options that All stands for.
+     * @maxItems 1000
+     * @items.maxLength 1024
+     */
+    values: string[]
+    /** True when the variable is set to All. */
+    all?: boolean
+    /**
+     * The text that All puts in a PromQL query. `.*` when it is empty.
+     * @maxLength 1024
+     * @nullable
+     */
+    allValue?: string | null
+}
+
+export interface _MetricVariableOptionsRequestApi {
+    /** Where the options come from: a static list, a PromQL query, a SQL query, or free text.
+     *
+     * * `custom` - custom
+     * * `promql` - promql
+     * * `sql` - sql
+     * * `textbox` - textbox */
+    source: MetricVariableSourceEnumApi
+    /**
+     * The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.
+     * @maxLength 10000
+     * @nullable
+     */
+    query?: string | null
+    /**
+     * The options when `source` is `custom`.
+     * @maxItems 1000
+     * @nullable
+     * @items.maxLength 1024
+     */
+    customValues?: string[] | null
+    /**
+     * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
+     * @maxLength 1024
+     * @nullable
+     */
+    regex?: string | null
+    /** The current selection of the other dashboard variables that the query can refer to. */
+    variables?: _MetricVariableSelectionApi[]
+    /**
+     * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+     * @maxLength 64
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+     * @maxLength 64
+     * @nullable
+     */
+    dateTo?: string | null
+}
+
+export interface _MetricVariableOptionsResponseApi {
+    /** The options of the variable, at most 1,000. */
+    results: string[]
+}
+
 export type MetricsAttributeValuesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null
@@ -868,7 +1337,7 @@ export type MetricsAttributeValuesRetrieveParams = {
 
 export type MetricsAttributesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null
@@ -893,6 +1362,31 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+}
+
+export type MetricsDashboardTemplatesListParams = {
+    /**
+     * Only templates with this status.
+     */
+    status?: MetricsDashboardTemplatesListStatus
+}
+
+export type MetricsDashboardTemplatesListStatus =
+    (typeof MetricsDashboardTemplatesListStatus)[keyof typeof MetricsDashboardTemplatesListStatus]
+
+export const MetricsDashboardTemplatesListStatus = {
+    Approved: 'approved',
+    Failed: 'failed',
+    Generating: 'generating',
+    PendingReview: 'pending_review',
+    Rejected: 'rejected',
+} as const
+
+export type MetricsDashboardTemplatesPictureRetrieveParams = {
+    /**
+     * Check round, from 1.
+     */
+    round: number
 }
 
 export type MetricsErrorSpikesRetrieveParams = {

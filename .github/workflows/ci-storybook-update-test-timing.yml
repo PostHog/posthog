@@ -204,10 +204,6 @@ jobs:
 
                   The scheduled workflow validated that the source was a successful full master run with all Chromium and WebKit shard artifacts, then regenerated the manifest.
 
-                  ## Automatic notifications
-
-                  - [ ] Publish to changelog?
-
                   ## Docs update
 
                   No user-facing behavior or documented workflow changes.

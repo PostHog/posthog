@@ -25,6 +25,12 @@ ALERT_STATE_CHOICES = [
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
 
+# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
+# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
+METRICS_INSIGHT_QUERY_FILTER = models.Q(insight__query__kind="MetricsQuery") | models.Q(
+    insight__query__source__kind="MetricsQuery"
+)
+
 
 class InvestigationStatus(models.TextChoices):
     PENDING = "pending", "pending"
@@ -124,6 +130,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # insight specific config for the alert
     config = models.JSONField(default=dict, null=True, blank=True)
+    evaluation_delay_intervals = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
@@ -270,6 +277,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "config_type": alert_config.get("type"),
             "trends_series_index": alert_config.get("series_index"),
             "trends_check_ongoing_interval": alert_config.get("check_ongoing_interval"),
+            "evaluation_delay_intervals": self.evaluation_delay_intervals,
             "hogql_evaluation": (alert_config.get("evaluation") or "last_row") if is_hogql_config else None,
             "hogql_has_explicit_column": bool(alert_config.get("column")) if is_hogql_config else None,
             "hogql_has_label_column": bool(alert_config.get("label_column")) if is_hogql_config else None,
@@ -492,9 +500,10 @@ class AlertCheck(UUIDTModel):
         the "destinations" key); legacy rows only carry configured recipients."""
         return "destinations" in (self.targets_notified or {})
 
+    RETENTION = timedelta(days=14)
+
     @classmethod
     def clean_up_old_checks(cls) -> int:
-        retention_days = 14
-        oldest_allowed_date = datetime.now(UTC) - timedelta(days=retention_days)
+        oldest_allowed_date = datetime.now(UTC) - cls.RETENTION
         rows_count, _ = cls.objects.filter(created_at__lt=oldest_allowed_date).delete()
         return rows_count

@@ -64,12 +64,13 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -100,6 +101,7 @@ from posthog.session_recordings.queries.session_replay_events import (
 )
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
@@ -167,6 +169,17 @@ SESSION_RECORDING_THROTTLED = Counter(
 
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
 
+# The matching events query only reads, so a retry is safe even when ClickHouse stopped it part way.
+_MATCHING_EVENTS_RETRYABLE_ERRORS = (*CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled)
+# ABORTED has no dedicated error class. A node that shuts down mid-query raises it.
+_CLICKHOUSE_ABORTED_ERROR_CODE = 236
+
+
+def _is_retryable_matching_events_error(error: Exception) -> bool:
+    if isinstance(error, _MATCHING_EVENTS_RETRYABLE_ERRORS):
+        return True
+    return isinstance(error, ServerException) and error.code == _CLICKHOUSE_ABORTED_ERROR_CODE
+
 
 def _count_session_recording_throttled(location: str, auth_type: str) -> None:
     SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type).inc()
@@ -188,6 +201,22 @@ def _request_auth_type(request) -> str:
     if isinstance(authenticator, JwtAuthentication):
         return "jwt"
     return "logged_in"
+
+
+# The replay asset proxy serves only the web player under a login session, a share link, or an export.
+# Every OAuth client gets no token, which includes the player in standalone OAuth mode, and so do personal API keys.
+_PLAYER_AUTHENTICATION_CLASSES = (
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+    ExportRendererAuthentication,
+)
+
+
+def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
+    if not isinstance(getattr(request, "successful_authenticator", None), _PLAYER_AUTHENTICATION_CLASSES):
+        return None
+    return mint_replay_proxy_token(team_id)
 
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
@@ -435,6 +464,11 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
 class SessionRecordingSourcesSerializer(serializers.Serializer):
     sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
     snapshots = serializers.ListField(required=False)
+    replay_proxy_token = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Short-lived token that the player sends to the replay asset proxy with each font or script request. Null when this install has no proxy signing key.",
+    )
 
 
 class SessionRecordingUpdateSerializer(serializers.Serializer):
@@ -928,6 +962,7 @@ class SessionRecordingViewSet(
                         # show explicitly selected sessions (e.g. a funnel drop-off handoff)
                         # even outside the date range
                         bypass_date_window_for_session_ids=True,
+                        allow_combined_event_filters=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -990,7 +1025,16 @@ class SessionRecordingViewSet(
                 "Must specify at least one event or action filter, or event properties filter",
             )
 
-        results, _, timings, _ = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
+        try:
+            results, _, timings, _ = ReplayFiltersEventsSubQuery(
+                query=query, team=self.team
+            ).get_event_ids_for_session()
+        except Exception as e:
+            # A transient error that already carries a status (capacity 503, cluster memory 513) keeps it.
+            if isinstance(e, exceptions.APIException) or not _is_retryable_matching_events_error(e):
+                raise
+            logger.warning("matching_events_clickhouse_retryable_error", error_type=type(e).__name__)
+            raise ClickHouseAtCapacity() from e
 
         response = JsonResponse(
             data=MatchingEventsResponse(
@@ -1132,6 +1176,13 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording deleted",
+            properties={"recording_id": recording.session_id},
+            team=self.team,
+            request=request,
+        )
         return Response(status=204)
 
     @extend_schema(
@@ -1196,6 +1247,13 @@ class SessionRecordingViewSet(
             team_id=self.team.id,
             deleted_count=deleted_count,
             total_requested=len(session_recording_ids),
+        )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recordings bulk deleted",
+            properties={"deleted_count": deleted_count, "total_requested": len(session_recording_ids)},
+            team=self.team,
+            request=request,
         )
 
         if deleted_count > 0:
@@ -1521,7 +1579,10 @@ class SessionRecordingViewSet(
 
             with timer("serialize_data__gather_session_recording_sources"):
                 serializer = SessionRecordingSourcesSerializer(
-                    {"sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1))}
+                    {
+                        "sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1)),
+                        "replay_proxy_token": _replay_proxy_token_for_player(self.request, self.team_id),
+                    }
                 )
 
             return Response(serializer.data)
@@ -1801,6 +1862,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
+    allow_combined_event_filters: bool = False,
 ) -> RecordingsListingResult:
     """
     Loads the listing from ClickHouse, then overlays any Postgres row (pins, shares) onto each result.
@@ -1862,6 +1924,7 @@ def list_recordings_from_query(
             allow_event_property_expansion=allow_event_property_expansion,
             session_ids_to_exclude=session_ids_to_exclude,
             bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+            allow_combined_event_filters=allow_combined_event_filters,
         ).run()
         ch_session_recordings = query_result.results
 

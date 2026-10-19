@@ -10,6 +10,7 @@ import type {
   SourceProduct,
   SourceType,
   StoredLogEntry,
+  TaskClientProvenance,
   TaskRunArtifactMetadata,
 } from "@posthog/shared";
 import {
@@ -41,6 +42,9 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingHead,
+  RankingModelResult,
+  RankingScoreArtefact,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -77,6 +81,8 @@ import type {
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
+  WorkClaimArtefact,
+  WorkReleaseArtefact,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
@@ -178,9 +184,16 @@ export function setPosthogApiClientLogger(logger: ApiClientLogger): void {
 // Host build version, set by the host at boot (default "unknown"); avoids a
 // build-time global so the package typechecks standalone and across importers.
 let clientAppVersion = "unknown";
+let taskClientProvenance: TaskClientProvenance = "posthog_desktop";
 
 export function setPosthogApiClientAppVersion(version: string): void {
   clientAppVersion = version;
+}
+
+export function setPosthogApiClientTaskClientProvenance(
+  provenance: TaskClientProvenance,
+): void {
+  taskClientProvenance = provenance;
 }
 
 export interface PostHogAPIClientOptions {
@@ -188,6 +201,7 @@ export interface PostHogAPIClientOptions {
   appVersion?: string;
   userAgent?: string | null;
   githubConnectFrom?: string;
+  taskClientProvenance?: TaskClientProvenance;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -226,6 +240,8 @@ export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
+// The task list endpoint caps a page at this many rows (TasksPagination.max_limit).
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
@@ -325,6 +341,11 @@ export interface TaskListOptions {
   ciStatus?: string;
   /** List only tasks the requesting user has pinned. */
   pinned?: boolean;
+  /**
+   * List only tasks from any of these sources, in the desktop source filter's words. Filtering on
+   * the server keeps sources the user hid, such as scheduled runs, from filling the page.
+   */
+  sources?: readonly string[];
   /** Filter to tasks with a thread comment from this user ID. */
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
@@ -398,10 +419,17 @@ export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
   reasoning_effort: null,
 };
 
+/** The signed-in user's defaults for new tasks. Null means never set. */
+export interface TaskDefaults {
+  start_in_plan_mode: boolean | null;
+  auto_publish_cloud_runs: boolean | null;
+}
+
 /** What the signed-in user has stored for this project, and what it resolves to. */
 export interface MyTaskRunConfig {
   preferences: TaskRunPreferences;
   resolved: TaskRunDefaults;
+  taskDefaults: TaskDefaults;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1361,7 +1389,10 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1703,6 +1734,134 @@ function normalizeNoteArtefact(
   };
 }
 
+function normalizeWorkClaimArtefact(
+  value: Record<string, unknown>,
+): WorkClaimArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  return {
+    id,
+    type: "work_claim",
+    ...artefactBase(value),
+    content: { display_name: optionalString(value.content.display_name) },
+  };
+}
+
+function normalizeWorkReleaseArtefact(
+  value: Record<string, unknown>,
+): WorkReleaseArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const reason = value.content.reason;
+  if (reason !== "released" && reason !== "taken_over") return null;
+  return {
+    id,
+    type: "work_release",
+    ...artefactBase(value),
+    content: { reason },
+  };
+}
+
+/** Reads the stored lift first. Otherwise mirrors `head_lifts` in `ranking/model_contract.py`. */
+function rankingHeadLift(
+  stored: unknown,
+  probability: number,
+  threshold: number | undefined,
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return threshold !== undefined && threshold > 0
+    ? probability / threshold
+    : null;
+}
+
+function compareRankingHeads(a: RankingHead, b: RankingHead): number {
+  if (a.lift !== null && b.lift !== null) return b.lift - a.lift;
+  if (a.lift !== null || b.lift !== null) return a.lift === null ? 1 : -1;
+  return b.probability - a.probability;
+}
+
+function normalizeRankingModelResult(
+  key: string,
+  value: unknown,
+): RankingModelResult | null {
+  if (!isObjectRecord(value)) return null;
+  const status = value.status;
+  if (status !== "scored" && status !== "skipped") return null;
+  // Mirrors `readable_head_names` in `ranking/model_contract.py`.
+  const metadataHeads =
+    isObjectRecord(value.metadata) && Array.isArray(value.metadata.heads)
+      ? value.metadata.heads
+      : [];
+  const readable = new Set(
+    metadataHeads
+      .filter((entry) => isObjectRecord(entry) && entry.readable === true)
+      .map((entry) => String((entry as Record<string, unknown>).head)),
+  );
+  // Mirrors `classification_thresholds` in `ranking/model_contract.py`.
+  const thresholds = new Map<string, number>();
+  for (const entry of metadataHeads) {
+    if (
+      isObjectRecord(entry) &&
+      typeof entry.refit_classification_threshold === "number"
+    ) {
+      thresholds.set(String(entry.head), entry.refit_classification_threshold);
+    }
+  }
+  const lifts = isObjectRecord(value.lifts) ? value.lifts : {};
+  const scores = isObjectRecord(value.scores) ? value.scores : {};
+  const heads = Object.entries(scores)
+    .filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    )
+    .map(([name, probability]) => ({
+      name,
+      probability,
+      lift: rankingHeadLift(lifts[name], probability, thresholds.get(name)),
+      readable: readable.has(name),
+    }))
+    .sort(compareRankingHeads);
+  return {
+    key,
+    roles: Array.isArray(value.roles)
+      ? value.roles.filter((role): role is string => typeof role === "string")
+      : [],
+    status,
+    skip_reason: optionalString(value.skip_reason),
+    heads,
+  };
+}
+
+/** Null when the content does not parse or `served_key` is missing from `results`. */
+function normalizeRankingScoreArtefact(
+  value: Record<string, unknown>,
+): RankingScoreArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const c = value.content;
+  const servedKey = optionalString(c.served_key);
+  if (!servedKey || !isObjectRecord(c.results)) return null;
+  const models = Object.entries(c.results).map(([key, result]) =>
+    normalizeRankingModelResult(key, result),
+  );
+  const served = models.find((model) => model?.key === servedKey);
+  if (!served) return null;
+  return {
+    id,
+    type: "ranking_score",
+    ...artefactBase(value),
+    content: {
+      scored_at: optionalString(c.scored_at),
+      manifest_version: optionalString(c.manifest_version),
+      served,
+      challengers: models.filter(
+        (model): model is RankingModelResult =>
+          !!model && model.key !== servedKey,
+      ),
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1802,6 +1961,21 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "work_claim") {
+    return (
+      normalizeWorkClaimArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "work_release") {
+    return (
+      normalizeWorkReleaseArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "ranking_score") {
+    return (
+      normalizeRankingScoreArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);
@@ -1933,6 +2107,7 @@ export class PostHogAPIClient {
   private _teamId: number | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
+  private readonly taskClientProvenance: TaskClientProvenance;
 
   constructor(
     apiHost: string,
@@ -1944,6 +2119,8 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
+    this.taskClientProvenance =
+      options.taskClientProvenance ?? taskClientProvenance;
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -2440,6 +2617,42 @@ export class PostHogAPIClient {
     ).preferences;
   }
 
+  /** The signed-in user's personal instructions for cloud runs in this project. Empty when unset. */
+  async getMyAgentInstructions(projectId: number): Promise<string> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      agent_instructions?: string | null;
+    };
+    return payload.agent_instructions ?? "";
+  }
+
+  /** Replace the signed-in user's personal instructions for cloud runs in this project. */
+  async setMyAgentInstructions(
+    projectId: number,
+    instructions: string,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/agent_instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ agent_instructions: instructions }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions update failed: ${response.status}`);
+    }
+  }
+
   private async taskRunConfigRequest(
     method: "get" | "post",
     urlPath: string,
@@ -2457,6 +2670,7 @@ export class PostHogAPIClient {
     const payload = (await response.json()) as {
       ai_run_preferences?: Partial<TaskRunPreferences> | null;
       resolved_ai_run_defaults?: TaskRunDefaults | null;
+      task_defaults?: Partial<TaskDefaults> | null;
     };
     return {
       // The API stores a cleared preference as `{}`, so read each field rather than
@@ -2468,7 +2682,29 @@ export class PostHogAPIClient {
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
       },
       resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+      taskDefaults: {
+        start_in_plan_mode: payload.task_defaults?.start_in_plan_mode ?? null,
+        auto_publish_cloud_runs:
+          payload.task_defaults?.auto_publish_cloud_runs ?? null,
+      },
     };
+  }
+
+  /** Save some of the signed-in user's task defaults. Fields left out keep their value. */
+  async setMyTaskDefaults(
+    projectId: number,
+    changes: Partial<Record<keyof TaskDefaults, boolean>>,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/task_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(changes) },
+    });
+    if (!response.ok) {
+      throw new Error(`Task defaults update failed: ${response.status}`);
+    }
   }
 
   async listSignalSourceConfigs(
@@ -3034,7 +3270,10 @@ export class PostHogAPIClient {
     const maxPages = pagination?.fetchAll
       ? Number.POSITIVE_INFINITY
       : (pagination?.maxPages ?? 1);
-    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const pageSize = Math.min(
+      options?.limit ?? TASK_LIST_MAX_PAGE_SIZE,
+      TASK_LIST_MAX_PAGE_SIZE,
+    );
     const tasks: Task[] = [];
     let count = 0;
 
@@ -3074,7 +3313,7 @@ export class PostHogAPIClient {
     options?: TaskListOptions,
   ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
-    const params: Record<string, string | number | boolean> = {
+    const params: Record<string, string | number | boolean | string[]> = {
       limit: options?.limit ?? 500,
     };
 
@@ -3122,6 +3361,10 @@ export class PostHogAPIClient {
       params.pinned = true;
     }
 
+    if (options?.sources?.length) {
+      params.sources = [...options.sources];
+    }
+
     if (options?.commentedBy) {
       params.commented_by = options.commentedBy;
     }
@@ -3159,7 +3402,6 @@ export class PostHogAPIClient {
     // the largest page, then pull any remaining pages in parallel by offset. The
     // old code walked `next` one blocking request at a time, so a large sidebar
     // turned into a chain of serial round-trips on every inbox open.
-    const PAGE_LIMIT = 100;
     const MAX_PAGES = 50;
     const teamId = await this.getTeamId();
     const basePath = `/api/projects/${teamId}/tasks/summaries/`;
@@ -3167,7 +3409,7 @@ export class PostHogAPIClient {
     const fetchPage = async (
       offset: number,
     ): Promise<TaskSummariesResponse> => {
-      const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
+      const urlPath = `${basePath}?limit=${TASK_LIST_MAX_PAGE_SIZE}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
         url: new URL(`${this.api.baseUrl}${urlPath}`),
@@ -3186,15 +3428,19 @@ export class PostHogAPIClient {
 
     const first = await fetchPage(0);
     const all: TaskSummaryDTO[] = [...first.results];
-    const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
-    if (first.count > PAGE_LIMIT * MAX_PAGES) {
+    const capped = Math.min(first.count, TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES);
+    if (first.count > TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES) {
       log.warn(
         `getTaskSummaries capped at ${MAX_PAGES} pages; returning partial results`,
         { ids: ids.length, count: first.count },
       );
     }
     const offsets: number[] = [];
-    for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
+    for (
+      let offset = TASK_LIST_MAX_PAGE_SIZE;
+      offset < capped;
+      offset += TASK_LIST_MAX_PAGE_SIZE
+    ) {
       offsets.push(offset);
     }
     // Cap how many page POSTs are in flight at once. A large sidebar can span
@@ -3323,7 +3569,9 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
-        header: {},
+        header: {
+          "X-PostHog-Client-Provenance": this.taskClientProvenance,
+        },
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4352,6 +4600,11 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
+        parameters: {
+          header: {
+            "X-PostHog-Client-Provenance": this.taskClientProvenance,
+          },
+        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,
@@ -7527,6 +7780,39 @@ export class PostHogAPIClient {
                 results: insight.result,
                 columns: insight.columns ?? [],
               },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
       };
     } catch (error) {
       if (requestErrorStatus(error) === 404) return null;

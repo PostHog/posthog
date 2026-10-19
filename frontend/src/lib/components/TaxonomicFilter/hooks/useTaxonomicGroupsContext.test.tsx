@@ -120,6 +120,39 @@ describe('useTaxonomicGroupsContext', () => {
         )
     })
 
+    it.each([
+        { restriction: 'none', input: {}, expected: true },
+        {
+            restriction: 'exclusion',
+            input: { excludedProperties: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+            expected: false,
+        },
+        {
+            restriction: 'allowlist mismatch',
+            input: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$host'] } },
+            expected: false,
+        },
+        {
+            restriction: 'empty allowlist',
+            input: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: [] } },
+            expected: false,
+        },
+        {
+            restriction: 'allowlist match',
+            input: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+            expected: true,
+        },
+        { restriction: 'numeric properties only', input: { showNumericalPropsOnly: true }, expected: false },
+    ])('offers a primary property in Suggested with $restriction', ({ input, expected }) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'], ...input }), {
+            wrapper,
+        })
+        const suggested = buildTaxonomicGroups(result.current).find(
+            (group) => group.type === TaxonomicFilterGroupType.SuggestedFilters
+        )
+        expect(suggested?.options?.some((option) => option.name === '$pathname')).toBe(expected)
+    })
+
     it('feeds buildTaxonomicGroups end-to-end and produces a non-empty groups array', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'] }), {
             wrapper,

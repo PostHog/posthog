@@ -33,7 +33,11 @@ UserResolutionFailure = Literal["user_not_found", "no_team_access"]
 
 
 def user_resolution_failure_reply(
-    failure_reason: UserResolutionFailure | None, *, slack_email: str | None
+    failure_reason: UserResolutionFailure | None,
+    *,
+    slack_email: str | None,
+    linking_available: bool = False,
+    home_tab_url: str | None = None,
 ) -> str | None:
     """Map a ``UserAndIntegrationsResolution.failure_reason`` to the user-facing
     text, mentioning ``slack_email`` when known so the user sees which address
@@ -42,17 +46,40 @@ def user_resolution_failure_reply(
 
     Wording mirrors the per-integration ``resolve_slack_user`` precedent in
     ``api.py`` — same "Sorry, …" register, same actionable next step.
+
+    ``linking_available`` says whether the install can link a Slack identity to a
+    PostHog user. When it can, the reply points to linking first: an invite only
+    works for the exact email it was sent to, so it can't help a user whose
+    existing PostHog account uses a different email.
+
+    ``home_tab_url`` deep-links to the app's Home tab, which carries the same link
+    button. The reader is already in Slack, so the hint names the tab first.
     """
     if failure_reason == "user_not_found":
-        if slack_email:
-            return (
-                f"Sorry, I couldn't find {slack_email} in any PostHog organization connected to this "
-                "Slack workspace. Ask an admin to invite you, then mention me again."
+        if home_tab_url:
+            link_hint = (
+                "If you already have a PostHog account with a different email, link it to Slack from "
+                f"<{home_tab_url}|my Home tab>, or in PostHog under Settings > Personal integrations."
             )
-        return (
+        else:
+            link_hint = (
+                "If you already have a PostHog account with a different email, link it to Slack in PostHog "
+                "under Settings > Personal integrations."
+            )
+        if slack_email:
+            prefix = (
+                f"Sorry, I couldn't find {slack_email} in any PostHog organization connected to this Slack workspace."
+            )
+            if linking_available:
+                return f"{prefix} {link_hint} If you don't have an account, ask an admin to invite {slack_email}. Then mention me again."
+            return f"{prefix} Ask an admin to invite you, then mention me again."
+        prefix = (
             "Sorry, I couldn't find your email address in Slack. "
             "Please make sure your email is visible in your Slack profile."
         )
+        if linking_available:
+            return f"{prefix} {link_hint}"
+        return prefix
     if failure_reason == "no_team_access":
         # The membership lookup succeeded by email, so it's always known here.
         subject = slack_email or "your account"

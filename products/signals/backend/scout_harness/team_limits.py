@@ -10,8 +10,10 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from dataclasses import dataclass
+import math
+import hashlib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -26,7 +28,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import (
+    COORDINATOR_INTERVAL_MINUTES,
+    MAX_DISPATCH_SMEAR_SECONDS,
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +237,57 @@ DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK = 5
 
 
 @dataclass(frozen=True)
+class BackgroundBand:
+    """One entry of `background.bands`. `interval_minutes` is `None` when unset, so the block value applies."""
+
+    percent: int
+    interval_minutes: int | None
+
+
+# The activity bands that the nightly job writes to `SignalScoutBackgroundBand`, most active first.
+BACKGROUND_BANDS = (1, 2, 3, 4)
+
+
+@dataclass(frozen=True)
+class BackgroundBackoff:
+    """Parsed `background.backoff`: each background run that nobody engages with multiplies the
+    interval to the next run by `factor`, up to `max_interval_minutes`."""
+
+    factor: int
+    max_interval_minutes: int
+
+    def effective_interval_minutes(self, base_minutes: int, level: int | None) -> int:
+        return min(base_minutes * self.factor ** (level or 0), max(base_minutes, self.max_interval_minutes))
+
+    def next_level(self, base_minutes: int, level: int | None) -> int:
+        """One level up, but never past the first level that reaches the cap, so the level stays bounded."""
+        current = level or 0
+        if self.effective_interval_minutes(base_minutes, current) >= self.max_interval_minutes:
+            return current
+        return current + 1
+
+
+TICKS_PER_DAY = 24 * 60 // COORDINATOR_INTERVAL_MINUTES
+
+
+@dataclass(frozen=True)
+class BackgroundBudget:
+    """Parsed `background.budget`: the run budget of the whole background lane in one region.
+
+    `max_runs_per_day` bounds the background runs dispatched in the trailing `DAILY_BUDGET_WINDOW`.
+    `0` stops background dispatch and keeps every config as it is. `max_runs_per_tick` is `None`
+    when unset, so the day spreads evenly across `TICKS_PER_DAY`.
+    """
+
+    max_runs_per_day: int
+    max_runs_per_tick: int | None = None
+
+    def tick_allowance(self, runs_last_24h: int) -> int:
+        tick_cap = self.max_runs_per_tick or math.ceil(self.max_runs_per_day / TICKS_PER_DAY)
+        return max(0, min(self.max_runs_per_day - runs_last_24h, tick_cap))
+
+
+@dataclass(frozen=True)
 class BackgroundEnrollment:
     """Parsed `background` block from the `signals-scout` flag payload.
 
@@ -244,10 +301,122 @@ class BackgroundEnrollment:
     team_ids: frozenset[int]
     interval_minutes: int | None
     max_new_teams_per_tick: int
+    # Only the bands with a valid entry. A missing band samples no project.
+    bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
+    # `None` turns the backoff off, so every background config runs at its band interval.
+    backoff: BackgroundBackoff | None = None
+    # `None` means no lane budget, so every due background run goes on to the shared tick caps.
+    budget: BackgroundBudget | None = None
+
+    def band_interval_minutes(self, band: int | None) -> int | None:
+        entry = self.bands.get(band) if band is not None else None
+        if entry is not None and entry.interval_minutes is not None:
+            return entry.interval_minutes
+        return self.interval_minutes
 
 
 def _positive_int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _non_negative_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
+    """Parse `background.bands`. A malformed entry drops out, so that band samples 0 percent.
+
+    A malformed entry never invalidates the block, because the block also carries `team_ids`.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    bands: dict[int, BackgroundBand] = {}
+    for band in BACKGROUND_BANDS:
+        entry = raw.get(str(band))
+        if not isinstance(entry, dict):
+            continue
+        percent = entry.get("percent")
+        if not isinstance(percent, int) or isinstance(percent, bool) or not 0 <= percent <= 100:
+            continue
+        bands[band] = BackgroundBand(
+            percent=percent, interval_minutes=_positive_int_or_none(entry.get("interval_minutes"))
+        )
+    return bands
+
+
+def _parse_background_backoff(raw: object) -> BackgroundBackoff | None:
+    """Parse `background.backoff`. A missing, disabled, or malformed block turns the backoff off."""
+    if not isinstance(raw, dict) or raw.get("enabled") is not True:
+        return None
+    factor = _positive_int_or_none(raw.get("factor"))
+    max_interval_minutes = _positive_int_or_none(raw.get("max_interval_minutes"))
+    if factor is None or factor < 2 or max_interval_minutes is None:
+        return None
+    return BackgroundBackoff(factor=factor, max_interval_minutes=max_interval_minutes)
+
+
+def _parse_background_budget(raw: object) -> BackgroundBudget | None:
+    """Parse `background.budget`. A missing or malformed block means no lane budget.
+
+    A malformed `max_runs_per_tick` alone falls back to the even spread and keeps the daily budget.
+    """
+    if not isinstance(raw, dict):
+        return None
+    max_runs_per_day = _non_negative_int_or_none(raw.get("max_runs_per_day"))
+    if max_runs_per_day is None:
+        return None
+    return BackgroundBudget(
+        max_runs_per_day=max_runs_per_day, max_runs_per_tick=_positive_int_or_none(raw.get("max_runs_per_tick"))
+    )
+
+
+def resolve_background_backoff() -> BackgroundBackoff | None:
+    """One flag-payload read of `background.backoff`, for callers outside the coordinator."""
+    background = _parse_background(_read_flag_payload())
+    return background.backoff if background is not None else None
+
+
+def background_sample_bucket(team_id: int) -> int:
+    """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
+
+    A project is sampled when its bucket is below its band percent, so a higher percent keeps every
+    project that a lower percent sampled.
+    """
+    digest = hashlib.sha256(f"signals-scout-background:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+
+# Payload key: a `{skill_name: percent}` map. It sets the share of projects (0-100) whose scout uses
+# the default pre-check its canonical skill ships. A skill that is absent reads as 0, so a new
+# default stays off until the flag names it, and the rest of the projects form the control group.
+PRECHECK_DEFAULT_ROLLOUT_KEY = "precheck_default_rollout"
+
+
+def _parse_precheck_default_rollout(payload: dict | None) -> dict[str, int]:
+    raw = (payload or {}).get(PRECHECK_DEFAULT_ROLLOUT_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        name: max(0, min(100, percent))
+        for name, percent in raw.items()
+        if isinstance(name, str) and isinstance(percent, int) and not isinstance(percent, bool)
+    }
+
+
+def precheck_default_rollout_percent(skill_name: str) -> int:
+    """The share of projects (0-100) that use this skill's default pre-check. 0 when the payload is unreadable."""
+    return _parse_precheck_default_rollout(_read_flag_payload()).get(skill_name, 0)
+
+
+def precheck_default_rollout_bucket(team_id: int, skill_name: str) -> int:
+    """The stable 0-99 bucket of a project for one skill's default pre-check.
+
+    A project uses the default when its bucket is below the skill's rollout percent, so a wider
+    rollout keeps every project a narrower one included. The skill name is in the hash, so each
+    skill gets its own control group.
+    """
+    digest = hashlib.sha256(f"signals-scout-precheck-default:{skill_name}:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
 
 
 def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
@@ -256,8 +425,9 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
     that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
     `team_ids` must not read as an empty list, because an empty list pauses every background
-    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes` or
-    `max_new_teams_per_tick` falls back to its default and does not invalidate the block.
+    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
+    `max_new_teams_per_tick`, `bands` entry, `backoff`, or `budget` falls back to its default and does
+    not invalidate the block.
     """
     if payload is None:
         return None
@@ -282,6 +452,9 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         team_ids=frozenset(raw_team_ids),
         interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
         max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+        bands=_parse_background_bands(raw.get("bands")),
+        backoff=_parse_background_backoff(raw.get("backoff")),
+        budget=_parse_background_budget(raw.get("budget")),
     )
 
 
@@ -440,12 +613,28 @@ DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
 
 
 def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    """The smear window from the flag, else `default`, capped at `MAX_DISPATCH_SMEAR_SECONDS`.
+
+    The cap keeps the runs of one tick out of the next tick.
+    """
     if payload is None:
-        return default
+        return min(default, MAX_DISPATCH_SMEAR_SECONDS)
     override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
     if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
-        return override
-    return default
+        return min(override, MAX_DISPATCH_SMEAR_SECONDS)
+    return min(default, MAX_DISPATCH_SMEAR_SECONDS)
+
+
+# Flag payload key that moves the smear from the coordinator into each child. On, the coordinator
+# starts every child of the tick at once, and each child sleeps a stable per-config delay inside the
+# smear window before it starts work. Off, the coordinator dispatches in paced batches. Absent or
+# malformed → off.
+CHILD_START_DELAY_KEY = "child_start_delay"
+
+
+def _resolve_child_start_delay(payload: dict | None) -> bool:
+    """Whether children carry their own start delay. Only a literal `true` turns it on."""
+    return payload is not None and payload.get(CHILD_START_DELAY_KEY) is True
 
 
 # Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,

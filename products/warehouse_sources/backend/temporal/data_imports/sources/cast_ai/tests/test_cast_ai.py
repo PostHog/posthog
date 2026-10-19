@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from typing import Any, cast
 
 from unittest.mock import Mock, patch
 
@@ -8,31 +7,25 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai import (
     CastAiResumeConfig,
     _client_config,
-    _default_lookback_start,
     _format_time_value,
-    _now,
     _report_incremental_config_factory,
     cast_ai_source,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import COST_REPORT_STEP_SECONDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
+from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import (
+    COST_REPORT_STEP_SECONDS,
+    WORKLOAD_PRIMARY_KEY,
+    WORKLOAD_REPORT_STEP_SECONDS,
 )
-
-
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.source import CastAiSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.castai import CastAiSourceConfig
 
 
 def _make_manager(resume_state: CastAiResumeConfig | None = None) -> Mock:
@@ -53,48 +46,23 @@ class TestCastAiDateFormatting:
     def test_format_time_value(self, _name, value, expected) -> None:
         assert _format_time_value(value) == expected
 
-    def test_now_is_rfc3339(self) -> None:
-        value = _now()
-        assert value.endswith("Z")
-        # Round-trips as RFC 3339 without raising.
-        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-
-    def test_default_lookback_start_is_before_now(self) -> None:
-        start = datetime.strptime(_default_lookback_start(), "%Y-%m-%dT%H:%M:%SZ")
-        now = datetime.strptime(_now(), "%Y-%m-%dT%H:%M:%SZ")
-        assert start < now
-
 
 class TestCastAiIncrementalConfigFactory:
     def test_produces_start_and_end_params(self) -> None:
-        factory = _report_incremental_config_factory("startTime", "endTime")
+        factory = _report_incremental_config_factory(
+            "startTime", "endTime", "2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"
+        )
         config = factory("timestamp")
 
         assert config["cursor_path"] == "timestamp"
         assert config["start_param"] == "startTime"
         assert config["end_param"] == "endTime"
+        assert config["initial_value"] == "2026-02-01T00:00:00Z"
+        assert config["end_value"] == "2026-03-01T00:00:00Z"
         assert config["convert"] is _format_time_value
-        # initial_value/end_value are RFC 3339 strings usable as literal query params.
-        datetime.strptime(cast(str, config["initial_value"]), "%Y-%m-%dT%H:%M:%SZ")
-        datetime.strptime(cast(str, config["end_value"]), "%Y-%m-%dT%H:%M:%SZ")
-
-    def test_end_value_is_stable_across_calls(self) -> None:
-        # Both report endpoints must request the same "now" snapshot within one sync, so the
-        # value is captured once at factory-creation time, not per field.
-        factory = _report_incremental_config_factory("fromDate", "toDate")
-        assert factory("createdAt")["end_value"] == factory("timestamp")["end_value"]
 
 
 class TestCastAiGetResource:
-    def test_clusters_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="clusters"))
-        assert resource["name"] == "clusters"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/v1/kubernetes/external-clusters"
-        assert resource["endpoint"]["data_selector"] == "items"
-        assert isinstance(resource["endpoint"]["paginator"], SinglePagePaginator)
-        assert resource["table_format"] == "delta"
-
     def test_rejects_fanout_endpoint(self) -> None:
         import pytest
 
@@ -111,18 +79,20 @@ class TestCastAiValidateCredentials:
             (500, False, "CAST AI API returned an unexpected status: 500"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, status, expected_valid, expected_message, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        result = validate_credentials(api_key="key")
+    def test_validate_credentials_status_mapping(
+        self, status: int, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        script = always(ScriptedResponse(status=status)) if status == 500 else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
+            result = validate_credentials(api_key="key")
 
         assert result == (expected_valid, expected_message)
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.cast.ai/v1/kubernetes/external-clusters"
-        assert call.kwargs["headers"]["X-API-Key"] == "key"
+        assert {request.url for request in network.requests_log} == {
+            "https://api.cast.ai/v1/kubernetes/external-clusters"
+        }
+        assert network.requests_log[0].headers["x-api-key"] == "key"
         # The X-API-Key header survives cross-origin redirects, so the probe must not follow them.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        assert network.session_options[0]["allow_redirects"] is False
 
     def test_client_config_disables_redirects(self) -> None:
         # Same guard for the sync path: RESTClient reads allow_redirects from the client config.
@@ -130,38 +100,6 @@ class TestCastAiValidateCredentials:
 
 
 class TestCastAiSourceTopLevel:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
-    def test_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="clusters",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "clusters"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
-    def test_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager(CastAiResumeConfig(paginator_state={"offset": 5}))
-
-        cast_ai_source(
-            api_key="key",
-            endpoint="clusters",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )
-
-        kwargs = mock_rest_api_resource.call_args.kwargs
-        assert kwargs["initial_paginator_state"] == {"offset": 5}
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
     def test_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
@@ -177,7 +115,8 @@ class TestCastAiSourceTopLevel:
 
         resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
         resume_hook({"offset": 1})
-        manager.save_state.assert_called_once_with(CastAiResumeConfig(paginator_state={"offset": 1}))
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0].paginator_state == {"offset": 1}
 
         manager.save_state.reset_mock()
         resume_hook(None)
@@ -185,92 +124,141 @@ class TestCastAiSourceTopLevel:
 
 
 class TestCastAiFanoutRowFormat:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_cluster_cost_reports_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("clusters", [{"id": "cluster-1"}]),
-            _FakeDltResource(
-                "cluster_cost_reports",
-                [{"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5", "_clusters_id": "cluster-1"}],
-            ),
-        ]
-
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="cluster_cost_reports",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+    def test_cluster_cost_reports_row_format(self) -> None:
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            "cluster_cost_reports",
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-1"}]}),
+                ScriptedResponse(
+                    json={
+                        "items": [
+                            {"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5"},
+                        ]
+                    }
+                ),
+            ],
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5", "cluster_id": "cluster-1"}]
-        assert response.primary_keys == ["cluster_id", "timestamp"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["timestamp"]
+        assert result.raised is None
+        assert result.rows == [{"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5", "cluster_id": "cluster-1"}]
+        assert result.response is not None
+        assert result.response.primary_keys == ["cluster_id", "timestamp"]
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["timestamp"]
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_cluster_savings_history_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("clusters", [{"id": "cluster-9"}]),
-            _FakeDltResource(
-                "cluster_savings_history",
-                [{"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}, "_clusters_id": "cluster-9"}],
-            ),
-        ]
-
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="cluster_savings_history",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+    def test_cluster_savings_history_row_format(self) -> None:
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            "cluster_savings_history",
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-9"}]}),
+                ScriptedResponse(json={"items": [{"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}}]}),
+            ],
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}, "cluster_id": "cluster-9"}]
-        assert response.primary_keys == ["cluster_id", "createdAt"]
+        assert result.raised is None
+        assert result.rows == [
+            {"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}, "cluster_id": "cluster-9"}
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["cluster_id", "createdAt"]
+
+
+class TestCastAiWorkloadPagination:
+    @parameterized.expand(
+        [
+            ("workload_cost_reports",),
+            ("workload_efficiency_reports",),
+            ("workload_data_transfer_costs",),
+        ]
+    )
+    def test_walks_cursor_pages_per_cluster(self, endpoint: str) -> None:
+        workload = {"namespace": "default", "workloadType": "Deployment"}
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            endpoint,
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-1"}]}),
+                ScriptedResponse(json={"items": [{**workload, "workloadName": "api"}], "nextCursor": "page-2"}),
+                ScriptedResponse(json={"items": [{**workload, "workloadName": "worker"}], "nextCursor": ""}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("page.cursor") == [None, None, "page-2"]
+        # The report window is required on every page, not only the first.
+        assert result.requests[2].param("startTime") == result.requests[1].param("startTime") is not None
+        assert result.requests[2].param("endTime") == result.requests[1].param("endTime") is not None
+        # Every checkpoint carries the window its rows cover, so a resumed run requests the same one.
+        assert {(state.window_start, state.window_end) for state in result.saved_states} == {
+            (result.requests[1].param("startTime"), result.requests[1].param("endTime"))
+        }
+        assert result.rows == [
+            {**workload, "workloadName": "api", "cluster_id": "cluster-1"},
+            {**workload, "workloadName": "worker", "cluster_id": "cluster-1"},
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == WORKLOAD_PRIMARY_KEY
 
 
 class TestCastAiFanoutWiring:
     @parameterized.expand(
         [
-            ("cluster_cost_reports", "startTime", "endTime", True),
-            ("cluster_savings_history", "fromDate", "toDate", False),
+            ("cluster_cost_reports", "cost", "startTime", "endTime", COST_REPORT_STEP_SECONDS),
+            ("cluster_savings_history", "estimated-savings-history", "fromDate", "toDate", None),
+            ("cluster_savings_reports", "savings", "startTime", "endTime", COST_REPORT_STEP_SECONDS),
+            ("workload_cost_reports", "workload-costs", "startTime", "endTime", WORKLOAD_REPORT_STEP_SECONDS),
+            ("workload_efficiency_reports", "workload-efficiency", "startTime", "endTime", None),
+            (
+                "workload_data_transfer_costs",
+                "datatransfer-costs",
+                "startTime",
+                "endTime",
+                WORKLOAD_REPORT_STEP_SECONDS,
+            ),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.build_dependent_resource")
     def test_fanout_wiring_per_endpoint(
-        self, endpoint, start_param, end_param, expects_step_seconds, mock_build_dependent_resource
+        self, endpoint: str, report: str, start_param: str, end_param: str, step_seconds: int | None
     ) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-        manager = _make_manager(CastAiResumeConfig(paginator_state={"completed": []}))
-
-        cast_ai_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+        child_path = f"/v1/cost-reports/clusters/{{cluster_id}}/{report}"
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            endpoint,
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-1"}, {"id": "cluster-2"}]}),
+                ScriptedResponse(json={"items": [{"timestamp": "2026-03-01T00:00:00Z"}]}),
+            ],
+            resume_state=CastAiResumeConfig(
+                paginator_state={"completed": [child_path.format(cluster_id="cluster-1")]},
+                window_start="2026-02-01T00:00:00Z",
+                window_end="2026-03-01T00:00:00Z",
+            ),
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] is None
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "items"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
-        assert start_param in kwargs["child_params_extra"]
-        assert end_param in kwargs["child_params_extra"]
-        assert ("stepSeconds" in kwargs["child_params_extra"]) is expects_step_seconds
-        if expects_step_seconds:
-            assert kwargs["child_params_extra"]["stepSeconds"] == COST_REPORT_STEP_SECONDS
-        assert kwargs["resume_hook"] is not None
-        assert kwargs["initial_paginator_state"] == {"completed": []}
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/kubernetes/external-clusters",
+            child_path.format(cluster_id="cluster-2"),
+        ]
+        assert result.params("limit") == [None, None]
+        assert result.rows == [{"timestamp": "2026-03-01T00:00:00Z", "cluster_id": "cluster-2"}]
+        assert result.requests[0].param(start_param) is None
+        assert result.requests[0].param(end_param) is None
+        assert result.requests[1].param(start_param) == "2026-02-01T00:00:00Z"
+        assert result.requests[1].param(end_param) == "2026-03-01T00:00:00Z"
+        assert result.requests[1].param("stepSeconds") == (str(step_seconds) if step_seconds else None)
+        assert result.saved_states == [
+            CastAiResumeConfig(
+                paginator_state={
+                    "completed": [
+                        child_path.format(cluster_id="cluster-1"),
+                        child_path.format(cluster_id="cluster-2"),
+                    ],
+                    "current": None,
+                    "child_state": None,
+                },
+                window_start="2026-02-01T00:00:00Z",
+                window_end="2026-03-01T00:00:00Z",
+            )
+        ]
 
     @parameterized.expand(
         [

@@ -1,4 +1,5 @@
 import time
+from dataclasses import field as dataclass_field
 from functools import cached_property
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -39,7 +40,7 @@ OIDC_FETCH_TIMEOUT_SECONDS = 10
 @frozen
 class OIDCClientCredentials:
     client_id: str
-    client_secret: str
+    client_secret: str = dataclass_field(repr=False)
 
     def as_tuple(self) -> BasicAuthCredentials:
         return self.client_id, self.client_secret

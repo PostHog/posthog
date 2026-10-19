@@ -150,7 +150,7 @@ export function CustomerTasksTable({
     )
     return (
         <div className={`CustomerTasksTable CustomerTasksTable--${context}`} data-attr="customer-tasks-table">
-            <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="mb-4 flex items-start justify-between gap-2">
                 <CustomerTasksFilters logic={logic} context={context} canViewAll={canViewAll} />
                 {canCreate && (
                     <LemonButton type="primary" size="small" onClick={openCreateModal}>

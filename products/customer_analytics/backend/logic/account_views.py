@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from products.customer_analytics.backend.facade.enums import AccountViewVisibility
@@ -12,6 +13,7 @@ from products.notebooks.backend.facade import content as notebook_content
 from products.notebooks.backend.facade.contracts import NotebookMarkdownContentInvalid
 
 ACCOUNT_VIEW_COMPONENT_LABELS = {
+    "Properties": "Properties",
     "Notes": "Notes",
     "Tasks": "Tasks",
     "Users": "Users",
@@ -22,9 +24,9 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Opportunities": "Opportunities",
     "Conversations": "Conversations",
     "Meetings": "Meetings",
-    "EventStream": "Event stream",
+    "SessionReplays": "Session replays",
 }
-ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "title"}
+ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
 ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
 ACCOUNT_VIEW_IDENTITY_PROPS = {
@@ -38,6 +40,16 @@ ACCOUNT_VIEW_IDENTITY_PROPS = {
     "team_id",
 }
 ACCOUNT_VIEW_NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$")
+ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
+    "website_domain",
+    "billing_id",
+    "slack_channel_id",
+    "sfdc_id",
+    "stripe_customer_id",
+    "email_domains",
+    "known_emails",
+}
+ACCOUNT_VIEW_MAX_PROPERTIES = 50
 
 
 class InvalidAccountViewContent(ValueError):
@@ -47,6 +59,10 @@ class InvalidAccountViewContent(ValueError):
 
 
 class AccountViewVersionConflict(Exception):
+    pass
+
+
+class AccountViewPermissionDenied(Exception):
     pass
 
 
@@ -60,25 +76,58 @@ def get_account_identity_props(value: object) -> set[str]:
     return set()
 
 
-def list_account_views(*, team_id: int, user_id: int) -> list[AccountView]:
-    return list(
+def list_account_views(*, team_id: int, user_id: int) -> QuerySet[AccountView]:
+    return (
         AccountView.objects.for_team(team_id)
-        .filter(created_by_id=user_id, deleted_at__isnull=True, visibility=AccountViewVisibility.PRIVATE)
+        .filter(deleted_at__isnull=True)
+        .filter(Q(created_by_id=user_id) | Q(visibility=AccountViewVisibility.TEAM))
         .order_by("name", "created_at")
     )
 
 
 def get_account_view(*, team_id: int, user_id: int, view_id: UUID) -> AccountView | None:
-    return (
-        AccountView.objects.for_team(team_id)
-        .filter(
-            id=view_id,
-            created_by_id=user_id,
-            deleted_at__isnull=True,
-            visibility=AccountViewVisibility.PRIVATE,
-        )
-        .first()
-    )
+    return list_account_views(team_id=team_id, user_id=user_id).filter(id=view_id).first()
+
+
+def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
+    if set(config).difference({"properties"}):
+        return ["Properties config has unsupported fields."]
+    references = config.get("properties", [])
+    if not isinstance(references, list) or len(references) > ACCOUNT_VIEW_MAX_PROPERTIES:
+        return ["Properties config must contain a list of up to 50 properties."]
+    seen: set[tuple[str, str]] = set()
+    for reference in references:
+        if not isinstance(reference, dict):
+            return ["Properties config contains an invalid property reference."]
+        kind = reference.get("kind")
+        if kind == "account":
+            native_key = reference.get("key")
+            if (
+                set(reference) != {"kind", "key"}
+                or not isinstance(native_key, str)
+                or native_key not in ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS
+            ):
+                return ["Properties config contains an unsupported account property."]
+            key = (kind, native_key)
+        elif kind in ("custom_property", "relationship"):
+            definition_id = reference.get("id")
+            if set(reference) != {"kind", "id"} or not isinstance(definition_id, str):
+                return ["Properties config contains an invalid definition reference."]
+            try:
+                definition_uuid = UUID(definition_id)
+                if definition_id.lower() != str(definition_uuid) or (
+                    definition_uuid.version not in range(1, 9) and definition_uuid.int not in (0, (1 << 128) - 1)
+                ):
+                    return ["Properties config definition IDs must use the standard UUID format."]
+                key = (kind, str(definition_uuid))
+            except ValueError:
+                return ["Properties config definition IDs must be UUIDs."]
+        else:
+            return ["Properties config contains an unsupported property source."]
+        if key in seen:
+            return ["Properties config cannot contain duplicate properties."]
+        seen.add(key)
+    return []
 
 
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -122,6 +171,10 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
         else:
             node_ids.add(node_id)
 
+        span = component.props.get("span", 12)
+        if isinstance(span, bool) or not isinstance(span, int) or not 1 <= span <= 12:
+            errors.append(f"Component {index} span must be an integer from 1 to 12.")
+
         config = component.props.get("config")
         if config is not None:
             if not isinstance(config, dict):
@@ -132,6 +185,8 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
                 )
             elif len(json.dumps(config, separators=(",", ":")).encode()) > ACCOUNT_VIEW_CONFIG_MAX_BYTES:
                 errors.append(f"Component {index} config is too large.")
+            elif component.tag_name == "Properties":
+                errors.extend(f"Component {index}: {error}" for error in validate_properties_widget_config(config))
 
     if errors:
         raise InvalidAccountViewContent(errors)
@@ -160,25 +215,39 @@ def update_account_view(
     user_id: int,
     view_id: UUID,
     expected_version: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
     name: str | None = None,
     content: dict[str, Any] | None = None,
+    visibility: str | None = None,
 ) -> AccountView | None:
     view = (
         AccountView.objects.for_team(team_id)
         .select_for_update()
-        .filter(
-            id=view_id,
-            created_by_id=user_id,
-            deleted_at__isnull=True,
-            visibility=AccountViewVisibility.PRIVATE,
-        )
+        .filter(id=view_id, deleted_at__isnull=True)
+        .filter(Q(created_by_id=user_id) | Q(visibility=AccountViewVisibility.TEAM))
         .first()
     )
     if view is None:
         return None
     if view.version != expected_version:
         raise AccountViewVersionConflict("This view changed since you opened it.")
-    if name is None and content is None:
+    if view.visibility == AccountViewVisibility.PRIVATE and view.created_by_id != user_id:
+        raise AccountViewPermissionDenied("Only the creator can edit this personal view.")
+    if (
+        view.visibility == AccountViewVisibility.TEAM
+        and (name is not None or content is not None)
+        and not can_edit_team_views
+    ):
+        raise AccountViewPermissionDenied("You need editor access to change this team view.")
+    if (
+        visibility is not None
+        and visibility != view.visibility
+        and view.created_by_id != user_id
+        and not is_project_admin
+    ):
+        raise AccountViewPermissionDenied("Only the creator or a project admin can change visibility.")
+    if name is None and content is None and (visibility is None or visibility == view.visibility):
         return view
 
     update_fields = ["last_modified_by", "version", "updated_at"]
@@ -188,6 +257,12 @@ def update_account_view(
     if content is not None:
         view.content, view.text_content = validate_account_view_content(content)
         update_fields.extend(["content", "text_content"])
+    if visibility is not None and visibility != view.visibility:
+        view.visibility = AccountViewVisibility(visibility)
+        update_fields.append("visibility")
+        if view.visibility == AccountViewVisibility.PRIVATE and view.created_by_id != user_id:
+            view.created_by_id = user_id
+            update_fields.append("created_by")
 
     view.last_modified_by_id = user_id
     view.version += 1
@@ -196,22 +271,22 @@ def update_account_view(
 
 
 @transaction.atomic
-def delete_account_view(*, team_id: int, user_id: int, view_id: UUID, expected_version: int) -> bool:
+def delete_account_view(
+    *, team_id: int, user_id: int, view_id: UUID, expected_version: int, is_project_admin: bool
+) -> bool:
     view = (
         AccountView.objects.for_team(team_id)
         .select_for_update()
-        .filter(
-            id=view_id,
-            created_by_id=user_id,
-            deleted_at__isnull=True,
-            visibility=AccountViewVisibility.PRIVATE,
-        )
+        .filter(id=view_id, deleted_at__isnull=True)
+        .filter(Q(created_by_id=user_id) | Q(visibility=AccountViewVisibility.TEAM))
         .first()
     )
     if view is None:
         return False
     if view.version != expected_version:
         raise AccountViewVersionConflict("This view changed since you opened it.")
+    if view.created_by_id != user_id and not is_project_admin:
+        raise AccountViewPermissionDenied("Only the creator or a project admin can delete this view.")
 
     view.deleted_at = timezone.now()
     view.last_modified_by_id = user_id

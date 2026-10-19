@@ -16,6 +16,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIRequestFactory
 
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
+from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelUser, VercelUserClaims
@@ -106,6 +107,7 @@ class TestVercelAuthentication(SimpleTestCase):
     def _exp(self, seconds: int = 3600) -> float:
         return timezone.now().timestamp() + seconds
 
+    @covers_authentication(VercelAuthentication)
     def test_user_auth_valid_token(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         token = self._token()
@@ -247,6 +249,13 @@ class TestVercelAuthentication(SimpleTestCase):
         user, _ = result
         assert isinstance(user.claims, VercelUserClaims)
         assert user.claims.user_email_verified is None
+
+        token_with_oidc_claim_name = self._token(overrides={"email_verified": True})
+        result = self.auth.authenticate(self._make_request(token_with_oidc_claim_name))
+        assert result is not None
+        user, _ = result
+        assert isinstance(user.claims, VercelUserClaims)
+        assert user.claims.user_email_verified is True
 
     def test_none_algorithm_rejected(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks

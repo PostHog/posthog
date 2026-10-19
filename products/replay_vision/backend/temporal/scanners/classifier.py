@@ -13,12 +13,17 @@ from products.replay_vision.backend.temporal.scanners.base import (
     BaseScannerOutput,
     Segment,
     confidence_field,
+    key_moment_field,
     notability_field,
     notability_reason_field,
     thumbnail_field,
 )
 
 _MAX_FREEFORM_TAGS = 5
+_REASONING_DESCRIPTION = (
+    "One or more short paragraphs of two to four sentences, separated by a blank line, grounding the tag choice in "
+    "concrete moments."
+)
 
 
 class ClassifierOutput(BaseScannerOutput, frozen=True):
@@ -30,7 +35,7 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
             "Open-text tags emitted by the LLM when the scanner has `allow_freeform_tags=True`; lowercase, deduped."
         ),
     )
-    reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
+    reasoning: str = Field(description=_REASONING_DESCRIPTION)
     reasoning_segments: list[Segment] = Field(default_factory=list)
 
     @field_validator("tags_freeform", mode="after")
@@ -63,7 +68,10 @@ class ClassifierScanner(BaseScanner, frozen=True):
         tag_literal = typing.Literal[tuple(self.tags)]  # type: ignore[valid-type]
         # Field order is load-bearing: reasoning first (reason before tagging), confidence last.
         fields: dict[str, Any] = {
-            "reasoning": (str, Field(description="One paragraph grounding the tag choice in concrete moments.")),
+            "reasoning": (
+                str,
+                Field(description=_REASONING_DESCRIPTION),
+            ),
             "tags": (
                 list[tag_literal],  # type: ignore[valid-type]
                 Field(
@@ -93,6 +101,7 @@ class ClassifierScanner(BaseScanner, frozen=True):
         fields["notability_reason"] = (str | None, notability_reason_field())
         fields["notability"] = (float | None, notability_field())
         fields["confidence"] = (float, confidence_field())
+        fields["key_moment_t"] = (int | None, key_moment_field())
         fields["thumbnail_t"] = (int | None, thumbnail_field())
         return create_model("ClassifierLlmResponse", **fields)
 

@@ -8,12 +8,12 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.models.user import User
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import HOOK_EVENTS, Hook
+from products.cdp.backend.templates.zapier.template_zapier import template as template_zapier
 
 
 def create_zapier_hog_function(hook: Hook, serializer_context: dict, from_migration: bool = False) -> HogFunction:

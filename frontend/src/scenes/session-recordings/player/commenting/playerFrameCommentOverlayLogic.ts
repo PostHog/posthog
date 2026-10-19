@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
@@ -301,6 +302,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     },
                     slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
+                posthog.capture('comment created', { scope: 'Replay', is_reply: false, is_emoji: true })
                 actions.commentEdited(props.recordingId)
             } catch (e) {
                 lemonToast.error(`Could not save your comment: ${(e as Error).message}`)
@@ -357,6 +359,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     await api.comments.update(commentId, apiPayload)
                 } else {
                     await api.comments.create({ ...apiPayload, is_task: values.asTask })
+                    posthog.capture('comment created', { scope: 'Replay', is_reply: false, is_emoji: false })
                 }
 
                 actions.commentEdited(props.recordingId)
