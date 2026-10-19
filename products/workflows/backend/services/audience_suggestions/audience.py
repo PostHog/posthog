@@ -27,7 +27,7 @@ EMAIL_PROPERTY = "email"
 def cohort_filters(
     *, kind: AudienceKind, event: str, missing_event: str | None, window_days: int, min_count: int | None
 ) -> dict[str, Any]:
-    """A dynamic cohort definition for the audience. People without an email address are left out, because a
+    """The cohort definition for the audience. People without an email address are left out, because a
     broadcast cannot reach them and the wizard would count them."""
     match kind:
         case "not_yet":
@@ -47,7 +47,8 @@ def cohort_filters(
             ]
         case "lapsed":
             behavior = [_performed(event, LAPSED_LOOKBACK_DAYS), _performed(event, window_days, negation=True)]
-    email = {"key": EMAIL_PROPERTY, "type": "person", "operator": "is_set", "value": "is_set"}
+    # "is_set" also matches an empty string, which no send can reach.
+    email = {"key": EMAIL_PROPERTY, "type": "person", "operator": "icontains", "value": "@"}
     return {"properties": {"type": "AND", "values": [{"type": "AND", "values": [*behavior, email]}]}}
 
 
@@ -91,7 +92,7 @@ def reachable_count(
             """
     # The email comes from the person, not the events, because the send reads it from the person.
     query = parse_select(
-        "SELECT count() FROM {matched} WHERE person_id IN (SELECT id FROM persons WHERE notEmpty(toString({email})))",
+        "SELECT count() FROM {matched} WHERE person_id IN (SELECT id FROM persons WHERE toString({email}) ILIKE '%@%')",
         placeholders={"matched": parse_select(inner, placeholders=placeholders), "email": placeholders["email"]},
     )
     response = _run(team, query, "workflows_audience_suggestions_size")

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -43,20 +45,28 @@ describe('broadcastAudienceSuggestionsLogic', () => {
         initKeaTests()
     })
 
+    const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
+    const snapshot = (overrides: Record<string, any> = {}): Record<string, any> => ({
+        id: 7,
+        name: suggestion.name,
+        description: suggestion.description,
+        deleted: false,
+        is_static: true,
+        errors_calculating: 0,
+        created_by: { uuid: MOCK_DEFAULT_USER.uuid },
+        created_at: minutesAgo(10),
+        filters: suggestion.cohort_filters,
+        ...overrides,
+    })
+
     it.each([
         ['creates a cohort for a new idea', [], 41, 1],
-        [
-            'reuses the cohort of an idea someone already picked',
-            [{ id: 7, name: suggestion.name, description: suggestion.description, deleted: false }],
-            7,
-            0,
-        ],
-        [
-            'ignores a deleted cohort with the same name',
-            [{ id: 7, name: suggestion.name, description: suggestion.description, deleted: true }],
-            41,
-            1,
-        ],
+        ["reuses the user's own fresh snapshot of the idea", [snapshot()], 7, 0],
+        ['ignores a deleted cohort with the same name', [snapshot({ deleted: true })], 41, 1],
+        ['ignores a snapshot whose filters were edited', [snapshot({ filters: { properties: {} } })], 41, 1],
+        ['ignores a snapshot over an hour old', [snapshot({ created_at: minutesAgo(61) })], 41, 1],
+        ["ignores another user's snapshot", [snapshot({ created_by: { uuid: 'someone-else' } })], 41, 1],
+        ['ignores a dynamic cohort with the same name', [snapshot({ is_static: false })], 41, 1],
     ])('%s', async (_name, existing, cohortId, creates) => {
         jest.mocked(cohortsList).mockResolvedValue({ results: existing } as any)
         const logic = broadcastAudienceSuggestionsLogic()
@@ -65,6 +75,10 @@ describe('broadcastAudienceSuggestionsLogic', () => {
         await expectLogic(logic, () => logic.actions.pickSuggestion(suggestion)).toFinishAllListeners()
 
         expect(cohortsCreate).toHaveBeenCalledTimes(creates)
+        if (creates) {
+            // A dynamic cohort with event conditions can't be a broadcast audience, so the idea is a static snapshot.
+            expect(jest.mocked(cohortsCreate).mock.calls[0][1]).toMatchObject({ is_static: true })
+        }
         const audience = JSON.parse(router.values.searchParams[AUDIENCE_PREFILL_PARAM])
         expect(audience).toEqual([expect.objectContaining({ type: 'cohort', value: cohortId })])
         expect(logic.values.creatingId).toBeNull()

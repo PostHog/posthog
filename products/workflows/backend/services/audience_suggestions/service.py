@@ -103,6 +103,9 @@ def start_audience_suggestions(
 
 def run_audience_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None:
     try:
+        # A task the queue held past the lock's lifetime lost its run to a newer one, so it does no work.
+        if cache.get(_lock_key(team_id)) != lock_token:
+            return
         team = Team.objects.select_related("organization").get(id=team_id)
         user = User.objects.get(id=user_id)
         if _unavailable_reason(team) is not None:
@@ -141,7 +144,22 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSugges
     ideas = suggest_audiences(team=team, user=user, events=events, analytics_client=analytics_client)
     if not ideas:
         return _UNAVAILABLE
-    sized = [suggestion for idea in ideas if (suggestion := _sized(team, idea, counts)) is not None]
+    sized: list[AudienceSuggestion] = []
+    failed = 0
+    for idea in ideas:
+        # One audience too costly to count drops that idea only, not the cards that counted fine.
+        try:
+            suggestion = _sized(team, idea, counts)
+        except _COUNT_ERRORS:
+            logger.warning(
+                "workflows.audience_suggestions.count_failed", team_id=team.id, kind=idea.kind, exc_info=True
+            )
+            failed += 1
+            continue
+        if suggestion is not None:
+            sized.append(suggestion)
+    if failed and not sized:
+        return _UNAVAILABLE
     return AudienceSuggestionsResult(status="ready", suggestions=_pick(sized))
 
 

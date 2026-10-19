@@ -7,6 +7,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -50,13 +51,14 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         self.organization.save()
         now = datetime.now(UTC)
         window_start = (now - timedelta(days=14)).replace(hour=0, minute=0, second=0, microsecond=0)
-        # 12 recent sign-ups without a project, one with a project, and one without an email address.
+        # 12 recent sign-ups without a project, one with a project, and two without a usable email address.
         for index in range(12):
             self._person(f"new-{index}", [("signed_up", now - timedelta(days=2))])
         self._person(
             "activated", [("signed_up", now - timedelta(days=2)), ("project_created", now - timedelta(days=1))]
         )
         self._person("no-email", [("signed_up", now - timedelta(days=2))], email=None)
+        self._person("empty-email", [("signed_up", now - timedelta(days=2))], email="")
         # The window starts at the start of the day, like the cohort's relative dates.
         self._person("first-day", [("signed_up", window_start + timedelta(hours=1))])
         self._person("day-before", [("signed_up", window_start - timedelta(hours=1))])
@@ -67,7 +69,7 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _person(self, distinct_id: str, events: list[tuple[str, datetime]], email: str | None = "set") -> None:
-        properties = {"email": f"{distinct_id}@example.com"} if email else {}
+        properties = {} if email is None else {"email": f"{distinct_id}@example.com" if email == "set" else email}
         create_person(team=self.team, distinct_ids=[distinct_id], properties=properties)
         for event, timestamp in events:
             _create_event(team=self.team, event=event, distinct_id=distinct_id, timestamp=timestamp)
@@ -134,6 +136,26 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert prompt_events["$pageview"] == 33
         assert self._list()["suggestions"] == body["suggestions"]
         assert suggest.call_count == 1
+
+    @patch(f"{SERVICE}.reachable_count")
+    @patch(f"{SERVICE}.suggest_audiences")
+    def test_an_audience_too_costly_to_count_drops_only_that_card(self, suggest: MagicMock, count: MagicMock) -> None:
+        suggest.return_value = [
+            _idea("lapsed", "$pageview", window_days=30),
+            _idea("not_yet", "signed_up", "project_created"),
+        ]
+
+        def size(team: object, *, kind: AudienceKind, **_: object) -> int:
+            if kind == "lapsed":
+                raise ClickHouseQueryTimeOut()
+            return 13
+
+        count.side_effect = size
+
+        body = self._list()
+
+        assert body["status"] == "ready"
+        assert [(s["kind"], s["reachable_count"]) for s in body["suggestions"]] == [("not_yet", 13)]
 
     @parameterized.expand(
         [
