@@ -782,8 +782,6 @@ class MutationNotFound(Exception):
 # period before such a read, not a guarantee: a replica that lags longer still shows the rows.
 PATCH_PART_REPLICATION_GRACE_SECONDS = 0 if settings.TEST else 60
 
-MUTATION_POLL_INTERVAL_SECONDS = 0.1 if settings.TEST else 15.0
-
 
 def wait_for_patch_part_replication() -> None:
     time.sleep(PATCH_PART_REPLICATION_GRACE_SECONDS)
@@ -799,6 +797,9 @@ def _is_authentication_failure(e: Exception) -> bool:
 
 
 _REJECTED_LOGIN_RETRY_POLICY = RetryPolicy(max_attempts=3, delay=5, exceptions=_is_authentication_failure)
+
+MUTATION_POLL_INITIAL_SECONDS = 0.5
+MUTATION_POLL_MAX_SECONDS = 15.0
 
 
 @dataclass
@@ -834,8 +835,10 @@ class MutationWaiter:
             return all(statuses.values())
 
     def wait(self, client: Client) -> None:
+        delay = MUTATION_POLL_INITIAL_SECONDS
         while not self.is_done(client):
-            time.sleep(MUTATION_POLL_INTERVAL_SECONDS)
+            time.sleep(delay)
+            delay = min(delay * 2, MUTATION_POLL_MAX_SECONDS)
 
 
 @dataclass
