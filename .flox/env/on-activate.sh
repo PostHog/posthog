@@ -446,11 +446,12 @@ fi
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
-# The completions list only the commands in hogli.yaml, so they change only when that file
-# or their generator changes.
+# The completions list only the commands in hogli.yaml, so they change only when that file,
+# the manifest loader, or their generator changes.
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]] && {
   [[ ! -s "$HOGLI_COMPLETION_DIR/hogli.bash" || ! -s "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
     [[ "$FLOX_ENV_PROJECT/hogli.yaml" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/manifest.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
     [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/completion.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]]
 }; then
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
