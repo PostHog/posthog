@@ -12,7 +12,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from products.metrics.backend.variable_options import _has_capture_group, re2_pattern
+from products.metrics.backend.variable_options import apply_regex, re2_pattern
 from products.metrics.backend.variables import (
     Variable,
     from_dashboard,
@@ -241,13 +241,18 @@ def test_re2_pattern(_name: str, regex: str, expected: str) -> None:
 
 @parameterized.expand(
     [
-        ("numbered", "api-(.*)", True),
-        ("named", "api-(?P<value>.*)", True),
-        ("named_short", "api-(?<value>.*)", True),
-        ("non_capturing", "api-(?:a|b)", False),
-        ("lookbehind_like", "api-(?<=x)", False),
-        ("inline_flags", "(?i)api", False),
+        ("filter", "^api", ["api-1", "web-1"], ["api-1"]),
+        ("numbered_group", "/api-(.*)/", ["api-1", "web-1"], ["1"]),
+        ("named_group", "api-(?<value>.*)", ["api-1"], ["1"]),
+        ("non_capturing_group", "api-(?:1|2)", ["api-1", "api-3"], ["api-1"]),
+        ("flags", "/API-(.*)/i", ["api-1"], ["1"]),
+        ("dot_matches_a_newline", "^api.*$", ["api\nworker"], ["api\nworker"]),
+        ("empty_option_without_a_group", ".*", ["", "api"], ["", "api"]),
     ]
 )
-def test_capture_groups(_name: str, regex: str, expected: bool) -> None:
-    assert _has_capture_group(regex) is expected
+def test_apply_regex(_name: str, regex: str, options: list[str], expected: list[str]) -> None:
+    assert apply_regex(options, regex) == expected
+
+
+def test_apply_regex_reads_long_options_in_one_pass() -> None:
+    assert apply_regex(['up{instance="api", ' + "x" * 10_000_000 + "}"], 'instance="([^"]+)"') == ["api"]
