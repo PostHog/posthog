@@ -44,6 +44,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
@@ -94,14 +95,34 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+BACKFILL_ACTIVITY_TIMEOUT = timedelta(minutes=10)
+BACKFILL_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
+
+
+def backfill_timeout(recover_backfill: bool, live: timedelta | None) -> timedelta | None:
+    if not recover_backfill:
+        return live
+    return max(live, BACKFILL_ACTIVITY_TIMEOUT) if live else BACKFILL_ACTIVITY_TIMEOUT
+
+
+def backfill_retry_policy(recover_backfill: bool, live: RetryPolicy) -> RetryPolicy:
+    return BACKFILL_ACTIVITY_RETRY_POLICY if recover_backfill else live
+
 
 # A retry can fix these client errors, so they stay on the retry policy like a 5xx.
 # 499 is a cancellation, which Gemini already maps to the transport lane.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
 
 
-def _is_last_judge_attempt() -> bool:
-    if not temporalio.activity.in_activity():
+def _is_last_judge_attempt(backfill: bool = False) -> bool:
+    # A backfill run never treats an attempt as its last: running out of retries fails the run, and
+    # the backfill decides whether to pause or stop. Only a live run gives up for good.
+    if backfill or not temporalio.activity.in_activity():
         return False
     return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
 
@@ -270,10 +291,11 @@ def build_system_prompt(
 {config.instructions}"""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExecuteLLMJudgeInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -526,6 +548,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
+        backfill=inputs.backfill_id is not None,
     )
 
 
@@ -549,6 +572,7 @@ def call_llm_judge(
     system_prompt: str,
     user_prompt: str,
     allows_na: bool,
+    backfill: bool = False,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -797,12 +821,14 @@ def call_llm_judge(
         )
     except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
+        retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
-        error_class = ApplicationError if _is_last_judge_attempt() else NonReportableApplicationError
+        last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
+        error_class = ApplicationError if last else NonReportableApplicationError
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
-            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+            next_retry_delay=retry_delay,
         ) from e
     except AuthenticationError:
         if is_byok:
@@ -964,7 +990,7 @@ def call_llm_judge(
         )
 
     except ProviderHostUnresolvedError as e:
-        if not _is_last_judge_attempt():
+        if not _is_last_judge_attempt(backfill):
             increment_errors("connection_error", provider=provider)
             raise TransientJudgeError(str(e)) from e
         # The host did not resolve on any attempt, so the base URL is probably wrong. A failed

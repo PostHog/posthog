@@ -913,7 +913,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipeliner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/plaid.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/plain/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/planhat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/platform_sh/platform_sh.py
@@ -1210,7 +1209,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/whop/whop.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/wikipedia_pageviews.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/windmill/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/windmill/windmill.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/woocommerce/woocommerce.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/settings.py
@@ -1243,8 +1241,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/zep.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoho_crm/zoho_crm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zonka_feedback/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zonka_feedback/zonka_feedback.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/zoom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zuora/zuora.py
@@ -1264,7 +1260,7 @@
 9 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
-104 posthog/hogql/ast.py
+102 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 14 products/subscriptions/backend/temporal/types.py

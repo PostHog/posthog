@@ -5,7 +5,7 @@ functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure 
 People exposed before such a change can get another variant after it, so the results mix two assignments.
 """
 
-from datetime import UTC, timedelta
+from datetime import UTC
 from typing import Literal
 
 from products.experiments.backend.facade.contracts import (
@@ -14,13 +14,21 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.health.checks.change_wording import (
+    delay,
+    duration,
+    not_checked_because,
+    not_checked_next_step,
+    suggested_start,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
 from products.experiments.backend.health.context import (
+    FlagHistory,
+    FlagHistoryNotChecked,
+    FlagHistoryNotCheckedReason,
     FlagState,
     HealthContext,
-    SplitHistory,
-    SplitHistoryNotChecked,
-    SplitHistoryNotCheckedReason,
 )
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
@@ -41,25 +49,24 @@ NOT_CHECKED = "not_checked"
 _TITLE = "The variant split changed after launch"
 _REVERTED_INFO_TITLE = "The variant split changed and was set back"
 _NOT_CHECKED_TITLE = "Variant split changes were not checked"
-_HISTORY_NOT_CHECKED_TITLE = "The variant split history was not checked"
-_SECONDS_PER_DAY = 24 * 60 * 60
+_HISTORY_NOT_CHECKED_TITLE = "The flag history was not checked"
 
 
 def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = ctx.split_history
+    history = ctx.flag_history
     flag = ctx.flag
     if history is None or flag is None or flag.deleted or not ctx.is_running or ctx.archived:
         return None
     # `flag_variants_mismatch` reports a flag without variants, and the variants have to come back first.
     if not any(variant.key for variant in flag.variants):
         return None
-    if isinstance(history, SplitHistoryNotChecked):
+    if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history, flag)
-    effect = net_effect(history.counted_changes)
+    effect = net_effect(history.counted_split_changes)
     if effect is None or _reported_as_shipped(effect, flag):
         return None
 
-    if effect.shape == SplitChangeShape.REVERTED and history.exposed_between is False:
+    if effect.shape == SplitChangeShape.REVERTED and history.split_exposed_between is False:
         return _finding(
             history,
             effect,
@@ -68,7 +75,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
             sentences=[*_reverted(history, effect), "Nobody was exposed in between."],
         )
     if effect.shape == SplitChangeShape.REVERTED:
-        start_at = _suggested_start(history, effect)
+        start_at = suggested_start(effect.last.changed_at, history.team_timezone)
         return _finding(
             history,
             effect,
@@ -90,32 +97,34 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
             _what_changed(history, effect),
             *_delay(history, effect),
             *_consequence(history, effect),
-            f"A sample ratio mismatch or users in more than one variant can come from {_the_change(effect, 'this')}.",
+            "A sample ratio mismatch or users in more than one variant can come from "
+            f"{the_change(effect.change_count, 'this')}.",
         ],
     )
 
 
-def _not_checked(history: SplitHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
-    if history.reason == SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS:
+def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
+    # This finding speaks for the bucketing check too, because neither can read the history for this reason.
+    if history.reason == FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
         return ExperimentHealthFinding(
             code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
             subcode=NOT_CHECKED,
             severity=ExperimentHealthFindingSeverity.INFO,
             title=_HISTORY_NOT_CHECKED_TITLE,
             detail=(
-                "This check can't see whether the variant split changed after launch, because "
-                f"{_not_checked_because(history.reason)}. Viewing the history needs viewer access to the flag and, "
-                "with an API key, the activity_log:read scope."
+                "This check can't see whether the flag's variant split, key or bucketing changed after launch, "
+                f"because {not_checked_because(history.reason)}. Viewing the history needs viewer access to the "
+                "flag and, with an API key, the activity_log:read scope."
             ),
             evidence={"reason": history.reason.value},
             # The flag history is the page this caller can't open.
             actions=(),
             diagnostic_ref="E3",
         )
-    effect = net_effect(history.changes)
+    effect = net_effect(history.split_changes)
     if effect is None or _reported_as_shipped(effect, flag):
         return None
-    the_change = _the_change(effect, "the")
+    change = the_change(effect.change_count, "the")
     at = format_change_time(effect.last.changed_at, history.team_timezone)
     from_split = describe_split(effect.from_split)
     if effect.shape == SplitChangeShape.REVERTED:
@@ -130,11 +139,6 @@ def _not_checked(history: SplitHistoryNotChecked, flag: FlagState) -> Experiment
         )
     else:
         what_changed = f"The variant split changed from {from_split} to {describe_split(effect.to_split)} on {at}."
-    next_step = (
-        f"Add the query:read scope to this API key, or review {the_change} in the flag history."
-        if history.reason == SplitHistoryNotCheckedReason.NO_QUERY_ACCESS
-        else f"Review {the_change} in the flag history."
-    )
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
         subcode=NOT_CHECKED,
@@ -143,9 +147,9 @@ def _not_checked(history: SplitHistoryNotChecked, flag: FlagState) -> Experiment
         detail=" ".join(
             [
                 what_changed,
-                f"This check can't tell whether anyone was exposed before {the_change}, because "
-                f"{_not_checked_because(history.reason)}.",
-                next_step,
+                f"This check can't tell whether anyone was exposed before {change}, because "
+                f"{not_checked_because(history.reason)}.",
+                not_checked_next_step(history.reason, change),
             ]
         ),
         evidence={"reason": history.reason.value, **_change_evidence(history, effect, exposed_before_change=None)},
@@ -154,26 +158,12 @@ def _not_checked(history: SplitHistoryNotChecked, flag: FlagState) -> Experiment
     )
 
 
-def _not_checked_because(reason: SplitHistoryNotCheckedReason) -> str:
-    match reason:
-        case SplitHistoryNotCheckedReason.EXPOSURE_FILTERS:
-            return "the exposure criteria filter by properties"
-        case SplitHistoryNotCheckedReason.EXPOSURE_ACTION:
-            return "exposures come from an action"
-        case SplitHistoryNotCheckedReason.EXPOSURE_CRITERIA:
-            return "the exposure criteria can't be read"
-        case SplitHistoryNotCheckedReason.NO_QUERY_ACCESS:
-            return "this API key can't query events"
-        case SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS:
-            return "you can't view the linked feature flag's history"
-
-
 def _reported_as_shipped(effect: SplitNetEffect, flag: FlagState) -> bool:
     # `variant_shipped_while_running` reports this state, and its detail carries the date of the rollout.
     return effect.shape == SplitChangeShape.VARIANT_ROLLED_OUT and is_single_variant_shipped(flag)
 
 
-def _what_changed(history: SplitHistory, effect: SplitNetEffect) -> str:
+def _what_changed(history: FlagHistory, effect: SplitNetEffect) -> str:
     from_split = describe_split(effect.from_split)
     to_split = describe_split(effect.to_split)
     at = format_change_time(effect.last.changed_at, history.team_timezone)
@@ -204,9 +194,9 @@ def _what_changed(history: SplitHistory, effect: SplitNetEffect) -> str:
             return f"The split changed from {from_split} to {to_split} on {at}."
 
 
-def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
-    start_at = _suggested_start(history, effect)
-    the_change = _the_change(effect, "the")
+def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
+    start_at = suggested_start(effect.last.changed_at, history.team_timezone)
+    change = the_change(effect.change_count, "the")
     match effect.shape:
         case SplitChangeShape.VARIANT_ROLLED_OUT:
             variant = _rolled_out_variant(effect, starts_sentence=False)
@@ -223,7 +213,7 @@ def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
             ]
         case SplitChangeShape.VARIANT_ADDED:
             return [
-                f"People exposed before {the_change} may have switched variants.",
+                f"People exposed before {change} may have switched variants.",
                 f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case SplitChangeShape.VARIANT_ZEROED:
@@ -231,25 +221,25 @@ def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
             # variant from the analysis therefore leaves mixed assignments in the variants that remain.
             keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
             return [
-                f"People exposed before {the_change} may have switched variants, and no new users get {keys}.",
+                f"People exposed before {change} may have switched variants, and no new users get {keys}.",
                 f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case SplitChangeShape.REORDERED:
             # Restoring the order moves the people exposed since the change a second time.
             return [
-                f"The order decides who gets which variant, so people exposed before {the_change} may have "
+                f"The order decides who gets which variant, so people exposed before {change} may have "
                 "switched variants.",
                 f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case _:
             return [
-                f"People exposed before {the_change} may have switched variants, so the results mix two assignments.",
+                f"People exposed before {change} may have switched variants, so the results mix two assignments.",
                 f"Reset the experiment, or move its start date to {start_at} to analyze only the people exposed "
-                f"after {the_change}.",
+                f"after {change}.",
             ]
 
 
-def _reverted(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
+def _reverted(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
     first_at = format_change_time(effect.first.changed_at, history.team_timezone)
     last_at = format_change_time(effect.last.changed_at, history.team_timezone)
     from_split = describe_split(effect.from_split)
@@ -259,24 +249,23 @@ def _reverted(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
             f"and was set back to {from_split}."
         ]
     changed_to = describe_split(effect.first.after)
-    if history.exposed_between is False:
-        span = _duration((effect.last.changed_at - effect.first.changed_at).total_seconds())
+    if history.split_exposed_between is False:
+        span = duration((effect.last.changed_at - effect.first.changed_at).total_seconds())
         return [f"The split was set to {changed_to} on {first_at} and set back {span} later."]
     return [f"The split was set to {changed_to} on {first_at} and set back to {from_split} on {last_at}."]
 
 
-def _delay(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
-    # When nobody knows whether anyone was exposed before the change, or the change came days after launch,
-    # the time since launch tells the reader how many people the change can have moved.
-    seconds = _seconds_after_launch(history, effect)
-    if history.exposed_before_first is not None and seconds <= _SECONDS_PER_DAY:
-        return []
-    change = "The change" if effect.change_count == 1 else "The first change"
-    return [f"{change} came {_duration(seconds)} after launch."]
+def _delay(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
+    return delay(
+        launched_at=history.launched_at,
+        first_changed_at=effect.first.changed_at,
+        exposed_before_first=history.exposed_before_first,
+        change_count=effect.change_count,
+    )
 
 
 def _finding(
-    history: SplitHistory,
+    history: FlagHistory,
     effect: SplitNetEffect,
     *,
     severity: ExperimentHealthFindingSeverity,
@@ -298,7 +287,7 @@ def _finding(
 
 
 def _change_evidence(
-    history: SplitHistory | SplitHistoryNotChecked, effect: SplitNetEffect, *, exposed_before_change: bool | None
+    history: FlagHistory | FlagHistoryNotChecked, effect: SplitNetEffect, *, exposed_before_change: bool | None
 ) -> dict[str, str | int | bool | None]:
     return {
         "change_count": effect.change_count,
@@ -307,27 +296,8 @@ def _change_evidence(
         "from": describe_split(effect.from_split),
         "to": describe_split(effect.to_split),
         "exposed_before_change": exposed_before_change,
-        "seconds_after_launch": int(_seconds_after_launch(history, effect)),
+        "seconds_after_launch": int((effect.first.changed_at - history.launched_at).total_seconds()),
     }
-
-
-def _suggested_start(history: SplitHistory, effect: SplitNetEffect) -> str:
-    # The start date picker saves whole minutes, so a start inside the minute of the change keeps exposures
-    # from before it.
-    changed_at = effect.last.changed_at
-    minute = changed_at.replace(second=0, microsecond=0)
-    start = minute if minute == changed_at else minute + timedelta(minutes=1)
-    return format_change_time(start, history.team_timezone)
-
-
-def _seconds_after_launch(history: SplitHistory | SplitHistoryNotChecked, effect: SplitNetEffect) -> float:
-    return (effect.first.changed_at - history.launched_at).total_seconds()
-
-
-def _the_change(effect: SplitNetEffect, determiner: Literal["the", "this"]) -> str:
-    if effect.change_count == 1:
-        return f"{determiner} change"
-    return "the changes" if determiner == "the" else "these changes"
 
 
 def _rolled_out_variant(effect: SplitNetEffect, *, starts_sentence: bool) -> str:
@@ -351,19 +321,3 @@ def _quoted(keys: list[str], *, conjunction: Literal["and", "or"]) -> str:
     if len(quoted) <= 1:
         return "".join(quoted)
     return f"{', '.join(quoted[:-1])} {conjunction} {quoted[-1]}"
-
-
-def _duration(seconds: float) -> str:
-    minutes = int(seconds // 60)
-    if minutes < 1:
-        return "less than a minute"
-    if minutes < 60:
-        return _count(minutes, "minute")
-    hours = minutes // 60
-    if hours < 48:
-        return _count(hours, "hour")
-    return _count(hours // 24, "day")
-
-
-def _count(value: int, unit: str) -> str:
-    return f"{value} {unit}" if value == 1 else f"{value} {unit}s"

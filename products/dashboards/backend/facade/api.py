@@ -96,37 +96,45 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
 
 
 @dataclass(frozen=True)
-class HomeDashboardTile:
+class DashboardInsightTile:
     insight_short_id: str
     filters_overrides: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
-class HomeDashboardInsights:
+class DashboardInsights:
     dashboard_id: int
+    name: str | None
     filters: dict[str, Any]
     variables: dict[str, Any] | None
-    tiles: tuple[HomeDashboardTile, ...]
+    tiles: tuple[DashboardInsightTile, ...]
 
 
-def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> HomeDashboardInsights | None:
+def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> DashboardInsights | None:
     homepage = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
     match = re.search(r"/dashboard/(\d+)", str((homepage or {}).get("pathname") or ""))
     dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
     if dashboard_id is None:
         return None
+    return dashboard_insights(team=team, user=user, dashboard_id=dashboard_id, limit=limit)
+
+
+def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: int) -> DashboardInsights | None:
     dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
     access = UserAccessControl(user=user, team=team)
     if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
         return None
     insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
     tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
-    return HomeDashboardInsights(
+    return DashboardInsights(
         dashboard_id=dashboard.id,
+        name=dashboard.name,
         filters=dashboard.filters or {},
         variables=dashboard.variables or None,
         tiles=tuple(
-            HomeDashboardTile(insight_short_id=tile.insight.short_id, filters_overrides=tile.filters_overrides or None)
+            DashboardInsightTile(
+                insight_short_id=tile.insight.short_id, filters_overrides=tile.filters_overrides or None
+            )
             for tile in tiles[:limit]
             if tile.insight is not None
         ),

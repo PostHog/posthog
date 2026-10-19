@@ -233,6 +233,7 @@ from .catchpoint.source import CatchpointSource
 from .cdc_open_data.source import CdcOpenDataSource
 from .census.source import CensusSource
 from .chameleon.source import ChameleonSource
+from .channel_io.source import ChannelIOSource
 from .chargebackstop.source import ChargebackStopSource
 from .chargebee.source import ChargebeeSource
 from .chargedesk.source import ChargedeskSource
@@ -822,6 +823,7 @@ from .nager_date.source import NagerDateSource
 from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
+from .naver_ads.source import NaverAdsSource
 from .nebius_ai.source import NebiusAISource
 from .neo4j.source import Neo4jSource
 from .neon.source import NeonSource
@@ -945,6 +947,7 @@ from .pivotal_tracker.source import PivotalTrackerSource
 from .piwik.source import PiwikSource
 from .plaid.source import PlaidSource
 from .plain.source import PlainSource
+from .plane.source import PlaneSource
 from .planetscale_mysql.source import PlanetScaleMySQLSource
 from .planetscale_postgres.source import PlanetScalePostgresSource
 from .planhat.source import PlanhatSource

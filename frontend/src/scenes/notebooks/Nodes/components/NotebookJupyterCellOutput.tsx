@@ -106,12 +106,12 @@ export function NotebookJupyterCellOutput({
                 </OutputRow>
             ) : null}
             {dataframeResult && isEditable ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs">
+                <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xxs">
                         <span>Saved as</span>
                         <input
                             type="text"
-                            className="w-48 px-1 font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-primary"
+                            className="w-44 px-1 text-xxs font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-secondary"
                             value={returnVariable}
                             onChange={(event) => onReturnVariableChange(event.target.value)}
                             placeholder="Output dataframe name"
