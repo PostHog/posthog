@@ -13,6 +13,7 @@ from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     RefreshingChPool,
     Workload,
+    default_client,
     get_clickhouse_creds,
     get_http_client,
     get_http_kwargs,
@@ -265,6 +266,28 @@ def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatc
     # Asserting the credential handed to get_http_client, not that the helper was called, keeps this
     # green if the kwargs building is ever inlined.
     assert mock_http_client.call_args.kwargs["password"] == "tok-0"
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_user,expected_password",
+    [
+        pytest.param({}, "pod-user", "live-token", id="no-credentials-uses-the-pod-token"),
+        pytest.param({"password": "explicit"}, "pod-user", "explicit", id="explicit-password-is-kept"),
+        pytest.param({"user": "other"}, "other", "pod-static", id="other-user-never-gets-the-pod-token"),
+    ],
+)
+def test_default_client_sends_the_pod_token_only_without_explicit_credentials(
+    settings, tmp_path, kwargs, expected_user, expected_password
+):
+    token = tmp_path / "token"
+    token.write_text("live-token")
+    settings.CLICKHOUSE_USER = "pod-user"
+    settings.CLICKHOUSE_PASSWORD = "pod-static"
+    settings.CLICKHOUSE_PASSWORD_FILE = str(token)
+
+    client = default_client(**kwargs)
+
+    assert (client.connection.user, client.connection.password) == (expected_user, expected_password)
 
 
 def test_refreshing_pool_stamps_current_credential(tmp_path):

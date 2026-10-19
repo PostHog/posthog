@@ -90,6 +90,7 @@ from products.product_analytics.backend.hogql_queries.trends.series_with_extras 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
 from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
@@ -178,6 +179,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
             DisallowUnsupportedPropertyMathForHistogramBreakdown(),
+            RequirePropertyForPropertyMath(),
             DisallowDaysOfWeekWithSmoothing(),
         )
 

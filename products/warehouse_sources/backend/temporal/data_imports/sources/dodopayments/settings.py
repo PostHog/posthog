@@ -1,5 +1,9 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -20,6 +24,11 @@ PAGE_SIZE = 100
 # waiting for against the 240 requests/minute rate limit.
 REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
+# A parent row deleted between the parent listing and its child request returns 404 (the
+# documented "not found" answer of every child endpoint). Skip that parent rather than fail the
+# whole table.
+SKIP_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
 # Rows whose fields get restated after creation re-read a trailing 30 day window on every
 # incremental run. Dodo only filters on `created_at` - there is no updated-since filter anywhere
 # in the API - so a bare creation cursor would freeze `status`, `dispute_status` and
@@ -33,7 +42,8 @@ class DodoPaymentsEndpointConfig:
     path: str
     primary_keys: list[str]
     # Query param carrying the server-side "created on or after" filter, when the endpoint has
-    # one. `None` means the endpoint offers no date filter at all and must be full-refreshed.
+    # one. `None` means the endpoint offers no date filter at all and must be full-refreshed,
+    # unless its fan-out parent has one.
     start_param: str | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation timestamp used for datetime partitioning. `None` where the resource has no
@@ -44,6 +54,8 @@ class DodoPaymentsEndpointConfig:
     # Fields on these resources are restated in place after creation, so incremental runs need
     # the trailing re-read window above.
     restated: bool = False
+    # Per-parent child endpoints, read once for each row of the parent listing.
+    fanout: DependentEndpointConfig | None = None
 
 
 DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
@@ -126,6 +138,70 @@ DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
     "license_key_instances": DodoPaymentsEndpointConfig(path="/license_key_instances", primary_keys=["id"]),
     "entitlements": DodoPaymentsEndpointConfig(path="/entitlements", primary_keys=["id"]),
     "credit_entitlements": DodoPaymentsEndpointConfig(path="/credit-entitlements", primary_keys=["id"]),
+    # Line items take no date filter of their own, so incremental runs filter the parent payment
+    # listing on `created_at_gte` instead. `refundable_amount` drops when a payment is refunded,
+    # hence the re-read window.
+    "payment_line_items": DodoPaymentsEndpointConfig(
+        path="/payments/{payment_id}/line-items",
+        primary_keys=["payment_id", "items_id"],
+        incremental_fields=[incremental_field("payment_created_at")],
+        partition_key="payment_created_at",
+        paginated=False,
+        restated=True,
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="payments",
+            resolve_param="payment_id",
+            resolve_field="payment_id",
+            # The line-items body carries `currency` beside `items`, not on each item, so it comes
+            # from the parent payment instead.
+            include_from_parent=["payment_id", "created_at", "currency"],
+            parent_field_renames={
+                "payment_id": "payment_id",
+                "created_at": "payment_created_at",
+                "currency": "currency",
+            },
+        ),
+    ),
+    # One row per billing period. The current period's usage grows until it closes, so this is
+    # full refresh only.
+    "subscription_usage_history": DodoPaymentsEndpointConfig(
+        path="/subscriptions/{subscription_id}/usage-history",
+        primary_keys=["subscription_id", "start_date"],
+        partition_key="start_date",
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="subscriptions",
+            resolve_param="subscription_id",
+            resolve_field="subscription_id",
+            include_from_parent=["subscription_id"],
+            parent_field_renames={"subscription_id": "subscription_id"},
+        ),
+    ),
+    "payout_breakup_details": DodoPaymentsEndpointConfig(
+        path="/payouts/{payout_id}/breakup/details",
+        primary_keys=["payout_id", "id"],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="payouts",
+            resolve_param="payout_id",
+            resolve_field="payout_id",
+            include_from_parent=["payout_id"],
+            parent_field_renames={"payout_id": "payout_id"},
+        ),
+    ),
+    # Balance rows already carry `credit_entitlement_id`, so nothing is copied from the parent.
+    "credit_entitlement_balances": DodoPaymentsEndpointConfig(
+        path="/credit-entitlements/{credit_entitlement_id}/balances",
+        primary_keys=["credit_entitlement_id", "id"],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="credit_entitlements",
+            resolve_param="credit_entitlement_id",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(DODOPAYMENTS_ENDPOINTS.keys())

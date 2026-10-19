@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.
 BASE_URL = "https://us-east-1.recall.ai"
 
 
-def _page(body: dict[str, Any]) -> ScriptedResponse:
+def _page(body: Any) -> ScriptedResponse:
     return ScriptedResponse(json=body)
 
 
@@ -88,27 +88,95 @@ class TestRecallAIPaginationAndResume:
         assert result.urls == [f"{BASE_URL}/api/v1/recording/"]
 
 
-class TestRecallAICalendarScrubbing:
-    def test_oauth_secrets_never_reach_the_warehouse(self) -> None:
-        calendar = {
-            "id": "cal-1",
-            "platform": "google_calendar",
-            "oauth_client_id": "client-id",
-            "oauth_client_secret": "super-secret",
-            "oauth_refresh_token": "refresh-token",
-            "status": "connected",
-        }
+class TestRecallAICredentialScrubbing:
+    @pytest.mark.parametrize(
+        ("endpoint", "body", "expected_rows"),
+        [
+            (
+                "calendars",
+                {
+                    "next": None,
+                    "previous": None,
+                    "results": [
+                        {
+                            "id": "cal-1",
+                            "platform": "google_calendar",
+                            "oauth_client_id": "client-id",
+                            "oauth_client_secret": "super-secret",
+                            "oauth_refresh_token": "refresh-token",
+                            "status": "connected",
+                        }
+                    ],
+                },
+                [{"id": "cal-1", "platform": "google_calendar", "oauth_client_id": "client-id", "status": "connected"}],
+            ),
+            (
+                "desktop_sdk_uploads",
+                {
+                    "next": None,
+                    "previous": None,
+                    "results": [
+                        {
+                            "id": "upl-1",
+                            "status": {"code": "complete", "sub_code": None, "updated_at": "2026-02-01T09:00:00Z"},
+                            "recording_id": "rec-1",
+                            "upload_token": "fake-upload-token",
+                            "created_at": "2026-02-01T08:00:00Z",
+                        }
+                    ],
+                },
+                [
+                    {
+                        "id": "upl-1",
+                        "status": {"code": "complete", "sub_code": None, "updated_at": "2026-02-01T09:00:00Z"},
+                        "recording_id": "rec-1",
+                        "created_at": "2026-02-01T08:00:00Z",
+                    }
+                ],
+            ),
+            # A bare JSON array with no pagination envelope. The platform objects nest the
+            # credentials, and the platform a connection does not use is null.
+            (
+                "meeting_direct_connects",
+                [
+                    {
+                        "id": "mdc-zoom",
+                        "zoom_rtms": {
+                            "meeting_uuid": "meeting-uuid-1",
+                            "rtms_stream_id": "stream-1",
+                            "server_urls": "wss://rtms.zoom.example.com",
+                            "signature": "fake-signature",
+                        },
+                        "google_meet_media_api": None,
+                    },
+                    {
+                        "id": "mdc-meet",
+                        "zoom_rtms": None,
+                        "google_meet_media_api": {"space_name": "spaces/abc", "access_token": "fake-access-token"},
+                    },
+                ],
+                [
+                    {
+                        "id": "mdc-zoom",
+                        "zoom_rtms": {
+                            "meeting_uuid": "meeting-uuid-1",
+                            "rtms_stream_id": "stream-1",
+                            "server_urls": "wss://rtms.zoom.example.com",
+                        },
+                        "google_meet_media_api": None,
+                    },
+                    {"id": "mdc-meet", "zoom_rtms": None, "google_meet_media_api": {"space_name": "spaces/abc"}},
+                ],
+            ),
+        ],
+    )
+    def test_credentials_never_reach_the_warehouse(
+        self, endpoint: str, body: Any, expected_rows: list[dict[str, Any]]
+    ) -> None:
+        result = _drive(endpoint, [_page(body)])
 
-        result = _drive("calendars", [_page({"next": None, "previous": None, "results": [calendar]})])
-
-        assert result.rows == [
-            {
-                "id": "cal-1",
-                "platform": "google_calendar",
-                "oauth_client_id": "client-id",
-                "status": "connected",
-            }
-        ]
+        assert len(result.urls) == 1
+        assert result.rows == expected_rows
 
 
 class TestRecallAIHelpers:

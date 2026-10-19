@@ -131,6 +131,10 @@ class Pipeline:
     cadence_days: int
     iteration_budget: int
     iteration_budget_remaining: int
+    iterations_per_run: int
+    research_interval_days: int | None
+    training_phase: str
+    next_research_at: datetime | None
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
@@ -192,6 +196,7 @@ class IterationTrailEntry:
     train_score: float | None
     agent_description: str
     summary: str | None
+    headline: str | None
     model_spec: dict[str, Any]
     recipe_snapshot: dict[str, Any]
 
@@ -230,11 +235,13 @@ class TrainingRun:
     task_run_id: UUID | None
     task_url: str | None
     status: str
+    kickoff_reason: str | None
     iteration_budget: int
     iteration_count: int
     best_holdout_score: float | None
     summary: dict[str, Any] | None
     reader_summary: str | None
+    headline: str | None
     next_steps: list[str] | None
     iterations: list[IterationTrailEntry]
     error: str
@@ -259,6 +266,7 @@ class Iteration:
     status: str
     agent_description: str
     summary: str | None
+    headline: str | None
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
@@ -321,6 +329,8 @@ class PipelineWrite:
     inference_population: dict[str, Any] = field(default_factory=dict)
     cadence_days: int = 1
     iteration_budget: int = 50
+    iterations_per_run: int = 5
+    research_interval_days: int | None = 7
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""

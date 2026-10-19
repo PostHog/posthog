@@ -14,10 +14,8 @@ from posthog.schema import (
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
-    ExperimentVariantFunnelsBaseStats,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
-    ExperimentVariantTrendsBaseStats,
     HogQLQueryModifiers,
 )
 
@@ -49,7 +47,7 @@ from products.experiments.stats.shared.statistics import (
 
 logger = structlog.get_logger(__name__)
 
-V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+V = TypeVar("V", bound=ExperimentStatsBase)
 
 
 def get_experiment_query_debug(

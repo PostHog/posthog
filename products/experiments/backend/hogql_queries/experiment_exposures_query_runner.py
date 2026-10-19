@@ -59,6 +59,29 @@ QUERY_ROW_LIMIT = 5000  # The result has one row per (day, variant) pair
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
 
 
+def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
+    """The exposure query of an experiment over its own window. Backend callers build it here, so they share one
+    cache entry. The page builds its own, with the whole flag, so it caches apart."""
+    feature_flag = experiment.feature_flag
+    # The FK gives a model instance, and the query field is a pydantic type with no
+    # attribute-based validation, so it must be serialized first.
+    experiment_holdout = experiment.holdout
+    holdout = (
+        {"id": experiment_holdout.id, "name": experiment_holdout.name, "filters": experiment_holdout.filters}
+        if experiment_holdout is not None
+        else None
+    )
+    return ExperimentExposureQuery(
+        experiment_id=experiment.id,
+        experiment_name=experiment.name,
+        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
+        start_date=experiment.start_date.isoformat() if experiment.start_date else None,
+        end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+        exposure_criteria=experiment.exposure_criteria,
+        holdout=holdout,
+    )
+
+
 class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse

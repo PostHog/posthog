@@ -94,7 +94,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             "fluent-plugin-raygun",
         ),
         swiftpm=("github.com/mindscapehq/raygun4apple",),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
