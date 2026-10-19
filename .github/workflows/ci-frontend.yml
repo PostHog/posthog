@@ -324,107 +324,11 @@ jobs:
               env:
                   DIFF_OUTCOME: ${{ steps.diff.outcome }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
-              run: |
-                  set -euo pipefail
-
-                  # Use this whenever the selector can't reason about the diff — a
-                  # narrowed run it can't vouch for would be false confidence.
-                  # A draft skips jest and defers to its ready run; a ready PR has no
-                  # later run on this PR to defer to, so it takes the full matrix.
-                  # Mirrors the draft/ready fallback turbo-discover.js applies to the
-                  # Django matrices. The run-ci-frontend label forces the full matrix.
-                  # $1 is a closed category for grouping the telemetry, $2 the unbounded
-                  # detail behind it.
-                  fall_back() {
-                      local mode should_run matrix shards
-                      if [[ "$PR_DRAFT" == "true" ]]; then
-                          echo "::notice::$1 ($2); draft skips jest (its ready run selects again)"
-                          mode=skip should_run=false shards=0
-                          matrix='{"include":[]}'
-                      else
-                          # Empty matrix: the jest job's own default supplies the full
-                          # fanout, so the shard shape is written down in one place.
-                          echo "::notice::$1 ($2); running the full jest matrix"
-                          mode=full should_run=true shards=4
-                          matrix=
-                      fi
-                      {
-                          echo "mode=$mode"
-                          echo "matrix=$matrix"
-                          echo "should_run=$should_run"
-                          echo "changed_files="
-                          echo "changed_file_count=${changed_count:-}"
-                          echo "selected_file_count=0"
-                          echo "shard_count=$shards"
-                          echo "full_run_reason_category=$1"
-                          echo "full_run_reason_detail=$2"
-                      } > /tmp/jest-selection-fallback
-                  }
-
-                  if [[ "$DIFF_OUTCOME" != "success" ]] || [[ ! -s /tmp/changed.txt ]]; then
-                      fall_back diff_unavailable "${DIFF_OUTCOME}"
-                      exit 0
-                  fi
-
-                  # tr: the count is reported as telemetry now, and BSD wc pads it.
-                  changed_count=$(wc -l < /tmp/changed.txt | tr -d ' ')
-                  if [[ "$changed_count" -gt 200 ]]; then
-                      fall_back over_ceiling "$changed_count files"
-                      exit 0
-                  fi
-
-                  # Skip selection when jest config / build / lock files change, or
-                  # when a file changes whose consumers --findRelatedTests misses.
-                  # replay-shared sits outside the frontend jest roots. Jest loads
-                  # the MSW mocks for every test through a setup file, so no test
-                  # has to import them. Pattern matches mirror the frontend_code
-                  # paths-filter in `changes`.
-                  while IFS= read -r f; do
-                      case "$f" in
-                          frontend/jest.*|babel.config.js|tsconfig.json|tsconfig.*.json|\
-                          package.json|pnpm-lock.yaml|webpack.config.js|\
-                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|.github/scripts/jest-select.js|patches/jest-junit@16.0.0.patch|.nvmrc)
-                              fall_back config_change "$f"
-                              exit 0
-                              ;;
-                          common/replay-shared/src/*|frontend/src/mocks/*|frontend/src/lib/api.mock.ts)
-                              fall_back unindexed_dependency "$f"
-                              exit 0
-                              ;;
-                      esac
-                  done < /tmp/changed.txt
-
-                  # Filter the diff to source files jest can resolve. Any code under
-                  # frontend/, products/, common/, ee/frontend/ — anything else (docs,
-                  # workflows, backend) doesn't reach the jest module graph. Convert
-                  # repo-root paths to paths relative to the @posthog/frontend package
-                  # cwd because `pnpm --filter=@posthog/frontend exec` runs from there.
-                  CHANGED_FILES=$(
-                      awk '
-                          /\.(ts|tsx|js|jsx|mjs|cjs|json)$/ {
-                              if ($0 ~ /^frontend\//) {
-                                  sub(/^frontend\//, "", $0)
-                                  print
-                                  next
-                              }
-                              if ($0 ~ /^(products|common|ee\/frontend)\//) {
-                                  print "../" $0
-                              }
-                          }
-                      ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
-                  )
-
-                  # Preserve the same fallback if dependency installation or test listing fails.
-                  fall_back selector_crash "Jest selection unavailable" > /dev/null
-                  {
-                      echo "selective=true"
-                      echo "changed_files=$CHANGED_FILES"
-                      echo "changed_file_count=$changed_count"
-                  } >> "$GITHUB_OUTPUT"
+              run: node .github/scripts/jest-select.js prepare
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: steps.prepare.outputs.selective == 'true' && steps.prepare.outputs.changed_files != '' && github.event.pull_request.head.repo.full_name == github.repository
+              if: steps.prepare.outputs.needs_dependencies == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -434,9 +338,9 @@ jobs:
 
             - name: Install pnpm dependencies
               id: selector-install
-              if: steps.prepare.outputs.selective == 'true' && steps.prepare.outputs.changed_files != ''
+              if: steps.prepare.outputs.needs_dependencies == 'true'
               timeout-minutes: 5
-              # Allow the final step to publish the prepared fallback if setup fails.
+              # A failed install falls back to full coverage, or defers a draft to its ready run.
               continue-on-error: true
               uses: ./.github/actions/pnpm-install
               with:
@@ -446,16 +350,10 @@ jobs:
             - name: Build narrowed matrix
               id: classify
               env:
-                  SELECTIVE: ${{ steps.prepare.outputs.selective }}
+                  DIFF_OUTCOME: ${{ steps.diff.outcome }}
+                  PR_DRAFT: ${{ github.event.pull_request.draft }}
                   INSTALL_OUTCOME: ${{ steps.selector-install.outcome }}
-                  CHANGED_FILES: ${{ steps.prepare.outputs.changed_files }}
-                  CHANGED_FILE_COUNT: ${{ steps.prepare.outputs.changed_file_count }}
-              run: |
-                  if [[ "$SELECTIVE" == "true" ]] && [[ -z "$CHANGED_FILES" || "$INSTALL_OUTCOME" == "success" ]]; then
-                      node .github/scripts/jest-select.js && exit 0
-                      echo "::notice::Test selection failed; using the prepared fallback"
-                  fi
-                  cat /tmp/jest-selection-fallback >> "$GITHUB_OUTPUT"
+              run: node .github/scripts/jest-select.js
 
     frontend-format:
         name: Frontend formatting
