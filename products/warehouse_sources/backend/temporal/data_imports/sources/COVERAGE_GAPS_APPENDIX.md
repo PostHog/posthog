@@ -1273,12 +1273,12 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Model packages (ListModelPackages and DescribeModelPackage, POST /)` — resolve model package references in models and training jobs to registered versions, approval status, and evaluation results (high)
 - [x] `Hyperparameter tuning jobs (ListHyperParameterTuningJobs and DescribeHyperParameterTuningJob, POST /)` — resolve TuningJobArn on training jobs and compare tuning objectives, outcomes, and resource use (high)
 - [x] `AutoML jobs (ListAutoMLJobs, DescribeAutoMLJob and DescribeAutoMLJobV2, POST /)` — resolve AutoMLJobArn on training jobs and compare automated training outcomes and best candidates (high)
-- [ ] `Experiments, trials, and trial components (ListExperiments, ListTrials, ListTrialComponents and their Describe operations, POST /)` — resolve ExperimentConfig references on training jobs and compare experiment runs, parameters, and metrics (high)
-- [ ] `Transform jobs (ListTransformJobs and DescribeTransformJob, POST /)` — analyze batch inference status, duration, failures, and model use (high)
-- [ ] `Pipeline executions (ListPipelineExecutions and DescribePipelineExecution, POST /)` — measure workflow success rates, execution duration, and repeated failures (high)
+- [x] `Experiments, trials, and trial components (ListExperiments, ListTrials, ListTrialComponents and their Describe operations, POST /)` — resolve ExperimentConfig references on training jobs and compare experiment runs, parameters, and metrics (high)
+- [x] `Transform jobs (ListTransformJobs and DescribeTransformJob, POST /)` — analyze batch inference status, duration, failures, and model use (high)
+- [x] `Pipeline executions (ListPipelineExecutions and DescribePipelineExecution, POST /)` — measure workflow success rates, execution duration, and repeated failures (high)
 - [ ] `Pipeline execution steps (ListPipelineExecutionSteps, POST /)` — locate slow or failed steps and connect pipeline runs to training and processing jobs (medium)
 - [ ] `Pipelines (ListPipelines and DescribePipeline, POST /)` — identify pipeline owners and definitions when comparing workflow execution results (medium)
-- [ ] `Monitoring executions (ListMonitoringExecutions, POST /)` — track model monitoring failures and execution status for deployed endpoints (medium)
+- [x] `Monitoring executions (ListMonitoringExecutions, POST /)` — track model monitoring failures and execution status for deployed endpoints (medium)
 
 Note: The official AWS SDK model supplies operation names, HTTP methods, required inputs, and response fields. The four existing tables use list and describe operations; training metrics and status transitions are already included. Read operations use POST / and require operation names in X-Amz-Target. Pipelines, steps, experiments, and model packages need nested requests or describe calls; unrelated settings and write operations are excluded.
 
@@ -1330,16 +1330,16 @@ Note: The official SDK model was compared with ListStateMachines, ListExecutions
 
 ## AWS Systems Manager — **thin**
 
-Today (5): `associations`, `inventory`, `managed_instances`, `patch_baselines`, `resource_compliance_summaries`
+Today (10): `association_execution_targets`, `association_executions`, `associations`, `compliance_items`, `documents`, `inventory`, `inventory_entries`, `managed_instances`, `patch_baselines`, `resource_compliance_summaries`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/ssm/2014-11-06/service-2.json>
 
-- [ ] `Documents (ListDocuments, POST /)` — resolve association document names to document types, owners, versions, and supported platforms (high)
-- [ ] `Inventory entries (ListInventoryEntries, POST /)` — analyze installed applications, services, and other inventory beyond the imported AWS:InstanceInformation records (high)
-- [ ] `Compliance items (ListComplianceItems, POST /)` — identify individual noncompliant patches or associations behind resource compliance totals (high)
+- [x] `Documents (ListDocuments, POST /)` — resolve association document names to document types, owners, versions, and supported platforms (high)
+- [x] `Inventory entries (ListInventoryEntries, POST /)` — analyze installed applications, services, and other inventory beyond the imported AWS:InstanceInformation records (high)
+- [x] `Compliance items (ListComplianceItems, POST /)` — identify individual noncompliant patches or associations behind resource compliance totals (high)
 - [ ] `Instance patch states (DescribeInstancePatchStates, POST /)` — measure missing patches, failed patches, and patch scan times for each managed node (high)
 - [ ] `Instance patches (DescribeInstancePatches, POST /)` — analyze installed and missing patches by classification, severity, installation date, and node (high)
-- [ ] `Association executions and targets (DescribeAssociationExecutions and DescribeAssociationExecutionTargets, POST /)` — measure association execution success and identify failed target nodes over time (high)
+- [x] `Association executions and targets (DescribeAssociationExecutions and DescribeAssociationExecutionTargets, POST /)` — measure association execution success and identify failed target nodes over time (high)
 - [ ] `Commands and command invocations (ListCommands and ListCommandInvocations, POST /)` — analyze remote command duration, failures, and results for each target node (medium)
 - [ ] `Automation executions and steps (DescribeAutomationExecutions and DescribeAutomationStepExecutions, POST /)` — measure automation outcomes and locate slow or failed runbook steps (medium)
 - [ ] `OpsItems and events (DescribeOpsItems and ListOpsItemEvents, POST /)` — track operational issues, priority, resolution times, and changes throughout their lifecycle (medium)
@@ -1366,14 +1366,14 @@ Note: The WAF SDK model was compared with the four existing list and get pairs, 
 
 ## Axiom — **thin**
 
-Today (5): `annotations`, `dashboards`, `datasets`, `monitors`, `saved_queries`
+Today (7): `annotations`, `dashboards`, `datasets`, `groups`, `monitors`, `saved_queries`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/axiomhq/docs/main/content/docs/(api-reference)/restapi/versions/v2.json>
 
-- [ ] `Users (GET /v2/users)` — resolve createdBy on synced monitors to people and analyze ownership across monitoring resources (high)
-- [ ] `Dataset events (Run query, POST /v1/datasets/_apl; edge deployments use POST /v1/query/_apl)` — analyze actual logs, traces, and events instead of only dataset and dashboard metadata (high)
-- [ ] `Monitor notification history (GET /v2/monitors/{id}/history)` — measure alert frequency, notification outcomes, and changes in monitor behavior over time (medium)
-- [ ] `Groups (GET /v2/rbac/groups)` — analyze organization membership and connect users to operational teams (medium)
+- [x] `Users (GET /v2/users)` — resolve createdBy on synced monitors to people and analyze ownership across monitoring resources (high). Added as `users`.
+- [ ] `Dataset events (Run query, POST /v1/datasets/_apl; edge deployments use POST /v1/query/_apl)` — analyze actual logs, traces, and events instead of only dataset and dashboard metadata (high); skipped, it is an APL query endpoint on the v1 API rather than a list endpoint: each dataset has its own user-defined schema, so it needs per-dataset table discovery, time windowing and regional endpoint routing that a static endpoint catalog cannot express
+- [ ] `Monitor notification history (GET /v2/monitors/{id}/history)` — measure alert frequency, notification outcomes, and changes in monitor behavior over time (medium); skipped, rows carry no identifier and repeat once per notifier and email recipient, so no primary key is unique, and the endpoint requires a `startTime`/`endTime` window with no documented retention bound
+- [x] `Groups (GET /v2/rbac/groups)` — analyze organization membership and connect users to operational teams (medium). Added as `groups`.
 
 Note: The official documentation repository provides the v2, v1, and v1-edge-query OpenAPI files used for this comparison. The v1 specs confirm that dataset event queries are read operations sent by POST; the source currently imports metadata only. Event imports require dataset selection, time windows, pagination, and the correct regional query endpoint; history requires requests for each monitor. Tokens, notifiers, field settings, views, ingestion writes, and other configuration operations are excluded.
 
@@ -1583,11 +1583,11 @@ Today (6): `Collections`, `Issues`, `Metrics`, `Sources`, `Tables`, `Workspaces`
 
 Diffed against: <https://docs.bigeye.com/llms.txt>
 
-- [ ] `Metric runs (POST /api/v1/metrics/runs)` — measure observed values, failed checks, and data quality trends over time (high)
-- [ ] `Metric scorecard (POST /api/v1/metrics/scorecard)` — report monitoring coverage and successful checks over time, which metric configuration cannot provide (high)
-- [ ] `Schema changes (POST /api/v1/schema-changes/fetch)` — track schema changes and connect added, removed, or changed fields to data quality incidents (medium)
+- [x] `Metric runs (POST /api/v1/metrics/runs)` — measure observed values, failed checks, and data quality trends over time (high)
+- [x] `Metric scorecard (POST /api/v1/metrics/scorecard)` — report monitoring coverage and successful checks over time, which metric configuration cannot provide (high)
+- [x] `Schema changes (POST /api/v1/schema-changes/fetch)` — track schema changes and connect added, removed, or changed fields to data quality incidents (medium)
 - [ ] `Deltas (POST /api/v1/deltas/fetch)` — analyze data comparison results to find replication failures and inconsistent datasets (medium)
-- [ ] `Metric revisions (GET /api/v1/metrics/{metricId}/revisions)` — track changes to checks and thresholds when investigating changes in alert frequency (medium)
+- [x] `Metric revisions (GET /api/v1/metrics/{metricId}/revisions)` — track changes to checks and thresholds when investigating changes in alert frequency (medium)
 - [ ] `Lineage graph (GET /api/v2/lineage/nodes/{dataNodeId}/graph)` — connect data incidents to affected tables and downstream assets (medium)
 
 Note: The official index links supplied OpenAPI definitions for every listed gap. Metrics contains configuration; observed results need separate calls for each metric. Read-only POST collections are included alongside the lineage GET route. Embedded catalog details, issue events, settings, keys, and execution commands are excluded.
@@ -1626,10 +1626,10 @@ Today (6): `Clients`, `CreditNotes`, `Estimates`, `Incomings`, `Invoices`, `Supp
 
 Diffed against: <https://www.billomat.com/en/api/>
 
-- [ ] `Invoice payments (GET /api/invoice-payments)` — analyze payment timing, payment methods, and cash received beyond invoice totals (high)
-- [ ] `Client contacts (GET /api/contacts?client_id={client_id})` — resolve contact_id in invoices and identify the billing contact for each client (high)
-- [ ] `Order confirmations (GET /api/confirmations)` — resolve confirmation_id in invoices and connect confirmed orders to invoiced revenue (high)
-- [ ] `Recurring invoices (GET /api/recurrings)` — resolve recurring_id in invoices and analyze scheduled recurring billing (high)
+- [x] `Invoice payments (GET /api/invoice-payments)` — analyze payment timing, payment methods, and cash received beyond invoice totals (high)
+- [x] `Client contacts (GET /api/contacts?client_id={client_id})` — resolve contact_id in invoices and identify the billing contact for each client (high)
+- [x] `Order confirmations (GET /api/confirmations)` — resolve confirmation_id in invoices and connect confirmed orders to invoiced revenue (high)
+- [x] `Recurring invoices (GET /api/recurrings)` — resolve recurring_id in invoices and analyze scheduled recurring billing (high)
 - [ ] `Payment reminders (GET /api/reminders)` — measure collection activity, overdue amounts, and results across reminder levels (medium)
 - [ ] `Articles (GET /api/articles)` — analyze the product and service catalog, prices, and supplier relationships (medium)
 - [ ] `Delivery notes (GET /api/delivery-notes)` — connect deliveries to the sales process and analyze fulfillment status (medium)
@@ -1746,16 +1746,16 @@ Note: The OpenAPI file linked from the official REST reference lists all collect
 
 ## Bluesky — gaps
 
-Today (4): `Followers`, `Follows`, `Posts`, `Profile`
+Today (6): `Followers`, `Follows`, `Likes`, `Posts`, `Profile`, `Quotes`
 
 Diffed against: <https://github.com/bluesky-social/atproto/tree/main/lexicons/app/bsky>
 
-- [ ] `getLikes (GET /xrpc/app.bsky.feed.getLikes)` — identify people who like synced posts for audience attribution and engagement analysis (high)
-- [ ] `searchPosts (GET /xrpc/app.bsky.feed.searchPosts)` — find brand mentions and relevant conversations beyond the selected account posts (high)
+- [x] `getLikes (GET /xrpc/app.bsky.feed.getLikes)` — identify people who like synced posts for audience attribution and engagement analysis (high). Added as `Likes` (fan-out over `Posts`).
+- [ ] `searchPosts (GET /xrpc/app.bsky.feed.searchPosts)` — find brand mentions and relevant conversations beyond the selected account posts (high); skipped, the public AppView this source uses answers it with 403 without an authenticated session, and it needs a search query the source has no field for
 - [ ] `getRepostedBy (GET /xrpc/app.bsky.feed.getRepostedBy)` — identify accounts that amplify posts and connect reposts to audience growth (medium)
 - [ ] `getPostThread (GET /xrpc/app.bsky.feed.getPostThread)` — analyze replies and conversation structure around synced posts (medium)
-- [ ] `getQuotes (GET /xrpc/app.bsky.feed.getQuotes)` — analyze quoted posts and commentary that aggregate quote counts cannot explain (medium)
-- [ ] `listNotifications (GET /xrpc/app.bsky.notification.listNotifications)` — track engagement notifications with timestamps, including mentions, likes, reposts, and follows (medium)
+- [x] `getQuotes (GET /xrpc/app.bsky.feed.getQuotes)` — analyze quoted posts and commentary that aggregate quote counts cannot explain (medium). Added as `Quotes` (fan-out over `Posts`).
+- [ ] `listNotifications (GET /xrpc/app.bsky.notification.listNotifications)` — track engagement notifications with timestamps, including mentions, likes, reposts, and follows (medium); skipped, it returns the authenticated account's own notifications and needs an account session, while this source only takes a public handle
 - [ ] `getLists (GET /xrpc/app.bsky.graph.getLists)` — analyze named audience lists created by the selected account (medium)
 - [ ] `getList (GET /xrpc/app.bsky.graph.getList)` — analyze list membership and connections between curated audiences (medium)
 
@@ -2077,13 +2077,16 @@ Note: Fetched the official Markdown reference and checked all six resource opera
 
 ## Buzzsprout — adequate
 
-Today (2): `episodes`, `podcasts`
+Today (6): `contributors`, `downloads`, `episodes`, `fan_mail`, `listings`, `podcasts`
 
 Diffed against: <https://github.com/Buzzsprout/buzzsprout-api/blob/master/README.md>
 
-No material gaps found.
+- [x] `/api/:podcast_id/downloads` — daily download totals per episode, requested one podcast-local date at a time (high)
+- [x] `/api/:podcast_id/contributors` — on-show credits (hosts, guests, producers) for the podcast (medium)
+- [x] `/api/:podcast_id/fan_mail` — inbound listener messages (medium)
+- [x] `/api/:podcast_id/listings` — directory listing status per podcast directory (low)
 
-Note: The vendor's official API repo (github.com/Buzzsprout/buzzsprout-api) contains exactly two resource sections — sections/podcasts.md and sections/episodes.md, confirmed via the GitHub contents API. Both are already exposed. There is no publicly documented downloads/analytics endpoint; I found no spec for one and did not want to invent it.
+Note: The vendor's API repo later added more resource sections (stats, contributors, fan mail, listings and others). The per-episode `/api/:podcast_id/:episode_id/downloads` detail route is not synced: it needs a request per episode per day.
 
 ## CalCom — gaps
 
@@ -2823,10 +2826,10 @@ Today (6): `folders`, `images`, `raw_files`, `transformations`, `upload_presets`
 
 Diffed against: <https://cloudinary.com/documentation/admin_api.md>
 
-- [ ] `Usage (GET /v1_1/{cloud_name}/usage)` — measure bandwidth, storage, transformations, requests, and credits against account limits (high)
-- [ ] `Derived assets (GET /v1_1/{cloud_name}/resources/{asset_id})` — measure storage used by transformed variants and connect each variant to its original asset (medium)
-- [ ] `Last access report resources (GET /v1_1/{cloud_name}/resources/last_access_report/{report_id})` — identify unused media and estimate storage savings from asset retention policies (medium)
-- [ ] `Subfolders (GET /v1_1/{cloud_name}/folders/{folder_path})` — complete the folder hierarchy for asset organization and reporting below the root (medium)
+- [x] `Usage (GET /v1_1/{cloud_name}/usage)` — measure bandwidth, storage, transformations, requests, and credits against account limits (high). Added as `usage`, one row per day for the last 89 days, incremental on `date`.
+- ~~`Derived assets (GET /v1_1/{cloud_name}/resources/{asset_id})`~~ — skipped: derived assets only come from the per-asset detail call, so a sync would cost one Admin API request per asset against an hourly limit of 500 to 2,000 requests
+- [x] `Last access report resources (GET /v1_1/{cloud_name}/resources/last_access_report/{report_id})` — identify unused media and estimate storage savings from asset retention policies (medium). Added as `last_access_report_resources` (fan-out over completed reports from `GET /resources_last_access_reports`).
+- [x] `Subfolders (GET /v1_1/{cloud_name}/folders/{folder_path})` — complete the folder hierarchy for asset organization and reporting below the root (medium). Added as `subfolders` (recursive walk from the root folders).
 
 Note: The official Admin API index, linked reference pages, and Python SDK GET methods were compared with the source settings. Derived assets require requests per asset; subfolders require recursive enumeration. Last access reports need existing report IDs and an enabled Enterprise feature. Configuration and filtered views of existing asset lists were excluded.
 
@@ -6441,7 +6444,7 @@ Note: Parsed the official Swagger resource index and individual JSON definitions
 
 ## Intercom — gaps
 
-Today (25): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_parts`, `conversations`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+Today (30): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_activities`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_hitl_events`, `conversation_parts`, `conversations`, `deleted_contacts`, `dynamic_contents`, `folders`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
 
 Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
 
@@ -6451,6 +6454,14 @@ The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--
 - [x] `GET /macros` — saved replies teammates use in the inbox (medium). Added as `macros`, incremental on `updated_at` through the `updated_since` filter.
 - [x] `GET /audiences` — saved audience definitions that content and messages target (low). Added as `audiences`.
 - [x] `GET /content_snippets` — snippets that feed Fin and Copilot answers (medium). Added as `content_snippets`.
+
+These endpoints were announced in the 2.17 changelog and are only in the 2.17 description, so the tables only show for sources pinned to 2.17.
+
+- [x] `GET /contacts/activities` — workspace feed of contact lifecycle events: created, role updated, merged, deleted (medium). Added as `contact_activities`.
+- [x] `GET /contacts/deleted` — archived, blocked, merged, and deleted contacts with the reason (medium). Added as `deleted_contacts`.
+- [x] `GET /folders` — folders that organize articles and other content, decoding `articles.folder_id` (low). Added as `folders`.
+- [x] `GET /dynamic_contents` — reusable Help Center content referenced from article bodies (low). Added as `dynamic_contents`.
+- [x] `GET /conversations/{id}/hitl_events` — Fin human-in-the-loop consultation events per conversation (medium). Added as `conversation_hitl_events`, fanned out over `conversations` and incremental on the parent's `updated_at`.
 
 ## Intruder — adequate
 
