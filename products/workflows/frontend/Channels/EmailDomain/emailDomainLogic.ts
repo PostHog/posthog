@@ -86,7 +86,7 @@ const verificationStepsOf = ({
     const verifying = phase === 'verifying'
     const allFound = records.length > 0 && foundCount === records.length
     const sesFailed = status?.status === 'failed'
-    const stuck = pollingStopped || status?.status === 'temporary_failure'
+    const stuck = (pollingStopped && !allFound) || status?.status === 'temporary_failure'
     const foundState: VerificationStep['state'] = verified
         ? 'done'
         : stuck
