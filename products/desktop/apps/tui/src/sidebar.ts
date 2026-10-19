@@ -26,7 +26,7 @@ export type SidebarRow =
   // The day's briefing, shown in the main view while it has no chat; the pane it is in, if any.
   | { kind: "today"; paneId: string | null }
   // Names the list of every task, under the split workspaces.
-  | { kind: "section"; label: "All chats" }
+  | { kind: "section"; label: "Pinned" | "All chats" }
   // A blank row after each workspace.
   | { kind: "gap" }
   | {
@@ -49,6 +49,8 @@ export type SidebarRow =
       workspaceId?: string;
       // The final task in its workspace group, drawn with a closing connector.
       last?: boolean;
+      // Sits in the Pinned section above the workspaces.
+      pinned?: boolean;
     }
   | { kind: "loading" }
   | { kind: "signedOut" }
@@ -152,6 +154,7 @@ export function sidebarRows({
   signedIn = true,
   local = NO_LOCAL_CHATS,
   showToday = true,
+  pinned = [],
 }: {
   layout: LayoutState;
   work: WorkPage;
@@ -167,6 +170,8 @@ export function sidebarRows({
   local?: LocalChatState;
   // Off from settings: no Today row, and the main view that showed the briefing counts as a new chat.
   showToday?: boolean;
+  // Task ids pinned with Ctrl+P, in the order they were pinned.
+  pinned?: string[];
 }): SidebarRow[] {
   const byId = new Map([
     ...known,
@@ -254,6 +259,26 @@ export function sidebarRows({
     });
     rows.push({ kind: "gap" });
   });
+  // Pinned chats sit above the workspaces instead of under All chats, once the tasks they name are loaded.
+  const pinnedRows = pinned.flatMap((taskId) =>
+    byId.has(taskId)
+      ? [
+          {
+            ...taskRow(taskId, singlePaneOf.get(taskId) ?? null, false),
+            pinned: true,
+          },
+        ]
+      : [],
+  );
+  if (pinnedRows.length > 0) {
+    rows.splice(
+      showToday ? 3 : 1,
+      0,
+      { kind: "section", label: "Pinned" },
+      ...pinnedRows,
+      { kind: "gap" },
+    );
+  }
   rows.push(
     { kind: "section", label: "All chats" },
     taskRow(null, newChatPaneId, false),
@@ -268,6 +293,7 @@ export function sidebarRows({
   else if (work.tasks === null) rows.push({ kind: "loading" });
   else if (tasks.length === 0) rows.push({ kind: "empty" });
   for (const task of tasks) {
+    if (pinned.includes(task.id)) continue;
     rows.push(taskRow(task.id, singlePaneOf.get(task.id) ?? null, false));
   }
   if (work.loadingMore) rows.push({ kind: "loading" });

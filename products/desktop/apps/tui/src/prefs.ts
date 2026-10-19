@@ -27,6 +27,8 @@ export interface Prefs {
   welcomed: boolean;
   // Cloud Claude Code and Codex chats reach this machine's MCP servers through the TUI, from /mcp.
   relayLocalMcp: boolean;
+  // Chats pinned above the workspaces with Ctrl+P, by task id.
+  pinnedTaskIds: string[];
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -50,6 +52,7 @@ const DEFAULT_PREFS: Prefs = {
   showToday: true,
   welcomed: false,
   relayLocalMcp: false,
+  pinnedTaskIds: [],
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -79,6 +82,9 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       showToday: saved.showToday !== false,
       welcomed: saved.welcomed === true,
       relayLocalMcp: saved.relayLocalMcp === true,
+      pinnedTaskIds: Array.isArray(saved.pinnedTaskIds)
+        ? saved.pinnedTaskIds.filter((id) => typeof id === "string")
+        : [],
     };
   } catch {
     return DEFAULT_PREFS;

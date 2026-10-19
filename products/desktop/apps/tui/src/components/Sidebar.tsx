@@ -172,7 +172,7 @@ function NarrowRow({
         </Text>
       );
     case "section":
-      return <Label text="All" />;
+      return <Label text={row.label === "Pinned" ? "Pin" : "All"} />;
     case "today":
       return (
         <Text
@@ -226,7 +226,8 @@ function NarrowRow({
 }
 
 function rowKey(row: SidebarRow, index: number): string {
-  if (row.kind === "task") return `${row.paneId ?? "work"}:${row.taskId}`;
+  if (row.kind === "task")
+    return `${row.pinned ? "pinned" : (row.paneId ?? "work")}:${row.taskId}`;
   if (row.kind === "workspace") return row.workspaceId;
   return `${row.kind}:${index}`;
 }

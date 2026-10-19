@@ -15,7 +15,8 @@ export type Shortcut =
   | "cycleMode"
   | "cycleModeBack"
   | "historyBack"
-  | "historyForward";
+  | "historyForward"
+  | "togglePin";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -38,6 +39,7 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   // As in VS Code. Inside tmux, Ctrl+B is tmux's own prefix, so Cmd+B does it too.
   if ((key.ctrl || key.super) && letter === "b") return "toggleSidebar";
   if (key.ctrl && letter === "r") return "reload";
+  if (key.ctrl && letter === "p") return "togglePin";
   // Ctrl+M needs the kitty keyboard protocol, since a legacy terminal sends it as Enter.
   if (key.ctrl && letter === "m")
     return key.shift ? "cycleModeBack" : "cycleMode";

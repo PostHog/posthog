@@ -60,6 +60,7 @@ export function useKeys({
   paneAtDrop,
   typed,
   toggleSidebar,
+  togglePin,
   cycleMode,
   history,
   repoPickerKey,
@@ -79,6 +80,7 @@ export function useKeys({
   paneAtDrop: () => string | undefined;
   typed: () => void;
   toggleSidebar: () => void;
+  togglePin: () => void;
   cycleMode: (paneId: string, step: 1 | -1) => void;
   history: HistoryNav;
   // Gives a key to the pane's open /repo picker; false when it has none.
@@ -175,6 +177,10 @@ export function useKeys({
     if (shortcut === "historyForward") return history.forward();
     if (shortcut === "toggleSidebar") {
       toggleSidebar();
+      return;
+    }
+    if (shortcut === "togglePin") {
+      togglePin();
       return;
     }
     if (shortcut === "cycleMode" || shortcut === "cycleModeBack") {
