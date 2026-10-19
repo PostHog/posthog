@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from parameterized import parameterized
 
@@ -12,11 +12,13 @@ from products.customer_analytics.backend.facade.email_matching import (
     finish_email_thread_link_recalculation,
     match_email_accounts,
     recalculate_email_thread_links,
+    recalculate_email_thread_links_for_account_properties,
     schedule_email_thread_link_recalculation,
     schedule_email_thread_link_recalculation_for_threads,
 )
 from products.customer_analytics.backend.logic.email_account_matching import (
     MatchedAccount,
+    match_accounts_for_account_properties,
     match_accounts_for_gmail_emails,
 )
 from products.customer_analytics.backend.models import Account
@@ -142,6 +144,7 @@ class TestEmailAccountMatching(BaseTest):
         matches = match_email_accounts(self.team.id, [member.email])
 
         assert matches == []
+        assert match_accounts_for_account_properties(self.team, [member.email]) == {}
 
     def test_gmail_membership_skips_only_posthog_domain(self) -> None:
         posthog_member = self._create_account_member(email="Member@PostHog.com")
@@ -331,26 +334,151 @@ class TestEmailAccountMatching(BaseTest):
         assert links_by_thread["nonstaff-thread"] == []
         assert links_by_thread["inactive-thread"] == []
 
-    @patch("products.customer_analytics.backend.facade.api.schedule_email_thread_link_recalculation")
-    def test_account_matching_changes_schedule_recalculation(self, mock_schedule: MagicMock) -> None:
+    @patch("products.customer_analytics.backend.facade.email_matching.conversations.replace_email_thread_account_links")
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.conversations.list_email_threads_for_account_matching"
+    )
+    @patch("products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email")
+    def test_property_recalculation_skips_identity_matching_and_limits_threads(
+        self,
+        mock_group_keys: MagicMock,
+        mock_list_threads: MagicMock,
+        mock_replace: MagicMock,
+    ) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
+        account = self._create_account(
+            name="Customer",
+            external_id="customer",
+            known_emails=["contact@billing.example.com"],
+            email_domains=["new.example.com"],
+        )
+        self._create_account(name="Identity only", external_id="identity-account")
+        mock_group_keys.return_value = {"person@identity.example.com": "identity-account"}
+        mock_list_threads.side_effect = [
+            [
+                EmailThreadForAccountMatching(
+                    id="thread-1",
+                    participant_emails=["Contact@Billing.Example.com", "legacy@billing.example.com"],
+                    gmail_owner_id=self.user.id,
+                ),
+                EmailThreadForAccountMatching(
+                    id="thread-2",
+                    participant_emails=["person@new.example.com"],
+                    gmail_owner_id=None,
+                ),
+            ],
+            [
+                EmailThreadForAccountMatching(
+                    id="thread-3",
+                    participant_emails=["person@old.example.com"],
+                    gmail_owner_id=None,
+                ),
+                EmailThreadForAccountMatching(
+                    id="thread-4",
+                    participant_emails=["legacy@billing.example.com", "person@identity.example.com"],
+                    gmail_owner_id=self.user.id,
+                ),
+            ],
+            [],
+        ]
+
+        processed = recalculate_email_thread_links_for_account_properties(
+            self.team.id,
+            str(account.id),
+            previous_known_emails=["contact@billing.example.com", "legacy@billing.example.com"],
+            previous_email_domains=["old.example.com"],
+            batch_size=2,
+        )
+
+        assert processed == 4
+        mock_group_keys.assert_not_called()
+        assert [
+            (item.args[1], [(link.account_id, link.match_source) for link in item.args[2]])
+            for item in mock_replace.call_args_list
+        ] == [
+            ("thread-1", [(str(account.id), "known_email")]),
+            ("thread-2", [(str(account.id), "email_domain")]),
+            ("thread-3", []),
+            ("thread-4", []),
+        ]
+        assert all(
+            item.kwargs == {"match_sources": ["known_email", "email_domain"]} for item in mock_replace.call_args_list
+        )
+        assert mock_list_threads.call_args_list == [
+            call(
+                self.team.id,
+                participant_emails=["legacy@billing.example.com"],
+                participant_domains=["new.example.com", "old.example.com"],
+                after_id=after_id,
+                limit=2,
+            )
+            for after_id in (None, "thread-2", "thread-4")
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "known_email_changed",
+                {"known_emails": ["other@example.com"], "email_domains": ["old.example.com"]},
+                True,
+            ),
+            (
+                "email_domain_changed",
+                {"known_emails": ["person@example.com"], "email_domains": ["new.example.com"]},
+                True,
+            ),
+            ("matching_removed", {"known_emails": [], "email_domains": []}, True),
+            (
+                "unrelated_property_changed",
+                {
+                    "known_emails": ["person@example.com"],
+                    "email_domains": ["old.example.com"],
+                    "sfdc_id": "example-salesforce-account",
+                },
+                False,
+            ),
+            (
+                "matching_unchanged_after_normalization",
+                {"known_emails": [" Person@Example.com "], "email_domains": ["@OLD.EXAMPLE.COM"]},
+                False,
+            ),
+        ]
+    )
+    @patch("products.customer_analytics.backend.facade.email_matching.current_app.send_task")
+    def test_account_matching_changes_schedule_recalculation(
+        self, _name: str, properties: dict[str, list[str] | str], expected_rematch: bool, mock_send_task: MagicMock
+    ) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             account = api.create_account(
                 team=self.team,
                 name="Account",
                 external_id="account",
-                properties={"known_emails": ["person@example.com"]},
+                properties={"known_emails": ["person@example.com"], "email_domains": ["old.example.com"]},
             )
-
-        mock_schedule.assert_not_called()
+        mock_send_task.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):
             api.update_account(
-                account,
-                properties={"email_domains": ["example.com"]},
-                allow_matching_updates=True,
+                account, external_id=account.external_id, properties=properties, allow_matching_updates=True
             )
+            assert not any("recalculate_email_thread" in item.args[0] for item in mock_send_task.call_args_list)
 
-        mock_schedule.assert_called_once_with(self.team.id)
+        email_rematches = [item for item in mock_send_task.call_args_list if "recalculate_email_thread" in item.args[0]]
+        assert email_rematches == (
+            [
+                call(
+                    "customer_analytics.recalculate_email_thread_account_links_for_account_properties",
+                    args=[self.team.id, str(account.id)],
+                    kwargs={
+                        "previous_known_emails": ["person@example.com"],
+                        "previous_email_domains": ["old.example.com"],
+                    },
+                )
+            ]
+            if expected_rematch
+            else []
+        )
 
     @parameterized.expand(
         [

@@ -13,16 +13,21 @@ from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.account_member_search import is_account_member_search_enabled
 from products.customer_analytics.backend.logic.email_account_matching import (
     MatchedAccount,
+    match_accounts_for_account_properties,
     match_accounts_for_emails,
     match_accounts_for_gmail_emails,
     normalize_emails,
 )
+from products.customer_analytics.backend.models import Account
 
 logger = structlog.get_logger(__name__)
 
 _MATCH_SOURCE_PRIORITY = {"known_email": 0, "email_domain": 1, "person_group": 2, "organization_member": 3}
 _RECALCULATION_TASK = "customer_analytics.recalculate_email_thread_account_links"
 _RECALCULATION_THREADS_TASK = "customer_analytics.recalculate_email_thread_account_links_for_threads"
+_RECALCULATION_ACCOUNT_PROPERTIES_TASK = (
+    "customer_analytics.recalculate_email_thread_account_links_for_account_properties"
+)
 _RECALCULATION_LOCK_SECONDS = 15 * 60
 
 
@@ -82,6 +87,29 @@ def schedule_email_thread_link_recalculation_for_threads(team_id: int, thread_id
     transaction.on_commit(enqueue)
 
 
+def schedule_email_thread_link_recalculation_for_account_properties(
+    team_id: int,
+    account_id: str,
+    *,
+    previous_known_emails: list[str],
+    previous_email_domains: list[str],
+) -> None:
+    known_emails = sorted(set(previous_known_emails))
+    email_domains = sorted(set(previous_email_domains))
+
+    def enqueue() -> None:
+        try:
+            current_app.send_task(
+                _RECALCULATION_ACCOUNT_PROPERTIES_TASK,
+                args=[team_id, account_id],
+                kwargs={"previous_known_emails": known_emails, "previous_email_domains": email_domains},
+            )
+        except Exception:
+            logger.exception("email_thread_link_recalculation_enqueue_failed", team_id=team_id, account_id=account_id)
+
+    transaction.on_commit(enqueue)
+
+
 def _dedupe_account_matches(matches_by_email: dict[str, MatchedAccount]) -> list[contracts.EmailAccountMatch]:
     matches_by_account_id: dict[str, contracts.EmailAccountMatch] = {}
     for email in sorted(matches_by_email):
@@ -111,6 +139,79 @@ def match_email_accounts(team_id: int, emails: list[str]) -> list[contracts.Emai
     except Team.DoesNotExist:
         return []
     return _match_email_accounts(team, emails)
+
+
+def _replace_thread_links(
+    team_id: int,
+    thread: EmailThreadForAccountMatching,
+    matches_by_email: dict[str, MatchedAccount],
+    *,
+    match_sources: list[str] | None = None,
+) -> None:
+    matches = _dedupe_account_matches(
+        {
+            email: matches_by_email[email]
+            for email in normalize_emails(thread.participant_emails)
+            if email in matches_by_email
+        }
+    )
+    conversations.replace_email_thread_account_links(
+        team_id,
+        thread.id,
+        [
+            EmailThreadAccountLinkInput(
+                account_id=match.account_id,
+                account_external_id=match.account_external_id,
+                match_source=match.match_source,
+            )
+            for match in matches
+        ],
+        match_sources=match_sources,
+    )
+
+
+def recalculate_email_thread_links_for_account_properties(
+    team_id: int,
+    account_id: str,
+    *,
+    previous_known_emails: list[str],
+    previous_email_domains: list[str],
+    batch_size: int = 100,
+) -> int:
+    account = Account.objects.for_team(team_id).select_related("team").filter(id=account_id).first()
+    if account is None:
+        return 0
+
+    properties = account.properties
+    participant_emails = sorted(set(previous_known_emails) ^ set(properties.known_emails))
+    participant_domains = sorted(set(previous_email_domains) ^ set(properties.email_domains))
+    if not participant_emails and not participant_domains:
+        return 0
+
+    batch_size = max(1, min(batch_size, 500))
+    processed = 0
+    after_id: str | None = None
+    while True:
+        threads = conversations.list_email_threads_for_account_matching(
+            team_id,
+            participant_emails=participant_emails,
+            participant_domains=participant_domains,
+            after_id=after_id,
+            limit=batch_size,
+        )
+        if not threads:
+            return processed
+
+        matches_by_email = match_accounts_for_account_properties(
+            account.team, [email for thread in threads for email in thread.participant_emails]
+        )
+        for thread in threads:
+            _replace_thread_links(team_id, thread, matches_by_email, match_sources=["known_email", "email_domain"])
+            processed += 1
+
+        if len(threads) < batch_size:
+            return processed
+        after_id = threads[-1].id
 
 
 def recalculate_email_thread_links(
@@ -154,24 +255,7 @@ def recalculate_email_thread_links(
         }
         for thread in threads:
             group_matches = matches_by_member_search[thread.gmail_owner_id in enabled_owner_ids]
-            thread_matches = {
-                email: group_matches[email]
-                for email in normalize_emails(thread.participant_emails)
-                if email in group_matches
-            }
-            matches = _dedupe_account_matches(thread_matches)
-            conversations.replace_email_thread_account_links(
-                team_id,
-                thread.id,
-                [
-                    EmailThreadAccountLinkInput(
-                        account_id=match.account_id,
-                        account_external_id=match.account_external_id,
-                        match_source=match.match_source,
-                    )
-                    for match in matches
-                ],
-            )
+            _replace_thread_links(team_id, thread, group_matches)
             processed += 1
 
         if len(threads) < batch_size:
