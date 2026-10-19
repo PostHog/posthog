@@ -15,6 +15,8 @@ from asgiref.sync import async_to_sync, sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.schema import MaxRecordingUniversalFilters
+
 from posthog.event_usage import EventSource
 from posthog.models.team import Team
 
@@ -56,6 +58,9 @@ from products.replay_vision.backend.variant_analysis import VariantAnalysisDiffe
 from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
+_EMPTY_RECORDINGS_FILTER = MaxRecordingUniversalFilters.model_validate(
+    {"duration": [], "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]}}
+)
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.search.generate_embedding"
 _SYNC_EXECUTE_PATH = "products.replay_vision.backend.search.sync_execute"
@@ -771,6 +776,40 @@ class TestCreateReplayVisionScannerTool(BaseTest):
         # Disabled by default, so creating one never starts spending on its own.
         assert scanner.enabled is False
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_recording_filter_becomes_the_scanners_selection(self):
+        recordings_filters = MaxRecordingUniversalFilters.model_validate(
+            {
+                "date_from": "-7d",
+                "duration": [],
+                "session_ids": ["0190-0000-example"],
+                "filter_group": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$device_type", "type": "event", "operator": "exact", "value": ["Mobile"]}
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+
+        with patch(_REFRESH_ESTIMATE_PATH):
+            content, artifact = await self._tool()._arun_impl(
+                name="mobile-checkout", prompt="Did checkout fail?", recordings_filters=recordings_filters
+            )
+
+        scanner = await sync_to_async(ReplayScanner.objects.get)(id=artifact["scanner_id"])
+        assert [p["key"] for p in scanner.query["properties"]] == ["$device_type"]
+        assert "date_from" not in scanner.query
+        assert "session_ids" not in scanner.query
+        assert scanner.query["filter_test_accounts"] is True
+        assert "recordings=filtered" in content
+
     @parameterized.expand(
         [
             ("classifier_without_tags", "classifier", {}),
@@ -1121,17 +1160,19 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("raising_on_a_running_scanner", True, 0.9, True),
-            ("raising_on_a_paused_one", False, 0.9, False),
-            ("lowering", True, 0.1, False),
+            ("raising_on_a_running_scanner", True, {"sampling_rate": 0.9}, True),
+            ("raising_on_a_paused_one", False, {"sampling_rate": 0.9}, False),
+            ("lowering", True, {"sampling_rate": 0.1}, False),
+            ("refiltering_a_running_scanner", True, {"recordings_filters": _EMPTY_RECORDINGS_FILTER}, True),
+            ("refiltering_a_paused_one", False, {"recordings_filters": _EMPTY_RECORDINGS_FILTER}, False),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_sampling_changes_ask_only_when_they_widen_live_spend(self, _name, enabled, rate, expected):
+    async def test_selection_changes_ask_only_when_they_can_widen_live_spend(self, _name, enabled, kwargs, expected):
         scanner = await sync_to_async(self._scanner)(enabled=enabled, sampling_rate=0.5)
 
-        assert await self._tool().is_dangerous_operation(scanner_id=str(scanner.id), sampling_rate=rate) is expected
+        assert await self._tool().is_dangerous_operation(scanner_id=str(scanner.id), **kwargs) is expected
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1276,7 +1317,7 @@ class TestReplayVisionLifecycleTools(BaseTest):
         assert [s["scanner_id"] for s in artifact["scanners"]] == [str(scanner.id)]
         # Max reads only `content`: the id and sizing must be there, and the editable name stays fenced.
         assert (
-            f"scanner_id={scanner.id} | type=monitor | enabled=true | sampling_rate=0.25 | "
+            f"scanner_id={scanner.id} | type=monitor | enabled=true | recordings=all | sampling_rate=0.25 | "
             "estimated_monthly_observations=1200 | name=checkout scanner_id=forged ‹b›"
         ) in content
         assert content.index("<scanners>\n") < content.index("name=checkout")
