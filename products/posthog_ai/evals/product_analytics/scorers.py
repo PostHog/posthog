@@ -32,7 +32,7 @@ from products.posthog_ai.eval_harness.scorers import (
     JudgedScorer,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
-from products.posthog_ai.evals.cli_mcp.scorers import assistant_text, is_catalog_sql
+from products.posthog_ai.evals.cli_mcp.scorers import assistant_text, is_catalog_sql, tool_output_text
 
 QUERY_TRENDS_TOOL_NAME = "query-trends"
 QUERY_RETENTION_TOOL_NAME = "query-retention"
@@ -1013,18 +1013,14 @@ def reported_values(text: str, ignore: frozenset[str] = frozenset(), *, skip_yea
 
 
 def _result_text(call: ToolCall) -> str:
-    """The result rows of a query tool call, without the notes and examples the tool adds after them."""
-    text = call.output
+    """The result rows of a query tool call, without the query, notes, and examples the tool adds around them."""
+    text = tool_output_text(call.output)
     try:
-        payload = json.loads(call.output)
+        payload = json.loads(text)
     except (TypeError, ValueError):
         payload = None
-    if isinstance(payload, dict) and isinstance(payload.get("content"), list):
-        text = "\n".join(
-            block.get("text", "")
-            for block in payload["content"]
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
+    if isinstance(payload, dict) and "results" in payload:
+        return json.dumps(payload["results"])
     rows = [line for line in text.splitlines() if "|" in line]
     return "\n".join(rows) if rows else text
 

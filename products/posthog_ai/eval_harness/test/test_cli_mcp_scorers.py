@@ -269,6 +269,16 @@ _PROJECT_RESULT: tuple[str, dict[str, list[str]], str] = (
     f"rows\n{_BASE}/insights/new",
 )
 _UNSAVED_INSIGHT_LINK = f"[Weekly signups]({_BASE}/insights/new#q=%7B%7D)"
+_SAVED_TRENDS: tuple[str, dict[str, str], str] = (
+    "mcp__posthog__insight-get",
+    {"id": "9pQx3"},
+    '{"short_id": "9pQx3", "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}}',
+)
+_SAVED_HOGQL: tuple[str, dict[str, str], str] = (
+    "mcp__posthog__insight-get",
+    {"id": "9pQx3"},
+    "short_id: 9pQx3\nquery:\n  kind: DataVisualizationNode\n  source:\n    kind: HogQLQuery",
+)
 
 
 def _render(tool_name: str, status: str = "completed", tool_input: dict | None = None) -> tuple:
@@ -288,7 +298,15 @@ def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
     [
         ("rendered_query_tool", [_TRENDS_RESULT, _render("query-trends")], "Signups rose.", 1.0, 1.0),
         ("inline_view_note", [_TRENDS_INLINE_RESULT], "Signups rose.", 1.0, 1.0),
-        ("saved_insight_link", [_TRENDS_RESULT], f"Signups rose.\n\n{_INSIGHT_CHART}\n\nMore text.", 1.0, 1.0),
+        (
+            "saved_insight_link",
+            [_TRENDS_RESULT, _SAVED_TRENDS],
+            f"Signups rose.\n\n{_INSIGHT_CHART}\n\nMore text.",
+            1.0,
+            1.0,
+        ),
+        ("saved_hogql_insight_link", [_TRENDS_RESULT, _SAVED_HOGQL], f"Signups rose.\n\n{_INSIGHT_CHART}", 1.0, 0.0),
+        ("saved_insight_of_unknown_kind", [_TRENDS_RESULT], f"Signups rose.\n\n{_INSIGHT_CHART}", 1.0, None),
         ("sql_link_after_typed_query", [_TRENDS_RESULT], f"Signups rose.\n\n{_SQL_CHART}", 1.0, 0.0),
         ("sql_link_inside_sentence", [_TRENDS_RESULT], f"See {_SQL_CHART} for details.", 0.0, None),
         ("unsaved_insight_link", [_TRENDS_RESULT], f"Signups rose.\n\n{_UNSAVED_INSIGHT_LINK}", 0.0, None),
@@ -306,8 +324,8 @@ def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
             1.0,
             0.0,
         ),
-        ("short_insight_link", [_TRENDS_RESULT], f"Up.\n\n[Signups]({_BASE}/i/9pQx3)", 1.0, 1.0),
-        ("same_project_link", [_PROJECT_RESULT], f"Up.\n\n{_INSIGHT_CHART}", 1.0, 1.0),
+        ("short_insight_link", [_TRENDS_RESULT, _SAVED_TRENDS], f"Up.\n\n[Signups]({_BASE}/i/9pQx3)", 1.0, 1.0),
+        ("same_project_link", [_PROJECT_RESULT, _SAVED_TRENDS], f"Up.\n\n{_INSIGHT_CHART}", 1.0, 1.0),
         (
             "other_project_link",
             [_PROJECT_RESULT],
@@ -331,7 +349,13 @@ def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
             0.0,
             None,
         ),
-        ("block_tag_alone", [_TRENDS_RESULT], 'Signups rose.\n\n<insight id="9pQx3" display="block"/>', 1.0, 1.0),
+        (
+            "block_tag_alone",
+            [_TRENDS_RESULT, _SAVED_TRENDS],
+            'Signups rose.\n\n<insight id="9pQx3" display="block"/>',
+            1.0,
+            1.0,
+        ),
         ("block_tag_in_sentence", [_TRENDS_RESULT], 'See <insight id="9pQx3" display="block"/> here.', 0.0, None),
         ("block_tag_without_id", [_TRENDS_RESULT], 'Signups rose.\n\n<insight display="block"/>', 0.0, None),
         (

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import re
 import json
+from collections.abc import Mapping
 from urllib.parse import parse_qs, urlsplit
 
 from posthog.hogql import ast
@@ -1146,7 +1147,84 @@ def assistant_text(output: dict | None) -> str:
     return "\n\n".join(text for text in texts if text)
 
 
-def _chart_tag_kind(paragraph: str) -> str | None:
+def tool_output_text(output: str) -> str:
+    """The text a tool returned, without the MCP content blocks that the log keeps around it."""
+    try:
+        payload = json.loads(output)
+    except (TypeError, ValueError):
+        return output
+    if isinstance(payload, dict):
+        payload = payload.get("content")
+    if not isinstance(payload, list):
+        return output
+    texts = [
+        block["text"]
+        for block in payload
+        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+    ]
+    return "\n".join(texts) if texts else output
+
+
+def _query_node_kind(node: object) -> str | None:
+    """``sql`` for a ``HogQLQuery`` at any wrapper depth, ``insight`` for any other query kind."""
+    for _ in range(3):
+        if not isinstance(node, dict):
+            return None
+        kind = node.get("kind")
+        if kind == "HogQLQuery":
+            return "sql"
+        if not isinstance(node.get("source"), dict):
+            return "insight" if isinstance(kind, str) and kind else None
+        node = node["source"]
+    return None
+
+
+def _collect_saved_insight_kinds(node: object, kinds: dict[str, str]) -> None:
+    if isinstance(node, dict):
+        short_id = node.get("short_id")
+        kind = _query_node_kind(node.get("query"))
+        if isinstance(short_id, str) and short_id and kind is not None:
+            kinds[short_id] = kind
+        for value in node.values():
+            _collect_saved_insight_kinds(value, kinds)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_saved_insight_kinds(value, kinds)
+
+
+# Both match JSON and the TOON text that exec returns in its default output format.
+_SHORT_ID_RE = re.compile(r"""(?:\bshort_id["']?\s*:\s*["']?|/insights/)(\w+)""")
+_QUERY_KIND_RE = re.compile(r"""\bkind["']?\s*:\s*["']?(\w+)""")
+
+
+def saved_insight_kinds(calls: list[ToolCall]) -> dict[str, str]:
+    """The query kind (``insight`` or ``sql``) of each saved insight whose query a tool call showed.
+
+    A saved insight can hold a ``HogQLQuery``, so its link alone does not tell a typed chart from a
+    SQL chart. JSON output is read exactly. Text output is read only when it names one insight.
+    """
+    kinds: dict[str, str] = {}
+    for call in calls:
+        if call.is_error:
+            continue
+        text = tool_output_text(call.output)
+        try:
+            _collect_saved_insight_kinds(json.loads(text), kinds)
+        except (TypeError, ValueError):
+            pass
+        short_ids = set(_SHORT_ID_RE.findall(text)) - {"new"}
+        if len(short_ids) != 1 or next(iter(short_ids)) in kinds:
+            continue
+        query = call.input.get("query")
+        query_kinds = set(_QUERY_KIND_RE.findall(text + (json.dumps(query) if isinstance(query, dict) else "")))
+        if "HogQLQuery" in query_kinds:
+            kinds[next(iter(short_ids))] = "sql"
+        elif any(kind.endswith("Query") for kind in query_kinds):
+            kinds[next(iter(short_ids))] = "insight"
+    return kinds
+
+
+def _chart_tag_kind(paragraph: str, insight_kinds: Mapping[str, str]) -> str | None:
     match = _CHART_TAG_RE.match(paragraph)
     if match is None:
         return None
@@ -1154,27 +1232,32 @@ def _chart_tag_kind(paragraph: str) -> str | None:
     if attrs.get("display") != "block":
         return None
     if tag == "insight":
-        return "insight" if attrs.get("id") else None
+        short_id = attrs.get("id")
+        return insight_kinds.get(short_id, "saved") if short_id else None
     return "sql" if body else None
 
 
-def chart_references(text: str, project_ids: frozenset[str] = frozenset()) -> list[str]:
-    """Kinds of the full-size charts in ``text``: ``insight`` (a typed query) or ``sql``, in order.
+def chart_references(
+    text: str, project_ids: frozenset[str] = frozenset(), insight_kinds: Mapping[str, str] | None = None
+) -> list[str]:
+    """Kinds of the full-size charts in ``text``, in order.
 
-    Only a paragraph that holds nothing but a chart link or a block tag counts, and code blocks are
-    skipped, because Desktop draws nothing else as a chart card. When ``project_ids`` is not empty, a link
-    to any other project is skipped.
+    ``insight`` is a typed query, ``sql`` is a SQL query, and ``saved`` is a saved insight that is
+    not in ``insight_kinds``, so its query kind is unknown. Only a paragraph that holds nothing but a
+    chart link or a block tag counts, and code blocks are skipped, because Desktop draws nothing else
+    as a chart card. When ``project_ids`` is not empty, a link to any other project is skipped.
     """
+    insight_kinds = insight_kinds or {}
     kinds: list[str] = []
     for paragraph in re.split(r"\n\s*\n", _CODE_FENCE_RE.sub("", text)):
         paragraph = paragraph.strip()
         match = _CHART_LINK_RE.match(paragraph)
         if match is None:
-            tag_kind = _chart_tag_kind(paragraph)
+            tag_kind = _chart_tag_kind(paragraph, insight_kinds)
             if tag_kind is not None:
                 kinds.append(tag_kind)
             continue
-        link_kind = _chart_link_kind(match.group(1), project_ids)
+        link_kind = _chart_link_kind(match.group(1), project_ids, insight_kinds)
         if link_kind is not None:
             kinds.append(link_kind)
     return kinds
@@ -1194,10 +1277,10 @@ def _hogql_from_query_node(raw: str) -> str | None:
     return None
 
 
-def _chart_link_kind(url: str, project_ids: frozenset[str]) -> str | None:
+def _chart_link_kind(url: str, project_ids: frozenset[str], insight_kinds: Mapping[str, str]) -> str | None:
     """Mirror ``parsePostHogObjectUrl`` in ``products/desktop/packages/core/src/posthog-objects/objectUrls.ts``.
 
-    A saved insight (``/insights/<id>``, ``/i/<id>``) is a typed chart. ``/sql?open_query=`` and an
+    A saved insight (``/insights/<id>``, ``/i/<id>``) takes its kind from ``insight_kinds``. ``/sql?open_query=`` and an
     ``/insights/new#q=`` link that holds a ``HogQLQuery`` are SQL charts; an unsaved typed query is no
     chart. Desktop also requires the app host, which the eval cannot know because the agent's links
     and the tool results use different hosts, so only the project is checked.
@@ -1217,7 +1300,7 @@ def _chart_link_kind(url: str, project_ids: frozenset[str]) -> str | None:
         node = parse_qs(parts.fragment).get("q", [""])[0]
         return "sql" if (_hogql_from_query_node(node) or "").strip() else None
     if len(segments) >= 2 and segments[0] in ("insights", "i") and segments[1] != "new":
-        return "insight"
+        return insight_kinds.get(segments[1], "saved")
     return None
 
 
@@ -1248,7 +1331,7 @@ def _render_matches_query(render: ToolCall, calls: list[ToolCall]) -> bool:
 
 
 def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> list[str]:
-    """How the user saw a chart: ``render-ui``, ``inline`` (the client's UI app), ``insight``, or ``sql``."""
+    """How the user saw a chart: ``render-ui``, ``inline`` (the client's UI app), or a ``chart_references`` kind."""
     paths: list[str] = []
     calls = parser.get_tool_calls()
     for call in _render_ui_calls(parser):
@@ -1258,7 +1341,7 @@ def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> lis
         if not call.is_error and call.name in tools and INLINE_VIEW_NOTE in call.output:
             paths.append("inline")
     project_ids = frozenset(match for call in calls for match in _PROJECT_URL_RE.findall(call.output))
-    paths.extend(chart_references(assistant_text(output), project_ids))
+    paths.extend(chart_references(assistant_text(output), project_ids, saved_insight_kinds(calls)))
     return paths
 
 
@@ -1309,8 +1392,9 @@ class ChartFromTypedQuery(Scorer):
     An agent that answers with ``query-trends`` and then links a hand-written SQL chart shows
     numbers computed by a different query, without PostHog's standard definitions such as the
     project timezone or test-account filtering. Score 1.0 when any chart comes from
-    ``render-ui``, the inline view, or an insight link; 0.0 when every chart is a SQL query.
-    ``None`` when no chart was shown (graded by ``ChartShown``) or the spec is absent.
+    ``render-ui``, the inline view, or a saved insight that holds a typed query; 0.0 when every
+    chart is a SQL query. ``None`` when no chart was shown (graded by ``ChartShown``), when the only
+    other charts are saved insights whose query kind no tool call showed, or the spec is absent.
     """
 
     def _name(self) -> str:
@@ -1326,8 +1410,15 @@ class ChartFromTypedQuery(Scorer):
         paths = _chart_paths(output, parser, tools)
         if not paths:
             return Score(name=self._name(), score=None, metadata={"reason": "No chart was shown"})
-        typed = [path for path in paths if path != "sql"]
-        return Score(name=self._name(), score=1.0 if typed else 0.0, metadata={"paths": paths})
+        if any(path not in ("sql", "saved") for path in paths):
+            return Score(name=self._name(), score=1.0, metadata={"paths": paths})
+        if "saved" in paths:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"paths": paths, "reason": "No tool call showed the query of the linked saved insight"},
+            )
+        return Score(name=self._name(), score=0.0, metadata={"paths": paths})
 
 
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")

@@ -309,6 +309,17 @@ _SQL_LINK = "[Uploads](https://us.example.com/project/1/sql?open_query=SELECT%20
             0.0,
         ),
         ([_result("query-trends", "Signups|2026")], "There were 2,026 signups.", 1.0),
+        (
+            [
+                _result(
+                    "query-trends",
+                    '{"query": {"trendsFilter": {"smoothingIntervals": 30}}, "results": [{"label": "x", "count": 917}]}',
+                ),
+                _result("execute-sql", "users\n30"),
+            ],
+            "30 users uploaded a file.",
+            0.0,
+        ),
     ],
 )
 def test_answer_from_typed_query_traces_reported_values(calls, answer, score) -> None:
