@@ -334,7 +334,7 @@ function explicitGroupPropertyIndex(
 function resolveSetAggregation(
     incoming: FlagConditionGroup,
     sourceSet: ExistingSet | undefined,
-    matchedPersonSet: ExistingSet | undefined,
+    personSets: (ExistingSet | undefined)[],
     options: MergeConditionOptions
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
@@ -358,10 +358,7 @@ function resolveSetAggregation(
     // the other person set whose filters the incoming set keeps.
     if (!pinnedToPerson && !payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
         const restored =
-            explicitGroupPropertyIndex(incoming, [
-                sourceSet?.aggregation === null ? sourceSet : undefined,
-                matchedPersonSet,
-            ]) ?? sourceSet?.group.aggregation_group_type_index
+            explicitGroupPropertyIndex(incoming, personSets) ?? sourceSet?.group.aggregation_group_type_index
         if (isPresentGroupIndex(restored)) {
             out.aggregation_group_type_index = restored
         }
@@ -373,10 +370,10 @@ function resolveSetAggregation(
 function typeSetProperties(
     group: FlagConditionGroup,
     typeCandidatesByKey: Map<string, FlagProperty[]> | undefined,
-    crossSetPropsByKey: Map<string, FlagProperty[]> | undefined,
+    crossSetPropsByKey: Map<string, FlagProperty[]>,
     setGroupTypeIndex: number | undefined,
-    sourceRestoresGroupType: boolean,
-    candidatesMustMatch: boolean
+    sourceAggregatesOnPersons: boolean,
+    keepsOtherPersonSet: boolean
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
@@ -390,10 +387,10 @@ function typeSetProperties(
             const candidates = typeCandidatesByKey?.get(prop.key)
             return mergeProperty(
                 prop,
-                candidatesMustMatch ? candidates?.filter((candidate) => matchesFilter(candidate, prop)) : candidates,
-                crossSetPropsByKey?.get(prop.key),
+                keepsOtherPersonSet ? candidates?.filter((candidate) => matchesFilter(candidate, prop)) : candidates,
+                keepsOtherPersonSet ? undefined : crossSetPropsByKey.get(prop.key),
                 setGroupTypeIndex,
-                sourceRestoresGroupType
+                sourceAggregatesOnPersons && !keepsOtherPersonSet
             )
         })
     }
@@ -480,22 +477,23 @@ export function preserveGroupTargetingFilters(
                 !keepsFilters(group, existingSet)
             return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
         })
-        const matchedPersonSets = sourceSets.map((sourceSet, index) => {
+        const personSources = sourceSets.map((sourceSet) => (sourceSet?.aggregation === null ? sourceSet : undefined))
+        const matchedPersonSets = personSources.map((personSource, index) => {
             const group = incomingGroups[index]
-            if (sourceSet?.aggregation !== null || !isRecord(group) || keepsFilters(group, sourceSet)) {
+            if (!personSource || !isRecord(group) || keepsFilters(group, personSource)) {
                 return undefined
             }
-            return sameKeySets(sourceSet).find(
+            return sameKeySets(personSource).find(
                 (other) =>
                     other.aggregation === null &&
-                    !holdsSameGroupProperties(other, sourceSet) &&
+                    !holdsSameGroupProperties(other, personSource) &&
                     keepsFilters(group, other)
             )
         })
 
         const resolvedGroups = result.groups.map((group, index) =>
             isRecord(group)
-                ? resolveSetAggregation(group, sourceSets[index], matchedPersonSets[index], {
+                ? resolveSetAggregation(group, sourceSets[index], [personSources[index], matchedPersonSets[index]], {
                       payloadChangesFlagAggregation,
                       pinnedToPerson: pinnedToPerson[index] ?? false,
                   })
@@ -522,20 +520,19 @@ export function preserveGroupTargetingFilters(
             if (!isRecord(group)) {
                 return group
             }
-            const sourceSet = sourceSets[index]
             const typeCandidatesByKey =
-                sourceSet?.propsByKey ??
+                sourceSets[index]?.propsByKey ??
                 (!mixedAggregation || statesOwnGroupType[index] ? crossSetPropsByKey : undefined)
             return typeSetProperties(
                 group,
                 typeCandidatesByKey,
-                matchedPersonSets[index] ? undefined : crossSetPropsByKey,
+                crossSetPropsByKey,
                 resolveGroupIndex(
                     pinnedToPerson[index] ?? false,
                     group.aggregation_group_type_index,
                     effectiveFlagGroupIndex
                 ),
-                sourceSet?.aggregation === null && !matchedPersonSets[index],
+                !!personSources[index],
                 !!matchedPersonSets[index]
             )
         })
