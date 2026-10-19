@@ -183,7 +183,7 @@ describe('EditSubscription unsaved changes', () => {
 
             if (subscription.target_type === 'email' && !subscription.target_value) {
                 await userEvent.click(screen.getByPlaceholderText('Add value'))
-                await waitFor(() => expect(listMembers).toHaveBeenCalledTimes(2))
+                expect(listMembers).toHaveBeenCalledTimes(1)
             }
 
             await userEvent.click(saveButton())

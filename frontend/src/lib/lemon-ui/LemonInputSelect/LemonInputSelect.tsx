@@ -230,7 +230,6 @@ export function LemonInputSelect<T = string>({
     // The key the current edit started from, so an edit that changes nothing commits it verbatim
     const itemBeingEditedKey = useRef<string | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
-    const interactionActiveRef = useRef(false)
     // Picking an option blurs the input synchronously, and the blur would otherwise commit the typed
     // search text as a custom value before (or instead of) the option the user picked.
     const blurringForSelectionRef = useRef<boolean>(false)
@@ -413,7 +412,6 @@ export function LemonInputSelect<T = string>({
     // by selecting an option) — an open popover's options would otherwise stay clickable.
     useEffect(() => {
         if (disabled) {
-            interactionActiveRef.current = false
             setShowPopover(false)
         }
     }, [disabled])
@@ -570,7 +568,6 @@ export function LemonInputSelect<T = string>({
             setInputValue('')
         }
         setShowPopover(false)
-        interactionActiveRef.current = false
         onBlur?.()
     }
 
@@ -582,10 +579,7 @@ export function LemonInputSelect<T = string>({
         if (mode === 'single' && values.length > 0 && !inputValue && allowCustomValues) {
             setInputValue(getStringKey(values[0]))
         }
-        if (!interactionActiveRef.current) {
-            interactionActiveRef.current = true
-            onFocus?.()
-        }
+        onFocus?.()
         setShowPopover(true)
         popoverFocusRef.current = true
     }
@@ -879,7 +873,6 @@ export function LemonInputSelect<T = string>({
             actionable
             visible={showPopover}
             onClickOutside={() => {
-                interactionActiveRef.current = false
                 popoverFocusRef.current = false
                 setShowPopover(false)
                 // It seems more intuitive to lose focus of drop down entirely when clicking outside of the field.

@@ -396,7 +396,11 @@ function SubscriptionDeliveryStep({
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
                                 caseInsensitiveOptionMatching
-                                onFocus={ensureAllMembersLoaded}
+                                onFocus={() => {
+                                    if (!members) {
+                                        ensureAllMembersLoaded()
+                                    }
+                                }}
                                 placeholder="Enter an email address"
                             />
                         )}

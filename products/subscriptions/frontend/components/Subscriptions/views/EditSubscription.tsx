@@ -508,7 +508,11 @@ export function EditSubscription({
                                             options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
                                             caseInsensitiveOptionMatching
-                                            onFocus={ensureAllMembersLoaded}
+                                            onFocus={() => {
+                                                if (!members) {
+                                                    ensureAllMembersLoaded()
+                                                }
+                                            }}
                                             placeholder="Enter an email address"
                                         />
                                     )}
