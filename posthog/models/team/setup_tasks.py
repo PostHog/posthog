@@ -92,8 +92,7 @@ class SetupTaskId(StrEnum):
     CreateEarlyAccessFeature = "create_early_access_feature"
     UpdateFeatureStage = "update_feature_stage"
 
-    # AI. The quick start lists PostHog AI for every product and MCP and Slack for some. It does not list Code.
+    # AI. The quick start lists PostHog AI for every product and MCP and Slack for some.
     UsePostHogAi = "use_posthog_ai"
-    UsePostHogCode = "use_posthog_code"
     UsePostHogMcp = "use_posthog_mcp"
     UsePostHogInSlack = "use_posthog_in_slack"
