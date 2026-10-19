@@ -252,6 +252,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         fingerprint: str | None = None,
         include_issue_id: bool = True,
         properties: dict[str, object] | None = None,
+        timestamp: datetime | None = None,
     ) -> None:
         resolved_issue_id = issue_id or self.issue_id
         resolved_fingerprint = fingerprint or self.fingerprint
@@ -268,7 +269,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             event="$exception",
             team=self.team,
             properties=event_properties,
-            timestamp=now() - relativedelta(hours=1),
+            timestamp=timestamp or now() - relativedelta(hours=1),
         )
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
@@ -580,8 +581,24 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert observed_filter_groups == [None]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_returns_impact_top_frame_and_latest_release(self) -> None:
-        self.create_issue()
+    def test_issue_detail_returns_impact_top_frame_and_releases(self) -> None:
+        first_seen = datetime(2026, 4, 10, 12, tzinfo=UTC)
+        issue = self.create_issue()
+        # The model sets first_seen on create, so overwrite it the way cymbal writes it: the first event's timestamp.
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue).update(first_seen=first_seen)
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
+        self.create_exception_event(
+            timestamp=first_seen,
+            properties={
+                "$exception_releases": {
+                    "release-id-0": {
+                        "version": "2026.04.10",
+                        "project": "posthog-js",
+                        "timestamp": "2026-04-10T09:00:00Z",
+                    }
+                }
+            },
+        )
         self.create_exception_event(
             properties={
                 "$exception_list": [
@@ -639,6 +656,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         }
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
+        assert data["first_seen"] == "2026-04-10T12:00:00Z"
+        assert data["first_release"] == {
+            "version": "2026.04.10",
+            "project": "posthog-js",
+            "timestamp": "2026-04-10T09:00:00Z",
+        }
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:

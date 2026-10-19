@@ -54,7 +54,8 @@ from products.error_tracking.backend.facade.query_utils import (
     build_top_in_app_frame,
     compact_dict,
     dedupe_repeated_stacktraces,
-    extract_latest_release,
+    extract_release,
+    first_event_window,
     get_page_info,
     map_context_event_properties,
     map_event_row,
@@ -203,7 +204,47 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
-        event_properties: dict[str, object] = {}
+        event_properties = self._issue_event_properties(
+            request,
+            issue_id,
+            after=date_range.get("date_from"),
+            before=date_range.get("date_to"),
+            order="DESC",
+            filter_test_accounts=filter_test_accounts,
+        )
+        first_event_properties: dict[str, object] = {}
+        if (window := first_event_window(issue.get("first_seen"))) is not None:
+            # Test accounts stay in, because first_seen counts their events too.
+            first_event_properties = self._issue_event_properties(
+                request, issue_id, after=window[0], before=window[1], order="ASC", filter_test_accounts=False
+            )
+        payload = compact_dict(
+            {
+                **pick_fields(issue, ISSUE_FIELDS),
+                "top_in_app_frame": build_top_in_app_frame(issue, event_properties),
+                "latest_release": extract_release(event_properties),
+                "first_release": extract_release(first_event_properties),
+                "impact": build_impact(issue),
+                "sparkline": build_sparkline(issue) if include_sparkline else None,
+            }
+        )
+        if include_breakdown:
+            payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
+        self._report_issue_read(
+            request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+        )
+        return Response(payload)
+
+    def _issue_event_properties(
+        self,
+        request: ValidatedRequest,
+        issue_id: str,
+        *,
+        after: object,
+        before: object,
+        order: Literal["ASC", "DESC"],
+        filter_test_accounts: bool,
+    ) -> dict[str, object]:
         try:
             context_event_query = EventsQuery(
                 kind="EventsQuery",
@@ -211,9 +252,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 select=CONTEXT_EVENT_SELECTS,
                 where=build_issue_where(issue_id),
                 filterTestAccounts=filter_test_accounts,
-                after=date_range.get("date_from"),
-                before=date_range.get("date_to"),
-                orderBy=["timestamp DESC"],
+                after=after,
+                before=before,
+                orderBy=[f"timestamp {order}"],
                 limit=1,
                 tags={"productKey": "error_tracking"},
             )
@@ -233,8 +274,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     team_id=self.team.pk,
                     error=event_data.get("error"),
                 )
-            else:
-                event_properties = map_context_event_properties(event_data)
+                return {}
+            return map_context_event_properties(event_data)
         except Exception:
             logger.warning(
                 "error_tracking_issue_context_query_failed",
@@ -242,21 +283,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team_id=self.team.pk,
                 exc_info=True,
             )
-        payload = compact_dict(
-            {
-                **pick_fields(issue, ISSUE_FIELDS),
-                "top_in_app_frame": build_top_in_app_frame(issue, event_properties),
-                "latest_release": extract_latest_release(event_properties),
-                "impact": build_impact(issue),
-                "sparkline": build_sparkline(issue) if include_sparkline else None,
-            }
-        )
-        if include_breakdown:
-            payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
-        self._report_issue_read(
-            request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
-        )
-        return Response(payload)
+            return {}
 
     def _issue_breakdown(
         self, request: ValidatedRequest, issue_id: str, date_range: dict[str, object], filter_test_accounts: bool

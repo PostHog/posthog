@@ -502,7 +502,7 @@ def build_top_in_app_frame(issue: dict[str, object], event_properties: dict[str,
     )
 
 
-def extract_latest_release(event_properties: dict[str, object]) -> dict[str, object]:
+def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
     releases = event_properties.get("$exception_releases")
     release_values = (
         releases if isinstance(releases, list) else list(releases.values()) if isinstance(releases, dict) else []
@@ -524,6 +524,20 @@ def extract_latest_release(event_properties: dict[str, object]) -> dict[str, obj
             "repo_name": git.get("repo_name") if git else None,
         }
     )
+
+
+# first_seen is the timestamp of the fingerprint's first event, so this window only absorbs late events.
+FIRST_EVENT_WINDOW = timedelta(days=1)
+
+
+def first_event_window(first_seen: object) -> tuple[str, str] | None:
+    if not isinstance(first_seen, str):
+        return None
+    try:
+        first_seen_at = datetime.fromisoformat(first_seen)
+    except ValueError:
+        return None
+    return (first_seen_at - FIRST_EVENT_WINDOW).isoformat(), (first_seen_at + FIRST_EVENT_WINDOW).isoformat()
 
 
 @frozen

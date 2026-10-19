@@ -394,6 +394,14 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
     latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
+    first_release = ErrorTrackingLatestReleaseSerializer(
+        required=False,
+        help_text=(
+            "Release metadata from the issue's first event, found near first_seen and not limited by dateRange. "
+            "Compare it with latest_release to see which release introduced the issue. Absent when the first event "
+            "has no release metadata."
+        ),
+    )
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
