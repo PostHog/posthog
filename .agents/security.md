@@ -221,7 +221,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, get the policy without `frame-ancestors`, because customers frame them on their own sites. Two routes in `REPORT_ONLY_ROUTES` stay report-only. The bare `/exporter` render document stays report-only, because a replay export can run an `eval` in a frame of the render, and an enforced policy would refuse it. It stays report-only until the caller of that `eval` is traced. `/external_surveys/<id>` stays report-only on a response that the survey view did not build.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
@@ -247,14 +247,12 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
-On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
-A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
+On PostHog Cloud, the app policy's `script-src`, `connect-src`, `style-src` and `font-src` name each PostHog host instead of `*.posthog.com`.
+A script, stylesheet or font from another PostHog subdomain, or a request to one, needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
-On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
-It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
-A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
-Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
-A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
+On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src`, without `https:` and with each PostHog host named instead of `*.posthog.com`.
+It blocks nothing, and its reports (`$csp_version` 7) list the image hosts that only `https:` or `*.posthog.com` admits.
+An image from another PostHog subdomain needs its host in the list in `img_src_shadow_policy()`, or each load of it reports.
 Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.

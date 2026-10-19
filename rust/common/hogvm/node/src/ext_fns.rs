@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::geoip;
 use crate::logs;
+use crate::user_agent;
 
 static BOT_UA_LIST: OnceLock<Vec<String>> = OnceLock::new();
 static BOT_IP_LIST: OnceLock<Vec<String>> = OnceLock::new();
@@ -130,6 +131,19 @@ pub fn transformation_ext_fns() -> HashMap<String, NativeFunction> {
                     };
                     let known = list.iter().any(|known_ip| known_ip == ip.as_str());
                     Ok(HogLiteral::Boolean(known).into())
+                }),
+            );
+
+            fns.insert(
+                "parseUserAgent".to_string(),
+                native_func(|vm, args| {
+                    let Some(arg) = args.first() else {
+                        return Ok(HogLiteral::Null.into());
+                    };
+                    let HogLiteral::String(ua) = arg.deref(&vm.heap)? else {
+                        return Ok(HogLiteral::Null.into());
+                    };
+                    construct_free_standing(user_agent::parse_user_agent(ua), 0)
                 }),
             );
 

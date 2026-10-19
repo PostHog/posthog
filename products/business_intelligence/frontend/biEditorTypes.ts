@@ -47,6 +47,7 @@ import {
 } from './biFilterGroups'
 import { localFieldError } from './biLocalFields'
 import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
+import { getBIChartFields, getBIPaneFields, isBIPanes } from './biPaneConfig'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
 export enum BIEditorView {
@@ -125,7 +126,8 @@ export function mergeBIChartSettings(
     current: ChartSettings | undefined,
     generated: ChartSettings | undefined,
     previousDefaults?: ChartSettings,
-    preserveNumericAxes = false
+    preserveNumericAxes = false,
+    numericColumns: string[] = []
 ): ChartSettings | undefined {
     if (!generated) {
         if (current?.seriesBreakdownColumn) {
@@ -135,7 +137,11 @@ export function mergeBIChartSettings(
         return current
     }
     if (preserveNumericAxes && current?.xAxis?.column) {
-        const axes = [generated.xAxis, ...(generated.yAxis ?? [])].filter((axis) => axis?.column)
+        const axes = [
+            generated.xAxis,
+            ...(generated.yAxis ?? []),
+            ...numericColumns.map((column) => ({ column, settings: undefined })),
+        ].filter((axis) => axis?.column)
         const selectedX = axes.find((axis) => axis?.column === current.xAxis?.column)
         const selectedY = current.yAxis?.filter(
             (axis) => axis.column !== selectedX?.column && axes.some((available) => available?.column === axis.column)
@@ -221,16 +227,23 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     columns: [],
     values: [],
     filters: [],
-    limit: 1000,
+    limit: 50000,
     sort: null,
 }
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
     let normalized = normalizeBIDates(config)
+    if (normalized.panes) {
+        const fields = getBIPaneFields(normalized).map((field) => field.id)
+        normalized = {
+            ...normalized,
+            panes: fields.length && !normalized.compareFilter?.compare ? { ...normalized.panes, fields } : undefined,
+        }
+    }
     if (
         normalized.colorBy &&
-        (normalized.rows.length + normalized.columns.length !== 2 ||
-            ![...normalized.rows, ...normalized.columns].some((field) => field.id === normalized.colorBy))
+        ((normalized.chartType !== ChartDisplayType.ScatterPlot && getBIChartFields(normalized).length !== 2) ||
+            !getBIChartFields(normalized).some((field) => field.id === normalized.colorBy))
     ) {
         normalized = { ...normalized, colorBy: undefined }
     }
@@ -448,7 +461,7 @@ export interface BIChartFit {
 }
 
 export function getBIAutoChartType(config: BIConfig): ChartDisplayType {
-    const dimensions = [...config.rows, ...config.columns]
+    const dimensions = getBIChartFields({ ...config, chartType: ChartDisplayType.Auto })
     if (dimensions.length > 2) {
         return ChartDisplayType.ActionsTable
     }
@@ -467,8 +480,9 @@ export function getBIAutoChartType(config: BIConfig): ChartDisplayType {
 export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BIChartFit {
     const rowCount = config.rows.length
     const columnCount = config.columns.length
-    const dimensionCount = rowCount + columnCount
-    const hasDateDimension = [...config.rows, ...config.columns].some(isDateTimeBIField)
+    const chartFields = getBIChartFields({ ...config, chartType })
+    const dimensionCount = chartFields.length
+    const hasDateDimension = chartFields.some(isDateTimeBIField)
     const numericColumnCount =
         [...config.rows, ...config.columns].filter(isNumericBIResultField).length + Math.max(1, config.values.length)
 
@@ -620,7 +634,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const candidate = decodedConfig as Partial<BIConfig>
     if (
-        candidate.hierarchies !== undefined &&
+        candidate.hierarchies != null &&
         (!Array.isArray(candidate.hierarchies) ||
             candidate.hierarchies.some(
                 (hierarchy) =>
@@ -636,12 +650,55 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         return null
     }
     if (
-        candidate.localFields !== undefined &&
+        candidate.localFields != null &&
         (!Array.isArray(candidate.localFields) || candidate.localFields.some((field) => !parseBIFieldValue(field)))
     ) {
         return null
     }
+    if (
+        candidate.memberAliases != null &&
+        (!Array.isArray(candidate.memberAliases) ||
+            candidate.memberAliases.some(
+                (entry) =>
+                    !entry ||
+                    !parseBIFieldValue(entry.field) ||
+                    !Array.isArray(entry.aliases) ||
+                    entry.aliases.some(
+                        (alias) =>
+                            !alias ||
+                            (alias.value !== null && typeof alias.value !== 'string') ||
+                            typeof alias.label !== 'string' ||
+                            !alias.label.trim()
+                    ) ||
+                    new Set(entry.aliases.map((alias) => alias.value)).size !== entry.aliases.length
+            ))
+    ) {
+        return null
+    }
+    if (
+        candidate.hierarchyDrillPath != null &&
+        (!Array.isArray(candidate.hierarchyDrillPath) ||
+            candidate.hierarchyDrillPath.some(
+                (step) =>
+                    !step ||
+                    typeof step.hierarchyId !== 'string' ||
+                    !parseBIFieldValue(step.previousField) ||
+                    !parseBIFieldValue(step.nextField) ||
+                    !Array.isArray(step.filterIds) ||
+                    step.filterIds.some((id) => typeof id !== 'string')
+            ))
+    ) {
+        return null
+    }
     if (candidate.comparisonPeriod != null && candidate.comparisonPeriod !== 'previous') {
+        return null
+    }
+    if (
+        (candidate.querySnapshot != null &&
+            (candidate.querySnapshot.kind !== NodeKind.HogQLQuery ||
+                typeof candidate.querySnapshot.query !== 'string')) ||
+        (candidate.catalogMetric != null && typeof candidate.catalogMetric !== 'string')
+    ) {
         return null
     }
     if (!isBIAnalysisConfig(candidate)) {
@@ -722,6 +779,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   !field ||
                   !BI_FILTER_OPERATORS.has(filterCandidate.operator as BIFilterOperator) ||
                   typeof filterCandidate.value !== 'string' ||
+                  (filterCandidate.label !== undefined && typeof filterCandidate.label !== 'string') ||
                   (filterCandidate.values !== undefined &&
                       (!Array.isArray(filterCandidate.values) ||
                           !filterCandidate.values.every((value) => typeof value === 'string'))) ||
@@ -734,6 +792,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               }
               return {
                   field,
+                  label: filterCandidate.label?.trim() || undefined,
                   operator: filterCandidate.operator as BIFilterOperator,
                   value: filterCandidate.value,
                   customExpression: filterCandidate.customExpression,
@@ -756,6 +815,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     if (
         source === undefined ||
+        (candidate.panes != null && !isBIPanes(candidate.panes)) ||
         (candidate.rowFilterGroup !== undefined && !isBIConditionGroup(candidate.rowFilterGroup)) ||
         (candidate.resultFilterGroup !== undefined && !isBIConditionGroup(candidate.resultFilterGroup)) ||
         (candidate.resultFilters !== undefined &&
@@ -777,9 +837,22 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.panes
+            ? {
+                  panes: {
+                      ...candidate.panes,
+                      independentAxes: candidate.panes.independentAxes ?? undefined,
+                      referenceLines: candidate.panes.referenceLines ?? undefined,
+                  },
+              }
+            : {}),
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
+        ...(candidate.querySnapshot ? { querySnapshot: candidate.querySnapshot } : {}),
+        ...(candidate.catalogMetric ? { catalogMetric: candidate.catalogMetric } : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
+        ...(candidate.memberAliases ? { memberAliases: candidate.memberAliases } : {}),
+        ...(candidate.hierarchyDrillPath ? { hierarchyDrillPath: candidate.hierarchyDrillPath } : {}),
         ...(candidate.comparisonPeriod ? { comparisonPeriod: candidate.comparisonPeriod } : {}),
         ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
         ...(candidate.resultFilterGroup ? { resultFilterGroup: candidate.resultFilterGroup } : {}),
@@ -907,7 +980,7 @@ function aggregationExpression(value: BIValue): string | null {
 export function getBIFilterValidationError(filter: BIFilter): string | null {
     if (
         filter.enabled === false ||
-        !isNumericBIField(filter.field) ||
+        !isNumericBIResultField(filter.field) ||
         ['custom', 'contains', 'is_set', 'is_not_set', 'last_7_days'].includes(filter.operator)
     ) {
         return null
@@ -998,7 +1071,7 @@ function filterExpression(filter: BIFilter): string | null {
     }
     // Strip leading zeroes so decimal input cannot become an octal HogQL literal.
     const literal = (value: string): string =>
-        isNumericBIField(filter.field) ? value.trim().replace(/^([+-]?)0+(?=\d)/, '$1') : escapeHogQLString(value)
+        isNumericBIResultField(filter.field) ? value.trim().replace(/^([+-]?)0+(?=\d)/, '$1') : escapeHogQLString(value)
     if (filter.operator === 'in' || filter.operator === 'not_in') {
         const values = filter.values ?? []
         return values.length
@@ -1035,6 +1108,10 @@ function filterExpression(filter: BIFilter): string | null {
     }
 }
 
+export function isBIFilterActive(filter: BIFilter): boolean {
+    return !!filterExpression(filter)
+}
+
 export function buildBIRowFilterExpressions(config: BIConfig, excludedIndex?: number): string[] {
     const filters = config.filters.filter(
         (filter, index) =>
@@ -1055,7 +1132,7 @@ export function buildBIRowFilterExpressions(config: BIConfig, excludedIndex?: nu
     return expression ? [expression] : []
 }
 
-function resultAsRowFilter(config: BIConfig, filter: BIResultFilter): BIFilter | null {
+export function resultAsRowFilter(config: BIConfig, filter: BIResultFilter): BIFilter | null {
     const value = config.values[filter.measureIndex]
     const alias = config.values.length
         ? computeBIQueryParts(config).configuredValues.find((part) => part.value === value)?.alias
@@ -1161,6 +1238,7 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...columnDimensions.map(({ field }) => fieldExpression(field)),
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
+        ...(config.dateField ? [fieldExpression(config.dateField)] : []),
     ]
     const usedAliases = new Set([
         'bi_rows',
@@ -1174,7 +1252,10 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     for (const dimension of [...rowDimensions, ...columnDimensions]) {
         const preferred = dimension.alias
         let suffix = 2
-        while (usedAliases.has(dimension.alias)) {
+        while (
+            usedAliases.has(dimension.alias) ||
+            expressions.some((expression) => expression.includes(dimension.alias))
+        ) {
             dimension.alias = `${preferred}_${suffix++}`
         }
         usedAliases.add(dimension.alias)
@@ -1203,6 +1284,15 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     return { rowDimensions, columnDimensions, configuredValues }
 }
 
+function needsGeneratedDimensionAliases(dimensions: BIDimension[], hasMeasures: boolean): boolean {
+    const expressions = dimensions.map(({ field }) => fieldExpression(field))
+    return (
+        new Set(expressions).size !== expressions.length ||
+        (!hasMeasures && expressions.includes('count')) ||
+        expressions.some((expression) => expression.includes('%') || /^(true|false|null|team_id)$/i.test(expression))
+    )
+}
+
 export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
     const { rowDimensions, columnDimensions } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
@@ -1216,6 +1306,7 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
         )
     }
     const aliased =
+        needsGeneratedDimensionAliases(dimensions, config.values.length > 0) ||
         hasBIAnalysis(config) ||
         config.compareFilter?.compare ||
         (dimensions.length === 2 &&
@@ -1237,7 +1328,7 @@ export function getBIResultMeasureColumns(config: BIConfig): { column: string; v
         : [{ column: 'count' }]
 }
 
-export function buildBIRowsQuery(config: BIConfig, previous = false): HogQLQuery | null {
+export function buildBIRowsQuery(config: BIConfig, previous = false, limit = 1000): HogQLQuery | null {
     if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
     }
@@ -1250,7 +1341,7 @@ export function buildBIRowsQuery(config: BIConfig, previous = false): HogQLQuery
         kind: NodeKind.HogQLQuery,
         connectionId: config.source.connectionId,
         filters: getBIQueryFilters(config),
-        query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(config.source.table)} WHERE ${conditions.map((condition) => `(${condition})`).join(' AND ')} LIMIT 1000`,
+        query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(config.source.table)} WHERE ${conditions.map((condition) => `(${condition})`).join(' AND ')} LIMIT ${limit}`,
     }
 }
 
@@ -1413,6 +1504,12 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
+    if (config.querySnapshot) {
+        return {
+            query: config.querySnapshot.query,
+            node: { kind: NodeKind.DataVisualizationNode, source: config.querySnapshot, display: config.chartType },
+        }
+    }
     config = normalizeBIConfig(config)
     if (
         !config.source ||
@@ -1424,6 +1521,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
+    const generatedDimensionAliases = needsGeneratedDimensionAliases(dimensions, configuredValues.length > 0)
     const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
@@ -1444,9 +1542,9 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensions.map(({ field, alias }) =>
-              hasSeriesBreakdown || comparing || hasBIAnalysis(config)
+              hasSeriesBreakdown || comparing || hasBIAnalysis(config) || generatedDimensionAliases
                   ? `${fieldExpression(field)} AS ${alias}`
-                  : fieldExpression(field)
+                  : `${fieldExpression(field)} AS ${escapeRawPropertyAsHogQLIdentifier(fieldExpression(field))}`
           )
     const valueExpressions =
         configuredValues.length > 0
@@ -1465,7 +1563,8 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         `WHERE\n    ${[getBIFiltersPlaceholder(config), ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`
     )
     if (dimensionExpressions.length > 0) {
-        queryParts.push(`GROUP BY\n    ${dimensionExpressions.join(',\n    ')}`)
+        const grouping = generatedDimensionAliases ? dimensions.map(({ alias }) => alias) : dimensionExpressions
+        queryParts.push(`GROUP BY\n    ${grouping.join(',\n    ')}`)
     }
 
     const orderByExpression = buildOrderByExpression(config, dimensions, configuredValues)
@@ -1478,7 +1577,8 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     let query = queryParts.join('\n')
 
-    const chartDimensions = [...columnDimensions, ...rowDimensions]
+    const chartFieldIds = new Set(getBIChartFields(config).map((field) => field.id))
+    const chartDimensions = [...columnDimensions, ...rowDimensions].filter(({ field }) => chartFieldIds.has(field.id))
     const colorDimension = chartDimensions.find(({ field }) => field.id === config.colorBy)
     const axisDimensions = chartDimensions.filter((dimension) => dimension !== colorDimension)
     const xDimension = axisDimensions.find(({ field }) => isDateTimeBIField(field)) ?? axisDimensions[0]
@@ -1497,7 +1597,12 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               }
             : {
                   xAxis: xDimension
-                      ? { column: hasBIAnalysis(config) ? xDimension.alias : fieldExpression(xDimension.field) }
+                      ? {
+                            column:
+                                hasBIAnalysis(config) || generatedDimensionAliases
+                                    ? xDimension.alias
+                                    : fieldExpression(xDimension.field),
+                        }
                       : undefined,
                   yAxis: configuredValues.length
                       ? configuredValues.map(({ alias }) => ({ column: alias }))
@@ -1536,7 +1641,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 `SELECT\n    ${select.join(',\n    ')}`,
                 `FROM ${escapePropertyAsHogQLIdentifier(config.source!.table)}`,
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
-                ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
+                ...(expressions.length
+                    ? [
+                          `GROUP BY ${[...(generatedDimensionAliases ? dimensions.map(({ alias }) => alias) : expressions), 'bi_comparison'].join(', ')}`,
+                      ]
+                    : []),
             ].join('\n')
         }
         query = limitBIComparisonQuery({
@@ -1651,9 +1760,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     if (config.chartType === ChartDisplayType.ScatterPlot) {
         const numericColumns = [
-            ...getBIResultDimensions(config)
-                .filter(({ field }) => isNumericBIResultField(field))
-                .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) })),
+            ...(configuredValues.length < 2
+                ? getBIResultDimensions(config)
+                      .filter(({ field }) => isNumericBIResultField(field))
+                      .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) }))
+                : []),
             ...(configuredValues.length
                 ? configuredValues.map(({ alias, value }) => ({ column: alias, label: getBIValuePillLabel(value) }))
                 : [{ column: 'count', label: 'Count of rows' }]),
@@ -1704,7 +1815,10 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                         .filter((axis): axis is BIPivotAxis => !!axis)
                                         .map((axis) => axis.alias)
                                   : dimensions.map((dimension) =>
-                                        hasBIAnalysis(config) || comparing || hasSeriesBreakdown
+                                        hasBIAnalysis(config) ||
+                                        comparing ||
+                                        hasSeriesBreakdown ||
+                                        generatedDimensionAliases
                                             ? dimension.alias
                                             : fieldExpression(dimension.field)
                                     )),
@@ -1713,7 +1827,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                           ].map((column) => {
                               const dimension = dimensions.find(
                                   (dimension) =>
-                                      (hasBIAnalysis(config) || comparing || hasSeriesBreakdown || isPivotTable
+                                      (hasBIAnalysis(config) ||
+                                      comparing ||
+                                      hasSeriesBreakdown ||
+                                      generatedDimensionAliases ||
+                                      isPivotTable
                                           ? dimension.alias
                                           : fieldExpression(dimension.field)) === column
                               )

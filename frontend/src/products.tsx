@@ -255,6 +255,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
+    '/organization/legal': ['LegalDocuments', 'organizationLegalDocuments'],
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
@@ -380,6 +381,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
     '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -1724,6 +1727,7 @@ export const productUrls = {
     aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
+    organizationLegalDocuments: (): string => '/organization/legal',
     logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
@@ -1974,7 +1978,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+    broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
 }
@@ -1988,6 +1992,15 @@ export const fileSystemTypes = {
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
+    },
+    canvas: {
+        name: 'Canvas',
+        iconType: 'canvas',
+        flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
+        href: (ref: string) => urls.canvasDetail(ref),
+        listHref: () => urls.analyticsList({ type: 'canvas' }),
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+        filterKey: 'canvas',
     },
     cohort: {
         name: 'Cohort',
@@ -2983,13 +2996,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'notebook',
         href: urls.notebooks(),
         searchKeywords: ['documents', 'scratchpad'],
-        searchTabs: [
-            {
-                name: 'Reusable widgets',
-                href: urls.notebooks('widgets'),
-                flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
-            },
-        ],
+        searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
     },
@@ -3172,8 +3179,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.skills(),
         searchKeywords: ['agent instructions', 'playbooks'],
         searchTabs: [
-            { name: 'Scouts', href: urls.skillsCategoryTab('scouts') },
-            { name: 'Community', href: urls.communitySkills(), flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS },
+            {
+                name: 'Community skills',
+                href: urls.communitySkills(),
+                flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+            },
         ],
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
@@ -3347,6 +3357,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Opt-outs', href: urls.workflows('opt-outs') },
             { name: 'Suppression list', href: urls.workflows('suppression') },
             { name: 'Reputation', href: urls.workflows('reputation') },
+            { name: 'Settings', href: urls.workflows('settings') },
         ],
         type: 'workflows',
         category: ProductItemCategory.MESSAGING,

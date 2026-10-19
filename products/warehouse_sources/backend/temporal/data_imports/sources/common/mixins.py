@@ -641,6 +641,15 @@ def _check_direct_host(config, team_id: int | None) -> None:
 # classification it reaches today, about 14 seconds later.
 _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0, 8.0)
 
+# paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP connection
+# but closes it during the handshake itself — a non-SSH service on the port, a bastion refusing
+# PostHog's IPs, or a proxy resetting the stream. sshtunnel doesn't wrap it (it only translates
+# *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty `str()`, matching
+# no non-retryable rule and retrying forever. Translate it into this stable, classifiable message
+# instead. Postgres registers it in `PostgresSource.get_non_retryable_errors`; other sources using
+# this mixin at least get a readable message in place of a bare "EOFError".
+SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
+
 
 def _release_failed_forwarder(forwarder: SSHTunnelForwarder) -> None:
     """Release the sockets and threads a failed `start` left behind.
@@ -701,6 +710,11 @@ def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Ge
                 )
                 time.sleep(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS[attempt])
                 continue
+            except EOFError as e:
+                # Not one of the retried gateway-connect failures above, and retrying a dead
+                # handshake would just re-dial a port that isn't speaking SSH.
+                _release_failed_forwarder(forwarder)
+                raise Exception(SSH_HANDSHAKE_EOF_ERROR) from e
             yield tunnel
             return
 

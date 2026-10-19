@@ -132,7 +132,6 @@ data_catalog.TableCertification products.data_catalog.backend.facade.api.depreca
 data_catalog.TableCertification products.data_catalog.backend.facade.api.deprecate facade-returns 1
 data_catalog.TableCertification products.data_catalog.backend.facade.api.propose_certification facade-returns 1
 data_catalog.TableCertification products.data_catalog.backend.facade.api.revoke_certification facade-accepts(cert) 1
-data_modeling.DAG products.data_modeling.backend.facade.api.sync_saved_query_to_dag facade-accepts(dag) 1
 data_modeling.DataModelingJob products.data_modeling.backend.facade.api.latest_saved_query_materialization_job facade-returns 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.apply_saved_query_frequency_anchor facade-accepts(saved_query) 1
@@ -280,11 +279,9 @@ event_definitions.PropertyDefinition access_control.PropertyAccessControl.proper
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
 experiments.Experiment products.experiments.backend.facade.replay.resolve_in_session_exposure_semantics facade-accepts(experiment) 1
-experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
 experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunnerBaseTest) 1
-experiments:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(ExperimentTrendsQuery) 3
 exports.ExportedAsset posthog.ObjectMediaPreview.exported_asset reverse-accessor(object_previews) 1
 exports.ExportedAsset products.exports.backend.facade.api.create_export_asset_async facade-returns 1
 exports.ExportedAsset products.exports.backend.facade.api.get_export_asset facade-returns 1
@@ -461,7 +458,6 @@ posthog.User dashboards.Text.last_modified_by reverse-accessor(modified_text_til
 posthog.User data_modeling.DAG.created_by reverse-accessor(dag_set) 1
 posthog.User data_modeling.DataModelingJob.created_by reverse-accessor(datamodelingjob_set) 1
 posthog.User data_modeling.DataWarehouseManagedViewSet.created_by reverse-accessor(datawarehousemanagedviewset_set) 1
-posthog.User data_modeling.DataWarehouseModelPath.created_by reverse-accessor(datawarehousemodelpath_set) 1
 posthog.User data_modeling.DataWarehouseSavedQuery.created_by reverse-accessor(datawarehousesavedquery_set) 1
 posthog.User data_modeling.DataWarehouseSavedQueryDraft.created_by reverse-accessor(datawarehousesavedquerydraft_set) 1
 posthog.User data_modeling.Edge.created_by reverse-accessor(edge_set) 1
@@ -523,8 +519,6 @@ posthog.User web_analytics.WebAnalyticsFilterPreset.last_modified_by reverse-acc
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
 product_analytics.Insight dashboards.Dashboard.insights reverse-accessor(dashboards) 1
 product_analytics.Insight dashboards.DashboardTile.insight reverse-accessor(dashboard_tiles) 1
-product_analytics.Insight ee.api.subscription instance-many(filter) 2
-product_analytics.Insight ee.api.subscription instance-many(manager) 2
 product_analytics.Insight ee.hogai.artifacts.handlers.visualization instance-many(filter) 1
 product_analytics.Insight ee.hogai.artifacts.types in-collection 1
 product_analytics.Insight ee.hogai.chat_agent.insights.nodes instance-many(order_by) 1
@@ -532,7 +526,6 @@ product_analytics.Insight ee.hogai.context.entity_search.context in-collection 1
 product_analytics.Insight ee.hogai.context.entity_search.context instance-many(order_by) 1
 product_analytics.Insight ee.hogai.tools.upsert_dashboard.tool construct 1
 product_analytics.Insight exports.ExportedAsset.insight reverse-accessor(exportedasset_set) 1
-product_analytics.Insight exports.Subscription.dashboard_export_insights reverse-accessor(subscriptions_dashboard_export) 1
 product_analytics.Insight posthog.SharingConfiguration.insight reverse-accessor(sharingconfiguration_set) 1
 product_analytics.Insight posthog.api.cohort instance-many(order_by) 1
 product_analytics.Insight posthog.api.search in-collection 1
@@ -578,7 +571,6 @@ product_analytics.Insight products.demo.backend.logic.products.hedgebox.matrix i
 product_analytics.Insight products.demo.backend.logic.products.hedgebox.matrix write(create) 13
 product_analytics.Insight products.exports.backend.api.exports instance-single 1
 product_analytics.Insight products.exports.backend.facade.api instance-single 1
-product_analytics.Insight products.exports.backend.temporal.subscriptions.snapshot_activities instance-many(only) 1
 product_analytics.Insight products.feature_flags.backend.management.commands.delete_feature_flag_usage_insights instance-many(filter) 2
 product_analytics.Insight products.feature_flags.backend.management.commands.delete_feature_flag_usage_insights write(update) 1
 product_analytics.Insight products.posthog_ai.eval_harness.data_setup write(create) 4
@@ -595,7 +587,11 @@ product_analytics.Insight products.pulse.backend.sources.anchored_insights insta
 product_analytics.Insight products.pulse.backend.sources.resource_health instance-many(filter) 2
 product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
+product_analytics.Insight products.subscriptions.backend.presentation.views instance-many(filter) 2
+product_analytics.Insight products.subscriptions.backend.presentation.views instance-many(manager) 2
+product_analytics.Insight products.subscriptions.backend.temporal.snapshot_activities instance-many(only) 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
+product_analytics.Insight subscriptions.Subscription.dashboard_export_insights reverse-accessor(subscriptions_dashboard_export) 1
 product_analytics.Insight surveys.Survey.linked_insight reverse-accessor(surveys_linked_insight) 1
 product_analytics.TrendsDisplay products.product_analytics.backend.facade.queries facade-wiring 1
 product_analytics.UpgradeQueriesWorkflowInputs products.product_analytics.backend.facade.temporal facade-wiring 1
@@ -761,7 +757,6 @@ warehouse_sources.DataWarehouseTable products.data_catalog.evals.seeders write(c
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.logic.node_frequency instance-many(exclude) 1
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.logic.saved_query_dag_sync instance-single 2
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.management.commands.cleanup_orphaned_matview_tables instance-many(filter) 1
-warehouse_sources.DataWarehouseTable products.data_modeling.backend.models.modeling instance-single 4
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.direct_clickhouse write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.direct_motherduck write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.direct_mysql write(create) 1

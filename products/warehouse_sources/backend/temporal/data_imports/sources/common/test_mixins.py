@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS,
+    SSH_HANDSHAKE_EOF_ERROR,
     HostNotAllowedError,
     OAuthMixin,
     SSHTunnelMixin,
@@ -617,6 +618,28 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
             # classification it reached before the retry existed.
             assert get_tunnel.call_count == attempts
             assert mock_sleep.call_count == attempts - 1
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    def test_bare_handshake_eof_is_translated_and_not_retried(self, entrypoint: str):
+        # paramiko raises a bare EOFError (no message) when the gateway closes the connection
+        # during the handshake itself, instead of sshtunnel's own BaseSSHTunnelForwarderError.
+        # Left uncaught, it escapes as an unclassifiable, message-less exception that retries
+        # forever; it must come out translated, non-retried, and with the original as its cause.
+        forwarder = self._forwarder(fails=True)
+        forwarder.__enter__.side_effect = EOFError()
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.time.sleep") as mock_sleep,
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            get_tunnel = mock_ssh.from_config.return_value.get_tunnel
+            get_tunnel.return_value = forwarder
+            with pytest.raises(Exception, match=SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+                with self._tunnel_cm(entrypoint, self._config()):
+                    pass
+            assert isinstance(exc_info.value.__cause__, EOFError)
+            assert get_tunnel.call_count == 1
+            mock_sleep.assert_not_called()
 
     @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
     def test_failure_after_the_tunnel_is_up_does_not_reconnect(self, entrypoint: str):
