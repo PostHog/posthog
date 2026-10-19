@@ -125,7 +125,9 @@ export function SetupTab(): JSX.Element {
                 {active.key !== SetupSection.SUGGESTIONS && <SectionSuggestions section={active.key} />}
                 {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI] &&
                     (active.key === SetupSection.SUGGESTIONS || active.key === SetupSection.CONVERSION_GOALS) && (
-                        <ConversionGoalRecommendations />
+                        <ConversionGoalRecommendations
+                            onConfigureGoals={() => setSetupSection(SetupSection.CONVERSION_GOALS)}
+                        />
                     )}
                 {active.key === SetupSection.SOURCES && (
                     <LemonButton

@@ -7,19 +7,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import {
-    SetupSection,
-    marketingAnalyticsLogic,
-} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { ConversionRecommendationCard } from './ConversionRecommendationCard'
 import { conversionRecommendationsLogic } from './conversionRecommendationsLogic'
 
-export function ConversionGoalRecommendations(): JSX.Element | null {
+export function ConversionGoalRecommendations({
+    onConfigureGoals,
+}: {
+    onConfigureGoals: () => void
+}): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openSetup } = useActions(marketingAnalyticsLogic)
     const enabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]
     const logic = conversionRecommendationsLogic({
         projectId: currentTeamId ?? -1,
@@ -57,7 +56,7 @@ export function ConversionGoalRecommendations(): JSX.Element | null {
                     </LemonButton>
                     <LemonButton
                         type="secondary"
-                        onClick={() => openSetup(SetupSection.CONVERSION_GOALS, 'conversion_recommendations')}
+                        onClick={onConfigureGoals}
                         data-attr="marketing-conversion-configure-goals"
                     >
                         Configure goals

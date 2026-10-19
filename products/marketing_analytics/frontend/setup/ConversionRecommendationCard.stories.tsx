@@ -6,8 +6,8 @@ const meta: Meta<typeof ConversionRecommendationCard> = {
     title: 'Scenes-App/Marketing Analytics/Conversion recommendation card',
     component: ConversionRecommendationCard,
     decorators: [
-        (Story) => (
-            <div className="w-240 max-w-full">
+        (Story, { parameters }) => (
+            <div className={parameters.narrow ? 'w-[520px] max-w-full' : 'w-240 max-w-full'}>
                 <Story />
             </div>
         ),
@@ -28,11 +28,6 @@ export default meta
 type Story = StoryObj<typeof ConversionRecommendationCard>
 export const Action: Story = {}
 export const Narrow: Story = {
-    decorators: [
-        (Story) => (
-            <div className="w-[520px] max-w-full">
-                <Story />
-            </div>
-        ),
-    ],
+    parameters: { narrow: true },
+    decorators: [],
 }

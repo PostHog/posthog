@@ -61,13 +61,14 @@ function withState(state: ConversionRecommendationStateApi): ReturnType<typeof m
 const meta: Meta<typeof ConversionGoalRecommendations> = {
     title: 'Scenes-App/Marketing Analytics/Persisted conversion recommendations',
     component: ConversionGoalRecommendations,
+    args: { onConfigureGoals: () => {} },
     parameters: {
         layout: 'padded',
         featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI],
     },
     decorators: [
-        (Story) => (
-            <div className="w-240 max-w-full">
+        (Story, { parameters }) => (
+            <div className={parameters.narrow ? 'w-[520px] max-w-full' : 'w-240 max-w-full'}>
                 <Story />
             </div>
         ),
@@ -106,14 +107,8 @@ export const Failed: Story = {
     ],
 }
 export const Narrow: Story = {
-    decorators: [
-        withState(completed),
-        (Story) => (
-            <div className="w-[520px] max-w-full">
-                <Story />
-            </div>
-        ),
-    ],
+    parameters: { narrow: true },
+    decorators: [withState(completed)],
 }
 
 export const ConsentRequired: Story = {
