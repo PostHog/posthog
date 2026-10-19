@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.data_warehouse.backend.tasks.tasks import sync_team_earliest_event_date
-from products.managed_warehouse.backend.facade.api import NO_HISTORY_SENTINEL
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
@@ -61,24 +60,6 @@ def test_sync_task_resolves_and_pushes_to_control_plane(
 
     _mock_org_id.assert_called_once_with(TEAM_ID)
     mock_update.assert_called_once_with(ORGANIZATION_ID, TEAM_ID, expected)
-
-
-@patch("products.managed_warehouse.backend.facade.api.get_org_id_for_team", return_value=ORGANIZATION_ID)
-@patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date")
-@patch("products.managed_warehouse.backend.facade.api.resolve_team_earliest_event_date")
-def test_sync_task_leaves_empty_team_unresolved(
-    mock_get_earliest: MagicMock, mock_update: MagicMock, _mock_org_id: MagicMock
-) -> None:
-    # A just-provisioned project plausibly has no events YET. A cached date is final, so
-    # storing the no-history sentinel here would permanently exclude the team from
-    # historical backfill; the task must store nothing and leave the sensor to resolve
-    # it later.
-    mock_get_earliest.return_value = NO_HISTORY_SENTINEL
-
-    with _patch_membership(_membership()):
-        sync_team_earliest_event_date(TEAM_ID)
-
-    mock_update.assert_not_called()
 
 
 @patch("products.managed_warehouse.backend.facade.api.get_org_id_for_team", return_value=ORGANIZATION_ID)

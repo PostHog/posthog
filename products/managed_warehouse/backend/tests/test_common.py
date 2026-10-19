@@ -1,6 +1,7 @@
 from datetime import date
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +13,6 @@ from parameterized import parameterized
 from posthog.models import Organization
 
 from products.managed_warehouse.backend.common import (
-    NO_HISTORY_SENTINEL,
     default_bucket_region,
     duckgres_data_imports_table_name,
     get_trino_password_for_org,
@@ -62,10 +62,11 @@ class TestUpsertDuckgresServerForOrg:
 class TestResolveTeamEarliestEventDate(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("no_events", None, NO_HISTORY_SENTINEL),
+            ("no_events", None, date(2026, 10, 19)),
             ("has_events", "2026-10-16T12:00:00Z", date(2026, 10, 16)),
         ]
     )
+    @time_machine.travel("2026-10-19T12:00:00Z", tick=False)
     def test_resolves_from_the_teams_events(self, _name: str, event_timestamp: str | None, expected: date) -> None:
         if event_timestamp is not None:
             _create_event(team=self.team, event="$pageview", distinct_id="user-1", timestamp=event_timestamp)

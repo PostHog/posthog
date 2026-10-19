@@ -86,7 +86,6 @@ from products.data_warehouse.backend.facade.backfill_status import (
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
 from products.managed_warehouse.backend.facade.api import (
     DUCKGRES_BUCKET_REGION,
-    NO_HISTORY_SENTINEL,
     get_catalog_connection_config,
     get_org_id_for_team,
     get_stored_bucket_config,
@@ -3256,8 +3255,6 @@ def duckling_events_full_backfill_sensor(
     for bf in unresolved[:EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK]:
         bf = replace(bf, earliest_event_date=resolve_team_earliest_event_date(bf.team_id))
         updated_backfills[bf.team_id] = bf
-        if bf.earliest_event_date == NO_HISTORY_SENTINEL:
-            context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
         # This push IS the persistence: the control-plane row is the read source.
         if not _push_earliest_event_date_to_cp(bf):
             context.log.warning(
@@ -3274,9 +3271,9 @@ def duckling_events_full_backfill_sensor(
     for bf in backfills:
         earliest = bf.earliest_event_date
         if earliest is None or earliest > last_month_end:
-            # Unresolved this tick, no-history sentinel, or a team whose earliest event is only
-            # in the current month — no complete month to full-backfill (the daily sensor owns
-            # the current month), so skip it.
+            # Unresolved this tick, or a team whose earliest event is only in the current
+            # month — no complete month to full-backfill (the daily sensor owns the current
+            # month), so skip it.
             continue
         keys = [f"{bf.team_id}_{m}" for m in historical_backfill_months(earliest, today=today)]
         existing_historical_partitions.extend(key for key in keys if key in existing)
