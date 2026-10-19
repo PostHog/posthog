@@ -44,6 +44,8 @@ from products.metrics.backend.variables import filter_referenced_names, referenc
 MAX_TEXT_LENGTH = 4000
 # The service is a column of the attribute table, not an attribute key. Metrics queries accept both names.
 SERVICE_ATTRIBUTES = frozenset({"service_name", "service.name"})
+# The attribute table stores hourly buckets, so the bucket that holds the start of the range counts too.
+OPTIONS_RANGE = "time_bucket >= toStartOfHour($__from) AND time_bucket < $__to"
 _OTEL_TYPES = frozenset(member.value for member in MetricsOtelType)
 
 
@@ -152,12 +154,12 @@ def attribute_variable(
     With no selected value, the variable selects All, so its filters match everything until the user picks a value.
     """
     if attribute in SERVICE_ATTRIBUTES:
-        query = "SELECT DISTINCT service_name FROM posthog.metric_attributes WHERE time_bucket >= $__from"
+        query = f"SELECT DISTINCT service_name FROM posthog.metric_attributes WHERE {OPTIONS_RANGE}"
     else:
         key = attribute.replace("\\", "\\\\").replace("'", "\\'")
         query = (
             "SELECT DISTINCT attribute_value FROM posthog.metric_attributes "
-            f"WHERE attribute_key = '{key}' AND time_bucket >= $__from"
+            f"WHERE attribute_key = '{key}' AND {OPTIONS_RANGE}"
         )
     values = list(selected if multi else selected[:1])
     return MetricsDashboardVariable(

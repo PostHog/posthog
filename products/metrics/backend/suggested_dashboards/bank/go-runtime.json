@@ -6,7 +6,7 @@
             "name": "service",
             "label": "Service",
             "source": "sql",
-            "query": "SELECT DISTINCT service_name FROM posthog.metric_attributes WHERE time_bucket >= $__from",
+            "query": "SELECT DISTINCT service_name FROM posthog.metric_attributes WHERE time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
             "multi": false,
             "includeAll": true,
             "current": {

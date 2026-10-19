@@ -6,7 +6,7 @@
             "name": "namespace",
             "label": "Namespace",
             "source": "sql",
-            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'namespace' AND time_bucket >= $__from",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'namespace' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
             "multi": false,
             "includeAll": true,
             "current": {

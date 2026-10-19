@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
+
+from pydantic import ValidationError
+
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection
 
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
@@ -124,6 +130,29 @@ def _restore_unbuilt(
     return [panel.model_copy(update={"key": f"p{index + 1}"}) for index, panel in enumerate([*edited, *missing])]
 
 
+def _shared_variables(edited: Sequence[Any], original: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The variables of the preview, safe to give to every project, then the template's variables that it lacks.
+
+    A definition that does not parse is left out, so the template keeps its own. A selection that the reviewer
+    changed can name a host or a service of the preview's project, so it becomes All.
+    """
+    previous = {str(variable.get("name")): variable.get("current") for variable in original}
+    shared: list[dict[str, Any]] = []
+    for item in edited:
+        try:
+            variable = MetricsDashboardVariable.model_validate(item)
+        except ValidationError:
+            continue
+        current = variable.current.model_dump(mode="json", exclude_none=True) if variable.current else None
+        if current != previous.get(variable.name):
+            variable = variable.model_copy(
+                update={"includeAll": True, "current": MetricsDashboardVariableSelection(values=[], all=True)}
+            )
+        shared.append(variable.model_dump(mode="json", exclude_none=True))
+    names = {variable["name"] for variable in shared}
+    return [*shared, *(variable for variable in original if variable.get("name") not in names)]
+
+
 def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
     """Approve the template. Changes made on its preview dashboard, by hand or with PostHog AI, become the template."""
     with transaction.atomic():
@@ -143,17 +172,15 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
                 panels = _restore_unbuilt(panels, template_panels(locked.panels), set(locked.preview_unbuilt_keys))
                 locked.panels = [panel.model_dump(mode="json") for panel in panels]
                 locked.metric_names = template_metric_names(panels)
-                edited = read_dashboard_metric_variables(
-                    team_id=locked.preview_team_id, dashboard_id=locked.preview_dashboard_id
-                )
                 # The preview has only the variables of the panels that it shows. The panels it left out keep theirs.
-                names = {variable.get("name") for variable in edited}
-                kept = [
-                    *edited,
-                    *(variable for variable in locked.variables or [] if variable.get("name") not in names),
-                ]
+                shared = _shared_variables(
+                    read_dashboard_metric_variables(
+                        team_id=locked.preview_team_id, dashboard_id=locked.preview_dashboard_id
+                    ),
+                    locked.variables or [],
+                )
                 locked.variables = referenced_variables(
-                    (panel.query for panel in panels if panel.query is not None), kept
+                    (panel.query for panel in panels if panel.query is not None), shared
                 )
         drop_preview(locked)
         locked.status = MetricsDashboardTemplate.Status.APPROVED
