@@ -697,11 +697,16 @@ class TestDeltaliteCompaction:
     ) -> None:
         compact = MagicMock(side_effect=error) if has_compact else None
         maintenance, table_ref, fake_class = self._setup(compact)
+        first = table_ref.get_delta_table.return_value
+        refreshed = _mock_table({f"f{i}.parquet": _MB for i in range(300)})
+        table_ref.get_delta_table = AsyncMock(side_effect=[first, refreshed])
 
         ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class, enabled=enabled)
 
         assert ran is True
-        delta_rs_compact.assert_awaited_once_with(table_ref.get_delta_table.return_value, _DEFAULT_PLAN)
+        # A deltalite pass commits in chunks, so delta-rs must compact the table as the log now stands.
+        delta_rs_compact.assert_awaited_once_with(refreshed if enabled else first, _DEFAULT_PLAN)
+        assert table_ref.note_deltalite_commit.called is (expected_reason == "deltalite_error")
         fallbacks = self._info_calls(table_ref, "compact: falling back to delta-rs")
         assert [call["compact_fallback_reason"] for call in fallbacks] == ([expected_reason] if expected_reason else [])
         assert capture.called is expect_capture
@@ -718,7 +723,7 @@ class TestDeltaliteCompaction:
         assert ran is False
         delta_rs_compact.assert_not_awaited()
         capture.assert_not_called()
-        table_ref.note_deltalite_commit.assert_not_called()
+        table_ref.note_deltalite_commit.assert_called_once_with(None)
 
     @parameterized.expand(
         [

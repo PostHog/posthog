@@ -201,6 +201,27 @@ class TestHasBatchBeenCommitted:
         with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
             assert await writer.has_batch_been_committed(run_uuid, batch_index) is expected
 
+    @parameterized.expand(
+        [
+            ("compaction_commits_do_not_use_up_the_window", "OPTIMIZE", 120, True),
+            ("vacuum_commits_do_not_use_up_the_window", "VACUUM END", 120, True),
+            ("data_commits_still_close_the_window", "WRITE", 60, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_finds_the_batch_behind_later_commits(
+        self, _name: str, operation: str, later_commits: int, expected: bool
+    ) -> None:
+        # Newest first, as delta history returns it.
+        commits = [{"operation": operation} for _ in range(later_commits)] + [
+            {"operation": "WRITE", "run_uuid": "run-1", "batch_index": "5"}
+        ]
+        writer = _make_writer()
+        table = MagicMock()
+        table.history = MagicMock(side_effect=lambda limit: commits[:limit])
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
+            assert await writer.has_batch_been_committed("run-1", 5) is expected
+
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
     """Covers that commit_metadata is forwarded to deltalake.write_deltalake as CommitProperties."""

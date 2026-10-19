@@ -161,6 +161,11 @@ def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
     return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
 
 
+_MAINTENANCE_OPERATIONS = frozenset({"OPTIMIZE", "VACUUM START", "VACUUM END"})
+# Bounds the scan of a table whose recent history is all maintenance commits.
+_MAX_HISTORY_SCAN = 2000
+
+
 def commit_covers_batch(commit: dict[str, Any], run_uuid: str, batch_index: int) -> bool:
     """Whether this commit wrote `batch_index` of `run_uuid`, alone or as one member of a set.
 
@@ -759,10 +764,21 @@ class DeltaWriter:
 
     async def has_batch_been_committed(self, run_uuid: str, batch_index: int, *, scan_limit: int = 50) -> bool:
         """Check whether a specific (run_uuid, batch_index) has already been committed to delta,
-        on its own or as a member of a coalesced write (see `commit_covers_batch`)."""
+        on its own or as a member of a coalesced write (see `commit_covers_batch`).
+
+        The scan covers the last `scan_limit` commits that wrote data. A chunked compaction can commit
+        many times after the batch write, so compaction and vacuum commits do not use up the window.
+        """
         delta_table = await self._table.get_delta_table()
         if delta_table is None:
             return False
 
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
-        return any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history)
+        limit = scan_limit
+        while True:
+            history = await asyncio.to_thread(delta_table.history, limit=limit)
+            if any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history):
+                return True
+            data_commits = sum(1 for commit in history if commit.get("operation") not in _MAINTENANCE_OPERATIONS)
+            if len(history) < limit or data_commits >= scan_limit or limit >= _MAX_HISTORY_SCAN:
+                return False
+            limit = min(limit + scan_limit - data_commits, _MAX_HISTORY_SCAN)

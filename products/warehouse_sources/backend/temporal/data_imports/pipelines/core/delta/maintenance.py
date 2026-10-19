@@ -568,11 +568,14 @@ class DeltaMaintenance:
             await self._log_compact_fallback("unsupported_table")
             return None
         except deltalite.DeltaLiteCommitConflictError:
-            # The retries ran out, or a concurrent writer changed the schema or the partitioning.
-            # Nothing was committed, and the next maintenance pass compacts the table again.
+            # The retries ran out, or a concurrent writer changed the schema or the partitioning. The
+            # chunks committed before the conflict stay, and the next maintenance pass compacts the rest.
+            self._table.note_deltalite_commit(None)
             await self._logger.awarning("compact: deltalite lost to a concurrent commit, not reporting")
             return False
         except Exception as e:
+            # A pass that commits in chunks can fail after some of them, so the handle is behind the log.
+            self._table.note_deltalite_commit(None)
             # The object-store classifiers match the error text, but accept only OS and delta-rs errors.
             as_os_error = OSError(str(e))
             if is_object_store_permission_denied(as_os_error):
@@ -581,8 +584,8 @@ class DeltaMaintenance:
             if is_transient_object_store_error(as_os_error):
                 await self._logger.awarning("compact: transient object-store error, not reporting")
                 raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
-            # A failed deltalite compaction commits nothing and deletes its output files, so delta-rs
-            # can compact the same table safely.
+            # deltalite deletes the output files that no commit names, so delta-rs can compact the table
+            # once the caller rereads the log.
             capture_exception(e)
             await self._log_compact_fallback("deltalite_error")
             return None
@@ -758,6 +761,9 @@ class DeltaMaintenance:
             compacted = await self._compact_with_deltalite(table)
             if compacted is not None:
                 return compacted
+            table = await self._table.get_delta_table()
+            if table is None:
+                return False
 
         plan = await self._plan_compaction(table)
         if plan.target_size is None:
@@ -801,6 +807,9 @@ class DeltaMaintenance:
             compacted = await self._compact_with_deltalite(table)
             if compacted is not None:
                 return compacted
+            table = await self._table.get_delta_table()
+            if table is None:
+                return False
         return await self._compact(table)
 
     def _vacuumed_during_job(self, watermarks: VacuumWatermarks) -> bool:
