@@ -162,6 +162,7 @@ class TestSingleAgentPrompt:
 
         assert main_shared == lens_shared
         assert "=== a.py [modified] ===" in main_shared
+        assert "<owner_review_instructions>" in main_shared
         assert "CORE RUBRIC" in main_rest and "LENS RUBRIC" in lens_rest
 
     def test_pull_request_text_cannot_add_a_second_cache_marker(self, pr_metadata: PRMetadata) -> None:

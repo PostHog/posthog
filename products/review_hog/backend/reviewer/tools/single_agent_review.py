@@ -44,6 +44,10 @@ from products.review_hog.backend.reviewer.models.issues_review import (
     ReportedPriority,
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
+from products.review_hog.backend.reviewer.review_instructions import (
+    ReviewInstructionPaths,
+    owner_review_instructions_block,
+)
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
 from products.review_hog.backend.reviewer.tools.prompt_helpers import (
     PROMPT_CACHE_MARKER,
@@ -172,6 +176,13 @@ class SingleAgentPrompt:
         ]
         return json.dumps(covered, indent=2) if covered else None
 
+    def _owner_review_instructions(self) -> str:
+        """The `REVIEW.md` block of the whole pull request, the same for the main session and every lens part."""
+        filenames = [f.filename for f in self.pr_files]
+        return owner_review_instructions_block(
+            ReviewInstructionPaths.for_files(filenames, changed_filenames=filenames), role="review"
+        )
+
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
         sha = self.merge_base_sha
@@ -197,6 +208,7 @@ class SingleAgentPrompt:
             DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
             COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
+            OWNER_REVIEW_INSTRUCTIONS=without_cache_marker(self._owner_review_instructions()),
             CACHE_MARKER=PROMPT_CACHE_MARKER,
             GUIDELINES=self.guidelines,
             OUTPUT_SCHEMA=output_schema,

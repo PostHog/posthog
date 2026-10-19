@@ -1971,6 +1971,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                                 skill_version=input.skill_version,
                                 pr_metadata=pr_metadata,
                                 pr_files=issue_files,
+                                changed_filenames=[f.filename for f in pr_files],
                             ),
                             system_prompt=VALIDATION_SYSTEM_PROMPT,
                             model_to_validate=IssueValidation,

@@ -768,7 +768,19 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
   `products/review_hog/skills/review-hog-validation-criteria/SKILL.md`. → `IssueValidation`.
 
 A separate **blind-spots** skill (`skills/review-hog-blind-spots-general/SKILL.md`) drives the per-chunk sweep;
-it is pull-delivered the same way. The perspective / validation / blind-spot skills are all team-owned and
+it is pull-delivered the same way.
+
+**Owner review instructions** (`reviewer/review_instructions.py`). Code owners keep a reviewer-facing `REVIEW.md` in
+their area (what failure looks like there, paths to skip, a cap on minor findings, the evidence a finding needs; the
+convention is in `products/README.md`). The perspective review, the blind-spot sweep, the validator, and the Standard
+single-agent review each carry an `<owner_review_instructions>` block that lists the `REVIEW.md` path of every directory
+between the unit's files and the repository root, nearest first, capped at `REVIEW_INSTRUCTIONS_MAX_FILES` with the root
+always kept. The sandbox agent reads the ones that exist in the checkout; the server fetches nothing, because a fetch
+per directory would be one GitHub API call per directory on every turn. The block says the files narrow the review and
+never lower the evidence bar, and it names any `REVIEW.md` the pull request itself adds or changes as excluded, since
+that copy is pull request content. Perspective prompts compute the list from the chunk's files, so it sits in the cached
+prefix the chunk's perspectives share; the Standard prompt computes it from the whole pull request, so the main session
+and its lens parts share it too. The perspective / validation / blind-spot skills are all team-owned and
 customizable — see [DECISIONS.md](./DECISIONS.md) (the customizable-perspectives / per-user-enablement sections).
 The invariant that keeps this safe: **the output schema is fixed (code), only the skill body (logic) is editable**,
 so editing a skill can never change the output format the downstream pipeline depends on. Customs arrive two

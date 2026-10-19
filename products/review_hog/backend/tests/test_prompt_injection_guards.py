@@ -153,3 +153,16 @@ class TestPromptInjectionGuards:
         prompt = render().lower()
         assert "untrusted" in prompt
         assert "instruction" in prompt
+
+    @parameterized.expand(
+        [
+            ("issues_review", _issues_review_prompt),
+            ("single_agent_review", _single_agent_prompt),
+            ("issue_validation", _validation_prompt),
+        ]
+    )
+    def test_prompt_lists_the_owner_review_instructions(self, _name: str, render: Callable[[], str]) -> None:
+        prompt = render()
+        assert "<owner_review_instructions>" in prompt
+        assert "\n- REVIEW.md\n" in prompt
+        assert "never lower" in prompt

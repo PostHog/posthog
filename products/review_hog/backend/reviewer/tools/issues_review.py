@@ -4,6 +4,10 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
+from products.review_hog.backend.reviewer.review_instructions import (
+    ReviewInstructionPaths,
+    owner_review_instructions_block,
+)
 from products.review_hog.backend.reviewer.tools.prompt_helpers import (
     PROMPT_CACHE_MARKER,
     author_comments,
@@ -93,9 +97,13 @@ def build_review_prompt(
     main_template, output_schema = load_template_and_schema("issues_review")
     chunk_context = build_chunk_prompt_context(chunk, pr_metadata, author_comments(pr_comments, pr_metadata), pr_files)
     covered = _covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk)
+    instructions = ReviewInstructionPaths.for_files(
+        [f.filename for f in chunk.files], changed_filenames=[f.filename for f in pr_files]
+    )
     return main_template.render(
         **{key: without_cache_marker(value) for key, value in chunk_context.items()},
         COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
+        OWNER_REVIEW_INSTRUCTIONS=without_cache_marker(owner_review_instructions_block(instructions, role="review")),
         CACHE_MARKER=PROMPT_CACHE_MARKER,
         DIG_DEEPER=dig_deeper,
         IS_BLIND_SPOT=blind_spot_check,
