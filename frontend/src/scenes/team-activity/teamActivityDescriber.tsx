@@ -159,12 +159,17 @@ function createFixedVerbValueHandler(
 }
 
 const TEAM_PROPERTIES_MAPPING: Record<
-    keyof TeamType | 'heatmaps_screenshot_allowed_hostnames',
+    keyof TeamType | 'heatmaps_screenshot_allowed_hostnames' | 'conversations_signing_secret',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    conversations_signing_secret: createApiTokenHandler(
+        'Conversations identity verification secret',
+        'generated',
+        'rotated'
+    ),
     heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
     heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {

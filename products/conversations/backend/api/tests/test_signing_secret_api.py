@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import SigningSecret
@@ -48,6 +49,16 @@ class TestSigningSecretAPI(APIBaseTest):
         assert row.rotated_independently is True
         self.team.refresh_from_db()
         assert self.team.secret_api_token == "phs_legacy_token"
+
+        log = ActivityLog.objects.get(
+            scope="Team", team_id=self.team.id, detail__changes__0__field="conversations_signing_secret"
+        )
+        assert log.user == self.user
+        assert log.activity == "updated"
+        assert row.secret not in str(log.detail)
+        change = log.detail["changes"][0]
+        assert change["action"] == "changed"
+        assert change["before"] is not None
 
     def test_rotate_requires_admin(self):
         response = self.client.post(self._url("rotate/"))

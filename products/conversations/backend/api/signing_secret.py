@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
+
+from django.db import transaction
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -13,7 +15,10 @@ from rest_framework.views import APIView
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
-from posthog.models.utils import generate_random_token
+from posthog.helpers.impersonation import is_impersonated
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.user import User
+from posthog.models.utils import generate_random_token, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
 
 from products.conversations.backend.models import SigningSecret
@@ -74,9 +79,33 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False)
     def rotate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        row, _ = SigningSecret.objects.for_team(self.team_id).update_or_create(
-            team_id=self.team_id,
-            defaults={"secret": generate_random_token(), "rotated_independently": True},
-        )
+        old_row = SigningSecret.objects.for_team(self.team_id).first()
+        # One transaction: a credential change without its audit row must not commit.
+        with transaction.atomic():
+            row, _ = SigningSecret.objects.for_team(self.team_id).update_or_create(
+                team_id=self.team_id,
+                defaults={"secret": generate_random_token(), "rotated_independently": True},
+            )
+            log_activity(
+                organization_id=self.team.organization_id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+                scope="Team",
+                item_id=self.team_id,
+                activity="updated",
+                detail=Detail(
+                    name=str(self.team.name),
+                    changes=[
+                        Change(
+                            type="Team",
+                            action="created" if old_row is None else "changed",
+                            field="conversations_signing_secret",
+                            before=mask_key_value(old_row.secret) if old_row else None,
+                            after=mask_key_value(row.secret),
+                        )
+                    ],
+                ),
+            )
         serializer = SigningSecretSerializer({"secret": row.secret, "updated_at": row.updated_at})
         return Response(serializer.data)
