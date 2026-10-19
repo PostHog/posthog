@@ -435,6 +435,13 @@ A block can use an image only while that image outlives the block:
 - A block finds each inline image in a pack that the same flush wrote, so the pack lives at least as long as the block.
 - The image fetcher copies a fetched image onto itself when a job refers to it and the copy is more than 7 days old. The copy restarts the image's expiry, so an image lives at least 90 days after the last block that refers to it.
 
+The recorder does not write the two index prefixes itself, as in v3:
+
+- After a flush stores its packs and blocks, the recorder sends one JSON record per index row to `session_replay_ml_index_v4`. The record's keys are the Parquet column names.
+- The recorder commits without waiting for delivery. A row that is not delivered leaves its block or image stored but not in the index.
+- The v4 Parquet sink reads the topic, groups the rows by index and write day, and writes one file per group and flush as `{ms}-{random}.parquet`. A flush runs every 10 minutes, or at 128 MiB of rows or 1,000,000 rows. The sink commits its offsets only after the files are stored.
+- The sink can write a row twice after a restart. The copies have the same `flush_id`, so the rule below does not remove them: readers first drop rows that repeat within one `flush_id`.
+
 ### Block index
 
 A flush can write its blocks and index rows and then fail before it commits its Kafka offsets.
