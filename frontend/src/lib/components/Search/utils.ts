@@ -68,6 +68,37 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
     }))
 }
 
+/** Group key of the pinned row above the fixed sections. */
+export const TOP_MATCH_CATEGORY = 'top-match'
+/** A short query can name many products, so only this many pin and the rest stay in Products. */
+export const TOP_MATCH_LIMIT = 3
+
+/**
+ * Sections keep a fixed order, so a product the person names can render below weaker matches in
+ * earlier sections. Products whose name starts with the query move to a pinned row at the top.
+ * Exact name matches come first. Tab rows never pin, because their name belongs to the parent.
+ */
+export function splitTopMatches<T extends FuseSearchable & { parentName?: string }>(
+    items: T[],
+    query: string
+): { topMatches: T[]; rest: T[] } {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) {
+        return { topMatches: [], rest: items }
+    }
+    const names = (item: T): string[] =>
+        [item.displayName, item.name].filter((name): name is string => !!name).map((name) => name.toLowerCase())
+    const candidates = items.filter(
+        (item) =>
+            !item.parentName &&
+            item.category !== SEARCH_TAB_CATEGORY &&
+            names(item).some((name) => name.startsWith(normalized))
+    )
+    const exact = candidates.filter((item) => names(item).includes(normalized))
+    const topMatches = [...exact, ...candidates.filter((item) => !exact.includes(item))].slice(0, TOP_MATCH_LIMIT)
+    return { topMatches, rest: items.filter((item) => !topMatches.includes(item)) }
+}
+
 /** Structural so this module avoids importing searchLogic, which imports this one. */
 interface NewTabCandidate {
     id: string
@@ -121,6 +152,7 @@ export const getCategoryDisplayName = (category: string): string => {
         settings: 'Settings',
         early_access_feature: 'Early access features',
         suggested: 'Suggested',
+        [TOP_MATCH_CATEGORY]: 'Top match',
         recents: 'Recents',
         starred: 'Starred',
         folders: 'Folders',

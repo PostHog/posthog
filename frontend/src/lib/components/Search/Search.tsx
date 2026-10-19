@@ -42,7 +42,14 @@ import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
 import { SearchItem } from './searchItems'
 import { STARRED_LIMIT } from './searchListsLogic'
 import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
-import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
+import {
+    SETTINGS_THEME_ITEM_ID,
+    TOP_MATCH_CATEGORY,
+    canOpenInNewTab,
+    formatRelativeTimeShort,
+    getCategoryDisplayName,
+    splitTopMatches,
+} from './utils'
 
 // ============================================================================
 // Constants
@@ -482,9 +489,17 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'starred', 'tools', 'create']
+        // Fixed order: ai first (when searching), then top match, recents, starred, tools, create, then everything else
+        const orderedCategories = ['suggested', TOP_MATCH_CATEGORY, 'recents', 'starred', 'tools', 'create']
         const hasSearchValue = searchValue.trim().length > 0
+
+        if (hasSearchValue) {
+            const { topMatches, rest } = splitTopMatches(categoryMap.get('tools') ?? [], searchValue)
+            if (topMatches.length > 0) {
+                categoryMap.set(TOP_MATCH_CATEGORY, topMatches)
+                categoryMap.set('tools', rest)
+            }
+        }
 
         for (const category of orderedCategories) {
             const items = categoryMap.get(category) ?? []
