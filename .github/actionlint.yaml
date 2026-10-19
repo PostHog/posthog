@@ -19,12 +19,15 @@ self-hosted-runner:
 # `{changes: string}` anchor keeps this scoped to that action's output type.
 #
 # actionlint 1.7.12 rejects the `stacked` pull_request activity type, which GitHub
-# dispatches when a PR joins a stack. Remove the ignore once actionlint lists it.
+# dispatches when a PR joins a stack. Remove the ignore once actionlint lists it. Its
+# pattern matches any path because CI lints flattened copies outside .github/workflows.
 paths:
+    '**/*.yml':
+        ignore:
+            - 'invalid activity type "stacked" for "pull_request" Webhook event'
     '.github/workflows/**/*.yml':
         ignore:
             - 'property ".+" is not defined in object type \{changes: string\}'
-            - 'invalid activity type "stacked" for "pull_request" Webhook event'
     '.github/workflows/**/*.yaml':
         ignore:
             - 'property ".+" is not defined in object type \{changes: string\}'
