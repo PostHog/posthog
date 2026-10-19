@@ -114,4 +114,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "When the member account was last updated.",
         },
     },
+    "remediations": {
+        "description": "Remediation targets for Security Hub exposure findings. Each target is a change to a resource that resolves or reduces one or more exposure findings.",
+        "docs_url": "https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_GetRemediationsV2.html",
+        "columns": {
+            "target_uid": "The unique identifier of the remediation target.",
+            "outcome": "How many associated exposure findings the fix resolves, reduces in severity, or leaves unchanged.",
+            "priority": "The priority of the remediation target: Critical, High, Medium, or Low.",
+            "remediation_summary": "The action to take, its description, whether the effect is immediate, post-remediation steps, and knowledge base articles.",
+            "resource": "The resource the remediation target applies to, with its account, region, type, and identifier.",
+            "status": "Whether the remediation target is New, Updated, or Resolved.",
+            "trait": "The type and title of the trait associated with the remediation target.",
+            "updated_at": "When the remediation target was last updated.",
+        },
+    },
+    "remediation_exposures": {
+        "description": "Exposure findings linked to each remediation target, and the effect the fix has on each finding.",
+        "docs_url": "https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_ListExposuresByRemediationV2.html",
+        "columns": {
+            "target_uid": "The remediation target, which matches target_uid in the remediations table.",
+            "metadata_uid": "The identifier of the exposure finding, from the metadata.uid field of the finding.",
+            "title": "The title of the exposure finding.",
+            "previous_severity": "The severity of the exposure finding before the remediation target is resolved.",
+            "projected_severity": "The severity of the exposure finding after the remediation target is resolved.",
+            "impact": "Whether resolving the remediation target Resolves, Reduces, or leaves Unchanged the exposure finding.",
+        },
+    },
 }
