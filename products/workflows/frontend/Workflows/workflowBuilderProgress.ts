@@ -27,6 +27,23 @@ function triggerOf(workflow: HogFlow): HogFlowAction | undefined {
     return workflow.actions.find((action) => action.type === 'trigger')
 }
 
+function stepKind(action: HogFlowAction): string {
+    return action.type === 'function' ? `function:${action.config.template_id}` : action.type
+}
+
+function countBy(values: string[]): Record<string, number> {
+    const counts: Record<string, number> = {}
+    for (const value of values) {
+        counts[value] = (counts[value] ?? 0) + 1
+    }
+    return counts
+}
+
+function branchCount(workflow: HogFlow): number {
+    const outgoing = countBy(workflow.edges.map((edge) => edge.from))
+    return Object.values(outgoing).filter((count) => count > 1).length
+}
+
 function isValid(action: HogFlowAction, validationById: ValidationById): boolean {
     return validationById[action.id]?.valid ?? true
 }
@@ -36,7 +53,9 @@ export interface BuilderProgress {
     trigger_valid: boolean
     step_count: number
     invalid_step_count: number
-    invalid_step_types: HogFlowAction['type'][]
+    invalid_step_types: string[]
+    step_types: Record<string, number>
+    branch_count: number
 }
 
 export function builderProgress(workflow: HogFlow, validationById: ValidationById): BuilderProgress {
@@ -48,7 +67,9 @@ export function builderProgress(workflow: HogFlow, validationById: ValidationByI
         trigger_valid: !!trigger && isValid(trigger, validationById),
         step_count: steps.length,
         invalid_step_count: invalidSteps.length,
-        invalid_step_types: [...new Set(invalidSteps.map((step) => step.type))],
+        invalid_step_types: [...new Set(invalidSteps.map(stepKind))],
+        step_types: countBy(steps.map(stepKind)),
+        branch_count: branchCount(workflow),
     }
 }
 
@@ -60,4 +81,10 @@ export function classifyEdit(before: HogFlow, after: HogFlow): WorkflowBuilderEd
         return 'trigger'
     }
     return objectsEqual(before.actions, after.actions) && objectsEqual(before.edges, after.edges) ? null : 'step_edited'
+}
+
+export function addedStepKind(before: HogFlow, after: HogFlow): string | null {
+    const existingIds = new Set(before.actions.map((action) => action.id))
+    const added = after.actions.find((action) => isStep(action) && !existingIds.has(action.id))
+    return added ? stepKind(added) : null
 }
