@@ -142,7 +142,7 @@ export const taskLogic = kea<taskLogicType>([
                     })
                 },
                 // `leavePage: false` is for a host that shows the task outside its page, such as the PostHog AI panel.
-                deleteTask: async ({ leavePage = true }: { leavePage?: boolean } = {}) => {
+                deleteTask: async (params?: { leavePage?: boolean }) => {
                     await api.tasks.delete(props.taskId)
                     // Reload each mounted list with its own active filter — a bare `loadTasks()`
                     // defaults to `{}`, which drops "For you"'s scout exclusion (and any other
@@ -151,7 +151,7 @@ export const taskLogic = kea<taskLogicType>([
                     // The archived task has no page left, so send the user to the list of the host they
                     // are already in: the task page came from `/tasks`, but the shared AI workspace
                     // renders the same detail under `/ai` and must not eject them to another product.
-                    if (leavePage) {
+                    if (params?.leavePage !== false) {
                         router.actions.push(
                             removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
                                 ? urls.ai()
