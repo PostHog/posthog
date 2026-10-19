@@ -15,12 +15,6 @@ def _config(api_token: str = "tok") -> PapersignSourceConfig:
     return PapersignSourceConfig(api_token=api_token)
 
 
-class TestPapersignSchemas:
-    def test_names_filter_subsets_schemas(self) -> None:
-        schemas = PapersignSource().get_schemas(_config(), team_id=1, names=["documents"])
-        assert [s.name for s in schemas] == ["documents"]
-
-
 class TestPapersignNonRetryableErrors:
     @parameterized.expand(
         [

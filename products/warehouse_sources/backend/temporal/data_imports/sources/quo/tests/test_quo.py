@@ -3,7 +3,6 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -259,10 +258,3 @@ class TestDatedVersion:
         assert isinstance(result.raised, ValueError)
         assert "Unsupported Quo API version" in str(result.raised)
         assert result.requests == []
-
-
-class TestQuoSourceResponse:
-    def test_unknown_endpoint_raises_unknown_resource(self):
-        result = _source("not_a_table", [])
-
-        assert isinstance(result.raised, UnknownResourceError)

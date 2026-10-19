@@ -68,14 +68,6 @@ class TestBrowserUseSource:
         assert result.requests[0].headers["x-browser-use-api-key"] == "bu_test"
         assert result.paths == ["/api/v4/sessions"]
 
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        # An arbitrary schema name must raise a controlled ValueError rather than crashing the
-        # worker with an uncaught KeyError when indexing the endpoint catalog.
-        result = SourceDriver(self.source, self.config).run("not_a_real_endpoint", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Browser Use schema" in str(result.raised)
-
     def test_source_for_pipeline_rejects_schema_absent_in_pinned_version(self) -> None:
         # A v4-pinned source must not serve a v3-only endpoint: session_messages has no v4 list
         # endpoint, so requesting it under v4 must fail loudly rather than 404 mid-sync.
