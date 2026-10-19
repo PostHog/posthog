@@ -65,14 +65,18 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         ],
         variants: SPLIT_AFTER,
     },
-    split_history: {
+    flag_history: {
         checked: true,
         not_checked_reason: null,
         launched_at: '2025-01-06T10:00:00Z',
         team_timezone: 'UTC',
-        changes: [{ changed_at: '2025-01-20T14:30:00Z', before: SPLIT_BEFORE, after: SPLIT_AFTER, counted: true }],
+        split_changes: [
+            { changed_at: '2025-01-20T14:30:00Z', before: SPLIT_BEFORE, after: SPLIT_AFTER, counted: true },
+        ],
+        bucketing_changes: [],
         exposed_before_first: true,
-        exposed_between: null,
+        split_exposed_between: null,
+        bucketing_exposed_between: null,
     },
     condition_set_traffic_status: 'read',
     condition_set_traffic: {
