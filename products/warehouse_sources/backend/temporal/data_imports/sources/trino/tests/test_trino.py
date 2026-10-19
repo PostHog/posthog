@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
+from trino.exceptions import HttpError, OperationalError, TrinoConnectionError, TrinoExternalError, TrinoUserError
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -647,6 +647,21 @@ def test_worker_node_communication_failures_are_classified_as_retryable() -> Non
     )
 
     assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
+@pytest.mark.parametrize(
+    "error",
+    [HttpError("error 404: b'Query not found'"), OperationalError("error 404: b'Query not found'")],
+    ids=["column_lookup", "row_stream"],
+)
+def test_lost_query_failures_are_classified_as_retryable(error: Exception) -> None:
+    with pytest.raises(Exception) as raised:
+        with trino_failures_as_sync_error():
+            raise error
+
+    source = TrinoSource()
+    assert not error_message_matches(str(raised.value), source.get_non_retryable_errors())
+    assert error_message_matches(str(raised.value), source.get_retryable_errors())
 
 
 def test_build_pipeline_refuses_a_disallowed_host_before_connecting() -> None:

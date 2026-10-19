@@ -91,6 +91,10 @@ TRINO_COLUMN_NOT_FOUND_ERROR = (
 # by the time it reaches us the worker has likely crashed or is overloaded — a vendor-side blip a
 # fresh query normally clears, not a PostHog or customer problem.
 TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
+# The coordinator's HTTP 404 body when it no longer knows a running query, for example after it
+# restarts or expires the query. The driver raises it as `HttpError`, or as `OperationalError` while
+# rows stream, and a fresh query on the next attempt succeeds.
+TRINO_QUERY_NOT_FOUND_ERROR = "Query not found"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
