@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
@@ -42,8 +43,8 @@ export function QuillAIObservabilityScorerActions(props: ScorerLogicProps): JSX.
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem
                             disabledReason={editDisabledReason || (saving ? 'Saving scorer' : undefined)}
-                            render={
-                                <LinkPrimitive to={urls.aiObservabilityScorer('new', { duplicate: definition.id })} />
+                            onClick={() =>
+                                router.actions.push(urls.aiObservabilityScorer('new', { duplicate: definition.id }))
                             }
                             data-attr="llma-scorer-duplicate"
                         >
