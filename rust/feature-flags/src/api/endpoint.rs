@@ -502,6 +502,10 @@ where
         &ip_string,
         request_id,
     );
+    // The OpenTelemetry layer only sees INFO and above, so `_span` (DEBUG) never
+    // carries a trace ID. This span is the trace root: it parents
+    // `process_request` and stays open while the canonical log line is emitted.
+    let trace_span = tracing::info_span!("flags_request");
 
     // Run the request within a canonical log scope.
     // All code within can use with_canonical_log() to update the log.
@@ -547,7 +551,13 @@ where
         process_request(context).await
     })
     .instrument(_span)
+    .instrument(trace_span.clone())
     .await;
+
+    // Emit the canonical log line inside the trace span so the JSON formatter
+    // stamps its trace ID. Everything below is synchronous, so the guard is
+    // never held across an await.
+    let _trace_span = trace_span.enter();
 
     // Emit DB operations metrics before the canonical log
     log.emit_db_operations_metrics();

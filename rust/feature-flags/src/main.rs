@@ -17,6 +17,7 @@ use feature_flags::config::{Config, ThreadCounts};
 use feature_flags::handler::body_logger::BODY_LOG_TARGET;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::{register_components, serve};
+use feature_flags::utils::trace_context_format::WithTraceContext;
 
 common_alloc::used!();
 
@@ -88,6 +89,7 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
             base_layer
                 .json()
                 .with_span_list(false)
+                .map_event_format(WithTraceContext)
                 .with_filter(
                     EnvFilter::builder()
                         .with_default_directive(LevelFilter::INFO.into())
