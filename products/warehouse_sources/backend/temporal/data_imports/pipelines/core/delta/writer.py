@@ -780,4 +780,4 @@ class DeltaWriter:
             data_commits = sum(1 for commit in history if commit.get("operation") not in _MAINTENANCE_OPERATIONS)
             if len(history) < limit or data_commits >= scan_limit or limit >= _MAX_HISTORY_SCAN:
                 return False
-            limit = min(limit + scan_limit - data_commits, _MAX_HISTORY_SCAN)
+            limit = min(limit * 2, _MAX_HISTORY_SCAN)

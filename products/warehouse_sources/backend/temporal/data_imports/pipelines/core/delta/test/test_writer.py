@@ -203,16 +203,17 @@ class TestHasBatchBeenCommitted:
 
     @parameterized.expand(
         [
-            ("compaction_commits_do_not_use_up_the_window", "OPTIMIZE", 120, True),
-            ("vacuum_commits_do_not_use_up_the_window", "VACUUM END", 120, True),
-            ("data_commits_still_close_the_window", "WRITE", 60, False),
+            ("compaction_commits_do_not_use_up_the_window", [("OPTIMIZE", 120)], True),
+            ("vacuum_commits_do_not_use_up_the_window", [("VACUUM END", 120)], True),
+            ("data_commits_still_close_the_window", [("WRITE", 60)], False),
+            ("recent_writes_ahead_of_a_long_compaction", [("WRITE", 49), ("OPTIMIZE", 100)], True),
         ]
     )
     @pytest.mark.asyncio
     async def test_finds_the_batch_behind_later_commits(
-        self, _name: str, operation: str, later_commits: int, expected: bool
+        self, _name: str, later: list[tuple[str, int]], expected: bool
     ) -> None:
-        commits = [{"operation": operation} for _ in range(later_commits)] + [
+        commits = [{"operation": operation} for operation, count in later for _ in range(count)] + [
             {"operation": "WRITE", "run_uuid": "run-1", "batch_index": "5"}
         ]
         writer = _make_writer()
@@ -220,6 +221,7 @@ class TestHasBatchBeenCommitted:
         table.history = MagicMock(side_effect=lambda limit: commits[:limit])
         with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
             assert await writer.has_batch_been_committed("run-1", 5) is expected
+        assert table.history.call_count <= 3
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
