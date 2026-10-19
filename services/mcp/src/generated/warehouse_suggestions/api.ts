@@ -85,7 +85,7 @@ export const WarehouseSuggestionsAcceptCreateBody = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Materialize only, incremental refresh only: a date or datetime output column whose advancing value marks new rows, instead of the proposed one. Omit to keep the proposed key.'
+            'Materialize only, incremental refresh only: an output column whose value only grows as rows arrive, such as a date, a datetime or an increasing number, instead of the proposed one. view-check-incremental lists the columns that qualify. Omit to keep the proposed key.'
         ),
     unique_key: zod
         .array(zod.string())
