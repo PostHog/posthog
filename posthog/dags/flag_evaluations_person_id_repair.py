@@ -82,7 +82,6 @@ class FlagEvaluationsPersonIdRepairConfig(dagster.Config):
 
 @frozen
 class RepairPlan:
-    # Newest first, like the backfill.
     days: tuple[date, ...]
     config: FlagEvaluationsPersonIdRepairConfig
     blocking_run_check: BlockingRunCheck
@@ -142,23 +141,33 @@ class PersonIdRepairTable:
     def populate_query(self, *, filter_team_ids: bool) -> str:
         team_filter = _TEAM_FILTER if filter_team_ids else ""
         # sharded_events and sharded_flag_evaluations share a shard key. A row's events copy is
-        # therefore on its shard. Events copies of one call that disagree reach the table as two
-        # keys and fail the check.
+        # therefore on its shard. Once any call of a key disagrees with its events copy, the key
+        # keeps every person_id its events copies hold, its own included. A key whose calls point
+        # at two person_ids then fails the check.
         return f"""
 INSERT INTO {self.qualified_name} (team_id, distinct_id, stale_person_id, person_id, shard_num, day, calls)
-SELECT f.team_id, f.distinct_id, f.person_id, e.person_id, %(shard_num)s, toDate(%(day_start)s), uniqExact(f.uuid)
+SELECT repair_team_id, repair_distinct_id, repair_stale_person_id, target, %(shard_num)s, toDate(%(day_start)s), calls
 FROM (
-    SELECT team_id, uuid, distinct_id, person_id
-    FROM {FLAG_EVALUATIONS_DATA_TABLE}
-    WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s AND {COPIED_ROW_FILTER}{team_filter}
-) AS f
-INNER JOIN (
-    SELECT team_id, uuid, person_id
-    FROM {EVENTS_DATA_TABLE()}
-    WHERE event = %(event)s AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
-) AS e ON f.team_id = e.team_id AND f.uuid = e.uuid
-WHERE f.person_id != e.person_id
-GROUP BY f.team_id, f.distinct_id, f.person_id, e.person_id
+    SELECT
+        f.team_id AS repair_team_id,
+        f.distinct_id AS repair_distinct_id,
+        f.person_id AS repair_stale_person_id,
+        groupUniqArray(e.person_id) AS targets,
+        uniqExactIf(f.uuid, f.person_id != e.person_id) AS calls
+    FROM (
+        SELECT team_id, uuid, distinct_id, person_id
+        FROM {FLAG_EVALUATIONS_DATA_TABLE}
+        WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s AND {COPIED_ROW_FILTER}{team_filter}
+    ) AS f
+    INNER JOIN (
+        SELECT team_id, uuid, distinct_id, person_id
+        FROM {EVENTS_DATA_TABLE()}
+        WHERE event = %(event)s AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
+    ) AS e ON f.team_id = e.team_id AND f.uuid = e.uuid AND f.distinct_id = e.distinct_id
+    GROUP BY f.team_id, f.distinct_id, f.person_id
+    HAVING calls > 0
+)
+ARRAY JOIN targets AS target
 """
 
 
@@ -316,9 +325,13 @@ def check_repair_table(
             """
         )
         # A target that is also a stale key would move a row once per run instead of once in total.
+        # A key that maps to its own id already counts as a conflict above.
         [[chains]] = client.execute(
             f"""
-            SELECT count() FROM (SELECT DISTINCT team_id, distinct_id, person_id FROM {table.qualified_name})
+            SELECT count() FROM (
+                SELECT DISTINCT team_id, distinct_id, person_id FROM {table.qualified_name}
+                WHERE person_id != stale_person_id
+            )
             WHERE (team_id, distinct_id, person_id) IN (
                 SELECT team_id, distinct_id, stale_person_id FROM {table.qualified_name}
             )
@@ -410,10 +423,27 @@ def run_repair_mutation(
     plan: RepairPlan,
     dictionary: PersonIdRepairDictionary,
 ) -> PersonIdRepairDictionary:
-    """Rewrite the stale rows on every shard, then fail if a blocking run started since the plan's watermark."""
+    """Rewrite the stale rows on every shard.
+
+    Fail before the mutation if a blocking run started since the plan's watermark, and again after it.
+    """
     if plan.config.dry_run:
         context.log.info("Dry run: leaving flag_evaluations unchanged")
         return dictionary
+
+    def blocking_runs_started() -> str:
+        return "; ".join(
+            blocking_runs_started_since(
+                context.instance, BLOCKING_JOB_NAMES, plan.blocking_run_check, run_id=context.run_id
+            )
+        )
+
+    cleanup = "Drop this run's table and dictionary with cleanup_orphaned_flag_evaluations_person_id_repair."
+    if started := blocking_runs_started():
+        raise dagster.Failure(
+            description=f"{started} started after the repair read person_id from events. "
+            f"{FLAG_EVALUATIONS_DATA_TABLE} is unchanged. {cleanup} Then run the repair again after that run finishes."
+        )
 
     team_ids = plan.config.team_ids
     AlterTableMutationRunner(
@@ -422,15 +452,12 @@ def run_repair_mutation(
         parameters={"name": dictionary.qualified_name, "team_ids": tuple(team_ids or ())},
     ).run_on_shards(cluster)
 
-    started = blocking_runs_started_since(
-        context.instance, BLOCKING_JOB_NAMES, plan.blocking_run_check, run_id=context.run_id
-    )
-    if started:
+    if started := blocking_runs_started():
         raise dagster.Failure(
-            description=f"{'; '.join(started)} started during the repair. A deletion that reached "
+            description=f"{started} started during the repair mutation. A deletion that reached "
             f"{FLAG_EVALUATIONS_DATA_TABLE} before the mutation did not match rows that still held a stale "
             "person_id, and the mutation then gave them the deleted person's id. Check what that run deleted. "
-            "Then drop this run's table and dictionary with cleanup_orphaned_flag_evaluations_person_id_repair."
+            f"{cleanup}"
         )
     return dictionary
 
@@ -473,7 +500,41 @@ def get_repair_dictionary_for_run(config: RepairRunConfig) -> PersonIdRepairDict
     return PersonIdRepairDictionary(source=PersonIdRepairTable(id=uuid.UUID(config.run_id)))
 
 
+@dagster.op(tags=OWNER_TAG)
+def check_no_repair_mutation_running(
+    cluster: dagster.ResourceParam[ClickhouseCluster], dictionary: PersonIdRepairDictionary
+) -> PersonIdRepairDictionary:
+    """Fail while a mutation that reads this dictionary is unfinished on any host.
+
+    A stopped Dagster run leaves its ClickHouse mutation running. Dropping the dictionary under it
+    fails the mutation's remaining parts, and the failed mutation then blocks later mutations on the table.
+    """
+
+    def running(client: Client) -> int:
+        [[count]] = client.execute(
+            """
+            SELECT count() FROM system.mutations
+            WHERE database = %(database)s AND table = %(table)s AND NOT is_done AND NOT is_killed
+                AND position(command, %(name)s) > 0
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": FLAG_EVALUATIONS_DATA_TABLE,
+                "name": dictionary.qualified_name,
+            },
+        )
+        return count
+
+    hosts = [host.connection_info.host for host, count in cluster.map_all_hosts(running).result().items() if count]
+    if hosts:
+        raise dagster.Failure(
+            description=f"A mutation that reads {dictionary.qualified_name} is unfinished on {', '.join(hosts)}. "
+            "Wait for it to finish, or stop it with KILL MUTATION, then run the cleanup again."
+        )
+    return dictionary
+
+
 @dagster.job(tags=OWNER_TAG)
 def cleanup_orphaned_flag_evaluations_person_id_repair() -> None:
-    """Drop the table and dictionary that a failed repair run left. Run it only once that run has stopped."""
-    drop_repair_table(drop_repair_dictionary(get_repair_dictionary_for_run()))
+    """Drop the table and dictionary that a failed repair run left, once its mutation has finished or been killed."""
+    drop_repair_table(drop_repair_dictionary(check_no_repair_mutation_running(get_repair_dictionary_for_run())))

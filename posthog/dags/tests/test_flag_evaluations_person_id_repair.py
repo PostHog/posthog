@@ -45,6 +45,7 @@ CALLS = (STALE, KAFKA_PATH, MOVED_BY_LATER_SQUASH)
 # A second events copy of STALE's call would share its sort key. A merge would then collapse the two copies.
 # A separate call gives the key (TEAM_ID, DISTINCT_ID, PERSON_A) a second events person_id without that risk.
 CONFLICTING_CALL = FlagCall(label="conflicting_call", stored_person_id=PERSON_A, events_person_id=PERSON_D)
+AGREEING_CALL = FlagCall(label="agreeing_call", stored_person_id=PERSON_A, events_person_id=PERSON_A)
 
 
 def seed(cluster: ClickhouseCluster, timestamp: datetime, calls: Sequence[FlagCall]) -> None:
@@ -116,6 +117,7 @@ def days_before(now: datetime, days: int) -> str:
         pytest.param(False, (), True, {STALE.label: PERSON_B}, id="repair"),
         pytest.param(True, (), True, {}, id="dry_run"),
         pytest.param(False, (CONFLICTING_CALL,), False, {}, id="conflicting_events_copies"),
+        pytest.param(False, (AGREEING_CALL,), False, {}, id="agreeing_events_copy"),
     ],
 )
 def test_repair_rewrites_only_imported_rows_that_still_hold_the_stale_id(
