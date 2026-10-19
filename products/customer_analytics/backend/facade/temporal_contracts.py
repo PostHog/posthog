@@ -27,6 +27,8 @@ class FinalizeAccountPropertySyncRunsInput:
     status: str
     phase: str
     error: str | None = None
+    # None closes open runs in both segments. Histories recorded before this field existed decode to None.
+    segment: str | None = None
 
 
 @frozen
@@ -35,6 +37,15 @@ class AccountPropertySyncInput:
     saved_query_id: str
     job_id: str
     segment: str
+
+
+@frozen
+class AccountPropertySourceSyncInput:
+    team_id: int
+    saved_query_id: str
+    job_id: str
+    segment: str
+    source_id: str
 
 
 @frozen

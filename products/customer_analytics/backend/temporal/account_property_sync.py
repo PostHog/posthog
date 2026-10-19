@@ -16,6 +16,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
     AccountPropertySegmentTelemetryInput,
+    AccountPropertySourceSyncInput,
     AccountPropertySyncInput,
     DispatchAccountPropertySyncInput,
     FinalizeAccountPropertySyncRunsInput,
@@ -24,6 +25,7 @@ from products.customer_analytics.backend.facade.temporal_contracts import (
 
 with workflow.unsafe.imports_passed_through():
     from datetime import timedelta
+    from uuid import UUID
 
     from django.conf import settings
 
@@ -33,16 +35,24 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.client import async_connect
 
+    from products.customer_analytics.backend.logic.account_property_fanout_flags import (
+        account_property_sync_fanout_enabled,
+    )
     from products.customer_analytics.backend.logic.account_property_runs import (
         AccountPropertySyncRunContext,
+        AccountPropertySyncSegmentIncompleteError,
         finalize_account_property_sync_runs,
         start_account_property_sync_runs,
         update_account_property_sync_runs_phase,
     )
     from products.customer_analytics.backend.logic.account_property_sync import (
+        AccountPropertySourceRejectedError,
         AccountPropertySourceValueError,
         AccountPropertySyncSegment,
+        complete_account_property_sync_segment,
+        get_account_property_sync_source_ids,
         run_account_property_segment_sync,
+        run_account_property_source_sync,
     )
     from products.customer_analytics.backend.logic.account_property_sync_monitoring import (
         capture_account_property_sync_event,
@@ -55,9 +65,13 @@ logger = structlog.get_logger(__name__)
 
 ACCOUNT_PROPERTY_STAGING_WORKFLOW_NAME = "stage-warehouse-account-properties"
 ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME = "sync-warehouse-account-properties"
+ACCOUNT_PROPERTY_SYNC_FANOUT_WORKFLOW_NAME = "sync-warehouse-account-properties-fanout"
 ACCOUNT_PROPERTY_RUN_HISTORY_PATCH = "account-property-run-history-2026-08"
 ACCOUNT_PROPERTY_SEGMENT_TELEMETRY_PATCH = "account-property-segment-telemetry-2026-10"
 ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS = 5
+ACCOUNT_PROPERTY_SOURCE_CONCURRENCY = 3
+# Source IDs are UUID strings, so this keeps the discovery result far below the 256 KB field rule.
+ACCOUNT_PROPERTY_FANOUT_MAX_SOURCES = 2_000
 
 _STAGING_FAILED_ERROR = (
     "Couldn't prepare warehouse rows. Run the source view again. If it keeps failing, contact support."
@@ -65,6 +79,8 @@ _STAGING_FAILED_ERROR = (
 _DISPATCH_FAILED_ERROR = (
     "Couldn't start account updates. Run the source view again. If it keeps failing, contact support."
 )
+_SYNC_FAILED_ERROR = "Couldn't update accounts. Run the source view again. If it keeps failing, contact support."
+_SOURCE_SYNC_FAILED_ERROR_TYPE = "AccountPropertySourceSyncFailed"
 
 ACCOUNT_PROPERTY_SYNC_TOTAL = Counter(
     "warehouse_account_property_sync_total",
@@ -81,6 +97,11 @@ ACCOUNT_PROPERTY_SYNC_DURATION_SECONDS = Histogram(
 
 _SyncPath = Literal["legacy", "fanout"]
 _TerminalStatus = Literal["completed", "failed", "cancelled"]
+
+
+def _segment_workflow_id(job_id: str, segment: str) -> str:
+    # Both workflow types share this ID, so a retried dispatch can't start a second path for a segment.
+    return f"sync-warehouse-account-properties-{job_id}-{segment}"
 
 
 def _failure_type(error: BaseException) -> str:
@@ -209,6 +230,7 @@ async def finalize_warehouse_account_property_runs_activity(input: FinalizeAccou
         status=SyncStatus(input.status),
         phase=SyncPhase(input.phase),
         error=input.error,
+        segment=None if input.segment is None else AccountPropertySyncSegment(input.segment),
     )
 
 
@@ -266,19 +288,23 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
         workflow_run_id=activity_info.workflow_run_id,
         attempt=activity_info.attempt,
     )
+    # Evaluated once per dispatch so both segments of this attempt start the same workflow type. A flag
+    # change only affects segments that are not started yet, because both types share one workflow ID.
+    use_fanout = await database_sync_to_async(account_property_sync_fanout_enabled)(input.team_id)
+    workflow_name = ACCOUNT_PROPERTY_SYNC_FANOUT_WORKFLOW_NAME if use_fanout else ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME
+    path: _SyncPath = "fanout" if use_fanout else "legacy"
     client = await async_connect()
     for segment in ("tracked", "ignored"):
-        workflow_id = f"sync-warehouse-account-properties-{input.job_id}-{segment}"
         try:
             await client.start_workflow(
-                ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME,
+                workflow_name,
                 AccountPropertySyncInput(
                     team_id=input.team_id,
                     saved_query_id=input.saved_query_id,
                     job_id=input.job_id,
                     segment=segment,
                 ),
-                id=workflow_id,
+                id=_segment_workflow_id(input.job_id, segment),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
                 execution_timeout=timedelta(hours=24),
@@ -296,10 +322,17 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
             saved_query_id=input.saved_query_id,
             job_id=input.job_id,
             segment=segment,
-            path="legacy",
+            path=path,
             scope="segment",
             status="started",
-            workflow_id=workflow_id,
+            workflow_id=_segment_workflow_id(input.job_id, segment),
+        )
+        logger.info(
+            "Account-property segment sync started",
+            team_id=input.team_id,
+            job_id=input.job_id,
+            segment=segment,
+            path=path,
         )
 
 
@@ -362,6 +395,103 @@ async def sync_warehouse_account_properties_activity(input: AccountPropertySyncI
     telemetry.finish("completed", counts=result)
     log.info("Account-property segment sync completed", **result)
     return result
+
+
+@activity.defn(name="list-warehouse-account-property-sources")
+async def list_warehouse_account_property_sources_activity(input: AccountPropertySyncInput) -> list[str]:
+    source_ids = await database_sync_to_async(get_account_property_sync_source_ids, thread_sensitive=False)(
+        input.team_id, saved_query_binding(input.saved_query_id)
+    )
+    if len(source_ids) > ACCOUNT_PROPERTY_FANOUT_MAX_SOURCES:
+        raise ApplicationError(
+            f"View has {len(source_ids)} account-property sources, above the fanout limit of "
+            f"{ACCOUNT_PROPERTY_FANOUT_MAX_SOURCES}",
+            type="AccountPropertyFanoutSourceLimitExceeded",
+            non_retryable=True,
+        )
+    return source_ids
+
+
+@activity.defn(name="sync-warehouse-account-property-source")
+async def sync_warehouse_account_property_source_activity(input: AccountPropertySourceSyncInput) -> dict[str, int]:
+    segment = AccountPropertySyncSegment(input.segment)
+    activity_info = activity.info()
+    log = logger.bind(
+        team_id=input.team_id,
+        saved_query_id=input.saved_query_id,
+        job_id=input.job_id,
+        segment=segment.value,
+        source_id=input.source_id,
+    )
+    telemetry = _AttemptTelemetry.start(
+        team_id=input.team_id,
+        saved_query_id=input.saved_query_id,
+        job_id=input.job_id,
+        segment=segment.value,
+        path="fanout",
+        source_id=input.source_id,
+    )
+    try:
+        source_uuid = UUID(input.source_id)
+    except ValueError as error:
+        telemetry.finish("failed", error=error)
+        raise ApplicationError("Account-property source ID is not a UUID", non_retryable=True) from error
+    try:
+        await database_sync_to_async(update_account_property_sync_runs_phase)(
+            AccountPropertySyncRunContext(
+                team_id=input.team_id,
+                saved_query_id=input.saved_query_id,
+                job_id=input.job_id,
+            ),
+            phase=SyncPhase.SYNCING,
+            workflow_id=activity_info.workflow_id,
+            workflow_run_id=activity_info.workflow_run_id,
+            attempt=activity_info.attempt,
+            segment=segment,
+            source_id=source_uuid,
+        )
+        async with Heartbeater():
+            result = await run_account_property_source_sync(
+                team_id=input.team_id,
+                binding=saved_query_binding(input.saved_query_id),
+                job_id=input.job_id,
+                segment=segment,
+                source_id=input.source_id,
+                final_attempt=activity_info.attempt >= ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS,
+            )
+    except (AccountPropertySourceValueError, AccountPropertySourceRejectedError) as error:
+        # A retry reads the same staged rows and source config, so it can't fix these errors.
+        failure_counts = error.counts if isinstance(error, AccountPropertySourceValueError) else None
+        telemetry.finish("failed", counts=failure_counts, error=error)
+        log.warning("Account-property source sync rejected", error_type=type(error).__name__)
+        details = () if failure_counts is None else (failure_counts,)
+        raise ApplicationError(str(error), *details, type=type(error).__name__, non_retryable=True) from error
+    except asyncio.CancelledError:
+        telemetry.finish("cancelled")
+        raise
+    except Exception as error:
+        telemetry.finish("failed", error=error)
+        log.exception("Account-property source sync failed")
+        capture_exception(error)
+        raise
+
+    telemetry.finish("completed", counts=result)
+    log.info("Account-property source sync completed", **result)
+    return result
+
+
+@activity.defn(name="complete-warehouse-account-property-segment")
+async def complete_warehouse_account_property_segment_activity(input: AccountPropertySyncInput) -> None:
+    try:
+        async with Heartbeater():
+            await complete_account_property_sync_segment(
+                team_id=input.team_id,
+                binding=saved_query_binding(input.saved_query_id),
+                job_id=input.job_id,
+                segment=AccountPropertySyncSegment(input.segment),
+            )
+    except AccountPropertySyncSegmentIncompleteError as error:
+        raise ApplicationError(str(error), type=type(error).__name__, non_retryable=True) from error
 
 
 @activity.defn(name="emit-warehouse-account-property-segment-telemetry")
@@ -561,9 +691,135 @@ class SyncWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
             )
 
 
+@frozen
+class _SettledSources:
+    counts: dict[str, int]
+    failed: int
+
+
+async def _sync_sources(input: AccountPropertySyncInput, source_ids: list[str]) -> _SettledSources:
+    semaphore = asyncio.Semaphore(ACCOUNT_PROPERTY_SOURCE_CONCURRENCY)
+
+    async def sync_source(source_id: str) -> dict[str, int]:
+        async with semaphore:
+            return await workflow.execute_activity(
+                sync_warehouse_account_property_source_activity,
+                AccountPropertySourceSyncInput(
+                    team_id=input.team_id,
+                    saved_query_id=input.saved_query_id,
+                    job_id=input.job_id,
+                    segment=input.segment,
+                    source_id=source_id,
+                ),
+                activity_id=f"sync-account-property-source-{source_id}",
+                start_to_close_timeout=timedelta(hours=6),
+                heartbeat_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS,
+                    initial_interval=timedelta(seconds=30),
+                ),
+            )
+
+    # return_exceptions keeps one failed source from ending the gather while its siblings still run.
+    # The coordinator must not finalize the segment before every source activity settles.
+    results = await asyncio.gather(*(sync_source(source_id) for source_id in source_ids), return_exceptions=True)
+    counts: dict[str, int] = {}
+    failed = 0
+    for result in results:
+        if isinstance(result, BaseException):
+            failed += 1
+            continue
+        for key, value in result.items():
+            counts[key] = counts.get(key, 0) + value
+    counts["source_errors"] = failed
+    return _SettledSources(counts=counts, failed=failed)
+
+
+@workflow.defn(name=ACCOUNT_PROPERTY_SYNC_FANOUT_WORKFLOW_NAME)
+class SyncWarehouseAccountPropertiesFanoutWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> AccountPropertySyncInput:
+        return AccountPropertySyncInput(**json.loads(inputs[0]))
+
+    @workflow.run
+    async def run(self, input: AccountPropertySyncInput) -> None:
+        started_at = workflow.time()
+        source_count: int | None = None
+        counts: dict[str, int] | None = None
+        try:
+            listed_source_ids = await workflow.execute_activity(
+                list_warehouse_account_property_sources_activity,
+                input,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS),
+            )
+            source_ids = list(dict.fromkeys(listed_source_ids))
+            source_count = len(source_ids)
+            settled = await _sync_sources(input, source_ids)
+            counts = settled.counts
+            if settled.failed:
+                raise ApplicationError(
+                    f"{settled.failed} of {source_count} account-property sources failed",
+                    type=_SOURCE_SYNC_FAILED_ERROR_TYPE,
+                    non_retryable=True,
+                )
+            await workflow.execute_activity(
+                complete_warehouse_account_property_segment_activity,
+                input,
+                start_to_close_timeout=timedelta(hours=1),
+                heartbeat_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS,
+                    initial_interval=timedelta(seconds=30),
+                ),
+            )
+        except (asyncio.CancelledError, Exception) as error:
+            # Workflow eviction raises a BaseException that is not caught here, so cleanup runs only for
+            # a real failure or cancellation.
+            cancelled = is_cancelled_exception(error)
+            try:
+                if not cancelled:
+                    # Closes only the runs still open in this segment. Completed sibling runs keep their
+                    # result, and the staged rows stay in place for the next run of the source view.
+                    await workflow.execute_activity(
+                        finalize_warehouse_account_property_runs_activity,
+                        FinalizeAccountPropertySyncRunsInput(
+                            team_id=input.team_id,
+                            saved_query_id=input.saved_query_id,
+                            job_id=input.job_id,
+                            status=SyncStatus.FAILED.value,
+                            phase=SyncPhase.SYNCING.value,
+                            error=_SYNC_FAILED_ERROR,
+                            segment=input.segment,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS),
+                    )
+            finally:
+                await _emit_segment_telemetry(
+                    input,
+                    path="fanout",
+                    status="cancelled" if cancelled else "failed",
+                    started_at=started_at,
+                    source_count=source_count,
+                    counts=counts,
+                    error=error,
+                )
+            raise
+        await _emit_segment_telemetry(
+            input,
+            path="fanout",
+            status="completed",
+            started_at=started_at,
+            source_count=source_count,
+            counts=counts,
+        )
+
+
 ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [
     StageWarehouseAccountPropertiesWorkflow,
     SyncWarehouseAccountPropertiesWorkflow,
+    SyncWarehouseAccountPropertiesFanoutWorkflow,
 ]
 ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [
     start_warehouse_account_property_runs_activity,
@@ -571,5 +827,8 @@ ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [
     stage_warehouse_account_property_files_activity,
     dispatch_warehouse_account_property_sync_activity,
     sync_warehouse_account_properties_activity,
+    list_warehouse_account_property_sources_activity,
+    sync_warehouse_account_property_source_activity,
+    complete_warehouse_account_property_segment_activity,
     emit_warehouse_account_property_segment_telemetry_activity,
 ]
