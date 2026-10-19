@@ -453,6 +453,7 @@ export namespace Schemas {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
+     * * `research_desk` - research_desk
      * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
@@ -575,6 +576,7 @@ export namespace Schemas {
       Query: 'query',
       QueryPerformance: 'query_performance',
       ReplayScanner: 'replay_scanner',
+      ResearchDesk: 'research_desk',
       ReviewHog: 'review_hog',
       RevenueAnalytics: 'revenue_analytics',
       SessionRecording: 'session_recording',
@@ -697,6 +699,7 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
+       * * `research_desk` - research_desk
        * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
@@ -942,6 +945,7 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
+       * * `research_desk` - research_desk
        * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
@@ -1350,6 +1354,7 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
+       * * `research_desk` - research_desk
        * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
@@ -24954,6 +24959,79 @@ export namespace Schemas {
       token: string;
     }
 
+    /**
+     * * `email` - Email
+     * * `survey` - Survey
+     * * `event` - Event
+     * * `cohort` - Cohort
+     * * `session` - Session
+     */
+    export type TouchChannelEnum = typeof TouchChannelEnum[keyof typeof TouchChannelEnum];
+
+
+    export const TouchChannelEnum = {
+      Email: 'email',
+      Survey: 'survey',
+      Event: 'event',
+      Cohort: 'cohort',
+      Session: 'session',
+    } as const;
+
+    export interface ResearchTouch {
+      /** How the contact was reached: email, survey, event, cohort, or session.
+       *
+       * * `email` - Email
+       * * `survey` - Survey
+       * * `event` - Event
+       * * `cohort` - Cohort
+       * * `session` - Session */
+      channel: TouchChannelEnum;
+      /** Email address that was contacted. */
+      contact: string;
+      /** Name of the source or session that made the contact. */
+      source_label: string;
+      /** Employee responsible for the contact, if known. */
+      owner_email: string;
+      /**
+         * When the contact happened. Empty for cohort membership.
+         * @nullable
+         */
+      occurred_at: string | null;
+      /**
+         * ID of the source that made the contact, if any.
+         * @nullable
+         */
+      source_id?: string | null;
+      /**
+         * ID of the session, for session touches.
+         * @nullable
+         */
+      session_id?: string | null;
+    }
+
+    export interface ContactCheckResult {
+      /** Every research touch found, newest first. */
+      touches: ResearchTouch[];
+      /** Normalized emails that were checked. */
+      emails: string[];
+      /**
+         * Normalized domain that was checked, if any.
+         * @nullable
+         */
+      domain: string | null;
+      /**
+         * Most recent dated touch, if any.
+         * @nullable
+         */
+      last_touch_at: string | null;
+      /** True when a touch falls inside the warning window or the contact is in an active 'already contacted' cohort. This is a warning, not a block. */
+      recently_contacted: boolean;
+      /** Size of the warning window in days. */
+      warn_within_days: number;
+      /** How far back touches were searched, in days. */
+      lookback_days: number;
+    }
+
     export interface ContentAutopilotBriefCompetitor {
       /** Product to compare against. */
       name: string;
@@ -26739,6 +26817,49 @@ export namespace Schemas {
       expires_at?: string;
       /** The report the check attaches to. */
       report_id: string;
+    }
+
+    /**
+     * * `workflow` - Workflow
+     * * `survey` - Survey
+     * * `cohort` - Cohort
+     * * `event` - Event
+     */
+    export type SourceKindEnum = typeof SourceKindEnum[keyof typeof SourceKindEnum];
+
+
+    export const SourceKindEnum = {
+      Workflow: 'workflow',
+      Survey: 'survey',
+      Cohort: 'cohort',
+      Event: 'event',
+    } as const;
+
+    export interface CreateResearchSource {
+      /** What the source is: a workflow, survey, cohort, or event name.
+       *
+       * * `workflow` - Workflow
+       * * `survey` - Survey
+       * * `cohort` - Cohort
+       * * `event` - Event */
+      kind: SourceKindEnum;
+      /**
+         * Workflow ID, survey ID, cohort ID, or event name, depending on kind.
+         * @maxLength 400
+         */
+      external_id: string;
+      /**
+         * Human-readable name for the source.
+         * @maxLength 255
+         */
+      label: string;
+      /** Email of the employee who runs this outreach. */
+      owner_email?: string;
+      /**
+         * Product area the outreach is about.
+         * @maxLength 128
+         */
+      product_area?: string;
     }
 
     export type CreateRunInputBaselineHashes = {[key: string]: string};
@@ -67863,6 +67984,7 @@ export namespace Schemas {
        * * `query` - query
        * * `query_performance` - query_performance
        * * `replay_scanner` - replay_scanner
+       * * `research_desk` - research_desk
        * * `review_hog` - review_hog
        * * `revenue_analytics` - revenue_analytics
        * * `session_recording` - session_recording
@@ -88315,6 +88437,23 @@ export namespace Schemas {
       debt_digest_enabled?: boolean | null;
     }
 
+    export interface PatchedUpdateResearchSource {
+      /**
+         * Human-readable name for the source.
+         * @maxLength 255
+         */
+      label?: string;
+      /** Email of the employee who runs this outreach. */
+      owner_email?: string;
+      /**
+         * Product area the outreach is about.
+         * @maxLength 128
+         */
+      product_area?: string;
+      /** Set to false to stop counting this source. */
+      active?: boolean;
+    }
+
     /**
      * PATCH payload for text sources. All fields optional, at least one
      * required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
@@ -97687,6 +97826,117 @@ export namespace Schemas {
        * * `dispatch_backlog_full` - dispatch_backlog_full
        * * `dispatch_failed` - dispatch_failed */
       reason: RescoreResponseReasonEnum | null;
+    }
+
+    /**
+     * * `calendar` - Calendar
+     * * `manual` - Manual
+     */
+    export type SessionOriginEnum = typeof SessionOriginEnum[keyof typeof SessionOriginEnum];
+
+
+    export const SessionOriginEnum = {
+      Calendar: 'calendar',
+      Manual: 'manual',
+    } as const;
+
+    /**
+     * * `scheduled` - Scheduled
+     * * `held` - Held
+     * * `cancelled` - Cancelled
+     */
+    export type SessionStatusEnum = typeof SessionStatusEnum[keyof typeof SessionStatusEnum];
+
+
+    export const SessionStatusEnum = {
+      Scheduled: 'scheduled',
+      Held: 'held',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface ResearchSessionDTO {
+      /** Unique ID of the session. */
+      id: string;
+      /** Where the session was detected, such as a calendar.
+       *
+       * * `calendar` - Calendar
+       * * `manual` - Manual */
+      origin: SessionOriginEnum;
+      /** Stable ID from the origin, such as a calendar event UID. */
+      external_ref: string;
+      /** Meeting title. */
+      title: string;
+      /** When the session starts. */
+      start_time: string;
+      /**
+         * When the session ends, if known.
+         * @nullable
+         */
+      end_time: string | null;
+      /** Scheduled, held, or cancelled.
+       *
+       * * `scheduled` - Scheduled
+       * * `held` - Held
+       * * `cancelled` - Cancelled */
+      status: SessionStatusEnum;
+      /** Email of the employee who organized the session. */
+      organizer_email: string;
+      /** PostHog attendees. */
+      internal_emails: string[];
+      /** Customer attendees. */
+      external_emails: string[];
+      /** Link to join the meeting, if known. */
+      meeting_url: string;
+      /**
+         * When a brief for this session was posted to Slack.
+         * @nullable
+         */
+      brief_posted_at: string | null;
+      /** When the session was first detected. */
+      created_at: string;
+    }
+
+    /**
+     * * `manual` - Manual
+     * * `scout` - Scout
+     */
+    export type ResearchSourceDTOOriginEnum = typeof ResearchSourceDTOOriginEnum[keyof typeof ResearchSourceDTOOriginEnum];
+
+
+    export const ResearchSourceDTOOriginEnum = {
+      Manual: 'manual',
+      Scout: 'scout',
+    } as const;
+
+    export interface ResearchSourceDTO {
+      /** Unique ID of the source. */
+      id: string;
+      /** What the source is: a workflow, survey, cohort, or event name.
+       *
+       * * `workflow` - Workflow
+       * * `survey` - Survey
+       * * `cohort` - Cohort
+       * * `event` - Event */
+      kind: SourceKindEnum;
+      /** Workflow ID, survey ID, cohort ID, or event name that identifies the source. */
+      external_id: string;
+      /** Human-readable name, such as 'Error tracking interview outreach'. */
+      label: string;
+      /** Email of the PostHog employee who runs this outreach. */
+      owner_email: string;
+      /** Product area the outreach is about, such as 'session replay'. */
+      product_area: string;
+      /** Whether a person or a scout registered the source.
+       *
+       * * `manual` - Manual
+       * * `scout` - Scout */
+      origin: ResearchSourceDTOOriginEnum;
+      /** Inactive sources are ignored by the contact check. */
+      active: boolean;
+      /** When the source was registered. */
+      created_at: string;
+      /** When the source was last changed. */
+      updated_at: string;
     }
 
     export interface ResetPasswordResponse {
@@ -130850,6 +131100,43 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ResearchDeskContactCheckListParams = {
+    /**
+     * Company domain to check, such as 'example.com'. Matches anyone at that domain.
+     * @maxLength 253
+     */
+    domain?: string;
+    /**
+     * Emails to check. Repeat the parameter or pass a comma-separated list.
+     * @maxItems 50
+     * @items.maxLength 320
+     */
+    emails?: string[];
+    /**
+     * How far back to search, in days.
+     * @minimum 1
+     * @maximum 730
+     */
+    lookback_days?: number;
+    /**
+     * Touches within this many days set recently_contacted.
+     * @minimum 0
+     * @maximum 730
+     */
+    warn_within_days?: number;
+    };
+
+    export type ResearchDeskSessionsListParams = {
+    /**
+     * Only return sessions that start at or after this time (ISO 8601).
+     */
+    start_after?: string;
+    /**
+     * Only return sessions that start before this time (ISO 8601).
+     */
+    start_before?: string;
     };
 
     export type ReviewHogRepositoryOverviewRetrieveParams = {

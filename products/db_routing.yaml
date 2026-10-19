@@ -5,3 +5,5 @@ routes:
       database: visual_review
     - app_label: warehouse_sources_queue
       database: warehouse_sources_queue
+    - app_label: research_desk
+      database: research_desk

@@ -1128,10 +1128,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'subscription-source-summaries',
                 'workflows-data-suggestions',
                 'workflows-mcp-onboarding',
+                'research-desk',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

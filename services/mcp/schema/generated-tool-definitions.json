@@ -11005,6 +11005,81 @@
             "readOnlyHint": true
         }
     },
+    "research-desk-contact-check": {
+        "description": "Check whether anyone at PostHog recently contacted these people or this company for customer research, before you reach out for an interview. Pass emails, a company domain, or both. Returns every research touch found (emails from recruiting workflows, recruiting surveys shown, MCP interview invitations, \"already contacted\" cohorts, and interview sessions), newest first, with who owns each one. recently_contacted is a warning, not a block: share it with the person and let them decide.",
+        "category": "Research desk",
+        "feature": "research_desk",
+        "summary": "Check recent research contact",
+        "title": "Check recent research contact",
+        "required_scopes": ["research_desk:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "research-desk"
+    },
+    "research-desk-sessions-list": {
+        "description": "List customer interview sessions across PostHog teams, ordered by start time. Use start_after and start_before to find upcoming or recent sessions, for example to offer someone a session to join.",
+        "category": "Research desk",
+        "feature": "research_desk",
+        "summary": "List research sessions",
+        "title": "List research sessions",
+        "required_scopes": ["research_desk:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "research-desk"
+    },
+    "research-desk-sources-create": {
+        "description": "Register a workflow, survey, cohort, or event name whose events count as research outreach, so the contact check sees it. Use this when you find a new interview recruiting workflow or survey. external_id is the workflow ID, survey ID, cohort ID, or event name.",
+        "category": "Research desk",
+        "feature": "research_desk",
+        "summary": "Register a research recruiting source",
+        "title": "Register a research recruiting source",
+        "required_scopes": ["research_desk:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "research-desk"
+    },
+    "research-desk-sources-list": {
+        "description": "List the workflows, surveys, cohorts, and event names registered as research recruiting sources. The contact check counts touches only from active sources.",
+        "category": "Research desk",
+        "feature": "research_desk",
+        "summary": "List research recruiting sources",
+        "title": "List research recruiting sources",
+        "required_scopes": ["research_desk:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "research-desk"
+    },
+    "research-desk-sources-update": {
+        "description": "Change a source's label, owner, or product area, or set active to false to stop counting it.",
+        "category": "Research desk",
+        "feature": "research_desk",
+        "summary": "Update a research recruiting source",
+        "title": "Update a research recruiting source",
+        "required_scopes": ["research_desk:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "research-desk"
+    },
     "reusable-widgets-list": {
         "description": "Search the project's curated reusable widget catalog by name, description, or tag. Check this catalog before generating a new visualization. Results include stable widget IDs, current version IDs, tags, and usage counts. This is a curated API shape rather than a general database table so it is available in both MCP modes.",
         "category": "Notebooks",
