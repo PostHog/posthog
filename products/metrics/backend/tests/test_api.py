@@ -368,6 +368,24 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": ["b", "a"]}
 
+    @parameterized.expand(
+        [
+            (
+                "vector",
+                {"resultType": "vector", "result": [{"metric": {"job": "api"}, "value": [1, "2"]}]},
+                ['{job="api"} 2 1000'],
+            ),
+            ("scalar", {"resultType": "scalar", "result": [1, "2"]}, ["2"]),
+        ]
+    )
+    def test_query_result_reads_each_result_type(self, _name: str, data: dict[str, Any], expected: list[str]) -> None:
+        upstream = MagicMock(spec=requests.Response, status_code=200, headers={})
+        upstream.json.return_value = {"status": "success", "data": data}
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream):
+            response = self._post({"source": "promql", "query": "query_result(1 + 1)"})
+
+        assert response.json() == {"results": expected}
+
     def test_label_values_resolves_the_parent_variable(self) -> None:
         upstream = MagicMock(spec=requests.Response, status_code=200, headers={})
         upstream.json.return_value = {"status": "success", "data": ["i-1", "i-2"]}

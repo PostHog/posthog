@@ -146,6 +146,9 @@ def _promql_options(team: Team, query: str, date_from: dt.datetime, date_to: dt.
         team, "POST", "/api/v1/query", data={"query": args, "time": params["end"][0], "limit": params["limit"][0]}
     ).get("data")
     results = data.get("result") if isinstance(data, dict) else None
+    # A scalar or a string result is one `[timestamp, value]` pair, and Grafana shows only its value.
+    if isinstance(data, dict) and data.get("resultType") in ("scalar", "string"):
+        return [str(results[1])] if isinstance(results, list) and len(results) == 2 else []
     lines = (_query_result_line(result) for result in results or [])
     return list(islice((line for line in lines if line is not None), MAX_VARIABLE_OPTIONS))
 
