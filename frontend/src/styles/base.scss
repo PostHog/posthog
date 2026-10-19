@@ -1239,9 +1239,10 @@
         visibility: visible;
     }
 
-    a:focus-visible,
-    button:focus-visible,
-    [data-highlighted]:not(:hover) {
+    // Quill controls draw their own focus ring, so the Lemon accent outline must not stack on them.
+    a:focus-visible:not([data-quill]),
+    button:focus-visible:not([data-quill]),
+    [data-highlighted]:not(:hover, [data-quill]) {
         outline: 2px solid var(--color-accent);
     }
 
