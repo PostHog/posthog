@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
 import { DataTableNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 const query: DataTableNode = {
@@ -34,6 +35,23 @@ export const QueryResult: StoryObj<typeof DataTable> = {
     render: () => (
         <div className="p-4">
             <DataTable query={query} setQuery={() => {}} cachedResults={cachedResults} readOnly />
+        </div>
+    ),
+}
+
+export const CustomerImages: StoryObj<typeof DataTable> = {
+    tags: ['hogqlx-images'],
+    parameters: {
+        testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewportWidths: ['narrow', 'wide'] },
+    },
+    render: () => (
+        <div className="p-4">
+            <DataTable
+                query={{ kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery, query: IMAGE_QUERY } }}
+                setQuery={() => {}}
+                cachedResults={IMAGE_RESULTS}
+                readOnly
+            />
         </div>
     ),
 }

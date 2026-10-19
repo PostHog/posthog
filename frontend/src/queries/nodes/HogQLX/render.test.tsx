@@ -1,3 +1,5 @@
+import '@testing-library/jest-dom'
+
 import { render } from '@testing-library/react'
 
 import { parseHogQLX, renderHogQLX } from '~/queries/nodes/HogQLX/render'
@@ -63,6 +65,73 @@ describe('HogQLX', () => {
     })
 
     describe('render', () => {
+        it.each([
+            'https://example.com/logo.svg',
+            '/uploaded/logo.png',
+            'data:image/png;base64,aGVsbG8=',
+            'data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"/%3E',
+            'data:image/svg+xml;charset=utf-8,%3Csvg/%3E',
+            'data:image/svg+xml;utf8,%3Csvg/%3E',
+            'data:image/svg+xml;base64,PHN2Zy8+',
+        ])('renders an image from %s', (src) => {
+            const { container } = render(
+                renderHogQLX(['__hx_tag', 'img', 'src', src, 'alt', 'Customer logo', 'width', 24, 'height', 16])
+            )
+            const image = container.querySelector('img')
+            expect(image).toHaveAttribute('src', src)
+            expect(image).toHaveAttribute('alt', 'Customer logo')
+            expect(image).toHaveStyle({ width: '24px', height: '16px' })
+            expect(image).toHaveAttribute('referrerpolicy', 'no-referrer')
+        })
+
+        it.each([
+            null,
+            { toString: 'bad' },
+            'javascript:alert(1)',
+            'http://example.com/logo.png',
+            '//example.com/logo.png',
+            '/\\example.com/logo.png',
+            'data:text/html,<svg onload="alert(1)"/>',
+            'data:image/svg+xml,' + 'a'.repeat(1024 * 1024),
+        ])('does not load an invalid image source (%#)', (src) => {
+            const { container } = render(renderHogQLX({ __hx_tag: 'img', src, alt: 'Customer logo' }))
+            expect(container.querySelector('img')).toBeNull()
+            expect(container.textContent).toBe('Customer logo')
+        })
+
+        it.each([
+            [undefined, 32],
+            ['24', 24],
+            [10000, 256],
+            [-1, 32],
+            [0, 32],
+            ['100%', 32],
+            [{ toString: 'bad' }, 32],
+        ])('bounds image dimensions (%#)', (size, expected) => {
+            const { container } = render(renderHogQLX({ __hx_tag: 'img', src: '/logo.svg', width: size, height: size }))
+            expect(container.querySelector('img')).toHaveStyle({ width: `${expected}px`, height: `${expected}px` })
+        })
+
+        it('only forwards allowed image attributes', () => {
+            const { container } = render(
+                renderHogQLX({
+                    __hx_tag: 'img',
+                    src: '/logo.svg',
+                    alt: { toString: 'bad' },
+                    onload: 'alert(1)',
+                    srcSet: 'https://example.com/other.svg 2x',
+                    style: { width: 10000 },
+                    children: '<svg onload="alert(1)"/>',
+                })
+            )
+            const image = container.querySelector('img')
+            expect(image).toHaveAttribute('alt', '')
+            expect(image).not.toHaveAttribute('onload')
+            expect(image).not.toHaveAttribute('srcset')
+            expect(image).toHaveStyle({ width: '32px' })
+            expect(container.querySelector('svg')).toBeNull()
+        })
+
         it.each(['Claude', 'Unknown mark', 'constructor', 'toString', '__proto__'])(
             'renders a query label with %s mark',
             (mark) => {

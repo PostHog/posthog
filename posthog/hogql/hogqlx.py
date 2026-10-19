@@ -7,6 +7,7 @@ from posthog.hogql import ast
 HOGQLX_COMPONENTS = ["Sparkline", "RecordingButton", "ExplainCSPReport", "BrandMarkLabel"]
 HOGQLX_TAGS_SPECIAL = [
     "a",
+    "img",
     "blink",
     "marquee",
     "redacted",
