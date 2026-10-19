@@ -32522,6 +32522,7 @@ export namespace Schemas {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -33921,6 +33922,7 @@ export namespace Schemas {
       SimonData: 'SimonData',
       CommissionJunction: 'CommissionJunction',
       Liveblocks: 'Liveblocks',
+      Livestorm: 'Livestorm',
       NationBuilder: 'NationBuilder',
       Tana: 'Tana',
       Zenchef: 'Zenchef',
@@ -35334,6 +35336,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -36403,6 +36406,43 @@ export namespace Schemas {
       accepted: boolean;
       /** Identifier of the survey response event. */
       response_id: string;
+    }
+
+    /**
+     * * `Passed` - Passed
+     * * `Failed` - Failed
+     * * `Skipped` - Skipped
+     */
+    export type DestinationConnectionTestStepStatusEnum = typeof DestinationConnectionTestStepStatusEnum[keyof typeof DestinationConnectionTestStepStatusEnum];
+
+
+    export const DestinationConnectionTestStepStatusEnum = {
+      Passed: 'Passed',
+      Failed: 'Failed',
+      Skipped: 'Skipped',
+    } as const;
+
+    export interface DestinationConnectionTestStep {
+      /** What this step checks. */
+      name: string;
+      /** A longer explanation of what this step checks. */
+      description: string;
+      /** The result of the step. Null when the step did not run because an earlier step failed.
+       *
+       * * `Passed` - Passed
+       * * `Failed` - Failed
+       * * `Skipped` - Skipped */
+      status: DestinationConnectionTestStepStatusEnum | null;
+      /**
+         * Why the step failed or was skipped. Null when the step passed or did not run.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface DestinationConnectionTestResponse {
+      /** The steps of the connection test, in order. The test stops at the first failed step. */
+      steps: DestinationConnectionTestStep[];
     }
 
     /**
@@ -37999,6 +38039,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -50115,6 +50156,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -51548,6 +51590,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -104087,6 +104130,19 @@ export namespace Schemas {
       github_open_pull_request_ready?: boolean | null;
     }
 
+    export interface SigningSecret {
+      /**
+         * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -105873,6 +105929,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -107337,6 +107394,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -108768,6 +108826,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
