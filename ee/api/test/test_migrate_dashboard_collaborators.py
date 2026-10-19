@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from importlib import import_module
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
 from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_access_control_migration
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import DASHBOARD_EDIT_LIMIT_RESOURCE, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -31,7 +32,7 @@ def _scalar(sql: str, params: list) -> object:
 
 
 def _conversion_state() -> Any:
-    return MigrationExecutor(connection).loader.project_state([("ee", "0065_accesscontrol_limit_resource_access")])
+    return MigrationExecutor(connection).loader.project_state([("ee", "0064_split_identity_provider_config_scopes")])
 
 
 class TestMigrateDashboardCollaborators(APIBaseTest):
@@ -101,7 +102,7 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
             RoleMembership.objects.create(role=role, user=member, organization_member=membership)
         if rule_subject == "project":
             AccessControl.objects.filter(team=self.team, resource="project").update(access_level="admin")
-        AccessControl.objects.create(
+        original_rule = AccessControl.objects.create(
             team=self.team,
             resource="project" if rule_subject == "project" else "dashboard",
             resource_id=(
@@ -117,20 +118,193 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
         )
 
         self._run_migration()
-        first_rules = set(
-            AccessControl.objects.filter(team=self.team, resource="dashboard").values_list("id", flat=True)
-        )
+        first_rules = set(AccessControl.objects.filter(team=self.team).values_list("id", flat=True))
         self._run_migration()
 
-        assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [dashboard.id]) == 21
-        assert _scalar("SELECT count(*) FROM ee_dashboardprivilege WHERE dashboard_id = %s", [dashboard.id]) == 0
-        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == expected
-        assert first_rules == set(
-            AccessControl.objects.filter(team=self.team, resource="dashboard").values_list("id", flat=True)
+        assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [dashboard.id]) == 37
+        assert _scalar("SELECT count(*) FROM ee_dashboardprivilege WHERE dashboard_id = %s", [dashboard.id]) == (
+            0 if privilege_level is None else 1
         )
+        assert (
+            _scalar("SELECT level FROM ee_dashboardprivilege WHERE dashboard_id = %s", [dashboard.id])
+            == privilege_level
+        )
+        assert AccessControl.objects.filter(id=original_rule.id, access_level=rule_level).exists()
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == expected
+        assert first_rules == set(AccessControl.objects.filter(team=self.team).values_list("id", flat=True))
         newcomer = self._create_user("new-member@example.com", level=OrganizationMembership.Level.MEMBER)
         newcomer_level = UserAccessControl(newcomer, team=self.team).get_user_access_level(dashboard)
-        assert newcomer_level == ("none" if rule_subject == "resource" and rule_level == "none" else "viewer")
+        assert newcomer_level == (
+            "editor"
+            if rule_subject == "project"
+            else "none"
+            if rule_subject == "resource" and rule_level == "none"
+            else "viewer"
+        )
+
+    @parameterized.expand([("legacy", False), ("most_specific", True)])
+    def test_private_defaults_still_deny_new_members(self, _name: str, most_specific: bool) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self._set_legacy_restriction(dashboard, self.user)
+        denial = AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+        )
+
+        self._run_migration()
+        newcomer = self._create_user("new-member@example.com", level=OrganizationMembership.Level.MEMBER)
+
+        assert UserAccessControl(newcomer, team=self.team).get_user_access_level(dashboard) == "none"
+        denial.refresh_from_db()
+        assert denial.access_level == "none"
+
+    @parameterized.expand(
+        [
+            (f"{mode}_{scope}", most_specific, scope)
+            for mode, most_specific in (("legacy", False), ("most_specific", True))
+            for scope in ("object", "resource")
+        ]
+    )
+    def test_role_grants_remain_revocable(self, _name: str, most_specific: bool, scope: str) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        membership = member.organization_memberships.get(organization=self.organization)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self._set_legacy_restriction(dashboard, member)
+        role = Role.objects.create(organization=self.organization, name="Analysts")
+        role_membership = RoleMembership.objects.create(role=role, user=member, organization_member=membership)
+        resource_id = str(dashboard.id) if scope == "object" else None
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=resource_id, access_level="none")
+        grant = AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=resource_id, access_level="editor", role=role
+        )
+
+        self._run_migration()
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == "editor"
+        role_membership.delete()
+
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == "none"
+        assert AccessControl.objects.filter(id=grant.id, role=role).exists()
+        assert not AccessControl.objects.filter(
+            team=self.team, resource="dashboard", organization_member=membership
+        ).exists()
+
+    @parameterized.expand(
+        [("dashboard", "invalid", "viewer"), ("dashboard", "", "viewer"), ("project", "invalid", "none")]
+    )
+    def test_repairs_invalid_access_levels(self, resource: str, invalid: str, expected: str) -> None:
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self._set_legacy_restriction(dashboard, member)
+        if resource == "project":
+            rule = AccessControl.objects.get(team=self.team, resource="project", resource_id=str(self.team.id))
+            rule.access_level = invalid
+            rule.save(update_fields=["access_level"])
+        else:
+            rule = AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level=invalid
+            )
+
+        self._run_migration()
+
+        rule.refresh_from_db()
+        assert rule.access_level == expected
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) in ("viewer", "editor")
+
+    @parameterized.expand([("override", "editor", "editor"), ("remove", None, "viewer")])
+    def test_replacing_default_removes_the_migrated_limit(self, _name: str, level: str | None, expected: str) -> None:
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self._set_legacy_restriction(dashboard, self.user)
+        AccessControl.objects.create(team=self.team, resource="dashboard", access_level="viewer")
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="viewer"
+        )
+        self._run_migration()
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == "viewer"
+
+        admin = self._create_user("admin@example.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin)
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/access_controls/",
+            {"access_level": level},
+            format="json",
+        )
+        assert response.status_code == (204 if level is None else 200), response.data
+        self._run_migration()
+        newcomer = self._create_user("new-member@example.com", level=OrganizationMembership.Level.MEMBER)
+        access = UserAccessControl(newcomer, team=self.team)
+
+        assert access.get_user_access_level(dashboard) == expected
+        assert not access.has_object_access_limit("dashboard", str(dashboard.id))
+
+    @parameterized.expand([("member", False), ("member", True), ("role", False), ("role", True)])
+    def test_explicit_subject_grants_replace_the_migrated_limit(self, subject: str, most_specific: bool) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        membership = member.organization_memberships.get(organization=self.organization)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self._set_legacy_restriction(dashboard, member, 21)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+        )
+        self._run_migration()
+        payload: dict[str, str | None] = {"access_level": "editor", "organization_member": str(membership.id)}
+        role_membership = None
+        if subject == "role":
+            role = Role.objects.create(organization=self.organization, name="Editors")
+            role_membership = RoleMembership.objects.create(role=role, user=member, organization_member=membership)
+            payload = {"access_level": "editor", "role": str(role.id)}
+        admin = self._create_user("admin@example.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin)
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/access_controls/", payload, format="json"
+        )
+        assert response.status_code == 200, response.data
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == "editor"
+        if role_membership is not None:
+            role_membership.delete()
+        else:
+            payload["access_level"] = None
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/access_controls/", payload, format="json"
+            )
+            assert response.status_code == 204, response.data
+        assert UserAccessControl(member, team=self.team).get_user_access_level(dashboard) == "none"
+
+    def test_edit_limit_lookup_indexes_rows_once(self) -> None:
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self._set_legacy_restriction(dashboard, member, 21)
+        self._run_migration()
+
+        class CountedRows(list[AccessControl]):
+            iterations = 0
+
+            def __iter__(self) -> Iterator[AccessControl]:
+                self.iterations += 1
+                return super().__iter__()
+
+        rows = CountedRows(AccessControl.objects.filter(team=self.team))
+        access = UserAccessControl(member, team=self.team)
+        access.__dict__["_cached_access_controls"] = rows
+        for _ in range(20):
+            assert access.has_object_access_limit("dashboard", str(dashboard.id))
+            assert not access.has_object_access_limit("dashboard", "unrestricted")
+        assert rows.iterations == 1
+
+        admin_rows = CountedRows(rows)
+        admin = self._create_user("admin@example.com", level=OrganizationMembership.Level.ADMIN)
+        admin_access = UserAccessControl(admin, team=self.team)
+        admin_access.__dict__["_cached_access_controls"] = admin_rows
+        assert not admin_access.has_object_access_limit("dashboard", str(dashboard.id))
+        assert admin_rows.iterations == 0
 
     def test_ignores_restrictions_without_the_entitlement(self) -> None:
         self.organization.available_product_features = []
@@ -150,7 +324,7 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
 
         self._run_migration()
 
-        assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [dashboard.id]) == 21
+        assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [dashboard.id]) == 37
         assert not AccessControl.objects.filter(
             resource="dashboard", resource_id=str(dashboard.id), organization_member__user=outsider
         ).exists()
@@ -174,7 +348,7 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
             self._run_migration()
 
         assert AccessControl.objects.filter(
-            team=self.team, resource="dashboard", resource_id=str(dashboard.id)
+            team=self.team, resource=DASHBOARD_EDIT_LIMIT_RESOURCE, resource_id=str(dashboard.id)
         ).exists()
 
     @parameterized.expand([("own_team", False), ("sibling_team", True)])
@@ -184,6 +358,8 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
         self._set_legacy_restriction(dashboard, member, 21)
         insight = Insight.objects.create(team=self.team, name="chart", created_by=member)
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        open_dashboard = Dashboard.objects.create(team=self.team, name="open", created_by=self.user)
+        removed_tile = DashboardTile.objects.create(dashboard=open_dashboard, insight=insight, deleted=True)
         self._run_migration()
         request_team = (
             Team.objects.create(organization=self.organization, project=self.team.project) if sibling else self.team
@@ -222,8 +398,8 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
         assert not insight.deleted
         dashboard.refresh_from_db()
         assert dashboard.name == "restricted"
-        open_dashboard = Dashboard.objects.create(team=self.team, name="open", created_by=self.user)
-        DashboardTile.objects.create(dashboard=open_dashboard, insight=insight)
+        removed_tile.deleted = False
+        removed_tile.save(update_fields=["deleted"])
         assert (
             self.client.patch(
                 f"/api/projects/{request_team.id}/insights/{insight.id}/", {"name": "changed"}
@@ -244,18 +420,24 @@ class TestDashboardConversionTransactions(NonAtomicBaseTestKeepIdentities):
             )
 
         def fail_second_dashboard(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
-            if sql.startswith("UPDATE posthog_dashboard SET restriction_level") and params[1] == second.id:
+            if (
+                sql.startswith('INSERT INTO "ee_accesscontrol"')
+                and DASHBOARD_EDIT_LIMIT_RESOURCE in params
+                and str(second.id) in params
+            ):
                 raise IntegrityError("Interrupted dashboard conversion")
             return execute(sql, params, many, context)
 
-        migration = import_module("ee.migrations.0066_migrate_dashboard_collaborators").Migration("0066", "ee")
+        migration = import_module("ee.migrations.0065_migrate_dashboard_collaborators").Migration("0065", "ee")
         with self.assertRaisesMessage(IntegrityError, "Interrupted dashboard conversion"):
             with connection.execute_wrapper(fail_second_dashboard), connection.schema_editor(atomic=False) as editor:
                 migration.apply(_conversion_state(), editor)
 
-        assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [first.id]) == 21
+        assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [first.id]) == 37
         assert _scalar("SELECT restriction_level FROM posthog_dashboard WHERE id = %s", [second.id]) == 37
-        assert AccessControl.objects.filter(team=self.team, resource="dashboard", resource_id=str(first.id)).exists()
+        assert AccessControl.objects.filter(
+            team=self.team, resource=DASHBOARD_EDIT_LIMIT_RESOURCE, resource_id=str(first.id)
+        ).exists()
         assert not AccessControl.objects.filter(
-            team=self.team, resource="dashboard", resource_id=str(second.id)
+            team=self.team, resource=DASHBOARD_EDIT_LIMIT_RESOURCE, resource_id=str(second.id)
         ).exists()
