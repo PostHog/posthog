@@ -38,10 +38,14 @@ class PromptJevFinder(TraversingVisitor):
         super().visit_call(node)
 
     @classmethod
-    def contains(cls, node: ast.AST) -> bool:
+    def find(cls, node: ast.AST) -> list[ast.Call]:
         finder = cls()
         finder.visit(node)
-        return bool(finder.calls)
+        return finder.calls
+
+    @classmethod
+    def contains(cls, node: ast.AST) -> bool:
+        return bool(cls.find(node))
 
 
 @frozen

@@ -6,12 +6,27 @@ import numpy as np
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.forecast import ForecastCall
 
+from posthog.ph_client import feature_enabled_or_false
+
 if TYPE_CHECKING:
     from timestral import TimestralForecaster
+
+    from posthog.models.team import Team
 
 MODEL = "mistralai/Timestral-28M"
 MAX_CONTEXT = 32768
 QUANTILES = (0.1, 0.5, 0.9)
+
+
+def validate_forecast_access(team: "Team") -> None:
+    if not feature_enabled_or_false(
+        "hogql-forecast",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}},
+        send_feature_flag_events=False,
+    ):
+        raise QueryError("forecast is not available for this project yet.")
 
 
 @cache

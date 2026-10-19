@@ -3,7 +3,7 @@ import math
 import time
 import uuid
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
@@ -18,9 +18,15 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
-from posthog.hogql.functions.forecast import ForecastCall
-from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_enrichment_call, parse_enrichment_call
-from posthog.hogql.transforms.forecast import evaluate_forecast
+from posthog.hogql.functions.forecast import ForecastCall, is_forecast_call
+from posthog.hogql.functions.prompt_jev import (
+    PromptJevCall,
+    PromptJevFinder,
+    is_decision_call,
+    is_enrichment_call,
+    parse_enrichment_call,
+)
+from posthog.hogql.transforms.forecast import evaluate_forecast, validate_forecast_access
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -496,11 +502,14 @@ class PromptJevPlanner(CloningVisitor):
         return cast(ast.Call, super().visit_call(node))
 
 
-def validate_prompt_jev_access(team: "Team") -> None:
+def validate_prompt_jev_access(team: "Team", functions: Iterable[str] = ("jev",)) -> None:
     if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         raise QueryError("jev requires the native ClickHouse connection. Ask your administrator to configure it.")
-    if _is_over_ai_credit_budget(team):
+    # Only jev calls the AI gateway. forecast runs on local CPU, so it spends no AI credits.
+    if any(is_decision_call(name) for name in functions) and _is_over_ai_credit_budget(team):
         raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
+    if any(is_forecast_call(name) for name in functions):
+        validate_forecast_access(team)
 
 
 def _is_over_ai_credit_budget(team: "Team") -> bool:

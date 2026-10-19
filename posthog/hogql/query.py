@@ -766,7 +766,7 @@ class HogQLQueryExecutor:
             validate_prompt_jev_access,
         )
 
-        validate_prompt_jev_access(self.team)
+        validate_prompt_jev_access(self.team, [call.name for call in PromptJevFinder.find(self.select_query)])
         PromptJevBudget().visit(self.select_query)
         # The resolver types jev calls without model output, so an invalid query fails before any model call.
         resolve_types(

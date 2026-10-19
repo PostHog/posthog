@@ -4,11 +4,12 @@ import time
 import asyncio
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 import httpx
+import numpy as np
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -213,6 +214,23 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         execute.assert_not_called()
         post.assert_not_called()
         limited.assert_called_once_with(self.team.api_token)
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_forecast_needs_its_flag_and_no_ai_credits(self, _name: str, flag: bool) -> None:
+        model = MagicMock()
+        model.forecast.return_value.quantile.side_effect = lambda q: np.full((1, 1, 2), q * 10)
+        with (
+            patch("posthog.hogql.transforms.forecast.feature_enabled_or_false", return_value=flag),
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True),
+            patch("posthog.hogql.transforms.forecast._model", return_value=model),
+        ):
+            if not flag:
+                with self.assertRaisesRegex(QueryError, "not available"):
+                    execute_hogql_query("SELECT forecast([1, 2, 3], 2) AS f", self.team, user=self.user)
+                model.forecast.assert_not_called()
+                return
+            response = execute_hogql_query("SELECT forecast([1, 2, 3], 2) AS f", self.team, user=self.user)
+        self.assertEqual(response.results, [([(1.0, 5.0, 9.0), (1.0, 5.0, 9.0)],)])
 
     def test_credit_lookup_failure_does_not_block_the_query(self) -> None:
         with (
