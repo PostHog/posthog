@@ -109,6 +109,8 @@ class IdeaContext:
     stages: dict[str, LifecycleStage]
     channels: frozenset[Channel]
     has_slack: bool
+    # The team picked these events itself, so each one gets an email workflow instead of the best few.
+    picked_events: bool = False
 
 
 @frozen
@@ -134,12 +136,21 @@ _ONBOARDING_RULE = (
 
 _COPY_RULES = "Write plain, friendly copy in sentence case. No emojis, no em dashes, no placeholders like [Name], no template tags."
 
+_SUGGEST_TASK = (
+    "Suggest up to 6 workflows the project does not have yet. Each one starts when one of the project's events happens."
+)
+
+_PICKED_EVENTS_TASK = (
+    "The team was about to send these events to an email tool. Suggest one email workflow for each event, "
+    "so the team can send those emails from PostHog instead."
+)
+
 _IDEAS_PROMPT = f"""You suggest marketing and automation workflows for a product team using PostHog Workflows.
-Suggest up to 6 workflows the project does not have yet. Each one starts when one of the project's events happens.
+{{task}}
 
 Rules:
 - trigger_event must be copied exactly from the event list.
-- {_ONBOARDING_RULE}
+- {{focus_rule}}
 - Each idea must use a different trigger_event.
 - Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}
@@ -190,7 +201,12 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_cli
         effort="low",
         feature="data_suggestion_ideas",
         schema=WorkflowIdeas,
-        system=_IDEAS_PROMPT.format(channel_rule=_channel_rule(context.channels), slack_rule=slack_rule),
+        system=_IDEAS_PROMPT.format(
+            task=_PICKED_EVENTS_TASK if context.picked_events else _SUGGEST_TASK,
+            focus_rule="Each workflow sends at least one email." if context.picked_events else _ONBOARDING_RULE,
+            channel_rule=_channel_rule(context.channels),
+            slack_rule=slack_rule,
+        ),
         excluded_values=_missing_channels(context.channels),
         # The prompt escapes `<` and `>` in event names, so the schema carries the exact names the model must return.
         allowed_values={"trigger_event": [name for name, _ in context.events]},

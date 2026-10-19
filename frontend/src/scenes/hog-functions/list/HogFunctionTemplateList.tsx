@@ -11,8 +11,6 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType 
 
 import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/components/SourceReleaseTag'
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
-import { destinationWorkflowSuggestionLogic } from 'products/workflows/frontend/DestinationWorkflowSuggestion/destinationWorkflowSuggestionLogic'
-import { DestinationWorkflowSuggestionModal } from 'products/workflows/frontend/DestinationWorkflowSuggestion/DestinationWorkflowSuggestionModal'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -23,15 +21,8 @@ import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from 
 export function HogFunctionTemplateList({
     extraControls,
     hideFeedback = false,
-    suggestWorkflows = false,
     ...props
-}: HogFunctionTemplateListLogicProps & {
-    extraControls?: JSX.Element
-    hideFeedback?: boolean
-    /** Offer a workflow instead of a messaging destination. Lists that pass their own filters must leave this off,
-     * because the workflow starts with an empty trigger. */
-    suggestWorkflows?: boolean
-}): JSX.Element {
+}: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
     const { loading, filteredTemplates, filters, templates, urlForTemplate, hasMultipleDeliveryTypes } = useValues(
         hogFunctionTemplateListLogic(props)
     )
@@ -39,18 +30,6 @@ export function HogFunctionTemplateList({
         hogFunctionTemplateListLogic(props)
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
-    const { shouldSuggestWorkflow } = useValues(destinationWorkflowSuggestionLogic)
-    const { openSuggestion } = useActions(destinationWorkflowSuggestionLogic)
-
-    const onTemplateClick =
-        (template: HogFunctionTemplateType) =>
-        (event: React.MouseEvent<HTMLElement>): void => {
-            const destinationUrl = urlForTemplate(template)
-            if (destinationUrl && suggestWorkflows && shouldSuggestWorkflow(template)) {
-                event.preventDefault()
-                openSuggestion(template, destinationUrl)
-            }
-        }
 
     useEffect(() => {
         if (!props.manualTemplatesOnly) {
@@ -118,7 +97,6 @@ export function HogFunctionTemplateList({
                             return (
                                 <LemonTableLink
                                     to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
-                                    onClick={hasAccess ? onTemplateClick(template) : undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -176,7 +154,6 @@ export function HogFunctionTemplateList({
                                     icon={<IconPlusSmall />}
                                     className="whitespace-nowrap"
                                     to={urlForTemplate(template) ?? undefined}
-                                    onClick={onTemplateClick(template)}
                                     disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create
@@ -196,7 +173,6 @@ export function HogFunctionTemplateList({
                     )
                 }
             />
-            {suggestWorkflows ? <DestinationWorkflowSuggestionModal /> : null}
         </div>
     )
 }

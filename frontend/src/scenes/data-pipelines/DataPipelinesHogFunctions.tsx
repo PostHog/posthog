@@ -61,12 +61,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
             </SceneSection>
             <SceneDivider />
             <SceneSection title={`Create a new ${humanizedKind}`}>
-                <HogFunctionTemplateList
-                    type={kind}
-                    additionalTypes={additionalKinds}
-                    hideComingSoonByDefault
-                    suggestWorkflows={kind === 'destination'}
-                />
+                <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} hideComingSoonByDefault />
             </SceneSection>
         </SceneContent>
     )

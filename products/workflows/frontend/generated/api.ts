@@ -20,6 +20,8 @@ import type {
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
+    EventWorkflowsBuildRequestApi,
+    EventWorkflowsBuildResponseApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
@@ -1354,6 +1356,27 @@ export const workflowDataSuggestionsBuild = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataSuggestionBuildRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsBuildForEventsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build_for_events/`
+}
+
+/**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer, and open to every project that approved AI data processing.
+ */
+export const workflowDataSuggestionsBuildForEvents = async (
+    projectId: string,
+    eventWorkflowsBuildRequestApi: EventWorkflowsBuildRequestApi,
+    options?: RequestInit
+): Promise<EventWorkflowsBuildResponseApi> => {
+    return apiMutator<EventWorkflowsBuildResponseApi>(getWorkflowDataSuggestionsBuildForEventsUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventWorkflowsBuildRequestApi),
     })
 }
 

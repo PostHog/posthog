@@ -470,6 +470,42 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
 
+    @parameterized.expand([("approved", True, 200), ("not_approved", False, 403)])
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_build_for_events_saves_one_draft_per_picked_event(
+        self,
+        _name: str,
+        approved: bool,
+        status: int,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+        _flag,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        suggest_ideas.return_value = [_idea("signed_up"), _idea("query executed"), _idea("signed_up")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
+
+        responses = [
+            self.client.post(url, {"events": ["signed_up", "trial_started"]}, format="json") for _ in range(2)
+        ]
+
+        assert [response.status_code for response in responses] == [status, status]
+        if not approved:
+            assert plan_steps.call_count == 0
+            assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+            return
+        assert responses[0].json() == responses[1].json()
+        assert plan_steps.call_count == 1
+        workflow_ids = responses[0].json()["workflow_ids"]
+        assert responses[0].json()["status"] == "ready"
+        drafts = HogFlow.objects.filter(team_id=self.team.id, id__in=workflow_ids)
+        assert [(draft.status, draft.trigger["filters"]["events"][0]["id"]) for draft in drafts] == [
+            ("draft", "signed_up")
+        ]
+
     def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self, _flag) -> None:
         built = build_workflow(
             _idea("trial_started"),

@@ -31,12 +31,18 @@ const meta: Meta = {
 }
 export default meta
 
-export const Default: StoryFn = () => {
+function Template({ events }: { events: string[] }): JSX.Element {
     const { openSuggestion } = useActions(destinationWorkflowSuggestionLogic)
 
     useEffect(() => {
-        openSuggestion(CUSTOMER_IO_TEMPLATE, '/functions/new/template-customerio')
-    }, [openSuggestion])
+        openSuggestion(CUSTOMER_IO_TEMPLATE, events, () => {})
+    }, [openSuggestion, events])
 
     return <DestinationWorkflowSuggestionModal />
 }
+
+export const BuildFromPickedEvents: StoryFn = () => (
+    <Template events={['signed_up', 'trial_started', 'payment_failed']} />
+)
+
+export const OnlyDefaultEvents: StoryFn = () => <Template events={[]} />

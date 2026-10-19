@@ -18,13 +18,17 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
 from products.workflows.backend.facade.data_suggestions import (
     FEATURE_FLAG_KEY,
+    MAX_PICKED_EVENTS,
     build_caller,
     email_sender_ready,
+    event_workflows_available,
     get_data_suggestions,
     needs_new_build,
+    needs_new_event_workflows,
     needs_new_generation,
     start_build,
     start_data_suggestions,
+    start_event_workflows,
 )
 
 
@@ -154,6 +158,34 @@ class DataSuggestionBuildResponseSerializer(serializers.Serializer):
     )
 
 
+class EventWorkflowsBuildRequestSerializer(serializers.Serializer):
+    events = serializers.ListField(
+        child=serializers.CharField(max_length=400, help_text="An event name, exactly as the project sends it."),
+        min_length=1,
+        max_length=MAX_PICKED_EVENTS,
+        help_text=f"The events to build email workflows for, at most {MAX_PICKED_EVENTS}. Each event gets at most "
+        "one draft workflow that starts when the event happens.",
+    )
+    retry = serializers.BooleanField(
+        default=False,
+        help_text="Start a new build when the last one for these events failed. Leave it false when asking for a "
+        "running build's status.",
+    )
+
+
+class EventWorkflowsBuildResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=DataSuggestionBuildStatus.choices,
+        help_text="ready when at least one draft was saved, building while the background build runs (call again "
+        "with the same events to check), failed when no event produced a valid workflow. A failed result stays "
+        "until a call sends retry.",
+    )
+    workflow_ids = serializers.ListField(
+        child=serializers.CharField(help_text="The id of a saved draft workflow."),
+        help_text="With status ready: the saved draft workflows, which never run until enabled. Empty otherwise.",
+    )
+
+
 class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Workflow ideas written by AI from the project's own events. Both calls are free for the customer."""
 
@@ -162,7 +194,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = True
     scope_object_read_actions = ["current"]
     # Both calls can run ClickHouse and the models, so a read-only key cannot cause that spend.
-    scope_object_write_actions = ["generate", "build"]
+    scope_object_write_actions = ["generate", "build", "build_for_events"]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # The cards carry the project's event names and weekly counts, so a key also needs the scope that reads them.
@@ -172,8 +204,10 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def get_throttles(self):
         # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
         # against it. A generate call answered from the cache does not.
-        if (self.action == "build" and self._starts_build()) or (
-            self.action == "generate" and self._starts_generation()
+        if (
+            (self.action == "build" and self._starts_build())
+            or (self.action == "generate" and self._starts_generation())
+            or (self.action == "build_for_events" and self._starts_event_build())
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
@@ -189,6 +223,15 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 save=payload.validated_data["save_draft"],
                 user_id=cast(User, self.request.user).id,
             ),
+            retry=payload.validated_data["retry"],
+        )
+
+    def _starts_event_build(self) -> bool:
+        payload = EventWorkflowsBuildRequestSerializer(data=self.request.data)
+        return not payload.is_valid() or needs_new_event_workflows(
+            team=self.team,
+            user_id=cast(User, self.request.user).id,
+            events=tuple(payload.validated_data["events"]),
             retry=payload.validated_data["retry"],
         )
 
@@ -243,6 +286,30 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
         return Response(DataSuggestionBuildResponseSerializer(built).data)
+
+    @extend_schema(
+        operation_id="workflow_data_suggestions_build_for_events",
+        request=EventWorkflowsBuildRequestSerializer,
+        responses={200: EventWorkflowsBuildResponseSerializer},
+    )
+    @action(detail=False, methods=["post"])
+    def build_for_events(self, request: Request, **kwargs: Any) -> Response:
+        """Build and save draft email workflows for events the team picked, such as the events it was about to send
+        to an email tool. Free for the customer, and open to every project that approved AI data processing."""
+        user = request.user
+        if not isinstance(user, User):
+            raise PermissionDenied("This feature is not available.")
+        if not event_workflows_available(team=self.team):
+            raise PermissionDenied("Building workflows needs AI data processing to be approved for the organization.")
+        payload = EventWorkflowsBuildRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        built = start_event_workflows(
+            team=self.team,
+            user=user,
+            events=tuple(dict.fromkeys(payload.validated_data["events"])),
+            retry=payload.validated_data["retry"],
+        )
+        return Response(EventWorkflowsBuildResponseSerializer(built).data)
 
     def _user_with_feature(self, request: Request) -> User:
         user = request.user
