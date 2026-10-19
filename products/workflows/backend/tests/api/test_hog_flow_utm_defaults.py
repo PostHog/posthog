@@ -120,7 +120,7 @@ class TestHogFlowUtmDefaults(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         flow.refresh_from_db()
-        saved = (flow.draft or {}).get("actions") if stage_draft else flow.actions
+        saved = ((flow.draft or {}).get("actions") if stage_draft else flow.actions) or []
         email_config = next(a for a in saved if a["type"] == "function_email")["config"]
         assert "utm_tags_enabled" not in email_config
         assert "utm_params" not in email_config
