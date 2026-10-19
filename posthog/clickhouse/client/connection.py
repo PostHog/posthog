@@ -566,7 +566,8 @@ def default_client_kwargs(
     if workload is not None:
         kwargs.update(get_kwargs_for_client(workload, team_id, ch_user=ch_user))
         creds = connection_creds(workload, ch_user)
-        if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
+        user_name = kwargs.get("user")
+        if creds is not None and isinstance(user_name, str) and is_file_backed_user(creds, user_name):
             kwargs["password"] = creds.read_password()
     if host is not None:
         kwargs["host"] = host

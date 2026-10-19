@@ -26,7 +26,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-        def run(payload: str, _deadline: float):
+        def run(payload: str, _deadline: float) -> object:
             job = json.loads(payload)
             return posthog.tasks.poll_query_performance.sync_execute(
                 job["sql"],

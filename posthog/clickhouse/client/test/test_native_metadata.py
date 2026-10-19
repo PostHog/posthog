@@ -1,7 +1,8 @@
 import sys
 import json
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
 from threading import Barrier, BoundedSemaphore, Event, Lock
 from time import monotonic
 
@@ -12,6 +13,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.clickhouse.native_metadata import _run_metadata_process, submit_legacy_metadata, submit_native_metadata
+
+
+def _set_event(event: Event, _future: Future) -> None:
+    event.set()
 
 
 class TestNativeMetadataCapacity(SimpleTestCase):
@@ -46,7 +51,7 @@ class TestNativeMetadataCapacity(SimpleTestCase):
             self.assertIsNone(submit({"hang": False}))
             for future, done in zip(futures, released):
                 assert future is not None
-                future.add_done_callback(lambda _, done=done: done.set())
+                future.add_done_callback(partial(_set_event, done))
                 with self.assertRaises(TimeoutError):
                     future.result(timeout=5)
                 self.assertTrue(done.wait(1))
@@ -66,7 +71,7 @@ class TestNativeMetadataCapacity(SimpleTestCase):
                     raise TimeoutError("test did not release poll")
             return True
 
-        pools = {}
+        pools: dict[tuple[bool, bool], tuple[ThreadPoolExecutor, BoundedSemaphore]] = {}
         with (
             patch("posthog.clickhouse.native_metadata._pools", pools),
             patch("posthog.clickhouse.native_metadata._run_metadata_process", side_effect=run),
@@ -89,7 +94,7 @@ class TestNativeMetadataCapacity(SimpleTestCase):
     def test_concurrent_initialization_and_failed_submission_preserve_capacity(self) -> None:
         gate = Barrier(8)
         release = Event()
-        pools = {}
+        pools: dict[tuple[bool, bool], tuple[ThreadPoolExecutor, BoundedSemaphore]] = {}
 
         def submit():
             gate.wait(timeout=2)
