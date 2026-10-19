@@ -95,6 +95,10 @@ describe('panelLayoutLogic', () => {
             panelLayoutLogic.actions.setMainContentRef({ current: container })
             expect(disconnect).toHaveBeenCalledTimes(1)
             expect(jest.getTimerCount()).toBe(0)
+            notify([], {} as ResizeObserver)
+            panelLayoutLogic.actions.setMainContentRef(null)
+            expect(disconnect).toHaveBeenCalledTimes(2)
+            expect(jest.getTimerCount()).toBe(0)
         } finally {
             document.body.classList.remove('is-resizing')
             global.ResizeObserver = originalObserver

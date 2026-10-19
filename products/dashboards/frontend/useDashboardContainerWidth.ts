@@ -25,9 +25,14 @@ export function useDashboardContainerWidth(): { width: number; containerRef: Ref
                 return
             }
 
+            const nextWidth = Math.round(entry.contentRect.width)
+            if (nextWidth === pendingWidth) {
+                return
+            }
+
             // Commit after resize settles so sidebar drags do not render every dashboard tile each frame.
             clearTimeout(timer)
-            pendingWidth = entry.contentRect.width
+            pendingWidth = nextWidth
             timer = setTimeout(commitWidth, 100)
         })
         observer.observe(container)

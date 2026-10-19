@@ -29,7 +29,10 @@ describe('useDashboardContainerWidth', () => {
                 })
                 expect(result.current.width).toBe(1200)
             }
-            act(() => jest.advanceTimersByTime(50))
+            act(() => {
+                notify([{ contentRect: { width: 900.49 } } as ResizeObserverEntry], {} as ResizeObserver)
+                jest.advanceTimersByTime(50)
+            })
             expect(result.current.width).toBe(900)
             act(() => notify([{ contentRect: { width: 800 } } as ResizeObserverEntry], {} as ResizeObserver))
             document.body.classList.add('is-resizing')
