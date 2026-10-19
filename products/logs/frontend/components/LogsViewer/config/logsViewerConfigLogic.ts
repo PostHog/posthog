@@ -31,10 +31,11 @@ export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 export type LogsViewerViewMode = 'logs' | 'patterns' | 'group'
 export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
 
-// Patterns compare-mode baseline: 'lastWeek' omits the explicit range so the backend defaults
-// to the same window one week earlier (absorbs daily/weekly cycles); 'preceding' compares
-// against the window immediately before the current one (the post-deploy / spike comparison).
-export type PatternsBaselineMode = 'lastWeek' | 'preceding'
+// Patterns compare-mode baseline: 'preceding' compares against the window immediately before
+// the current one (the post-deploy / spike comparison); 'lastWeek' omits the explicit range so
+// the backend defaults to the same window one week earlier (absorbs daily/weekly cycles).
+export type PatternsBaselineMode = 'preceding' | 'lastWeek'
+export const DEFAULT_BASELINE_MODE: PatternsBaselineMode = 'preceding'
 
 export interface LogsViewerGroupBy {
     key: string
@@ -229,7 +230,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         ],
         // Compare state lives here (not in logsPatternsLogic) so the choice survives
         // Logs↔Patterns switches within a visit — the patterns logic unmounts when leaving
-        // the lens. Not persisted, like viewMode and groupBys.
+        // the lens. Not persisted; logsSceneLogic syncs both to the URL, like viewMode and groupBys.
         compareEnabled: [
             false,
             {
@@ -237,7 +238,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             },
         ],
         baselineMode: [
-            'lastWeek' as PatternsBaselineMode,
+            DEFAULT_BASELINE_MODE as PatternsBaselineMode,
             {
                 setBaselineMode: (_, { mode }) => mode,
             },
