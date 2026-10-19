@@ -347,11 +347,13 @@ class TestTaskRunMetrics(TestCase):
             ("mark_failed", "failed", "janitor_timeout"),
             ("mark_completed", "completed", "unknown"),
             ("dispatch_failure", "failed", "workflow_start_failed"),
+            ("claim_and_fail_stale_run", "failed", "sandbox_lost"),
         ]
     )
     def test_writers_outside_the_status_activity_count_the_terminal_transition_once(
         self, writer: str, status: str, error_type: str
     ) -> None:
+        from products.tasks.backend.facade import api as facade
         from products.tasks.backend.temporal import client
 
         run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -367,6 +369,7 @@ class TestTaskRunMetrics(TestCase):
         with (
             patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"),
             patch.object(client, "resume_workflow_step_for_run"),
+            patch.object(facade, "resume_workflow_step_for_run"),
         ):
             for _ in range(2):  # a repeat write on a terminal run must not count again
                 run.refresh_from_db()
@@ -374,6 +377,8 @@ class TestTaskRunMetrics(TestCase):
                     run.mark_failed("stuck", error_type="janitor_timeout")
                 elif writer == "mark_completed":
                     run.mark_completed(notify=False)
+                elif writer == "claim_and_fail_stale_run":
+                    facade.claim_and_fail_stale_run(run.id, "worker lost", error_type="sandbox_lost")
                 else:
                     client._terminalize_unstarted_task_run(str(run.id), "start failed")
 
