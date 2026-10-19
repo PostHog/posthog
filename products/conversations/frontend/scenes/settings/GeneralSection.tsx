@@ -12,7 +12,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AuthorizedDomains } from './AuthorizedDomains'
 import { ChannelsSection } from './ChannelsSection'
 import { DraftModeSection } from './DraftModeSection'
-import { SecretApiKeySection } from './SecretApiKeySection'
+import { IdentityVerificationSecretSection } from './IdentityVerificationSecretSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function GeneralSection(): JSX.Element {
@@ -170,7 +170,7 @@ export function GeneralSection(): JSX.Element {
                             </p>
                         </LemonCard>
                     </SceneSection>
-                    <SecretApiKeySection />
+                    <IdentityVerificationSecretSection />
                     {/* The send menu confirms every send, so the draft-mode default has nothing left to set. */}
                     {!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES] && <DraftModeSection />}
                 </>
