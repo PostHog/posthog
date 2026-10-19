@@ -17,12 +17,16 @@ permissions:
 jobs:
     stack-depth:
         name: Stack depth
-        # `stack.position` counts merged layers too, so it is an upper bound on the open
-        # depth and a PR at or below the limit cannot fail. A PR outside a stack, which
-        # includes every merge queue batch PR, has no `stack`. The skip sits here, not on
-        # the caller job, because a skipped caller reports only `stack-depth` and never the
-        # `stack-depth / Stack depth` context that the ruleset requires.
-        if: ${{ github.event.pull_request.stack.position > inputs.max-open-depth }}
+        # `stack.position` counts merged layers too, so in a stack on the default branch it
+        # is an upper bound on the open depth, and a PR at or below the limit cannot fail.
+        # A stack on another branch always runs, because the layers under that branch count
+        # too. A PR outside a stack, which includes every merge queue batch PR, has no
+        # `stack`. The skip sits here, not on the caller job, because a skipped caller
+        # reports only `stack-depth` and never the `stack-depth / Stack depth` context that
+        # the ruleset requires.
+        if: >-
+            github.event.pull_request.stack.position > inputs.max-open-depth
+            || (github.event.pull_request.stack && github.event.pull_request.stack.base.ref != github.event.repository.default_branch)
         runs-on: ubuntu-24.04
         timeout-minutes: 5
 
@@ -37,6 +41,7 @@ jobs:
             - name: Check open layers below this pull request
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
                   MAX_OPEN_DEPTH: ${{ inputs.max-open-depth }}
                   STACK_NUMBER: ${{ github.event.pull_request.stack.number }}
               run: node .github/scripts/check-stack-depth.mjs

@@ -96,7 +96,7 @@ See [Public open source repo guidance](#public-open-source-repo-guidance) for wh
 
 GitHub's native stacked PRs are enabled here. Use the `gh stack` CLI and `/stacking-prs` rather than hand-managing branch chains.
 Keep stacks shallow and merge the base before extending: restacking force-pushes every branch, and a deep stack pushed at once can exceed GitHub's dispatch cap and fail unrelated runs with it.
-The `Stack depth` check fails any layer above the fifth open layer of its stack.
+The `Stack depth` check fails a pull request with more than five open pull requests at or below it, down to `master`, across stacks that start on other stacks.
 Never `gh stack merge` — it lands the chain through GitHub's API, outside the queue.
 
 ### Merging PRs

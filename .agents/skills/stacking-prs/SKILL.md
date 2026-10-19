@@ -55,8 +55,11 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 - Link PRs that already exist on GitHub, without local tracking: `gh stack link <pr> <pr> <pr>`, bottom to top (branch names and PR URLs work too). Pass a stack number first to append to an existing stack: `gh stack link <stack> <pr>`.
 - Slice by reviewable unit: migration / backend / frontend, or mechanical-rename / behavior-change. Each PR must make sense to review and merge alone.
 - Keep stacks shallow (2–4 layers). Every layer multiplies CI cost and rebase churn, and deep-stack pushes can trip GitHub's dispatch cap (see AGENTS.md, "Stacked PRs").
-  The `Stack depth` check fails every layer above the fifth open one; merged layers do not count.
-  To clear it, merge the lower layers first or fold layers together with `gh stack modify`, then push.
+  The `Stack depth` check fails a layer with more than five open pull requests at or below it, down to `master`.
+  Merged pull requests do not count. A stack that starts on another stack's branch counts the layers of that stack too.
+  To clear it, merge the lower layers, or close the upper layers and reopen them after the lower layers merge.
+  To plan more work on top of a stack, start the next stack from its top branch with `gh stack init --base <top branch>` and push it with `gh stack push`, which opens no pull requests.
+  Open those pull requests after the stack below merges.
 - Place a CI-heavy layer by how CI diffs it:
   - Most jobs pick their work from the layer's own diff against its parent, so such a layer does not make the layers above it heavy. A push to any layer below it starts its jobs again (see the duplicate-run note under "Iterate and keep in sync"). Put it low, unless it is the layer that still changes most.
   - A few steps diff against master, so they repeat on layers above the change. Trunk's impacted-targets job runs on every layer and computes affected crates when `rust/` or `proto/` differs. Backend jobs build the HogQL parser from source when `common/hogql_parser/` or `rust/hogql/parser/` differs, and Playwright jobs when `common/hogql_parser/` differs. Those builds repeat only on upper layers whose own diff starts backend or Playwright jobs. If upper layers do, put the parser change in the top layer.
