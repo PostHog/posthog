@@ -701,6 +701,12 @@ class TestPostgresSourceNonRetryableErrors:
             # in-process fallback already retries elsewhere, unlike the "kept canceling reads..."/"no
             # key that can resume..." exhausted-retry aborts below, which stay non-retryable.
             "canceling statement due to conflict with recovery\nDETAIL:  User query might have needed to see row versions that must be removed.",
+            # Not our own client-side deadline (that path always converts to
+            # ClientDeadlineExceededError first) — either our watchdog's cancel request landed on a
+            # later statement after its own one already finished, or an external cancel (a pooler
+            # recycling the connection, an admin cancel) hit the query. Neither is a verdict on this
+            # query, so a fresh connection on retry recovers.
+            "canceling statement due to user request",
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -725,6 +731,10 @@ class TestPostgresSourceNonRetryableErrors:
             (
                 'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: sorry, too many clients already',
                 "connection slots",
+            ),
+            (
+                "canceling statement due to user request",
+                "canceled",
             ),
         ],
     )
@@ -1668,6 +1678,18 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "cannot delete path in scalar",
+            "InvalidParameterValue: cannot delete path in scalar",
+        ],
+    )
+    def test_jsonb_delete_path_on_scalar_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"jsonb path-deletion on scalar error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
