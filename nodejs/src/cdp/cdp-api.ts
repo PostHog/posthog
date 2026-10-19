@@ -39,6 +39,7 @@ import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
+import { counterBatchResolverParked } from './services/hogflows/batch-resolver-resume'
 import {
     BatchResolverState,
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -1641,6 +1642,9 @@ export class CdpApi {
                 // A cohort that is still calculating parks the job until Django resumes it.
                 ...(waitUntil ? { scheduled: new Date(waitUntil) } : {}),
             })
+            if (waitUntil) {
+                counterBatchResolverParked.inc()
+            }
 
             res.json({ status: 'queued' })
         } catch (e) {
