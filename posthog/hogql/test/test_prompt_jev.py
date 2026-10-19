@@ -218,7 +218,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand([("flag_on", True), ("flag_off", False)])
     def test_forecast_needs_its_flag_and_no_ai_credits(self, _name: str, flag: bool) -> None:
         model = MagicMock()
-        model.forecast.return_value.quantile.side_effect = lambda q: np.full((1, 1, 2), q * 10)
+        model.forecast.return_value = np.broadcast_to(np.arange(21.0) / 2, (1, 2, 21))
         with (
             patch("posthog.hogql.transforms.forecast.feature_enabled_or_false", return_value=flag),
             patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True),

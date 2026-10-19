@@ -292,6 +292,22 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
+# Export the forecasting network behind the HogQL `forecast` function to ONNX. torch and timestral stay in
+# this stage, and the runtime image gets only the .onnx file, which onnxruntime reads.
+FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS export-forecast-model
+COPY --from=uv /uv /bin/
+WORKDIR /code
+RUN --mount=type=cache,id=uv-forecast-model,target=/root/.cache/uv \
+    uv pip install --system --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple \
+        "torch==2.14.1" "onnx==1.23.2" "onnxscript==0.7.2" \
+        "timestral @ https://github.com/mistralai/timestral/archive/a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff.tar.gz"
+COPY bin/export_forecast_model.py bin/
+RUN mkdir share && python bin/export_forecast_model.py share/timestral-28m.onnx
+
+
+#
+# ---------------------------------------------------------
+#
 # Same digest as the posthog-build stage, so the interpreter matches the one the wheels were built against.
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
 WORKDIR /code
@@ -377,6 +393,9 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+
+# Copy the forecasting model from the export-forecast-model stage.
+COPY --from=export-forecast-model --chown=posthog:posthog /code/share/timestral-28m.onnx /code/share/timestral-28m.onnx
 
 # Copy the pre-warmed tiktoken encoding cache and point tiktoken at it so token counting never
 # reaches out to OpenAI's blob host at runtime (see the posthog-build stage for details).

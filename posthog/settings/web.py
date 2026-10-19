@@ -1341,6 +1341,9 @@ HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogfere
 # Each decision is a billed gateway call, so these bound the cost of one query.
 HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
 HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
+# ONNX export of the forecasting network behind the HogQL `forecast` function. The image build writes it,
+# see bin/export_forecast_model.py.
+HOGQL_FORECAST_MODEL_PATH = get_from_env("HOGQL_FORECAST_MODEL_PATH", os.path.join(BASE_DIR, "share", "timestral-28m.onnx"))
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.

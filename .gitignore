@@ -69,6 +69,7 @@ pyrightconfig.json
 settings.yml
 scripts/local/
 share/GeoLite2-City.*
+share/timestral-*.onnx
 staticfiles
 storybook-static
 temp_test_run_data.json
