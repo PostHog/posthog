@@ -86,7 +86,7 @@ describe('github template', () => {
                                     in_app: true,
                                 },
                                 {
-                                    source: '/Users/alice/projects/shop/src/main.ts',
+                                    source: '/Users/alice/projects/shop/src/resetPasswordToken_ABCDEF0123456789abcdef0123456789.ts',
                                     line: 3,
                                     resolved_name: 'handleCheckoutSubmitButtonClickEvent',
                                     resolved: true,
@@ -110,13 +110,13 @@ describe('github template', () => {
                 $browser: 'Chrome',
                 $browser_version: 129,
                 $os: 'Mac OS X',
-                $os_version: '10.15.7 [link](https://evil.example)',
+                $os_version: '10.15.7\n\n[link](https://evil.example)',
                 $exception_release: { version: '1.4.2' },
                 $session_id: 'session/1',
                 $recording_status: 'active',
             },
             'RangeError: Invalid Date value: `abc` @octocat [link](https://evil.example)',
-            '```\nInvalid Date\nvalue: \'abc\' @octocat [link](https://evil.example)\n```\n\n- Browser: `Chrome 129`\n- OS: `Mac OS X 10.15.7 [link](https://evil.example)`\n- Release: `1.4.2`\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: [redacted]\n  File "main.ts", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n  File "[redacted]", line: 1, in: onSubmit\n  File "[redacted]", line: 2, in: [redacted]\n```',
+            '```\nInvalid Date\nvalue: \'abc\' @octocat [link](https://evil.example)\n```\n\n- Browser: `Chrome 129`\n- OS: `Mac OS X 10.15.7  [link](https://evil.example)`\n- Release: `1.4.2`\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: [redacted]\n  File "[redacted]", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n  File "[redacted]", line: 1, in: onSubmit\n  File "[redacted]", line: 2, in: [redacted]\n```',
         ],
         [
             'leaves out missing lines, replay when recording was off, and a trace with no resolved frame',
@@ -178,6 +178,7 @@ describe('github template', () => {
             'sk_live',
             'password@',
             '3f2b8c1e',
+            'ABCDEF0123',
         ]) {
             expect(JSON.stringify(body)).not.toContain(secret)
         }

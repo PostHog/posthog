@@ -20,7 +20,8 @@ import {
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
-const errorTrackingTicketCode = (value: string): string => `concat('\`', replaceAll(${value}, '\`', '\\''), '\`')`
+const errorTrackingTicketCode = (value: string): string =>
+    `concat('\`', replaceAll(replaceAll(replaceAll(${value}, '\`', '\\''), '\\n', ' '), '\\r', ' '), '\`')`
 
 const errorTrackingTicketLine = (
     label: string,

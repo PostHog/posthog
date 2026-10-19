@@ -1,7 +1,8 @@
 const EXCEPTION_TYPE = 'event.properties.$exception_types[1]'
 const EXCEPTION_MESSAGE = 'event.properties.$exception_values[1]'
 
-const ticketCode = (value: string): string => `concat('\`', replaceAll(${value}, '\`', '\\''), '\`')`
+const ticketCode = (value: string): string =>
+    `concat('\`', replaceAll(replaceAll(replaceAll(${value}, '\`', '\\''), '\\n', ' '), '\\r', ' '), '\`')`
 
 const ticketLine = (
     label: string,

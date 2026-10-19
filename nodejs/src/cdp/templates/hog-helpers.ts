@@ -26,8 +26,16 @@ export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text, mi
   if (match(text, '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')) {
     return true
   }
-  let run := extractRegex(text, concat('([A-Za-z0-9+/=]{', minRunLength, ',})'))
-  return notEmpty(run) and match(run, '[0-9]')
+  let parts := text
+  for (let separator in ['_', '-', '.', '$', ':', '<', '>', '(', ')', '#', ',', '[', ']', ' ', '+', '=']) {
+    parts := replaceAll(parts, separator, '/')
+  }
+  for (let part in splitByString('/', parts)) {
+    if (length(part) >= minRunLength and match(part, '[0-9]')) {
+      return true
+    }
+  }
+  return false
 }
 
 fun errorTrackingFunctionName(name) {
