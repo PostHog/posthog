@@ -41,7 +41,7 @@ function ModalStep(): JSX.Element {
     }
 }
 
-function ModalSettings({ integrationId }: { integrationId: number }): JSX.Element {
+function ModalSettings({ integrationId, onLeave }: { integrationId: number; onLeave: () => void }): JSX.Element {
     return (
         <BindEmailDomainLogics id={String(integrationId)}>
             <div className="@container flex flex-col gap-6">
@@ -50,6 +50,7 @@ function ModalSettings({ integrationId }: { integrationId: number }): JSX.Elemen
                     type="tertiary"
                     className="self-center"
                     to={urls.workflowsEmailDomain(integrationId)}
+                    onClick={onLeave}
                     sideIcon={<IconExternal />}
                 >
                     Open full page
@@ -80,7 +81,7 @@ export function EmailDomainSetupModal({
             onClose={() => (integrationId ? onComplete(integrationId) : onClose())}
         >
             {integrationId ? (
-                <ModalSettings integrationId={integrationId} />
+                <ModalSettings integrationId={integrationId} onLeave={() => onComplete(integrationId)} />
             ) : (
                 <div className="@container">
                     <DomainStep logicKey="modal" onCreated={(created) => setIntegrationId(created.id)} />

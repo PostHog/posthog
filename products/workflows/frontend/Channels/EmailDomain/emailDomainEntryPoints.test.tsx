@@ -5,6 +5,7 @@ import { Provider } from 'kea'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -128,6 +129,21 @@ describe('email domain setup entry points', () => {
             expectBroadcastModal()
             expect(onComplete).not.toHaveBeenCalled()
         })
+    })
+
+    it('closes the setup modal when the person opens the full page from configure', async () => {
+        setWizardFlag(true)
+        backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<MessageChannels />)
+        fireEvent.click(screen.getByText(DOMAIN))
+        fireEvent.click(screen.getByText('Configure'))
+        await flush()
+
+        fireEvent.click(screen.getByText('Open full page'))
+        await flush()
+
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}$`))
+        expect(integrationsLogic.values.setupModalOpen).toBe(false)
     })
 
     it.each([['broadcast' as const], [undefined]])(
