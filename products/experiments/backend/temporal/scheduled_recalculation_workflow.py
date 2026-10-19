@@ -15,7 +15,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
         start_scheduled_recalculation,
         wait_for_scheduled_recalculation,
     )
-    from products.experiments.backend.temporal.scheduled_recalculation_logic import ScheduledRecalculationDiscovery
+    from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+        SKIP_DISPATCH_UNCERTAIN,
+        ScheduledRecalculationDiscovery,
+    )
 
 MAX_CONCURRENT_EXPERIMENTS = 10
 
@@ -110,6 +113,8 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
                 if not result.started:
                     if result.skip_reason == "start_window_elapsed":
                         deferred += 1
+                    elif result.skip_reason == SKIP_DISPATCH_UNCERTAIN:
+                        stop_starting = True
                     return False
                 if wait_for_runs and result.recalculation_id is not None:
                     try:

@@ -31,6 +31,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_activities im
 )
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     SKIP_ACTIVE_RUN,
+    SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_BACKOFF,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
@@ -279,6 +280,8 @@ class TestScheduledRecalculationActivities(BaseTest):
         ):
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
+        assert result.skip_reason == SKIP_DISPATCH_UNCERTAIN
+        assert result.recalculation_id is not None
         started_event.assert_not_called()
 
     def test_deleted_experiment_is_skipped_not_raised(self):

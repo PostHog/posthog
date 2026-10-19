@@ -24,6 +24,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_activities im
     discover_scheduled_recalculation_candidates,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+    SKIP_DISPATCH_UNCERTAIN,
     ScheduledRecalculationCandidate,
     ScheduledRecalculationDiscovery,
 )
@@ -157,7 +158,7 @@ async def test_runs_in_flight_never_exceed_the_cap():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [None, "wait", "start"])
+@pytest.mark.parametrize("failure", [None, "wait", "start", "dispatch"])
 async def test_experiments_left_after_the_start_window_are_deferred(failure):
     checked: list[int] = []
     started: list[int] = []
@@ -170,6 +171,13 @@ async def test_experiments_left_after_the_start_window_are_deferred(failure):
         started.append(experiment_id)
         if failure == "start":
             raise ApplicationError("unknown dispatch outcome", non_retryable=True)
+        if failure == "dispatch":
+            return ScheduledRecalculationStartResult(
+                experiment_id=experiment_id,
+                started=False,
+                recalculation_id=str(uuid.uuid4()),
+                skip_reason=SKIP_DISPATCH_UNCERTAIN,
+            )
         return _started(experiment_id)
 
     now = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)
@@ -188,7 +196,7 @@ async def test_experiments_left_after_the_start_window_are_deferred(failure):
 
     assert checked == [1]
     assert started == [1]
-    count = 0 if failure == "start" else 1
+    count = 0 if failure in ("start", "dispatch") else 1
     assert result == {"hour": 2, "candidates": 3, "started": count, "skipped": 3 - count, "deferred": 2}
 
 

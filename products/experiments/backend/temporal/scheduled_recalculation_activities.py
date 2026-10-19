@@ -26,6 +26,7 @@ from products.experiments.backend.temporal.models import ScheduledRecalculationS
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     MIN_TOTAL_EXPOSURES,
     SKIP_ACTIVE_RUN,
+    SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
     ScheduledRecalculationDiscovery,
@@ -188,7 +189,12 @@ def _start_scheduled_recalculation_sync(
             recalculation_id=recalculation_id,
             exc_info=True,
         )
-        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id,
+            started=False,
+            recalculation_id=recalculation_id,
+            skip_reason=SKIP_DISPATCH_UNCERTAIN,
+        )
 
     capture_started(experiment, hour, recalculation_id)
     return ScheduledRecalculationStartResult(
