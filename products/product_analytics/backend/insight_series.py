@@ -29,6 +29,7 @@ UNCHARTED_DISPLAYS = {
     "SlopeGraph",
 }
 CHARTED_SQL_DISPLAYS = {"ActionsLineGraph", "ActionsBar", "ActionsStackedBar", "ActionsAreaGraph"}
+NO_BREAKDOWN_VALUE = "[No value]"
 LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
 DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
@@ -125,15 +126,18 @@ def _sql_series(
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
     breakdown_column = settings.get("seriesBreakdownColumn")
     zero_fill = bool(settings.get("showNullsAsZero"))
-    series: dict[tuple[int, str | None], dict[date, float]] = {}
-    with_gaps: set[tuple[int, str | None]] = set()
+    series: dict[tuple[int, tuple[bool, str] | None], dict[date, float]] = {}
+    with_gaps: set[tuple[int, tuple[bool, str] | None]] = set()
     try:
         for row in response.get("results") or []:
             stamp = str(row[position[x_column]])
             if stamp[11:19] not in ("", "00:00:00"):
                 return None
             day = date.fromisoformat(stamp[:10])
-            breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
+            breakdown = None
+            if breakdown_column:
+                raw = row[position[breakdown_column]]
+                breakdown = (raw is None, NO_BREAKDOWN_VALUE if raw is None else str(raw))
             for index, axis in enumerate(y_axes):
                 key = (index, breakdown)
                 points = series.setdefault(key, {})
@@ -154,7 +158,7 @@ def _sql_series(
     for (index, breakdown), points in series.items():
         base = str(_axis_settings(y_axes[index], "display").get("label") or y_axes[index]["column"])
         if breakdown is not None:
-            base = f"{base} · {breakdown}" if len(y_axes) > 1 else breakdown
+            base = f"{base} · {breakdown[1]}" if len(y_axes) > 1 else breakdown[1]
         label, copy = base, copies.get(base, 1)
         while label in named:
             copy += 1

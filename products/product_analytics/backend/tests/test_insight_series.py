@@ -137,6 +137,21 @@ class TestSqlSeries(SimpleTestCase):
                 ("week", {"p50 · html": [1.0, 3.0], "p90 · html": [2.0, 4.0]}, None, None),
             ),
             (
+                "a null breakdown value stays apart from the text None",
+                _sql_query(seriesBreakdownColumn="kind"),
+                {
+                    "columns": ["week", "kind", "p50"],
+                    "results": [
+                        ["2026-10-04", None, 1],
+                        ["2026-10-04", "None", 2],
+                        ["2026-10-11", None, 3],
+                        ["2026-10-11", "None", 4],
+                    ],
+                },
+                WeekStartDay.SUNDAY,
+                ("week", {"[No value]": [1.0, 3.0], "None": [2.0, 4.0]}, None, None),
+            ),
+            (
                 "a series with a null leaves the tile and keeps the others",
                 _sql_query(yAxis=[{"column": "p50"}, {"column": "p90"}]),
                 {
