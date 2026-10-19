@@ -64,7 +64,9 @@ class AccountPropertySyncPhase(StrEnum):
 
 
 class AccountPropertySourceValueError(Exception):
-    pass
+    def __init__(self, message: str, *, counts: dict[str, int]) -> None:
+        super().__init__(message)
+        self.counts = counts.copy()
 
 
 @frozen
@@ -384,7 +386,7 @@ async def run_account_property_segment_sync(
         job_id=job_id,
         segment=segment.value,
     )
-    counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
+    counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0, "source_count": 0}
 
     states: list[SourceSyncState] = []
     run_context = AccountPropertySyncRunContext(
@@ -395,12 +397,13 @@ async def run_account_property_segment_sync(
 
     try:
         if await _segment_already_completed(team_id, binding, job_id, segment):
-            return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
+            return counts
 
         sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
         states = [
             SourceSyncState(source=source, prior_hashes={}) for source in sources if source.source_column is not None
         ]
+        counts["source_count"] = len(states)
         phase_started_at = asyncio.get_running_loop().time()
         for state in states:
             state.prior_hashes.update(await _read_snapshot_hashes(team_id, binding, str(state.source.id), segment))
@@ -569,7 +572,8 @@ async def run_account_property_segment_sync(
 
     if counts["source_errors"]:
         raise AccountPropertySourceValueError(
-            f"{counts['source_errors']} account-property source(s) contained invalid values"
+            f"{counts['source_errors']} account-property source(s) contained invalid values",
+            counts=counts,
         )
 
     await _mark_completed_and_maybe_cleanup(team_id, binding, job_id, segment)

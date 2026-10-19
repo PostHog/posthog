@@ -20,6 +20,7 @@ from products.customer_analytics.backend.logic.account_property_runs import (
     start_account_property_sync_runs,
 )
 from products.customer_analytics.backend.logic.account_property_sync import (
+    AccountPropertySourceValueError,
     AccountPropertySyncPhase,
     AccountPropertySyncSegment,
     AppliedSourceValues,
@@ -297,14 +298,15 @@ def test_source_values_preserve_explicit_nulls_but_skip_missing_columns(rows, ex
 
 
 @pytest.mark.asyncio
-async def test_each_staged_batch_is_shared_across_sources() -> None:
+@pytest.mark.parametrize("source_columns", [("value_0", "value_1"), ("value_0", None), ()])
+async def test_each_staged_batch_is_shared_across_sources(source_columns: tuple[str | None, ...]) -> None:
     binding = saved_query_binding("019f0000-0000-7000-8000-000000000001")
     sources = []
-    for index in range(2):
+    for index, source_column in enumerate(source_columns):
         source = MagicMock()
         source.id = f"source-{index}"
         source.key_column = "organization_id"
-        source.source_column = f"value_{index}"
+        source.source_column = source_column
         sources.append(source)
     batch_calls = 0
 
@@ -324,7 +326,7 @@ async def test_each_staged_batch_is_shared_across_sources() -> None:
         patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
         patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
     ):
-        await run_account_property_segment_sync(
+        counts = await run_account_property_segment_sync(
             team_id=7,
             binding=binding,
             job_id="job-1",
@@ -332,10 +334,12 @@ async def test_each_staged_batch_is_shared_across_sources() -> None:
         )
 
     assert batch_calls == 1
+    assert counts["source_count"] == sum(column is not None for column in source_columns)
 
 
 @pytest.mark.asyncio
-async def test_sync_records_each_phase_duration() -> None:
+@pytest.mark.parametrize("invalid_source_values", [False, True])
+async def test_sync_records_each_phase_duration(invalid_source_values: bool) -> None:
     binding = saved_query_binding("019f0000-0000-7000-8000-000000000001")
     source = MagicMock()
     source.id = "source-1"
@@ -344,17 +348,21 @@ async def test_sync_records_each_phase_duration() -> None:
     phase_duration_recorder = MagicMock()
 
     async def batches(*args):
-        yield [{"organization_id": "org-1", "value": 1}]
+        yield [{"organization_id": "org-1", "value": 1}, {"organization_id": "org-2", "value": "invalid"}]
 
     with (
         patch(f"{_MODULE}._segment_already_completed", new=AsyncMock(return_value=False)),
         patch(f"{_MODULE}._enabled_sources", return_value=[source]),
         patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
         patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=batches),
-        patch(f"{_MODULE}._matching_account_ids", return_value={"org-1": MagicMock()}),
+        patch(f"{_MODULE}._matching_account_ids", return_value={"org-1": MagicMock(), "org-2": MagicMock()}),
         patch(
             f"{_MODULE}._apply_source_values",
-            return_value=AppliedSourceValues(written=1, hashes={"org-1": "hash"}, failed=False),
+            return_value=AppliedSourceValues(
+                written=1 if invalid_source_values else 2,
+                hashes={"org-1": "hash"} if invalid_source_values else {"org-1": "hash", "org-2": "hash-2"},
+                failed=invalid_source_values,
+            ),
         ),
         patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
         patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
@@ -362,13 +370,31 @@ async def test_sync_records_each_phase_duration() -> None:
         patch(f"{_MODULE}.finalize_account_property_sync_runs"),
         patch(f"{_MODULE}.record_account_property_sync_phase_duration", phase_duration_recorder),
     ):
-        await run_account_property_segment_sync(
-            team_id=7,
-            binding=binding,
-            job_id="job-1",
-            segment=AccountPropertySyncSegment.TRACKED,
-        )
+        if invalid_source_values:
+            with pytest.raises(AccountPropertySourceValueError) as raised:
+                await run_account_property_segment_sync(
+                    team_id=7,
+                    binding=binding,
+                    job_id="job-1",
+                    segment=AccountPropertySyncSegment.TRACKED,
+                )
+            counts = raised.value.counts
+        else:
+            counts = await run_account_property_segment_sync(
+                team_id=7,
+                binding=binding,
+                job_id="job-1",
+                segment=AccountPropertySyncSegment.TRACKED,
+            )
 
+    assert counts == {
+        "rows_read": 2,
+        "changed": 2,
+        "matched": 2,
+        "written": 1 if invalid_source_values else 2,
+        "source_errors": int(invalid_source_values),
+        "source_count": 1,
+    }
     assert [call.kwargs["phase"] for call in phase_duration_recorder.call_args_list] == [
         phase.value for phase in AccountPropertySyncPhase
     ]

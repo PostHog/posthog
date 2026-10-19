@@ -90,6 +90,19 @@ def _failure_type(error: BaseException) -> str:
     return type(cause).__name__
 
 
+def _failure_counts(error: BaseException) -> dict[str, int] | None:
+    cause = error.cause if isinstance(error, ActivityError) and error.cause is not None else error
+    if not isinstance(cause, ApplicationError) or cause.type != "AccountPropertySourceValueError":
+        return None
+    if not cause.details or not isinstance(cause.details[0], dict):
+        return None
+    return {
+        key: value
+        for key, value in cause.details[0].items()
+        if isinstance(key, str) and isinstance(value, int) and not isinstance(value, bool)
+    }
+
+
 @frozen
 class _AttemptTelemetry:
     team_id: int
@@ -163,6 +176,7 @@ class _AttemptTelemetry:
             source_id=self.source_id,
             duration_seconds=duration_seconds,
             attempt=self.attempt,
+            source_count=None if counts is None else counts.get("source_count"),
             counts=counts,
             error_type=error_type,
             workflow_id=self.workflow_id,
@@ -330,9 +344,9 @@ async def sync_warehouse_account_properties_activity(input: AccountPropertySyncI
             )
     except AccountPropertySourceValueError as error:
         ACCOUNT_PROPERTY_SYNC_TOTAL.labels(team_id=str(input.team_id), segment=segment.value, outcome="failed").inc()
-        telemetry.finish("failed", error=error)
+        telemetry.finish("failed", counts=error.counts, error=error)
         log.warning("Account-property segment sync rejected invalid source values", error=str(error))
-        raise ApplicationError(str(error), non_retryable=True) from error
+        raise ApplicationError(str(error), error.counts, type=type(error).__name__, non_retryable=True) from error
     except asyncio.CancelledError:
         telemetry.finish("cancelled")
         raise
@@ -400,6 +414,7 @@ async def _emit_segment_telemetry(
                 error_type=None if error is None else _failure_type(error),
             ),
             start_to_close_timeout=timedelta(minutes=1),
+            schedule_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
     except ActivityError:
@@ -524,17 +539,25 @@ class SyncWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
             )
         except (asyncio.CancelledError, Exception) as error:
             if telemetry_enabled:
+                counts = _failure_counts(error)
                 await _emit_segment_telemetry(
                     input,
                     path="legacy",
                     status="cancelled" if is_cancelled_exception(error) else "failed",
                     started_at=started_at,
+                    source_count=None if counts is None else counts.get("source_count"),
+                    counts=counts,
                     error=error,
                 )
             raise
         if telemetry_enabled:
             await _emit_segment_telemetry(
-                input, path="legacy", status="completed", started_at=started_at, counts=counts
+                input,
+                path="legacy",
+                status="completed",
+                started_at=started_at,
+                source_count=counts.get("source_count"),
+                counts=counts,
             )
 
 

@@ -8,8 +8,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError,
+    TimeoutType,
+    WorkflowAlreadyStartedError,
+)
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
@@ -36,7 +43,22 @@ from products.customer_analytics.backend.temporal.account_property_sync import (
 pytestmark = pytest.mark.asyncio
 
 _MODULE = "products.customer_analytics.backend.temporal.account_property_sync"
-_SOURCE_COUNTS = {"rows_read": 10, "changed": 4, "matched": 3, "written": 2, "source_errors": 0}
+_SOURCE_COUNTS = {"rows_read": 10, "changed": 4, "matched": 3, "written": 2, "source_errors": 0, "source_count": 2}
+_FAILED_COUNTS = {**_SOURCE_COUNTS, "written": 1, "source_errors": 1}
+
+
+def _create_activity_error(cause: Exception) -> ActivityError:
+    error = ActivityError(
+        "Activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="sync_warehouse_account_properties_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
 
 
 def _staging_input() -> StageAccountPropertySyncInput:
@@ -245,15 +267,27 @@ async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -
 
 
 @pytest.mark.parametrize(
-    "telemetry_enabled,sync_result,expected_status",
+    "telemetry_enabled,sync_result,expected_status,expected_counts",
     [
-        (False, dict(_SOURCE_COUNTS), None),
-        (True, dict(_SOURCE_COUNTS), "completed"),
-        (True, RuntimeError("sync failed"), "failed"),
+        (False, dict(_SOURCE_COUNTS), None, None),
+        (True, dict(_SOURCE_COUNTS), "completed", _SOURCE_COUNTS),
+        (True, {"rows_read": 0}, "completed", {"rows_read": 0}),
+        (True, RuntimeError("sync failed"), "failed", None),
+        (
+            True,
+            _create_activity_error(
+                ApplicationError("Invalid values", _FAILED_COUNTS, type="AccountPropertySourceValueError")
+            ),
+            "failed",
+            _FAILED_COUNTS,
+        ),
     ],
 )
 async def test_legacy_workflow_reports_segment_outcome_only_after_the_patch(
-    telemetry_enabled: bool, sync_result: object, expected_status: str | None
+    telemetry_enabled: bool,
+    sync_result: object,
+    expected_status: str | None,
+    expected_counts: dict[str, int] | None,
 ) -> None:
     execute_activity = AsyncMock(side_effect=[sync_result, None])
     input = _segment_input()
@@ -264,8 +298,9 @@ async def test_legacy_workflow_reports_segment_outcome_only_after_the_patch(
         patch.object(workflow, "time", side_effect=[100.0, 160.0]),
     ):
         if isinstance(sync_result, Exception):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(type(sync_result)) as raised:
                 await SyncWarehouseAccountPropertiesWorkflow().run(input)
+            assert raised.value is sync_result
         else:
             await SyncWarehouseAccountPropertiesWorkflow().run(input)
 
@@ -279,7 +314,30 @@ async def test_legacy_workflow_reports_segment_outcome_only_after_the_patch(
     telemetry = execute_activity.await_args_list[1].args[1]
     assert isinstance(telemetry, AccountPropertySegmentTelemetryInput)
     assert (telemetry.path, telemetry.status, telemetry.duration_seconds) == ("legacy", expected_status, 60.0)
-    assert telemetry.counts == (_SOURCE_COUNTS if expected_status == "completed" else None)
+    assert telemetry.counts == expected_counts
+    assert telemetry.source_count == (None if expected_counts is None else expected_counts.get("source_count"))
+    assert execute_activity.await_args_list[1].kwargs["schedule_to_close_timeout"] == timedelta(minutes=3)
+
+
+@pytest.mark.parametrize("sync_failed", [False, True])
+async def test_legacy_workflow_preserves_sync_outcome_when_telemetry_times_out(sync_failed: bool) -> None:
+    sync_result = RuntimeError("Sync failed") if sync_failed else dict(_SOURCE_COUNTS)
+    telemetry_error = _create_activity_error(
+        TimeoutError("Telemetry timed out", type=TimeoutType.SCHEDULE_TO_CLOSE, last_heartbeat_details=[])
+    )
+    execute_activity = AsyncMock(side_effect=[sync_result, telemetry_error])
+
+    with (
+        patch.object(workflow, "execute_activity", new=execute_activity),
+        patch.object(workflow, "patched", return_value=True),
+        patch.object(workflow, "time", side_effect=[100.0, 160.0]),
+        patch.object(workflow, "logger"),
+    ):
+        if sync_failed:
+            with pytest.raises(RuntimeError, match="Sync failed"):
+                await SyncWarehouseAccountPropertiesWorkflow().run(_segment_input())
+        else:
+            await SyncWarehouseAccountPropertiesWorkflow().run(_segment_input())
 
 
 @workflow.defn(name=ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME)
@@ -295,14 +353,23 @@ class _PreTelemetrySyncWorkflow:
         )
 
 
-async def test_legacy_workflow_replays_histories_from_before_and_after_the_telemetry_patch() -> None:
+@pytest.mark.parametrize("invalid_source_values", [False, True])
+async def test_legacy_workflow_replays_histories_from_before_and_after_the_telemetry_patch(
+    invalid_source_values: bool,
+) -> None:
+    telemetry_inputs: list[AccountPropertySegmentTelemetryInput] = []
+
     @activity.defn(name="sync_warehouse_account_properties_activity")
     async def sync_segment(_input: AccountPropertySyncInput) -> dict[str, int]:
+        if invalid_source_values:
+            raise ApplicationError(
+                "Invalid values", _FAILED_COUNTS, type="AccountPropertySourceValueError", non_retryable=True
+            )
         return dict(_SOURCE_COUNTS)
 
     @activity.defn(name="emit-warehouse-account-property-segment-telemetry")
-    async def emit_telemetry(_input: AccountPropertySegmentTelemetryInput) -> None:
-        return None
+    async def emit_telemetry(input: AccountPropertySegmentTelemetryInput) -> None:
+        telemetry_inputs.append(input)
 
     scheduled_by_recorder: dict[str, list[str]] = {}
     async with await WorkflowEnvironment.start_time_skipping() as environment:
@@ -322,7 +389,11 @@ async def test_legacy_workflow_replays_histories_from_before_and_after_the_telem
                     task_queue=task_queue,
                     execution_timeout=timedelta(minutes=10),
                 )
-                await handle.result()
+                if invalid_source_values:
+                    with pytest.raises(WorkflowFailureError):
+                        await handle.result()
+                else:
+                    await handle.result()
                 history = await handle.fetch_history()
             await Replayer(
                 workflows=[SyncWarehouseAccountPropertiesWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
@@ -333,6 +404,10 @@ async def test_legacy_workflow_replays_histories_from_before_and_after_the_telem
                 if event.HasField("activity_task_scheduled_event_attributes")
             ]
 
+    assert len(telemetry_inputs) == 1
+    assert telemetry_inputs[0].status == ("failed" if invalid_source_values else "completed")
+    assert telemetry_inputs[0].counts == (_FAILED_COUNTS if invalid_source_values else _SOURCE_COUNTS)
+    assert telemetry_inputs[0].source_count == 2
     assert scheduled_by_recorder == {
         "_PreTelemetrySyncWorkflow": ["sync_warehouse_account_properties_activity"],
         "SyncWarehouseAccountPropertiesWorkflow": [
@@ -347,7 +422,11 @@ async def test_legacy_workflow_replays_histories_from_before_and_after_the_telem
     [
         (dict(_SOURCE_COUNTS), "completed", None),
         (RuntimeError("warehouse unavailable"), "failed", "RuntimeError"),
-        (AccountPropertySourceValueError("bad value"), "failed", "AccountPropertySourceValueError"),
+        (
+            AccountPropertySourceValueError("bad value", counts=_FAILED_COUNTS),
+            "failed",
+            "AccountPropertySourceValueError",
+        ),
         (asyncio.CancelledError(), "cancelled", None),
     ],
 )
@@ -373,6 +452,8 @@ async def test_sync_activity_reports_attempt_lifecycle(
                 await sync_warehouse_account_properties_activity(_segment_input())
             if isinstance(runtime_result, AccountPropertySourceValueError):
                 assert isinstance(raised.value, ApplicationError) and raised.value.non_retryable
+                assert raised.value.type == "AccountPropertySourceValueError"
+                assert raised.value.details == (_FAILED_COUNTS,)
         else:
             assert await sync_warehouse_account_properties_activity(_segment_input()) == runtime_result
 
@@ -383,4 +464,8 @@ async def test_sync_activity_reports_attempt_lifecycle(
     }
     assert events[1]["error_type"] == expected_error_type
     assert events[1]["duration_seconds"] is not None
-    assert events[1]["counts"] == (runtime_result if expected_status == "completed" else None)
+    expected_counts = runtime_result if isinstance(runtime_result, dict) else None
+    if isinstance(runtime_result, AccountPropertySourceValueError):
+        expected_counts = _FAILED_COUNTS
+    assert events[1]["counts"] == expected_counts
+    assert events[1]["source_count"] == (None if expected_counts is None else expected_counts["source_count"])
