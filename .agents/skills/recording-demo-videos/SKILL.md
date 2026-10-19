@@ -17,7 +17,7 @@ A demo video shows a feature working, from the first click to the proof that it 
 The recorder drives the real app on the local stack, so what the viewer sees is what the code does.
 It writes a short MP4, usually under a minute, a contact sheet of frames to review, and a log.
 
-The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a cursor for each step, terminal cards for API calls, and an end card.
+The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a pointer that glides to each click, terminal cards for API calls, and an end card.
 Waits for page loads and data are cut, so the video moves at reading speed.
 A voiceover can read the captions, a music bed can sit under it, and a step can pop in a hedgehog sticker with a short sound.
 

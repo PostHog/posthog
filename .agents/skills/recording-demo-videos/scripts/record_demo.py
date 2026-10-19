@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import json
+import math
 import time
 import base64
 import shutil
@@ -174,10 +175,13 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
   const ensure = () => {
     if (!document.body || document.getElementById('__demo_cursor')) return;
     if (C.fontCss) { const s = document.createElement('style'); s.textContent = C.fontCss; document.head.appendChild(s); }
+    // A pointer arrow drawn larger than life, so it reads in a scaled-down video. The tip is the hotspot.
     const cursor = document.createElement('div'); cursor.id = '__demo_cursor';
-    cursor.style.cssText = 'position:fixed;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;'
-      + 'background:' + C.accent + '55;border:2px solid ' + C.accent + ';z-index:2147483647;pointer-events:none;'
-      + 'transition:transform .08s;transform:translate(-100px,-100px)';
+    cursor.style.cssText = 'position:fixed;left:0;top:0;width:34px;height:34px;margin:-3px 0 0 -6px;z-index:2147483647;'
+      + 'pointer-events:none;transform-origin:6px 3px;transition:transform .08s;transform:translate(-100px,-100px)';
+    cursor.innerHTML = '<svg viewBox="0 0 24 24" width="34" height="34" style="filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))">'
+      + '<path d="M5.5 3.2v16.1l4.2-4.1 2.7 6.2 2.6-1.1-2.7-6.1h5.9z" fill="#111" stroke="#fff" stroke-width="1.6" '
+      + 'stroke-linejoin="round"/></svg>';
     document.body.appendChild(cursor);
     const cap = document.createElement('div'); cap.id = '__demo_caption';
     cap.style.cssText = 'position:fixed;left:50%;bottom:32px;transform:translateX(-50%);max-width:1080px;padding:14px 24px;'
@@ -185,10 +189,23 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
       + 'font:700 21px/1.35 RoundHog,-apple-system,Inter,sans-serif;z-index:2147483646;pointer-events:none;'
       + 'text-align:left;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none';
     document.body.appendChild(cap);
-    let x = -100, y = -100, s = 1;
+    let x = window.__demoCursorAt ? window.__demoCursorAt[0] : -100;
+    let y = window.__demoCursorAt ? window.__demoCursorAt[1] : -100;
+    let s = 1;
     const paint = () => { cursor.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
+    paint();
+    window.__demoMoveCursor = (nx, ny) => { x = nx; y = ny; paint(); };
     document.addEventListener('mousemove', e => { x = e.clientX; y = e.clientY; paint(); }, true);
-    document.addEventListener('mousedown', () => { s = 0.7; paint(); }, true);
+    document.addEventListener('mousedown', e => {
+      s = 0.85; paint();
+      const ring = document.createElement('div');
+      ring.style.cssText = 'position:fixed;left:' + e.clientX + 'px;top:' + e.clientY + 'px;width:40px;height:40px;'
+        + 'margin:-20px 0 0 -20px;border-radius:50%;border:3px solid ' + C.accent + ';z-index:2147483646;pointer-events:none;'
+        + 'transform:scale(.3);opacity:.9;transition:transform .45s ease-out,opacity .45s ease-out';
+      document.body.appendChild(ring);
+      requestAnimationFrame(() => requestAnimationFrame(() => { ring.style.transform = 'scale(1.4)'; ring.style.opacity = '0'; }));
+      setTimeout(() => ring.remove(), 500);
+    }, true);
     document.addEventListener('mouseup', () => { s = 1; paint(); }, true);
   };
   const hide = () => {
@@ -231,6 +248,7 @@ def card_html(brand: Brand, heading: str, subheading: str, hog: str, dark: bool 
     logo = brand.logos.get("white" if dark else "color", "")
     hog_img = f'<img src="{hog}" style="width:340px;height:340px;object-fit:contain">' if hog else ""
     return f"""<!doctype html><html><head><style>{brand.font_css}
+#__demo_cursor{{display:none!important}}
 body{{margin:0;height:100vh;background:{bg};color:{fg};font-family:RoundHog,-apple-system,Inter,sans-serif;
 display:flex;align-items:center;justify-content:center;overflow:hidden}}
 .logo{{position:absolute;top:44px;left:56px;width:180px}}
@@ -244,6 +262,7 @@ p{{font-weight:500;font-size:28px;line-height:1.35;margin:0;opacity:.8}}
 
 def terminal_html(brand: Brand, title: str) -> str:
     return f"""<!doctype html><html><head><style>{brand.font_css}
+#__demo_cursor{{display:none!important}}
 body{{margin:0;height:100vh;background:{brand.colors["dark"]};color:#d4d4d4;font:17px/1.6 Menlo,Consolas,monospace}}
 .logo{{position:absolute;top:36px;right:48px;width:140px;opacity:.9}}
 .title{{font:700 26px RoundHog,-apple-system,sans-serif;color:{brand.colors["cream"]};margin-bottom:24px}}
@@ -414,6 +433,7 @@ class Recorder:
         self.pop: Path | None = None
         self.voice_log: list[dict[str, Any]] = []
         self.base = Path(".")
+        self.mouse: tuple[float, float] = (720.0, 450.0)
 
     def now(self) -> float:
         return time.monotonic() - self.t0
@@ -483,8 +503,30 @@ class Recorder:
         await loc.scroll_into_view_if_needed()
         box = await loc.bounding_box()
         if box:
-            await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=25)
-            await asyncio.sleep(0.25)
+            await self.move_mouse(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            await asyncio.sleep(0.2)
+
+    async def move_mouse(self, page: Page, x: float, y: float) -> None:
+        # Ease in and out along a slight arc, over a time that grows with the distance, like a hand moves.
+        x0, y0 = self.mouse
+        distance = math.hypot(x - x0, y - y0)
+        frames = max(8, min(36, int(distance / 28)))
+        bend = min(distance * 0.08, 40)
+        for i in range(1, frames + 1):
+            t = i / frames
+            eased = 4 * t**3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
+            arc = math.sin(math.pi * eased) * bend
+            await page.mouse.move(x0 + (x - x0) * eased, y0 + (y - y0) * eased - arc)
+            await asyncio.sleep(1 / FPS)
+        self.mouse = (x, y)
+
+    async def restore_cursor(self, page: Page) -> None:
+        # A new page starts without a pointer. Put it back where it was, so it does not jump in from a corner.
+        x, y = self.mouse
+        await page.evaluate(
+            "([x, y]) => { window.__demoCursorAt = [x, y]; window.__demoMoveCursor && window.__demoMoveCursor(x, y); }",
+            [x, y],
+        )
 
     async def log_in(self, context: BrowserContext) -> None:
         login = self.sb.get("login", {"email": "test@posthog.com", "password": "12345678"})
@@ -561,6 +603,11 @@ class Recorder:
         await asyncio.sleep(spec.get("hold", 1.5 if self.voice else 3))
         await self.finish_speaking()
 
+    async def load(self, page: Page, step: dict[str, Any]) -> None:
+        await page.goto(self.url(step["goto"]), timeout=FIRST_LOAD_TIMEOUT_MS)
+        if "wait_for" in step:
+            await self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS)
+
     async def step(self, page: Page, step: dict[str, Any], key: str) -> None:
         if "card" in step:
             await self.card(page, step["card"], key)
@@ -569,9 +616,8 @@ class Recorder:
             await self.http(page, step["http"], key)
             return
         if "goto" in step:
-            await self.waited(page.goto(self.url(step["goto"]), timeout=FIRST_LOAD_TIMEOUT_MS), keep=0.2)
-        if "wait_for" in step and "goto" in step:
-            await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS), keep=0.2)
+            await self.waited(self.load(page, step), keep=0)
+            await self.restore_cursor(page)
         if "caption" in step:
             await self.caption(page, step["caption"])
         self.speak(key)
@@ -751,7 +797,8 @@ def encode(
     else:
         chains.append("[front]anull[mixed]")
     # -16 LUFS, the usual level for web video, so it plays as loud as other videos in Slack or Loom.
-    chains.append("[mixed]loudnorm=I=-16:TP=-1.5:LRA=11[aout]")
+    # apad keeps the audio running to the end of the video, so -shortest never cuts the video short.
+    chains.append("[mixed]loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
     graph = ";".join(chains)
     subprocess.run(
         [
