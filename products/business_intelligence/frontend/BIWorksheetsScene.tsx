@@ -41,7 +41,7 @@ export function BIWorksheetsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Worksheets"
+                name="Business Intelligence"
                 description="Explore your data with visual worksheets."
                 resourceType={{ type: 'business_intelligence' }}
                 actions={

@@ -259,6 +259,9 @@ export const NarrowView: Story = {
 }
 
 export const PaginatedColumns: Story = {
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: /^Columns/ }))
+    },
     parameters: {
         msw: {
             mocks: {

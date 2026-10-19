@@ -129,6 +129,18 @@ export const AiObservabilityOfflineExperimentsCreateBody = /* @__PURE__ */ zod.o
         .describe('Version of the prompt under evaluation.'),
 })
 
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax = 255
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax = 100
+
+export const AiObservabilityOfflineExperimentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax))
+        .max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+})
+
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
@@ -416,12 +428,21 @@ export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
 /**
  * Create an empty dataset. Its first revision is created with its first item.
  */
+export const datasetsCreateBodyTagsItemMax = 255
+
+export const datasetsCreateBodyTagsMax = 100
+
 export const datasetsCreateBodyNameMax = 400
 
 export const datasetsCreateBodyDescriptionDefault = ``
 export const datasetsCreateBodyDescriptionMax = 10000
 
 export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsCreateBodyTagsItemMax))
+        .max(datasetsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
     description: zod
         .string()
@@ -437,11 +458,20 @@ export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Update descriptive dataset fields without changing its revision.
  */
+export const datasetsPartialUpdateBodyTagsItemMax = 255
+
+export const datasetsPartialUpdateBodyTagsMax = 100
+
 export const datasetsPartialUpdateBodyNameMax = 400
 
 export const datasetsPartialUpdateBodyDescriptionMax = 10000
 
 export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsPartialUpdateBodyTagsItemMax))
+        .max(datasetsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(datasetsPartialUpdateBodyNameMax)
@@ -2129,7 +2159,12 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
@@ -2176,7 +2211,12 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
@@ -2224,7 +2264,12 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
@@ -2271,7 +2316,12 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
@@ -2310,6 +2360,10 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('Human-readable queue name.'),
 })
 
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
@@ -2320,6 +2374,11 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelM
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
@@ -2435,9 +2494,18 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .describe('Initial immutable scorer configuration.'),
 })
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
