@@ -2006,6 +2006,36 @@ describe('sqlEditorLogic', () => {
             expect(createCohort).toHaveBeenCalledWith({ name: 'Pro people', is_static: true, query })
             openForm.mockRestore()
         })
+
+        it('preserves constant bindings when saving a SQL cohort', async () => {
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT id FROM persons WHERE properties.plan = {plan}',
+                values: { plan: 'pro' },
+            }
+            const createCohort = jest.fn((body: Record<string, unknown>) => [201, { id: 42, ...body }])
+            useMocks({
+                post: {
+                    '/api/cohort/': async ({ request }) => createCohort(await request.json()),
+                },
+            })
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic = sqlEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            logic.actions.setQueryInput(query.query)
+            logic.actions.setSourceQuery({ kind: NodeKind.DataVisualizationNode, source: query })
+
+            const scene = editorSceneLogic({ tabId: TAB_ID })
+            scene.mount()
+            scene.actions.saveAsCohort()
+            await expectLogic(scene).toFinishAllListeners()
+
+            const form = openForm.mock.calls.at(-1)?.[0]
+            expect(form).toBeTruthy()
+            await expectLogic(exportsLogic(), () => form!.onSubmit({ name: 'Pro people' })).toFinishAllListeners()
+            expect(createCohort).toHaveBeenCalledWith({ name: 'Pro people', is_static: true, query })
+            openForm.mockRestore()
+        })
     })
 
     describe('save dialog selection guard', () => {

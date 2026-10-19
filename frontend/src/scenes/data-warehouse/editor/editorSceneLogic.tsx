@@ -690,8 +690,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             void copyToClipboard(shareUrl.toString(), 'share link')
         },
         saveAsCohort: () => {
-            const { query, variables, filters } = values.sourceQuery.source
-            openSaveAsCohortDialog(actions.createStaticCohort, values.queryInput ?? query, variables, filters)
+            const { query, variables, filters, values: queryValues } = values.sourceQuery.source
+            openSaveAsCohortDialog(
+                actions.createStaticCohort,
+                values.queryInput ?? query,
+                variables,
+                filters,
+                queryValues
+            )
         },
     })),
     selectors({
