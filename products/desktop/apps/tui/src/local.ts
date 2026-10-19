@@ -14,7 +14,7 @@ import { emptyRunView, type RunView } from "./runs";
 import { type ShellResult, shellMessage } from "./shell";
 
 // Local chats reuse the cloud transcript path, which reads pi events from log entries.
-const asEntry = (event: AgentConversationEvent): StoredLogEntry => ({
+export const asEntry = (event: AgentConversationEvent): StoredLogEntry => ({
   type: "pi_event",
   event,
 });

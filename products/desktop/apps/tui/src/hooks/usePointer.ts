@@ -65,6 +65,7 @@ export function usePointer({
   setNavigating,
   setCollapsed,
   setScope,
+  offset,
   setLayout,
   chatIn,
   chats,
@@ -81,6 +82,8 @@ export function usePointer({
   setNavigating: (navigating: boolean) => void;
   setCollapsed: (workspaceId: string, collapsed: boolean) => void;
   setScope: (scope: ChatScope) => void;
+  // The first list row the sidebar shows under its heading.
+  offset: number;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   chatIn: (paneId: string) => ChatView;
   chats: () => Iterable<ChatView>;
@@ -112,7 +115,8 @@ export function usePointer({
     const sidebar = sidebarBox.current && boxOf(sidebarBox.current);
     if (sidebar && hitTest(click, [["sidebar", sidebar]])) {
       const onScreen = click.row - sidebar.top;
-      const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
+      const index =
+        onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP + offset);
       const row = rows[index];
       // A click on a workspace's title folds it, or opens it, which unfolds it; one on a chat opens the chat.
       if (row?.kind === "workspace" && row.expanded) {

@@ -1,5 +1,11 @@
 import type { Task } from "@posthog/shared";
-import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { focusSidebar, type LayoutState } from "../layout";
 import type { LocalAgent } from "../local";
 import type { ChatScope, PinnedChat } from "../prefs";
@@ -11,6 +17,7 @@ import {
   selectionKey,
   sidebarRows,
   type WorkPage,
+  windowOffset,
 } from "../sidebar";
 
 export interface SidebarState {
@@ -24,6 +31,9 @@ export interface SidebarState {
   // Moves the sidebar cursor and hands focus to that chat, so typing goes straight to it.
   navigate: (step: 1 | -1) => void;
   setCollapsed: (workspaceId: string, collapsed: boolean) => void;
+  // The first list row on screen under the heading, and how many rows fit.
+  offset: number;
+  lines: number;
 }
 
 export function useSidebar({
@@ -42,6 +52,7 @@ export function useSidebar({
   showToday,
   pinned,
   scope,
+  lines,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -58,6 +69,8 @@ export function useSidebar({
   showToday: boolean;
   pinned: PinnedChat[];
   scope: ChatScope;
+  // Rows the list under the heading has on screen; 0 before the screen is measured.
+  lines: number;
 }): SidebarState {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The cursor follows a row's identity, since previewing a chat can move rows.
@@ -97,7 +110,16 @@ export function useSidebar({
     ],
   );
   const selectedIndex = cursorIndex(rows, selected);
+  const offsetRef = useRef(0);
+  offsetRef.current = windowOffset(
+    offsetRef.current,
+    selectedIndex,
+    rows.length,
+    lines,
+  );
   return {
+    offset: offsetRef.current,
+    lines,
     rows,
     selectedIndex,
     navigating,

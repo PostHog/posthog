@@ -91,6 +91,8 @@ function useRunView(
   runs: CloudRuns | null,
   task: Task | undefined,
   local: LocalAgent | undefined,
+  // A local chat's saved conversation, shown until its agent starts on the first message.
+  history: ((taskId: string) => Promise<RunView | null>) | undefined,
 ): { view: RunView; loadOlder: () => void } {
   const taskId = task?.id;
   const run = task?.latest_run;
@@ -113,6 +115,21 @@ function useRunView(
         stop();
       };
     }
+    if (taskId && history) {
+      let left = false;
+      const window = windowed(setView);
+      localWindow.current = window;
+      history(taskId).then(
+        (saved) => {
+          if (!left && saved) window.publish(saved);
+        },
+        () => {},
+      );
+      return () => {
+        left = true;
+        localWindow.current = null;
+      };
+    }
     if (!taskId || !cloudRunId || !runs) return;
     const current = runs.watch(taskId, cloudRunId, setView, {
       withEarlierRuns,
@@ -122,7 +139,7 @@ function useRunView(
       subscription.current = null;
       current.stop();
     };
-  }, [runs, taskId, cloudRunId, local, withEarlierRuns]);
+  }, [runs, taskId, cloudRunId, local, history, withEarlierRuns]);
   return {
     view,
     loadOlder: () =>
@@ -138,6 +155,7 @@ export function Pane({
   task,
   runs,
   local,
+  history,
   isLocalPane,
   newChatPlace,
   banner = [],
@@ -178,6 +196,8 @@ export function Pane({
   runs: CloudRuns | null;
   // Set when this pane shows a chat running on this machine.
   local: LocalAgent | undefined;
+  // Set for a chat on this machine whose agent has not started: its saved conversation.
+  history?: (taskId: string) => Promise<RunView | null>;
   // True for a chat on this machine, also before its agent has started.
   isLocalPane: boolean;
   // Where a new chat typed here would run.
@@ -250,7 +270,7 @@ export function Pane({
   const paneSize = useBoxMetrics(pane);
   const width = Math.max(0, paneSize.width - 2);
   const height = Math.max(0, paneSize.height - 1);
-  const { view, loadOlder } = useRunView(runs, task, local);
+  const { view, loadOlder } = useRunView(runs, task, local, history);
   const transcript = useMemo(
     () =>
       // A local agent's log holds its first message; a cloud run's omits it, so the task's description stands in.
@@ -552,11 +572,13 @@ export function Pane({
           </Text>
         </Box>
       );
-  else if (isLocalPane && !local)
-    content = <Spinner label="Starting local agent…" />;
+  else if (isLocalPane && !local && !view.loaded)
+    content = (
+      <Spinner label={pending ? "Starting local agent…" : "Loading chat"} />
+    );
   else if (paneTaskId && !task && !local && !pending)
     content = <Spinner label="Loading chat" />;
-  else if (task && !run && !local)
+  else if (task && !run && !local && !isLocalPane)
     content = <Text dimColor>This task has no runs yet.</Text>;
   else if (run?.environment === "local")
     content = <Text dimColor>Local runs can't be opened here yet.</Text>;

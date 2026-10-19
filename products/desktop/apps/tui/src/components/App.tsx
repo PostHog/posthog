@@ -69,7 +69,7 @@ import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
-import { Sidebar } from "./Sidebar";
+import { CHROME_ROWS, Sidebar } from "./Sidebar";
 import { Welcome } from "./Welcome";
 
 export interface Session {
@@ -159,6 +159,7 @@ export function App({
     localSessions,
     clear: clearLocal,
     localActive,
+    historyOf,
     markActive,
     refreshActive: refreshLocalActive,
     prompts,
@@ -407,6 +408,7 @@ export function App({
     showToday,
     pinned,
     scope,
+    lines: Math.max(0, area.height - CHROME_ROWS),
   });
   const caughtUp = [...titles].filter(
     ([taskId, title]) => taskOf(taskId)?.title === title,
@@ -476,6 +478,7 @@ export function App({
     setNavigating: sidebar.setNavigating,
     setCollapsed: sidebar.setCollapsed,
     setScope: switchScope,
+    offset: sidebar.offset,
     setLayout,
     chatIn,
     chats: allChats,
@@ -574,6 +577,11 @@ export function App({
       task={taskOf(node.taskId)}
       runs={runs ?? null}
       local={isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined}
+      history={
+        isLocal(node.taskId) && !localSessions.has(node.taskId)
+          ? historyOf
+          : undefined
+      }
       isLocalPane={runsLocally(node.id, node.taskId)}
       newChatPlace={placeFor(node.id)}
       banner={bannerLines({
@@ -674,6 +682,8 @@ export function App({
         selectedIndex={sidebar.selectedIndex}
         activePaneId={workspace.focusedPaneId}
         narrow={narrowSidebar}
+        offset={sidebar.offset}
+        lines={sidebar.lines}
       />
       {area.hasMeasured && (
         <DividerColumn x={-1} y={0} height={area.height} glyph={glyph} />

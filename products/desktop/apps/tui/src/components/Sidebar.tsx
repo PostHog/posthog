@@ -45,6 +45,8 @@ const Tabs = ({ scope }: { scope: ChatScope }): ReactElement => (
 
 // Blank rows under the header; clicks on the sidebar skip them.
 export const HEADER_GAP = 1;
+// Rows the sidebar spends outside its list: the heading, its gap, and the footer.
+export const CHROME_ROWS = HEADER_GAP + 2;
 
 // The same brand stripes phrocs draws in its header (tools/phrocs/internal/palette).
 export const BRAND_STRIPES = ["#1D4AFF", "#F04438", "#F7A501", "#151515"];
@@ -263,6 +265,8 @@ export const Sidebar = memo(function Sidebar({
   selectedIndex,
   activePaneId,
   narrow = false,
+  offset = 0,
+  lines = 0,
   // The hour the Today row's sky follows; the clock's, unless a test pins it.
   hour = new Date().getHours(),
 }: {
@@ -273,6 +277,9 @@ export const Sidebar = memo(function Sidebar({
   selectedIndex: number;
   activePaneId: string | null;
   narrow?: boolean;
+  // The window over the rows under the heading: where it starts, and how many rows it holds (0: all of them).
+  offset?: number;
+  lines?: number;
   hour?: number;
 }): ReactElement {
   // With focus the bar follows the cursor; without it, it marks the focused pane's task.
@@ -295,24 +302,31 @@ export const Sidebar = memo(function Sidebar({
       paddingX={1}
       overflow="hidden"
     >
-      {rows.map((row, index) => (
-        <Box
-          key={rowKey(row, index)}
-          marginBottom={row.kind === "heading" ? HEADER_GAP : 0}
-        >
-          <Text wrap="truncate-end">
-            {narrow ? (
-              <NarrowRow
-                row={row}
-                selected={highlighted(row, index)}
-                hour={hour}
-              />
-            ) : (
-              <Row row={row} selected={highlighted(row, index)} hour={hour} />
-            )}
-          </Text>
-        </Box>
-      ))}
+      {rows
+        .flatMap((row, index) =>
+          index === 0 ||
+          (index > offset && (lines <= 0 || index <= offset + lines))
+            ? [[row, index] as const]
+            : [],
+        )
+        .map(([row, index]) => (
+          <Box
+            key={rowKey(row, index)}
+            marginBottom={row.kind === "heading" ? HEADER_GAP : 0}
+          >
+            <Text wrap="truncate-end">
+              {narrow ? (
+                <NarrowRow
+                  row={row}
+                  selected={highlighted(row, index)}
+                  hour={hour}
+                />
+              ) : (
+                <Row row={row} selected={highlighted(row, index)} hour={hour} />
+              )}
+            </Text>
+          </Box>
+        ))}
       <Box flexGrow={1} />
       <Text
         dimColor={!notice}
