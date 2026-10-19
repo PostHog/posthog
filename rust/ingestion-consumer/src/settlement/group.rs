@@ -1,22 +1,29 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
-use super::{ChargedSlice, Settlement, Uncommitted};
+use super::{ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
+use crate::partition_budget::BudgetLimits;
 
 pub(crate) struct GroupSettlement {
-    uncommitted: Uncommitted,
+    budget: PartitionBudget,
 }
 
 impl GroupSettlement {
-    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, commit_interval: Duration) -> Self {
+    pub(crate) fn new(
+        ledger: Arc<TopicOffsetLedger>,
+        commit_interval: Duration,
+        limits: BudgetLimits,
+    ) -> Self {
         Self {
-            uncommitted: Uncommitted::new(ledger, CommitPacer::every(commit_interval)),
+            budget: PartitionBudget::new(
+                Uncommitted::new(ledger, CommitPacer::every(commit_interval)),
+                limits,
+            ),
         }
     }
 }
@@ -27,9 +34,8 @@ impl Settlement for GroupSettlement {
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
-    ) -> Result<Held, Rejection> {
-        self.uncommitted
-            .charge(topic_partition, generation, charges)
+    ) -> Result<Option<Pause>, Rejection> {
+        self.budget.charge(topic_partition, generation, charges)
     }
 
     fn settle_run(
@@ -39,7 +45,7 @@ impl Settlement for GroupSettlement {
         offsets: &[Offset],
     ) -> anyhow::Result<()> {
         if let Err(rejection) =
-            self.uncommitted
+            self.budget
                 .settled(topic_partition, generation, offsets.iter().copied())
         {
             report_rejection(
@@ -59,31 +65,30 @@ impl Settlement for GroupSettlement {
         Ok(())
     }
 
-    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.uncommitted.take_due(now)
+    fn take_due(&self, now: Instant) -> Option<Commit> {
+        self.budget.take_due(now)
     }
 
-    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        self.uncommitted.take_all()
+    fn take_all(&self) -> Option<Commit> {
+        self.budget.take_all()
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.uncommitted.forget_partitions(topic_partitions);
-    }
-
-    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
-        self.uncommitted.uncommitted(topic_partition)
+        self.budget.forget_partitions(topic_partitions);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::super::charge_offsets;
     use super::*;
 
     fn settlement() -> (Arc<TopicOffsetLedger>, GroupSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
+        let settlement =
+            GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO, BudgetLimits::unset());
         (ledger, settlement)
     }
 
@@ -103,7 +108,9 @@ mod tests {
             .settle_run(&p0, 0, &[Offset(10), Offset(11)])
             .unwrap();
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([(p0, Offset(13))])),
             "the late completion releases the whole prefix"
         );
@@ -123,7 +130,9 @@ mod tests {
         settlement.settle_run(&p1, 0, &[Offset(21)]).unwrap();
 
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([(p0, Offset(12))])),
             "partition 1 waits for offset 20"
         );
@@ -139,7 +148,7 @@ mod tests {
         assert!(settlement.settle_run(&p0, 0, &[Offset(10)]).is_err());
 
         assert_eq!(
-            settlement.take_all(),
+            settlement.take_all().map(|commit| commit.offsets),
             Some(HashMap::from([(p0, Offset(11))])),
             "offset 10 completed before the violation"
         );
@@ -167,21 +176,25 @@ mod tests {
     #[test]
     fn a_frontier_within_the_interval_waits_for_it_unless_everything_is_taken() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
+        let settlement = GroupSettlement::new(
+            Arc::clone(&ledger),
+            Duration::from_secs(3600),
+            BudgetLimits::unset(),
+        );
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10, 11]);
         let now = Instant::now();
 
         settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
         assert_eq!(
-            settlement.take_due(now),
+            settlement.take_due(now).map(|commit| commit.offsets),
             Some(HashMap::from([(p0.clone(), Offset(11))]))
         );
 
         settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
         assert!(settlement.take_due(now).is_none());
         assert_eq!(
-            settlement.take_all(),
+            settlement.take_all().map(|commit| commit.offsets),
             Some(HashMap::from([(p0, Offset(12))]))
         );
     }
@@ -189,7 +202,11 @@ mod tests {
     #[test]
     fn a_revoked_partitions_pending_frontier_is_not_committed() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
+        let settlement = GroupSettlement::new(
+            Arc::clone(&ledger),
+            Duration::from_secs(3600),
+            BudgetLimits::unset(),
+        );
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10]);
         settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();

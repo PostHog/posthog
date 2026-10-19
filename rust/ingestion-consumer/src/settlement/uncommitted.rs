@@ -96,7 +96,7 @@ impl Uncommitted {
         }
     }
 
-    pub(super) fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
+    pub(super) fn of(&self, topic_partition: &TopicPartition) -> Held {
         self.ledger.held(topic_partition) + self.pacer.lock().unwrap().pending(topic_partition)
     }
 

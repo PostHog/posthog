@@ -13,7 +13,7 @@ use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
-use crate::partition_budget::PartitionBudget;
+use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
@@ -519,8 +519,8 @@ impl Config {
         .with_request_budget(self.request_budget()?))
     }
 
-    pub fn partition_budget(&self) -> Result<PartitionBudget, String> {
-        PartitionBudget::new(
+    pub fn partition_budget(&self) -> Result<BudgetLimits, String> {
+        BudgetLimits::new(
             NonZeroU64::new(self.consumer_partition_budget_events),
             NonZeroU64::new(self.consumer_partition_budget_bytes),
             self.consumer_partition_budget_low_watermark,

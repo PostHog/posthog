@@ -38,7 +38,7 @@ use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::partition_budget::PartitionBudget;
+use ingestion_consumer::partition_budget::BudgetLimits;
 use ingestion_consumer::rebalance::RebalanceContext;
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::worker_registry::{
@@ -720,7 +720,7 @@ impl Harness {
             None,
             CompletionGranularity::Poll,
             COMMIT_INTERVAL,
-            PartitionBudget::unset(),
+            BudgetLimits::unset(),
         )
         .await
     }
@@ -753,7 +753,7 @@ impl Harness {
             }),
             CompletionGranularity::Poll,
             COMMIT_INTERVAL,
-            PartitionBudget::unset(),
+            BudgetLimits::unset(),
         )
         .await
     }
@@ -781,7 +781,7 @@ impl Harness {
             None,
             CompletionGranularity::Poll,
             COMMIT_INTERVAL,
-            PartitionBudget::unset(),
+            BudgetLimits::unset(),
         )
         .await
     }
@@ -808,7 +808,7 @@ impl Harness {
             None,
             CompletionGranularity::Poll,
             COMMIT_INTERVAL,
-            PartitionBudget::unset(),
+            BudgetLimits::unset(),
         )
         .await
     }
@@ -830,7 +830,7 @@ impl Harness {
             None,
             CompletionGranularity::Poll,
             COMMIT_INTERVAL,
-            PartitionBudget::unset(),
+            BudgetLimits::unset(),
         )
         .await
     }
@@ -874,12 +874,12 @@ impl Harness {
             None,
             CompletionGranularity::Group,
             commit_interval,
-            PartitionBudget::unset(),
+            BudgetLimits::unset(),
         )
         .await
     }
 
-    async fn start_with_partition_budget(topic: &str, partition_budget: PartitionBudget) -> Self {
+    async fn start_with_partition_budget(topic: &str, partition_budget: BudgetLimits) -> Self {
         Self::start_inner(
             topic,
             1,
@@ -912,7 +912,7 @@ impl Harness {
         budget: Option<RequestBudget>,
         completion_granularity: CompletionGranularity,
         commit_interval: Duration,
-        partition_budget: PartitionBudget,
+        partition_budget: BudgetLimits,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -1061,7 +1061,7 @@ impl Harness {
                 completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::clone(&self.ledger),
-                partition_budget: PartitionBudget::unset(),
+                partition_budget: BudgetLimits::unset(),
             },
             handle,
         );
@@ -1153,7 +1153,7 @@ impl Harness {
                 completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::new(TopicOffsetLedger::new()),
-                partition_budget: PartitionBudget::unset(),
+                partition_budget: BudgetLimits::unset(),
             },
             handle,
         );
@@ -2823,7 +2823,7 @@ async fn group_granularity_commits_a_partition_while_another_stalls() {
 #[tokio::test]
 async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it() {
     let topic = format!("e2e-partition-budget-{}", Uuid::new_v4());
-    let budget = PartitionBudget::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
     let harness = Harness::start_with_partition_budget(&topic, budget).await;
     let p0 = TopicPartition::new(&topic, 0);
     let guard = harness.workers[0].block().await;
@@ -3570,7 +3570,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             completion_granularity: CompletionGranularity::Poll,
             commit_interval: Duration::ZERO,
             ledger: Arc::new(TopicOffsetLedger::new()),
-            partition_budget: PartitionBudget::unset(),
+            partition_budget: BudgetLimits::unset(),
         },
         handle,
     );

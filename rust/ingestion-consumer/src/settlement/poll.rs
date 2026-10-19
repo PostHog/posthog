@@ -1,23 +1,26 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::counter;
 use tracing::warn;
 
-use super::{ChargedSlice, Settlement, Uncommitted};
+use super::{ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
+use crate::partition_budget::BudgetLimits;
 
 pub(crate) struct PollSettlement {
-    uncommitted: Uncommitted,
+    budget: PartitionBudget,
 }
 
 impl PollSettlement {
-    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>) -> Self {
+    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, limits: BudgetLimits) -> Self {
         Self {
-            uncommitted: Uncommitted::new(ledger, CommitPacer::immediate()),
+            budget: PartitionBudget::new(
+                Uncommitted::new(ledger, CommitPacer::immediate()),
+                limits,
+            ),
         }
     }
 }
@@ -28,9 +31,8 @@ impl Settlement for PollSettlement {
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
-    ) -> Result<Held, Rejection> {
-        self.uncommitted
-            .charge(topic_partition, generation, charges)
+    ) -> Result<Option<Pause>, Rejection> {
+        self.budget.charge(topic_partition, generation, charges)
     }
 
     fn settle_run(
@@ -51,7 +53,7 @@ impl Settlement for PollSettlement {
             return Ok(());
         }
 
-        if let Some(no_frontier) = settle_slices(&self.uncommitted, slices)? {
+        if let Some(no_frontier) = settle_slices(&self.budget, slices)? {
             let reason = no_frontier.reason();
             counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
             warn!(reason, "Poll handed over no frontier; nothing to commit");
@@ -59,20 +61,16 @@ impl Settlement for PollSettlement {
         Ok(())
     }
 
-    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.uncommitted.take_due(now)
+    fn take_due(&self, now: Instant) -> Option<Commit> {
+        self.budget.take_due(now)
     }
 
-    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        self.uncommitted.take_all()
+    fn take_all(&self) -> Option<Commit> {
+        self.budget.take_all()
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.uncommitted.forget_partitions(topic_partitions);
-    }
-
-    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
-        self.uncommitted.uncommitted(topic_partition)
+        self.budget.forget_partitions(topic_partitions);
     }
 }
 
@@ -91,13 +89,13 @@ impl NoFrontier {
 }
 
 fn settle_slices(
-    uncommitted: &Uncommitted,
+    budget: &PartitionBudget,
     slices: &[ChargedSlice<'_>],
 ) -> anyhow::Result<Option<NoFrontier>> {
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let frontier = match uncommitted.settled(
+        let frontier = match budget.settled(
             slice.topic_partition,
             slice.generation,
             slice.charges.iter().map(|(offset, _)| *offset),
@@ -125,6 +123,8 @@ fn settle_slices(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use common_kafka_consumer::Charge;
 
     use super::*;
@@ -132,7 +132,7 @@ mod tests {
 
     fn settlement() -> (Arc<TopicOffsetLedger>, PollSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = PollSettlement::new(Arc::clone(&ledger));
+        let settlement = PollSettlement::new(Arc::clone(&ledger), BudgetLimits::unset());
         (ledger, settlement)
     }
 
@@ -180,7 +180,9 @@ mod tests {
         settlement.settle_poll(&[p0.slice(), p1.slice()]).unwrap();
 
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([
                 (p0.topic_partition, Offset(12)),
                 (p1.topic_partition, Offset(22)),
@@ -199,7 +201,9 @@ mod tests {
 
         settlement.settle_poll(&[older.slice()]).unwrap();
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([(older.topic_partition, Offset(14))]))
         );
     }
@@ -232,7 +236,9 @@ mod tests {
 
         settlement.settle_poll(&[poll.slice()]).unwrap();
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([(poll.topic_partition, Offset(12))]))
         );
     }

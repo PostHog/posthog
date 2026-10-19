@@ -1,18 +1,21 @@
 //! When accepted offsets reach the ledger and the commit pacer: per poll or per group.
 
+mod budget;
 mod group;
 mod poll;
 mod uncommitted;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use crate::config::CompletionGranularity;
 use crate::order_sentinel::OffsetSpan;
+use crate::partition_budget::BudgetLimits;
 
+use budget::PartitionBudget;
+pub(crate) use budget::{Commit, Pause};
 pub(crate) use group::GroupSettlement;
 pub(crate) use poll::PollSettlement;
 use uncommitted::Uncommitted;
@@ -30,7 +33,7 @@ pub(crate) trait Settlement: Send + Sync {
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
-    ) -> Result<Held, Rejection>;
+    ) -> Result<Option<Pause>, Rejection>;
 
     /// Accepted offsets from one poll's slice of a partition, charged under `generation`.
     fn settle_run(
@@ -43,23 +46,24 @@ pub(crate) trait Settlement: Send + Sync {
     /// The oldest poll retired with every message accepted.
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()>;
 
-    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
+    fn take_due(&self, now: Instant) -> Option<Commit>;
 
-    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>>;
+    fn take_all(&self) -> Option<Commit>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
-
-    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held;
 }
 
 pub(crate) fn for_granularity(
     granularity: CompletionGranularity,
     ledger: Arc<TopicOffsetLedger>,
     commit_interval: Duration,
+    limits: BudgetLimits,
 ) -> Arc<dyn Settlement> {
     match granularity {
-        CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger)),
-        CompletionGranularity::Group => Arc::new(GroupSettlement::new(ledger, commit_interval)),
+        CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger, limits)),
+        CompletionGranularity::Group => {
+            Arc::new(GroupSettlement::new(ledger, commit_interval, limits))
+        }
     }
 }
 
