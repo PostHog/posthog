@@ -73,6 +73,9 @@ def test_new_queries_are_versioned_for_existing_histories() -> None:
         "usage-report-logs-distinct-patterns-query-2026-10",
     )
     assert {spec.name for spec in _queries_for_applied_patches(set())}.isdisjoint(gated)
+    sandbox_only = {spec.name for spec in _queries_for_applied_patches({QUERY_PATCH_IDS[0]})}
+    assert "sandbox_compute_usage" in sandbox_only
+    assert "teams_with_logs_distinct_patterns_in_period" not in sandbox_only
     assert _queries_for_applied_patches(set(QUERY_PATCH_IDS)) == QUERIES
 
 
