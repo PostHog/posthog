@@ -9,15 +9,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AppContext, HogFunctionTemplateType, UserType } from '~/types'
 
-import { hogFlowsCreate } from '../generated/api'
 import {
     DESTINATION_WORKFLOW_SUGGESTION_SEEN_KEY,
     destinationWorkflowSuggestionLogic,
 } from './destinationWorkflowSuggestionLogic'
-
-jest.mock('../generated/api', () => ({
-    hogFlowsCreate: jest.fn(),
-}))
 
 const template = (id: string): HogFunctionTemplateType =>
     ({ id, type: 'destination', name: id, inputs_schema: [] }) as unknown as HogFunctionTemplateType
@@ -44,6 +39,7 @@ describe('destinationWorkflowSuggestionLogic', () => {
     it.each([
         ['suggests it for a messaging destination', 'template-customerio', {}, AccessControlLevel.Editor, true],
         ['skips a destination that is not messaging', 'template-webhook', {}, AccessControlLevel.Editor, false],
+        ['skips team chat, which Workflows does not replace', 'template-slack', {}, AccessControlLevel.Editor, false],
         [
             'skips a user who answered before',
             'template-customerio',
@@ -51,7 +47,7 @@ describe('destinationWorkflowSuggestionLogic', () => {
             AccessControlLevel.Editor,
             false,
         ],
-        ['skips a user who cannot edit workflows', 'template-slack', {}, AccessControlLevel.Viewer, false],
+        ['skips a user who cannot edit workflows', 'template-customerio', {}, AccessControlLevel.Viewer, false],
     ])('%s', (_label, templateId, seen, workflowAccess, expected) => {
         setUp(seen, workflowAccess)
 
@@ -59,12 +55,17 @@ describe('destinationWorkflowSuggestionLogic', () => {
     })
 
     it.each([
-        ['remembers the answer after continuing with the destination', 'continueWithDestination', true],
-        ['remembers the answer after creating the workflow', 'createWorkflow', true],
-        ['asks again after the modal is closed', 'closeSuggestion', false],
-    ] as const)('%s', async (_label, action, remembered) => {
+        [
+            'goes to the destination and remembers the answer',
+            'continueWithDestination',
+            true,
+            /\/functions\/new\/template-customerio$/,
+        ],
+        ['goes to the workflow templates and remembers the answer', 'openWorkflows', true, /\/workflows\/templates$/],
+        ['stays on the list and asks again after the modal is closed', 'closeSuggestion', false, /\/pipeline$/],
+    ] as const)('%s', async (_label, action, remembered, path) => {
         setUp({}, AccessControlLevel.Editor)
-        jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
+        router.actions.push('/pipeline')
         logic.actions.openSuggestion(template('template-customerio'), '/functions/new/template-customerio')
 
         const seenAction = userLogic.actionCreators.updateHasSeenProductIntroFor(
@@ -77,20 +78,6 @@ describe('destinationWorkflowSuggestionLogic', () => {
             expectation.toNotHaveDispatchedActions([seenAction])
         }
         await expectation.toMatchValues({ template: null })
-    })
-
-    it('leaves the user on the page they went to when they leave before the draft is saved', async () => {
-        setUp({}, AccessControlLevel.Editor)
-        let saveDraft: (workflow: { id: string }) => void = () => {}
-        jest.mocked(hogFlowsCreate).mockReturnValue(new Promise((resolve) => (saveDraft = resolve)) as any)
-        logic.actions.openSuggestion(template('template-customerio'), '/functions/new/template-customerio')
-        logic.actions.createWorkflow()
-
-        router.actions.push('/insights')
-        logic.unmount()
-        saveDraft({ id: 'workflow-1' })
-        await new Promise((resolve) => setTimeout(resolve, 0))
-
-        expect(router.values.location.pathname).toMatch(/\/insights$/)
+        expect(router.values.location.pathname).toMatch(path)
     })
 })

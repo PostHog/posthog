@@ -7,8 +7,8 @@ import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionI
 import { destinationWorkflowSuggestionLogic } from './destinationWorkflowSuggestionLogic'
 
 export function DestinationWorkflowSuggestionModal(): JSX.Element {
-    const { template, creatingWorkflow } = useValues(destinationWorkflowSuggestionLogic)
-    const { closeSuggestion, continueWithDestination, createWorkflow } = useActions(destinationWorkflowSuggestionLogic)
+    const { template } = useValues(destinationWorkflowSuggestionLogic)
+    const { closeSuggestion, continueWithDestination, openWorkflows } = useActions(destinationWorkflowSuggestionLogic)
 
     return (
         <LemonModal
@@ -20,7 +20,7 @@ export function DestinationWorkflowSuggestionModal(): JSX.Element {
                     {template ? (
                         <HogFunctionIcon src={template.icon_url} className={template.icon_class_name} size="small" />
                     ) : null}
-                    <span>Create this as a workflow instead?</span>
+                    <span>Send these emails from PostHog instead?</span>
                 </div>
             }
             footer={
@@ -29,17 +29,15 @@ export function DestinationWorkflowSuggestionModal(): JSX.Element {
                         type="secondary"
                         data-attr="destination-workflow-suggestion-continue"
                         onClick={continueWithDestination}
-                        disabledReason={creatingWorkflow ? 'Creating the workflow' : undefined}
                     >
-                        Continue with destination
+                        Continue with {template?.name ?? 'destination'}
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        data-attr="destination-workflow-suggestion-create"
-                        onClick={createWorkflow}
-                        loading={creatingWorkflow}
+                        data-attr="destination-workflow-suggestion-open-workflows"
+                        onClick={openWorkflows}
                     >
-                        Create workflow
+                        See workflow templates
                     </LemonButton>
                 </div>
             }
@@ -47,12 +45,12 @@ export function DestinationWorkflowSuggestionModal(): JSX.Element {
             {template ? (
                 <div className="flex flex-col gap-2">
                     <p className="m-0">
-                        A workflow can send to {template.name} too. You can also add delays, branches, and email, SMS or
-                        push messages around it.
+                        PostHog Workflows sends email from your PostHog events and person properties. You don't have to
+                        stream everything to {template.name} first and build the campaigns there.
                     </p>
                     <p className="m-0 text-secondary">
-                        We'll create a draft workflow with a {template.name} step for you to finish. It stays off until
-                        you turn it on.
+                        Add delays, branches and conditions in one place, or start from a template such as a welcome
+                        email sequence.
                     </p>
                 </div>
             ) : null}
