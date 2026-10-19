@@ -180,8 +180,8 @@ describe("shouldAutoAcceptLocalApproval", () => {
 });
 
 describe("CodexAppServerAgent", () => {
-  const tokenUsage = (last: Record<string, number>) => ({
-    tokenUsage: { total: last, last, modelContextWindow: 200_000 },
+  const tokenUsage = (last: Record<string, number>, total = last) => ({
+    tokenUsage: { total, last, modelContextWindow: 200_000 },
   });
 
   it("logs session initialization diagnostics when thread setup fails", async () => {
@@ -3417,7 +3417,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("thread/tokenUsage/updated", {
       tokenUsage: {
         last: {
-          totalTokens: 45,
+          totalTokens: 40,
           inputTokens: 30,
           cachedInputTokens: 5,
           outputTokens: 10,
@@ -3428,7 +3428,7 @@ describe("CodexAppServerAgent", () => {
     const firstResult = await first;
     expect(firstResult).toMatchObject({
       stopReason: "end_turn",
-      usage: { totalTokens: 45 },
+      usage: { totalTokens: 40 },
     });
 
     const steer = stub.requests.find((r) => r.method === "turn/steer");
@@ -3662,7 +3662,7 @@ describe("CodexAppServerAgent", () => {
         cachedInputTokens: 50,
         outputTokens: 80,
         reasoningOutputTokens: 20,
-        totalTokens: 500,
+        totalTokens: 480,
       }),
     );
 
@@ -3680,13 +3680,22 @@ describe("CodexAppServerAgent", () => {
     stub.emit("turn/started", { threadId: "t", turn: { id: "turn_2" } });
     stub.emit(
       "thread/tokenUsage/updated",
-      tokenUsage({
-        inputTokens: 100,
-        cachedInputTokens: 10,
-        outputTokens: 20,
-        reasoningOutputTokens: 5,
-        totalTokens: 130,
-      }),
+      tokenUsage(
+        {
+          inputTokens: 100,
+          cachedInputTokens: 10,
+          outputTokens: 20,
+          reasoningOutputTokens: 5,
+          totalTokens: 120,
+        },
+        {
+          inputTokens: 500,
+          cachedInputTokens: 60,
+          outputTokens: 100,
+          reasoningOutputTokens: 25,
+          totalTokens: 600,
+        },
+      ),
     );
     stub.emit("turn/completed", {
       turn: { id: "turn_2", status: "completed" },
@@ -3699,7 +3708,7 @@ describe("CodexAppServerAgent", () => {
         outputTokens: 100,
         cachedReadTokens: 60,
         thoughtTokens: 25,
-        totalTokens: 630,
+        totalTokens: 600,
       },
     });
   });
@@ -3823,7 +3832,7 @@ describe("CodexAppServerAgent", () => {
         cachedInputTokens: 50,
         outputTokens: 80,
         reasoningOutputTokens: 20,
-        totalTokens: 500,
+        totalTokens: 480,
       }),
     );
 
@@ -3837,13 +3846,22 @@ describe("CodexAppServerAgent", () => {
 
     stub.emit(
       "thread/tokenUsage/updated",
-      tokenUsage({
-        inputTokens: 600,
-        cachedInputTokens: 70,
-        outputTokens: 120,
-        reasoningOutputTokens: 30,
-        totalTokens: 750,
-      }),
+      tokenUsage(
+        {
+          inputTokens: 200,
+          cachedInputTokens: 20,
+          outputTokens: 40,
+          reasoningOutputTokens: 10,
+          totalTokens: 240,
+        },
+        {
+          inputTokens: 600,
+          cachedInputTokens: 70,
+          outputTokens: 120,
+          reasoningOutputTokens: 30,
+          totalTokens: 720,
+        },
+      ),
     );
     stub.emit("turn/completed", {
       turn: { id: "turn_1", status: "completed" },
@@ -3856,7 +3874,7 @@ describe("CodexAppServerAgent", () => {
         outputTokens: 120,
         cachedReadTokens: 70,
         thoughtTokens: 30,
-        totalTokens: 750,
+        totalTokens: 720,
       },
     });
   });
@@ -4033,7 +4051,7 @@ describe("CodexAppServerAgent", () => {
       turnId: "turn_1",
       tokenUsage: {
         total: {
-          totalTokens: 100,
+          totalTokens: 90,
           inputTokens: 60,
           cachedInputTokens: 10,
           outputTokens: 30,
@@ -4053,7 +4071,7 @@ describe("CodexAppServerAgent", () => {
         cachedReadTokens: 10,
         cachedWriteTokens: 0,
         thoughtTokens: 5,
-        totalTokens: 100,
+        totalTokens: 90,
       },
     });
 
@@ -4068,7 +4086,7 @@ describe("CodexAppServerAgent", () => {
         outputTokens: 30,
         cachedReadTokens: 10,
         cachedWriteTokens: 0,
-        totalTokens: 100,
+        totalTokens: 90,
       },
     });
     // The breakdown variant carries a per-source `breakdown`, not `used`.
@@ -4080,7 +4098,7 @@ describe("CodexAppServerAgent", () => {
     expect(breakdown).toBeDefined();
   });
 
-  it("context-usage indicator reports the latest turn, not the cumulative thread total", async () => {
+  it("context-usage indicator reports the latest request, not the cumulative thread total", async () => {
     // The window-occupancy indicator must track `last`, not the cumulative `total`
     // (which over-reports the window as filling from accumulation alone).
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -4101,18 +4119,18 @@ describe("CodexAppServerAgent", () => {
     stub.emit("thread/tokenUsage/updated", {
       tokenUsage: {
         total: {
-          totalTokens: 433289,
-          inputTokens: 432636,
-          cachedInputTokens: 76928,
-          outputTokens: 595,
+          totalTokens: 880,
+          inputTokens: 800,
+          cachedInputTokens: 200,
+          outputTokens: 80,
         },
         last: {
-          totalTokens: 189075,
-          inputTokens: 111552,
-          cachedInputTokens: 76928,
-          outputTokens: 595,
+          totalTokens: 330,
+          inputTokens: 300,
+          cachedInputTokens: 120,
+          outputTokens: 30,
         },
-        modelContextWindow: 997500,
+        modelContextWindow: 10000,
       },
     });
     stub.emit("turn/completed", { turn: { status: "completed" } });
@@ -4123,15 +4141,14 @@ describe("CodexAppServerAgent", () => {
         n.method === "_posthog/usage_update" &&
         typeof (n.params as { used?: unknown }).used === "number",
     );
-    // `used` is last.totalTokens (189075), NOT total.totalTokens (433289).
     expect(usageUpdate?.params).toMatchObject({
-      used: 189075,
-      size: 997500,
-      usage: { inputTokens: 111552, totalTokens: 189075 },
+      used: 330,
+      size: 10000,
+      usage: { inputTokens: 300, totalTokens: 330 },
     });
   });
 
-  it("reports codex's per-turn `last` (not the cumulative total) in turn_complete", async () => {
+  it("reports all model requests once per prompt while keeping context usage separate", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client, extNotifications } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
@@ -4143,49 +4160,180 @@ describe("CodexAppServerAgent", () => {
       _meta: { taskRunId: "run_u" },
     } as unknown as NewSessionRequest);
 
-    // We let `last` drive the per-turn number rather than diffing the cumulative `total`.
+    const firstRequest = {
+      inputTokens: 100,
+      outputTokens: 10,
+      cachedInputTokens: 40,
+      reasoningOutputTokens: 2,
+      totalTokens: 110,
+    };
+    const nextRequest = {
+      inputTokens: 150,
+      outputTokens: 15,
+      cachedInputTokens: 70,
+      reasoningOutputTokens: 3,
+      totalTokens: 165,
+    };
     const t1 = agent.prompt({
       sessionId: "t",
       prompt: [{ type: "text", text: "a" }],
     } as unknown as PromptRequest);
-    stub.emit("thread/tokenUsage/updated", {
-      tokenUsage: {
-        total: { inputTokens: 100, outputTokens: 50 },
-        last: { inputTokens: 100, outputTokens: 50 },
-      },
+    stub.emit("thread/tokenUsage/updated", tokenUsage(firstRequest));
+    const secondUpdate = tokenUsage(nextRequest, {
+      inputTokens: 250,
+      outputTokens: 25,
+      cachedInputTokens: 110,
+      reasoningOutputTokens: 5,
+      totalTokens: 275,
     });
+    stub.emit("thread/tokenUsage/updated", secondUpdate);
+    stub.emit("thread/tokenUsage/updated", secondUpdate);
+    stub.emit(
+      "thread/tokenUsage/updated",
+      tokenUsage(nextRequest, {
+        inputTokens: 400,
+        outputTokens: 40,
+        cachedInputTokens: 180,
+        reasoningOutputTokens: 8,
+        totalTokens: 440,
+      }),
+    );
     stub.emit("turn/completed", { turn: { status: "completed" } });
-    await t1;
+    const firstUsage = {
+      inputTokens: 400,
+      outputTokens: 40,
+      cachedReadTokens: 180,
+      cachedWriteTokens: 0,
+      thoughtTokens: 8,
+      totalTokens: 440,
+    };
+    await expect(t1).resolves.toEqual({
+      stopReason: "end_turn",
+      usage: firstUsage,
+    });
 
     const t2 = agent.prompt({
       sessionId: "t",
       prompt: [{ type: "text", text: "b" }],
     } as unknown as PromptRequest);
-    stub.emit("thread/tokenUsage/updated", {
-      tokenUsage: {
-        total: { inputTokens: 250, outputTokens: 120 },
-        last: { inputTokens: 150, outputTokens: 70 },
-      },
-    });
+    stub.emit(
+      "thread/tokenUsage/updated",
+      tokenUsage(firstRequest, {
+        inputTokens: 500,
+        outputTokens: 50,
+        cachedInputTokens: 220,
+        reasoningOutputTokens: 10,
+        totalTokens: 550,
+      }),
+    );
+    stub.emit(
+      "thread/tokenUsage/updated",
+      tokenUsage(
+        {
+          inputTokens: 200,
+          outputTokens: 20,
+          cachedInputTokens: 100,
+          reasoningOutputTokens: 4,
+          totalTokens: 220,
+        },
+        {
+          inputTokens: 700,
+          outputTokens: 70,
+          cachedInputTokens: 320,
+          reasoningOutputTokens: 14,
+          totalTokens: 770,
+        },
+      ),
+    );
     stub.emit("turn/completed", { turn: { status: "completed" } });
-    await t2;
+    const secondUsage = {
+      inputTokens: 300,
+      outputTokens: 30,
+      cachedReadTokens: 140,
+      cachedWriteTokens: 0,
+      thoughtTokens: 6,
+      totalTokens: 330,
+    };
+    await expect(t2).resolves.toEqual({
+      stopReason: "end_turn",
+      usage: secondUsage,
+    });
 
     const tcs = extNotifications.filter(
       (n) => n.method === "_posthog/turn_complete",
     );
-    expect(tcs).toHaveLength(2);
-    expect(
-      (tcs[0].params as { usage: Record<string, number> }).usage,
-    ).toMatchObject({
-      inputTokens: 100,
-      outputTokens: 50,
+    expect(tcs.map((n) => (n.params as { usage: unknown }).usage)).toEqual([
+      {
+        inputTokens: 400,
+        outputTokens: 40,
+        cachedReadTokens: 180,
+        cachedWriteTokens: 0,
+        totalTokens: 440,
+      },
+      {
+        inputTokens: 300,
+        outputTokens: 30,
+        cachedReadTokens: 140,
+        cachedWriteTokens: 0,
+        totalTokens: 330,
+      },
+    ]);
+    const contextUpdate = extNotifications
+      .filter(
+        (n) =>
+          n.method === "_posthog/usage_update" &&
+          typeof (n.params as { used?: unknown }).used === "number",
+      )
+      .at(-1);
+    expect(contextUpdate?.params).toMatchObject({
+      used: 220,
+      usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220 },
     });
-    // Turn 2 is codex's `last` (150/70) — NOT the cumulative total (250/120).
-    expect(
-      (tcs[1].params as { usage: Record<string, number> }).usage,
-    ).toMatchObject({
-      inputTokens: 150,
-      outputTokens: 70,
+  });
+
+  it("keeps a resumed thread's replayed usage out of the next turn's totals", async () => {
+    const historical = tokenUsage(
+      { inputTokens: 400, outputTokens: 80, totalTokens: 480 },
+      { inputTokens: 900, outputTokens: 200, totalTokens: 1100 },
+    );
+    const replay = { threadId: "t1", ...historical };
+    const stub = makeStubRpc({
+      "thread/resume": () => {
+        // Same stdout chunk as the response: dispatched before setup resumes.
+        stub.emit("thread/tokenUsage/updated", replay);
+        return { thread: { id: "t1" } };
+      },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.resumeSession({
+      sessionId: "t1",
+      cwd: "/r",
+      mcpServers: [],
+    } as unknown as Parameters<typeof agent.resumeSession>[0]);
+
+    const turn = agent.prompt({
+      sessionId: "t1",
+      prompt: [{ type: "text", text: "a" }],
+    } as unknown as PromptRequest);
+    stub.emit("thread/tokenUsage/updated", replay);
+    stub.emit("thread/tokenUsage/updated", {
+      threadId: "t1",
+      ...tokenUsage(
+        { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        { inputTokens: 1000, outputTokens: 220, totalTokens: 1220 },
+      ),
+    });
+    stub.emit("turn/completed", {
+      threadId: "t1",
+      turn: { status: "completed" },
+    });
+
+    await expect(turn).resolves.toMatchObject({
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
     });
   });
 
@@ -4835,7 +4983,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("thread/tokenUsage/updated", {
       tokenUsage: {
         last: {
-          totalTokens: 50,
+          totalTokens: 45,
           inputTokens: 35,
           cachedInputTokens: 5,
           outputTokens: 10,
@@ -4854,7 +5002,7 @@ describe("CodexAppServerAgent", () => {
         cachedReadTokens: 5,
         cachedWriteTokens: 0,
         thoughtTokens: 5,
-        totalTokens: 80,
+        totalTokens: 75,
       },
     });
 

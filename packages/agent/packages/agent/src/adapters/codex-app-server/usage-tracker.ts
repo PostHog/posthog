@@ -3,7 +3,42 @@ import {
   type ContextBreakdownBaseline,
   emptyBaseline,
 } from "../claude/context-breakdown";
-import { readTokenUsage } from "./token-usage";
+import { type CodexTokenCounts, readTokenUsage } from "./token-usage";
+
+function requestUsage(counts: CodexTokenCounts): Usage {
+  const inputTokens = counts.inputTokens ?? 0;
+  const outputTokens = counts.outputTokens ?? 0;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedReadTokens: counts.cachedInputTokens ?? 0,
+    cachedWriteTokens: 0,
+    thoughtTokens: counts.reasoningOutputTokens ?? 0,
+    // Codex includes cached input and reasoning output in these two counts.
+    // Its totalTokens can instead be a context estimate after compaction.
+    totalTokens: inputTokens + outputTokens,
+  };
+}
+
+function usageDelta(current: Usage, previous: Usage): Usage | undefined {
+  const inputTokens = current.inputTokens - previous.inputTokens;
+  const outputTokens = current.outputTokens - previous.outputTokens;
+  const cachedReadTokens =
+    (current.cachedReadTokens ?? 0) - (previous.cachedReadTokens ?? 0);
+  const thoughtTokens =
+    (current.thoughtTokens ?? 0) - (previous.thoughtTokens ?? 0);
+  // A reset starts a new counter sequence; only its latest request is new usage.
+  if (Math.min(inputTokens, outputTokens, cachedReadTokens, thoughtTokens) < 0)
+    return undefined;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedReadTokens,
+    cachedWriteTokens: 0,
+    thoughtTokens,
+    totalTokens: inputTokens + outputTokens,
+  };
+}
 
 export function mergeUsage(
   left: Usage | undefined,
@@ -37,14 +72,13 @@ export interface UsageUpdate {
 }
 
 /**
- * Tracks token usage for one codex thread. codex's `thread/tokenUsage/updated` carries
- * `{ total, last, modelContextWindow }`; `last` drives both context occupancy and per-turn
- * usage rather than diffing `total` (a fallback for builds predating `last`).
+ * Tracks spending separately from context occupancy. An ACP turn can contain many
+ * model requests: cumulative counter deltas count them once, while `last` drives the gauge.
  */
 export class UsageTracker {
   private baseline: ContextBreakdownBaseline = emptyBaseline();
-  private lastTurn?: Usage;
-  private carried?: Usage;
+  private turnUsage?: Usage;
+  private previousTotal?: Usage;
   private contextUsed?: number;
 
   setBaseline(baseline: ContextBreakdownBaseline): void {
@@ -56,35 +90,37 @@ export class UsageTracker {
   }
 
   resetForTurn(): void {
-    this.lastTurn = undefined;
-    this.carried = undefined;
+    this.turnUsage = undefined;
     this.contextUsed = undefined;
   }
 
-  carryForNativeTurn(): void {
-    this.carried = mergeUsage(this.carried, this.lastTurn);
-    this.lastTurn = undefined;
+  resetForThread(): void {
+    this.resetForTurn();
+    this.previousTotal = undefined;
+  }
+
+  /** Adopt replayed thread totals as the delta baseline without counting them as turn usage. */
+  setCumulativeBaseline(params: unknown): void {
+    const total = readTokenUsage(params)?.total;
+    if (total) this.previousTotal = requestUsage(total);
   }
 
   /** Ingest a `thread/tokenUsage/updated` payload; returns the live usage_update, or null if unusable. */
   ingest(params: unknown): UsageUpdate | null {
     const reading = readTokenUsage(params);
     if (!reading) return null;
-    const { context, used, size } = reading;
+    const { context, total, used, size } = reading;
     // Drives the per-source breakdown's "conversation" bucket on turn complete.
     this.contextUsed = used;
-    const inputTokens = context.inputTokens ?? 0;
-    const outputTokens = context.outputTokens ?? 0;
-    const cachedReadTokens = context.cachedInputTokens ?? 0;
-    this.lastTurn = {
-      inputTokens,
-      outputTokens,
-      cachedReadTokens,
-      cachedWriteTokens: 0,
-      thoughtTokens: context.reasoningOutputTokens,
-      totalTokens:
-        context.totalTokens ?? inputTokens + outputTokens + cachedReadTokens,
-    };
+    const cumulative = total ? requestUsage(total) : undefined;
+    // The first observed snapshot may belong to a resumed thread. Without a
+    // baseline, count only its latest request, not the thread's entire history.
+    const delta =
+      cumulative && this.previousTotal
+        ? usageDelta(cumulative, this.previousTotal)
+        : undefined;
+    this.turnUsage = mergeUsage(this.turnUsage, delta ?? requestUsage(context));
+    this.previousTotal = cumulative;
     return {
       used,
       size: size ?? null,
@@ -99,8 +135,7 @@ export class UsageTracker {
   }
 
   perTurnUsage(): Usage | undefined {
-    const merged = mergeUsage(this.carried, this.lastTurn);
-    return merged ? { ...merged } : undefined;
+    return this.turnUsage ? { ...this.turnUsage } : undefined;
   }
 
   /** Live context occupancy (same derivation as the renderer gauge), or undefined pre-usage. */

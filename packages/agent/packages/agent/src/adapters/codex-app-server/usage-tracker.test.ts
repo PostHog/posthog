@@ -25,7 +25,7 @@ function payload(overrides?: Record<string, unknown>) {
 }
 
 describe("UsageTracker", () => {
-  it("ingests `last` field-by-field, preferring it over cumulative `total`", () => {
+  it("starts with the latest request without counting a resumed thread's history", () => {
     const tracker = new UsageTracker();
     const update = tracker.ingest(payload());
 
@@ -47,7 +47,7 @@ describe("UsageTracker", () => {
       cachedReadTokens: 50,
       cachedWriteTokens: 0,
       thoughtTokens: 20,
-      totalTokens: 500,
+      totalTokens: 480,
     });
   });
 
@@ -80,22 +80,27 @@ describe("UsageTracker", () => {
     expect(tracker.contextTokens()).toBe(500);
   });
 
-  it("carryForNativeTurn sums the interrupted turn's usage into the continuation", () => {
+  it("sums model requests once, even when equal requests or repeated updates arrive", () => {
     const tracker = new UsageTracker();
     tracker.ingest(payload());
 
-    tracker.carryForNativeTurn();
-    tracker.ingest(
-      payload({
-        last: {
-          inputTokens: 100,
-          cachedInputTokens: 10,
-          outputTokens: 20,
-          reasoningOutputTokens: 5,
-          totalTokens: 130,
-        },
-      }),
-    );
+    const next = payload({
+      total: {
+        inputTokens: 1000,
+        cachedInputTokens: 110,
+        outputTokens: 220,
+        reasoningOutputTokens: 45,
+      },
+      last: {
+        inputTokens: 100,
+        cachedInputTokens: 10,
+        outputTokens: 20,
+        reasoningOutputTokens: 5,
+        totalTokens: 130,
+      },
+    });
+    tracker.ingest(next);
+    tracker.ingest(next);
 
     expect(tracker.perTurnUsage()).toEqual({
       inputTokens: 500,
@@ -103,16 +108,30 @@ describe("UsageTracker", () => {
       cachedReadTokens: 60,
       cachedWriteTokens: 0,
       thoughtTokens: 25,
-      totalTokens: 630,
+      totalTokens: 600,
     });
     expect(tracker.contextTokens()).toBe(130);
+    tracker.ingest(
+      payload({
+        ...next.tokenUsage,
+        total: {
+          inputTokens: 1100,
+          cachedInputTokens: 120,
+          outputTokens: 240,
+          reasoningOutputTokens: 50,
+        },
+      }),
+    );
+    expect(tracker.perTurnUsage()).toMatchObject({
+      inputTokens: 600,
+      outputTokens: 120,
+      totalTokens: 720,
+    });
   });
 
-  it("carryForNativeTurn keeps the interrupted usage when the continuation reports none", () => {
+  it("keeps a copy of accumulated usage when the continuation reports none", () => {
     const tracker = new UsageTracker();
     tracker.ingest(payload());
-
-    tracker.carryForNativeTurn();
 
     expect(tracker.perTurnUsage()).toEqual({
       inputTokens: 400,
@@ -120,17 +139,123 @@ describe("UsageTracker", () => {
       cachedReadTokens: 50,
       cachedWriteTokens: 0,
       thoughtTokens: 20,
-      totalTokens: 500,
+      totalTokens: 480,
     });
+    const returned = tracker.perTurnUsage();
+    if (returned) returned.inputTokens = 0;
+    expect(tracker.perTurnUsage()?.inputTokens).toBe(400);
   });
 
-  it("resetForTurn clears stale per-turn and carried usage", () => {
+  it("clears per-turn usage but retains the cumulative baseline for a follow-up", () => {
     const tracker = new UsageTracker();
     tracker.ingest(payload());
-    tracker.carryForNativeTurn();
 
     tracker.resetForTurn();
     expect(tracker.contextTokens()).toBeUndefined();
     expect(tracker.perTurnUsage()).toBeUndefined();
+    tracker.ingest(
+      payload({
+        total: {
+          inputTokens: 1100,
+          cachedInputTokens: 120,
+          outputTokens: 250,
+          reasoningOutputTokens: 45,
+        },
+        last: { inputTokens: 100, outputTokens: 20 },
+      }),
+    );
+    expect(tracker.perTurnUsage()).toEqual({
+      inputTokens: 200,
+      outputTokens: 50,
+      cachedReadTokens: 20,
+      cachedWriteTokens: 0,
+      thoughtTokens: 5,
+      totalTokens: 250,
+    });
+  });
+
+  it("ignores compaction context estimates and counts subsequent model requests", () => {
+    const tracker = new UsageTracker();
+    tracker.ingest(payload());
+    tracker.ingest(payload({ last: { totalTokens: 2000 } }));
+    expect(tracker.contextTokens()).toBe(2000);
+    expect(tracker.perTurnUsage()?.totalTokens).toBe(480);
+    tracker.ingest(
+      payload({
+        total: {
+          inputTokens: 950,
+          cachedInputTokens: 100,
+          outputTokens: 220,
+          reasoningOutputTokens: 40,
+        },
+        last: { inputTokens: 50, outputTokens: 20, totalTokens: 70 },
+      }),
+    );
+    expect(tracker.perTurnUsage()).toMatchObject({
+      inputTokens: 450,
+      outputTokens: 100,
+      totalTokens: 550,
+    });
+  });
+
+  it("rebases reset counters without counting synthetic context-window tokens", () => {
+    const tracker = new UsageTracker();
+    tracker.ingest(payload());
+    tracker.ingest(
+      payload({
+        total: { totalTokens: 200_000 },
+        last: { totalTokens: 200_000 },
+      }),
+    );
+    tracker.ingest(
+      payload({
+        total: { inputTokens: 50, outputTokens: 20 },
+        last: { inputTokens: 50, outputTokens: 20 },
+      }),
+    );
+    expect(tracker.perTurnUsage()).toMatchObject({
+      inputTokens: 450,
+      outputTokens: 100,
+      totalTokens: 550,
+    });
+  });
+
+  it("counts last-only updates without recounting them when totals return", () => {
+    const tracker = new UsageTracker();
+    tracker.ingest(payload());
+    tracker.ingest(
+      payload({
+        total: undefined,
+        last: { inputTokens: 50, outputTokens: 20 },
+      }),
+    );
+    tracker.ingest(
+      payload({
+        total: { inputTokens: 1000, outputTokens: 240 },
+        last: { inputTokens: 50, outputTokens: 20 },
+      }),
+    );
+    expect(tracker.perTurnUsage()).toMatchObject({
+      inputTokens: 500,
+      outputTokens: 120,
+      totalTokens: 620,
+    });
+  });
+
+  it("does not carry a previous thread's baseline into a new session", () => {
+    const tracker = new UsageTracker();
+    tracker.ingest(payload());
+    tracker.resetForThread();
+    tracker.ingest(
+      payload({
+        total: { inputTokens: 1500, outputTokens: 300 },
+        last: { inputTokens: 100, outputTokens: 20 },
+      }),
+    );
+    expect(tracker.perTurnUsage()).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+    });
   });
 });
