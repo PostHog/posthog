@@ -7491,13 +7491,14 @@ Note: Fetched llms.txt, then parsed the linked Returns, Orders, Products, Custom
 
 ## Loops — gaps
 
-Today (13): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `event_patterns`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflows`
+Today (14): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `event_patterns`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflow_node_metrics`, `workflows`
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
 - [x] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (`event_patterns`)
 - [x] `GET /v1/campaigns/{campaignId}/metrics` — all-time engagement counters per sent campaign (`campaign_metrics`)
 - [x] `GET /v1/transactional-emails/{transactionalId}/metrics` — all-time delivery counters per transactional email (`transactional_email_metrics`)
+- [x] `GET /v1/workflows/{workflowId}/nodes/{nodeId}/metrics` — all-time engagement counters per workflow email node (`workflow_node_metrics`)
 
 Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only, and /v1/contacts/suppression only checks one contact by email or userId rather than listing suppressed contacts. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
 
