@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
@@ -31,6 +32,9 @@ MAX_NAME_LENGTH = 128
 MAX_QUERY_LENGTH = 10_000
 MAX_VALUE_LENGTH = 1024
 MAX_VALUES = 1000
+# Private use characters, which stand for variables while dependencies are checked.
+_MARKER_START = 0xF0000
+_MAX_MARKERS = 0xFFFD
 # The datasources whose variable queries the PromQL options endpoint can run. None is the default datasource.
 _PROMQL_DATASOURCES = frozenset({None, "prometheus"})
 
@@ -67,7 +71,8 @@ def _runs_live(regex: str | None) -> bool:
     """Whether the options endpoint runs the regex as Grafana does."""
     if regex is None:
         return True
-    if len(regex) > MAX_VALUE_LENGTH:
+    # The options endpoint does not put variable values into the regex.
+    if len(regex) > MAX_VALUE_LENGTH or referenced_names(regex):
         return False
     try:
         pattern = re2.compile(re2_pattern(regex))
@@ -139,18 +144,48 @@ def _live_definition(
     )
 
 
+def _size_bound(variable: Variable) -> int:
+    """The most characters that a reference to the variable becomes, with escapes and the regex alternation."""
+    if variable.is_all and variable.all_value is not None:
+        parts: tuple[str, ...] = (variable.all_value,)
+    else:
+        parts = variable.options if variable.is_all else variable.values
+    return 2 * sum(len(part) for part in parts) + len(parts) + 2
+
+
 def _resolvable(
     live: dict[str, MetricsDashboardVariable], variables: dict[str, Variable]
 ) -> dict[str, MetricsDashboardVariable]:
-    """The live variables whose queries refer only to live variables or to variables with a saved value."""
-    dependents: dict[str, list[str]] = {}
+    """The live variables whose queries refer only to live variables or to variables with a saved value.
+
+    A query that the saved values of static variables would make longer than the options API accepts is static too.
+    """
+    valued = [name for name, variable in variables.items() if variable.values or variable.is_all]
+    if len(valued) > _MAX_MARKERS:
+        return {}
+    # Each variable with a value becomes one marker character, so a query is inspected without its saved values.
+    markers = {chr(_MARKER_START + index): name for index, name in enumerate(valued)}
+    stand_ins = {
+        name: Variable(values=(marker,), is_all=False, all_value=None, options=()) for marker, name in markers.items()
+    }
+    hard: dict[str, list[str]] = {}
+    soft: dict[str, list[str]] = {}
+    references: dict[str, Counter[str]] = {}
+    size: dict[str, int] = {}
     static: list[str] = []
     for name, definition in live.items():
-        needed = substitute_promql(definition.query, variables).unresolved if definition.query else ()
-        if any(other not in live for other in needed):
+        substitution = substitute_promql(definition.query or "", stand_ins)
+        references[name] = Counter(markers[char] for char in substitution.text if char in markers)
+        size[name] = len(definition.query or "") + sum(
+            count * _size_bound(variables[other]) for other, count in references[name].items() if other not in live
+        )
+        if any(other not in live for other in substitution.unresolved) or size[name] > MAX_QUERY_LENGTH:
             static.append(name)
-        for other in needed:
-            dependents.setdefault(other, []).append(name)
+        for other in substitution.unresolved:
+            hard.setdefault(other, []).append(name)
+        for other in references[name]:
+            if other in live:
+                soft.setdefault(other, []).append(name)
     # Each variable becomes static at most once, so the work grows with the number of references.
     removed: set[str] = set()
     while static:
@@ -158,7 +193,12 @@ def _resolvable(
         if name in removed:
             continue
         removed.add(name)
-        static.extend(dependents.get(name, ()))
+        static.extend(hard.get(name, ()))
+        # A variable that becomes static puts its saved values into the queries that refer to it.
+        for dependent in soft.get(name, ()):
+            size[dependent] += references[dependent][name] * _size_bound(variables[name])
+            if size[dependent] > MAX_QUERY_LENGTH:
+                static.append(dependent)
     return {name: definition for name, definition in live.items() if name not in removed}
 
 
