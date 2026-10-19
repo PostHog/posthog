@@ -90,6 +90,8 @@ def test_region_is_a_connection_host_field() -> None:
         ("DescribeStandards", "GET", "/standards"),
         ("GetEnabledStandards", "POST", "/standards/get"),
         ("GetInsights", "POST", "/insights/get"),
+        ("GetRemediationsV2", "POST", "/GetRemediationsV2"),
+        ("ListExposuresByRemediationV2", "POST", "/ListExposuresByRemediationV2"),
     ],
 )
 def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
@@ -369,6 +371,39 @@ def test_standards_controls_fan_out_over_enabled_standards() -> None:
         (SUBSCRIPTION_A, "c2", False),
         (SUBSCRIPTION_B, None, False),
         (None, None, True),
+    ]
+
+
+def test_remediation_exposures_fan_out_over_remediation_targets() -> None:
+    exposure = {"MetadataUid": "shared-exposure", "Title": "Example exposure", "Impact": "Resolves"}
+    script = route(
+        {
+            "/GetRemediationsV2": [
+                ScriptedResponse(json={"Items": [{"TargetUid": "target-b"}], "NextToken": "p2"}),
+                ScriptedResponse(json={"Items": [{"TargetUid": "target-a"}]}),
+            ],
+            "/ListExposuresByRemediationV2": [
+                ScriptedResponse(json={"TargetUid": "target-a", "Items": [exposure], "NextToken": "e2"}),
+                ScriptedResponse(json={"TargetUid": "target-a", "Items": []}),
+                ScriptedResponse(json={"TargetUid": "target-b", "Items": [exposure]}),
+            ],
+        }
+    )
+    result = driver().run("remediation_exposures", script)
+    assert result.raised is None
+    assert result.response is not None
+    primary_keys = result.response.primary_keys
+    assert primary_keys
+    assert [tuple(row[key] for key in primary_keys) for row in result.rows] == [
+        ("target-a", "shared-exposure"),
+        ("target-b", "shared-exposure"),
+    ]
+    assert [request.json() for request in result.requests] == [
+        {"MaxResults": 100},
+        {"MaxResults": 100, "NextToken": "p2"},
+        {"MaxResults": 100, "TargetUid": "target-a"},
+        {"MaxResults": 100, "TargetUid": "target-a", "NextToken": "e2"},
+        {"MaxResults": 100, "TargetUid": "target-b"},
     ]
 
 
