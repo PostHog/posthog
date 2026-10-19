@@ -530,11 +530,13 @@ class TestTaskRunMetrics(TestCase):
 
     @parameterized.expand(
         [
-            ("failed", 1.0),
-            ("completed", 0.0),
+            ("failed", 1.0, "agent_reported"),
+            ("completed", 0.0, "unknown"),
         ]
     )
-    def test_agent_turn_failure_counter_only_on_failed_transition(self, new_status: str, expected_delta: float) -> None:
+    def test_agent_turn_failure_counter_only_on_failed_transition(
+        self, new_status: str, expected_delta: float, terminal_error_type: str
+    ) -> None:
         from products.tasks.backend.facade import api as facade
 
         run = self.task.create_run(
@@ -549,17 +551,27 @@ class TestTaskRunMetrics(TestCase):
             "task_runtime": "acp",
             "runtime_adapter": "codex",
         }
+        terminal_labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "status": new_status,
+            "error_type": terminal_error_type,
+            "termination_reason": "unknown",
+        }
         before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+        terminal_before = _sample_value("posthog_tasks_task_run_terminal_total", terminal_labels)
 
         with patch.object(facade, "signal_workflow_completion"):
-            facade.update_task_run(
-                run.id,
-                self.task.id,
-                self.team.id,
-                validated_data={"status": new_status, "error_message": "boom"},
-            )
+            for _ in range(2):  # the repeat PATCH must not double count
+                facade.update_task_run(
+                    run.id,
+                    self.task.id,
+                    self.team.id,
+                    validated_data={"status": new_status, "error_message": "boom"},
+                )
 
         assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+        assert _sample_value("posthog_tasks_task_run_terminal_total", terminal_labels) == terminal_before + 1
 
     @parameterized.expand(
         [

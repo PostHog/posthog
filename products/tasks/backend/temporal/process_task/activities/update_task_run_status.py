@@ -128,6 +128,15 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     if input.status == TaskRun.Status.FAILED:
         input = replace(input, error_type=(task_run.state or {}).get("failure_error_type") or input.error_type)
 
+    # Counted before the fallible side effects below. A retry after one of them raises sees the
+    # row already terminal and skips this block, so a later count would be lost.
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        observe_task_run_terminal(
+            task_run,
+            error_type=input.error_type,
+            termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
+        )
+
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
         try:
@@ -142,11 +151,6 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status in _TERMINAL_STATUSES and old_status != input.status:
         task_run.close_ci_progress_step()
-        observe_task_run_terminal(
-            task_run,
-            error_type=input.error_type,
-            termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
-        )
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
         if old_status != input.status:

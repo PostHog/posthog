@@ -3485,6 +3485,7 @@ def update_task_run(
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
+        observe_task_run_terminal,
         observe_wizard_run_unbound,
     )
 
@@ -3625,6 +3626,13 @@ def update_task_run(
         run.publish_stream_state_event()
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        # This PATCH performed the transition, so the status-update activity skips its count.
+        observe_task_run_terminal(
+            run,
+            error_type=validated_data.get("error_type")
+            or ("agent_reported" if new_status == TaskRun.Status.FAILED else None),
+            termination_reason=None,
+        )
         try:
             if run.environment == TaskRun.Environment.CLOUD:
                 refresh_task_run_cost(run_id=run.id, team_id=run.team_id)
