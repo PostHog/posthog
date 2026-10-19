@@ -198,10 +198,11 @@ def active_tile_count(dashboard_id: int) -> int:
     return DashboardTile.objects.filter(dashboard_id=dashboard_id).exclude(deleted=True).count()
 
 
-def tile_ids_prefetch() -> Prefetch:
-    """Prefetch of an insight's tiles carrying only the columns a basic insight payload renders."""
+def tile_ids_prefetch(lookup: str = "dashboard_tiles") -> Prefetch:
+    """Prefetch of an insight's tiles carrying only the columns a basic insight payload renders.
+    `lookup` is the path from the queryset's model to the insight's tiles."""
     return Prefetch(
-        "dashboard_tiles",
+        lookup,
         queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
     )
 

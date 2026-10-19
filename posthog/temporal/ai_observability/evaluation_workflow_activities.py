@@ -542,8 +542,10 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
     evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-    if evaluation_type not in ("hog", "sentiment"):
-        # An llm_judge returns before the read: its own activity hydrates what it grades.
+    stale_backfill = inputs.backfill_id is not None and (evaluation["deleted"] or not evaluation["enabled"])
+    if evaluation_type not in ("hog", "sentiment") or stale_backfill:
+        # An llm_judge returns before the read: its own activity hydrates what it grades. A backfill
+        # of an evaluation turned off since it started returns unrun, so the workflow reports the skip.
         return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
 
     event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
