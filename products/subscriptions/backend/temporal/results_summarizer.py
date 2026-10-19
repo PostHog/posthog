@@ -62,10 +62,13 @@ def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any
                 latest = numeric[-1]
                 avg = sum(numeric) / len(numeric)
                 trend = _trend_direction(numeric)
+                # Lead with whole-period stats: the final bucket often covers a partial interval,
+                # and a model anchors on whatever value comes first.
                 lines.append(
-                    f"- {label}: latest={_fmt_value(latest, value_format)}, avg={_fmt_value(avg, value_format)}, "
+                    f"- {label}: avg={_fmt_value(avg, value_format)}, "
                     f"min={_fmt_value(min(numeric), value_format)}, max={_fmt_value(max(numeric), value_format)}, "
-                    f"trend={trend} ({len(numeric)} points)"
+                    f"trend={trend} ({len(numeric)} points), "
+                    f"last point={_fmt_value(latest, value_format)} (may be incomplete)"
                 )
                 continue
 
@@ -106,11 +109,11 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[s
         mins = [r["min"] for r in rows if isinstance(r.get("min"), (int, float)) and math.isfinite(r["min"])]
         trend = _trend_direction(medians)
         lines.append(
-            f"- {label} (boxplot): median latest={_fmt_value(medians[-1], value_format)}, "
-            f"median avg={_fmt_value(sum(medians) / len(medians), value_format)}, "
+            f"- {label} (boxplot): median avg={_fmt_value(sum(medians) / len(medians), value_format)}, "
             f"overall min={_fmt_value(min(mins) if mins else medians[-1], value_format)}, "
             f"overall max={_fmt_value(max(maxes) if maxes else medians[-1], value_format)}, "
-            f"median trend={trend} ({len(medians)} points)"
+            f"median trend={trend} ({len(medians)} points), "
+            f"median last point={_fmt_value(medians[-1], value_format)} (may be incomplete)"
         )
 
     return "\n".join(lines) if lines else "No trend series"

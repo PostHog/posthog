@@ -20,6 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
+    GENERIC_VALUE_MAX_LEN,
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
     SUBSCRIPTION_TITLE_MAX_LEN,
@@ -156,6 +157,25 @@ def _safe_insight_name(state: dict) -> str:
     return sanitize_user_text(state.get("insight_name"), INSIGHT_NAME_MAX_LEN) or fallback
 
 
+_KNOWN_INTERVALS = {"second", "minute", "hour", "day", "week", "month"}
+
+
+def _format_period_lines(state: dict) -> list[str]:
+    # Without the window and bucket size, the model reads the final (often partial) bucket
+    # of an hourly insight as if it covered the whole delivery period.
+    lines: list[str] = []
+    date_range = state.get("resolved_date_range")
+    if isinstance(date_range, dict):
+        date_from = sanitize_user_text(date_range.get("date_from"), GENERIC_VALUE_MAX_LEN)
+        date_to = sanitize_user_text(date_range.get("date_to"), GENERIC_VALUE_MAX_LEN)
+        if date_from and date_to:
+            lines.append(f"Date range: {date_from} to {date_to}")
+    interval = state.get("interval")
+    if interval in _KNOWN_INTERVALS:
+        lines.append(f"Interval: one data point per {interval}")
+    return lines
+
+
 def _format_section(
     header: str,
     state: dict,
@@ -165,6 +185,7 @@ def _format_section(
     lines = [header]
     if description:
         lines.append(f"Description: {description}")
+    lines.extend(_format_period_lines(state))
     if analysis_hint:
         lines.append(f"Analysis focus: {analysis_hint}")
     if state.get("query_kind") in COMPARISON_SUPPORTED_QUERY_KINDS:

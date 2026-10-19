@@ -125,6 +125,7 @@ def _build_states_from_content_snapshot(
         result_payload = query_results.get("result") if query_results else None
         columns = _extract_columns(query_results)
         value_format = insight_snap.get("value_format")
+        resolved_date_range = query_results.get("resolved_date_range") if query_results else None
 
         if query_results and result_payload:
             results_summary = build_results_summary(
@@ -166,6 +167,8 @@ def _build_states_from_content_snapshot(
                 "results_summary": results_summary,
                 "timestamp": timestamp,
                 "comparison_enabled": comparison_enabled,
+                "interval": insight_snap.get("interval"),
+                "resolved_date_range": resolved_date_range if isinstance(resolved_date_range, dict) else None,
             }
         )
     return states
@@ -275,12 +278,23 @@ def _load_core_memory_text(subscription: Subscription) -> str:
     return memory.formatted_text
 
 
+def _date_range_hours(date_range: Any) -> float | None:
+    if not isinstance(date_range, dict):
+        return None
+    try:
+        date_from = datetime.fromisoformat(date_range["date_from"])
+        date_to = datetime.fromisoformat(date_range["date_to"])
+        return round((date_to - date_from).total_seconds() / 3600, 1)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _capture_summary_generated_event(
     subscription: Subscription,
     *,
     delivery_id: str | None,
     summary_text: str,
-    insight_count: int,
+    current_states: list[dict],
     image_count: int,
     has_previous_snapshot: bool,
 ) -> None:
@@ -298,6 +312,9 @@ def _capture_summary_generated_event(
             distinct_id: str = subscription.created_by.distinct_id
         else:
             distinct_id = f"team_{subscription.team_id}"
+        date_range_hours = [
+            hours for hours in (_date_range_hours(s.get("resolved_date_range")) for s in current_states) if hours
+        ]
         with ph_scoped_capture() as capture:
             capture(
                 distinct_id=distinct_id,
@@ -307,7 +324,9 @@ def _capture_summary_generated_event(
                     "team_id": subscription.team_id,
                     "delivery_id": delivery_id,
                     "target_type": subscription.target_type,
-                    "insight_count": insight_count,
+                    "insight_count": len(current_states),
+                    "insight_intervals": sorted({s["interval"] for s in current_states if s.get("interval")}),
+                    "max_date_range_hours": max(date_range_hours, default=None),
                     "image_count": image_count,
                     "has_previous_snapshot": has_previous_snapshot,
                     "summary_text_length": len(summary_text),
@@ -571,7 +590,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             subscription,
             delivery_id=inputs.delivery_id,
             summary_text=summary_text,
-            insight_count=len(current_states),
+            current_states=current_states,
             image_count=len(insight_images),
             has_previous_snapshot=previous_states is not None,
         )

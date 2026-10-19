@@ -333,7 +333,14 @@ async def test_captures_analytics_event_when_summary_is_generated(team, user, mo
                 {
                     "id": subscription.insight_id,
                     "name": "Pageviews",
-                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                    "interval": "hour",
+                    "query_results": {
+                        "result": [{"label": "Pageviews", "data": [1, 2, 3]}],
+                        "resolved_date_range": {
+                            "date_from": "2025-04-08T00:00:00+00:00",
+                            "date_to": "2025-04-15T00:00:00+00:00",
+                        },
+                    },
                 }
             ]
         },
@@ -364,6 +371,8 @@ async def test_captures_analytics_event_when_summary_is_generated(team, user, mo
     assert props["delivery_id"] == str(delivery.id)
     assert props["target_type"] == subscription.target_type
     assert props["insight_count"] == 1
+    assert props["insight_intervals"] == ["hour"]
+    assert props["max_date_range_hours"] == 168.0
     assert props["image_count"] == 0
     assert props["has_previous_snapshot"] is False
     assert props["summary_text_length"] == len("- Pageviews is trending up")
