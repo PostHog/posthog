@@ -1,6 +1,7 @@
-//! The v4 index files: Parquet in `rrweb-v4/index/`. Column names are the ones in `replay-data.md`.
-//!
-//! Integer columns are signed, the types parquetjs writes, so a parquetjs writer can produce the same files.
+//! The v4 index rows. The recorder sends each row as one JSON message to the index topic, and the Parquet sink writes
+//! them to `rrweb-v4/index/`. The JSON keys are the Parquet column names in `replay-data.md`. Integer values fit the
+//! signed column types parquetjs writes, and an INT64 value stays in the range a JavaScript number holds exactly,
+//! which the sink checks: a value past either range saturates.
 //!
 //! A flush can store its blocks and index rows and then fail before it commits its Kafka offsets. The next attempt
 //! for the partition, in this process or after a restart, starts again at the same committed offset and writes the
@@ -15,324 +16,115 @@
 //! flush is whole when that many distinct `flush_row_index` values are present. Check this before any filter on
 //! sessions or teams.
 
-use std::sync::Arc;
-
-use arrow_array::builder::{Int32Builder, Int64Builder, ListBuilder, StringBuilder, StructBuilder};
-use arrow_array::{ArrayRef, BooleanArray, Int32Array, Int64Array, RecordBatch, StringArray};
-use arrow_schema::{ArrowError, DataType, Field, Fields, Schema};
 use replay_core_v4::inspect::session::Moment;
 use replay_core_v4::inspect::stats::BlockStats;
+use serde::ser::{SerializeMap, Serializer};
+use serde::Serialize;
 
-use crate::batch::Origin;
-use crate::write::{FlushAttempt, Written};
-use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::errors::ParquetError;
-use parquet::file::properties::WriterProperties;
+/// `Number.MAX_SAFE_INTEGER`. The sink refuses a row with an integer past it, and that row's flush is then never whole.
+const MAX_SAFE_INTEGER: i64 = (1 << 53) - 1;
 
-#[derive(Debug, thiserror::Error)]
-pub enum IndexError {
-    #[error(transparent)]
-    Arrow(#[from] ArrowError),
-    #[error(transparent)]
-    Parquet(#[from] ParquetError),
-}
-
-/// Writes one Parquet file, snappy-compressed as the v3 catalog is.
-pub fn write_parquet(batch: &RecordBatch) -> Result<Vec<u8>, IndexError> {
-    let properties = WriterProperties::builder()
-        .set_compression(Compression::SNAPPY)
-        .build();
-    let mut out = Vec::new();
-    let mut writer = ArrowWriter::try_new(&mut out, batch.schema(), Some(properties))?;
-    writer.write(batch)?;
-    writer.close()?;
-    Ok(out)
-}
-
-/// A count or size as its signed column. Real values fit, and a larger one saturates.
 fn int64(value: u64) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
+    i64::try_from(value).map_or(MAX_SAFE_INTEGER, safe)
 }
 
-/// A count as its signed column. Real values fit, and a larger one saturates.
+fn safe(value: i64) -> i64 {
+    value.clamp(-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER)
+}
+
+fn serialize_safe<S: Serializer>(value: &i64, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_i64(safe(*value))
+}
+
 fn int32(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
 }
 
-/// Where one inline image sits in a pack in `images-v4`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImageIndexRow {
-    pub team_id: i64,
-    pub key_month: String,
-    pub image_ref: String,
-    pub pack_s3_key: String,
-    /// Inclusive byte range of the sealed image in the pack.
-    pub byte_start: u64,
-    pub byte_end: u64,
-    pub mime: String,
-    pub byte_size: u64,
+fn serialize_int64<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_i64(int64(*value))
 }
 
-pub fn image_index(rows: &[ImageIndexRow]) -> Result<RecordBatch, IndexError> {
-    let schema = Schema::new(vec![
-        Field::new("team_id", DataType::Int64, false),
-        Field::new("key_month", DataType::Utf8, false),
-        Field::new("image_ref", DataType::Utf8, false),
-        Field::new("pack_s3_key", DataType::Utf8, false),
-        Field::new("byte_start", DataType::Int64, false),
-        Field::new("byte_end", DataType::Int64, false),
-        Field::new("mime", DataType::Utf8, false),
-        Field::new("byte_size", DataType::Int64, false),
-    ]);
-    let columns: Vec<ArrayRef> = vec![
-        Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.team_id))),
-        Arc::new(StringArray::from_iter_values(
-            rows.iter().map(|r| &r.key_month),
-        )),
-        Arc::new(StringArray::from_iter_values(
-            rows.iter().map(|r| &r.image_ref),
-        )),
-        Arc::new(StringArray::from_iter_values(
-            rows.iter().map(|r| &r.pack_s3_key),
-        )),
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| int64(r.byte_start)),
-        )),
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| int64(r.byte_end)),
-        )),
-        Arc::new(StringArray::from_iter_values(rows.iter().map(|r| &r.mime))),
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| int64(r.byte_size)),
-        )),
-    ];
-    Ok(RecordBatch::try_new(Arc::new(schema), columns)?)
+fn serialize_int32<S: Serializer>(value: &u32, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_i32(int32(*value))
 }
 
-/// One block's index row: where it is, what the inspector found, and its sealed URLs.
-pub struct BlockIndexRow<'a> {
-    pub written: &'a Written,
-    pub origin: &'a Origin,
-    pub attempt: &'a FlushAttempt,
-    pub stats: &'a BlockStats,
-    pub moments: &'a [Moment],
-    pub snapshot_source: Option<&'a str>,
-    pub snapshot_library: Option<&'a str>,
-    /// The block's visited URLs as a v4 JSON envelope under the session key.
-    pub urls: Option<String>,
-    /// The block rows this flush writes for the row's partition, and the row's place among them. With `flush_id`,
-    /// `topic` and `partition`, the place names the row across retries of the same publish.
-    pub flush_row_count: u32,
-    pub flush_row_index: u32,
-}
-
-fn moment_fields() -> Fields {
-    Fields::from(vec![
-        Field::new("kind", DataType::Utf8, false),
-        Field::new("window_id", DataType::Utf8, false),
-        Field::new("ts_ms", DataType::Int64, false),
-        Field::new("event_index", DataType::Int32, false),
-    ])
-}
-
-fn moments_column(rows: &[BlockIndexRow<'_>]) -> ArrayRef {
-    let fields = moment_fields();
-    let mut builder = ListBuilder::new(StructBuilder::from_fields(fields.clone(), rows.len()))
-        .with_field(Field::new("item", DataType::Struct(fields), false));
-    for row in rows {
-        let entries = builder.values();
-        for moment in row.moments {
-            entries
-                .field_builder::<StringBuilder>(0)
-                .expect("kind")
-                .append_value(moment.kind);
-            entries
-                .field_builder::<StringBuilder>(1)
-                .expect("window_id")
-                .append_value(&moment.window_id);
-            entries
-                .field_builder::<Int64Builder>(2)
-                .expect("ts_ms")
-                .append_value(moment.ts_ms);
-            entries
-                .field_builder::<Int32Builder>(3)
-                .expect("event_index")
-                .append_value(int32(moment.event_index));
-            entries.append(true);
-        }
-        builder.append(true);
-    }
-    Arc::new(builder.finish())
-}
-
-/// A list of strings per row, with no null lists or items.
-fn strings_column(rows: &[BlockIndexRow<'_>], values: fn(&BlockStats) -> &[String]) -> ArrayRef {
-    let mut builder = ListBuilder::new(StringBuilder::new()).with_field(Field::new(
-        "item",
-        DataType::Utf8,
-        false,
-    ));
-    for row in rows {
-        for value in values(row.stats) {
-            builder.values().append_value(value);
-        }
-        builder.append(true);
-    }
-    Arc::new(builder.finish())
-}
-
-pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError> {
-    let mut fields = Vec::new();
-    let mut columns: Vec<ArrayRef> = Vec::new();
-    let mut push = |name: &str, data_type: DataType, nullable: bool, column: ArrayRef| {
-        fields.push(Field::new(name, data_type, nullable));
-        columns.push(column);
-    };
-    macro_rules! utf8 {
-        ($name:literal, $value:expr) => {
-            push(
-                $name,
-                DataType::Utf8,
-                false,
-                Arc::new(StringArray::from_iter_values(rows.iter().map($value))),
-            )
+fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<S::Ok, S::Error> {
+    // Destructured in full, so a new stats field does not compile until it has a column type here.
+    let BlockStats {
+        first_ts_ms,
+        last_ts_ms,
+        event_count,
+        byte_size,
+        host,
+        full_snapshots,
+        events_before_first_full_snapshot,
+        orphan_mutations,
+        max_gap_ms,
+        dom_nodes,
+        dom_text_chars,
+        remote_stylesheets,
+        inline_stylesheets,
+        iframes,
+        canvases,
+        videos,
+        shadow_roots,
+        cold_start,
+        node_cap_reached,
+        active_ms,
+        clicks,
+        rage_clicks,
+        dead_clicks,
+        keypresses,
+        scrolls,
+        mouse_moves,
+        touches,
+        selections,
+        media_events,
+        viewport_resizes,
+        navigations,
+        console_errors,
+        console_warnings,
+        network_requests,
+        network_failures,
+        viewport_width,
+        viewport_height,
+        viewport_ts_ms,
+        touch_input,
+        images_extracted,
+        image_bytes,
+        images_inline,
+        image_urls,
+        written_jsonl_bytes,
+        max_written_event_bytes,
+        decode_failures,
+        moments_truncated,
+        mouse_interactions,
+        touch_moves,
+        url_fingerprints,
+        window_ids,
+    } = *stats;
+    let mut map = serializer.serialize_map(None)?;
+    macro_rules! columns {
+        ($convert:expr => $($field:ident),*) => {
+            $( map.serialize_entry(stringify!($field), &$convert($field))?; )*
         };
     }
-    macro_rules! optional_utf8 {
-        ($name:literal, $value:expr) => {
-            push(
-                $name,
-                DataType::Utf8,
-                true,
-                Arc::new(rows.iter().map($value).collect::<StringArray>()),
-            )
-        };
-    }
-    macro_rules! stat {
-        ($array:ident, $data_type:expr, $convert:expr, $($field:ident),*) => {
-            $( push(stringify!($field), $data_type, false, Arc::new($array::from_iter_values(rows.iter().map(|r| $convert(r.stats.$field))))); )*
-        };
-    }
-    macro_rules! flag {
-        ($($field:ident),*) => {
-            $( push(stringify!($field), DataType::Boolean, false, Arc::new(rows.iter().map(|r| Some(r.stats.$field)).collect::<BooleanArray>())); )*
-        };
-    }
-
-    push(
-        "team_id",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| r.written.session.team_id),
-        )),
+    columns!(|v: &Option<i64>| v.map(safe) => first_ts_ms, last_ts_ms, viewport_ts_ms);
+    columns!(|v: &i64| safe(*v) => max_gap_ms, active_ms);
+    columns!(
+        |v: &u64| int64(*v) =>
+        event_count,
+        byte_size,
+        dom_text_chars,
+        image_bytes,
+        written_jsonl_bytes,
+        max_written_event_bytes
     );
-    utf8!("session_id", |r| r.written.session.session_id.clone());
-    utf8!("key_month", |r| r.written.key_month.clone());
-    utf8!("block_s3_key", |r| r.written.object_key.clone());
-    utf8!("topic", |r| r.origin.tp.topic);
-    push(
-        "partition",
-        DataType::Int32,
-        false,
-        Arc::new(Int32Array::from_iter_values(
-            rows.iter().map(|r| r.origin.tp.partition),
-        )),
-    );
-    push(
-        "start_offset",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| r.origin.start_offset),
-        )),
-    );
-    push(
-        "end_offset",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| r.origin.end_offset),
-        )),
-    );
-    utf8!("flush_id", |r| r.attempt.flush_id.clone());
-    push(
-        "flushed_at_ms",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| r.attempt.flushed_at_ms),
-        )),
-    );
-    push(
-        "flush_end_offset",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| r.origin.flush_end_offset),
-        )),
-    );
-    push(
-        "flush_row_count",
-        DataType::Int32,
-        false,
-        Arc::new(Int32Array::from_iter_values(
-            rows.iter().map(|r| int32(r.flush_row_count)),
-        )),
-    );
-    push(
-        "flush_row_index",
-        DataType::Int32,
-        false,
-        Arc::new(Int32Array::from_iter_values(
-            rows.iter().map(|r| int32(r.flush_row_index)),
-        )),
-    );
-    push(
-        "block_byte_start",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| int64(r.written.byte_start)),
-        )),
-    );
-    push(
-        "block_byte_end",
-        DataType::Int64,
-        false,
-        Arc::new(Int64Array::from_iter_values(
-            rows.iter().map(|r| int64(r.written.byte_end)),
-        )),
-    );
-    push(
-        "first_ts_ms",
-        DataType::Int64,
-        true,
-        Arc::new(
-            rows.iter()
-                .map(|r| r.stats.first_ts_ms)
-                .collect::<Int64Array>(),
-        ),
-    );
-    push(
-        "last_ts_ms",
-        DataType::Int64,
-        true,
-        Arc::new(
-            rows.iter()
-                .map(|r| r.stats.last_ts_ms)
-                .collect::<Int64Array>(),
-        ),
-    );
-    stat!(Int64Array, DataType::Int64, int64, event_count, byte_size);
-    optional_utf8!("snapshot_source", |r| r.snapshot_source);
-    optional_utf8!("snapshot_library", |r| r.snapshot_library);
-    optional_utf8!("host", |r| r.stats.host.as_deref());
-    stat!(
-        Int32Array,
-        DataType::Int32,
-        int32,
+    columns!(|v: &bool| *v => cold_start, node_cap_reached, moments_truncated, touch_input);
+    columns!(|v: &Vec<String>| v.clone() => url_fingerprints, window_ids);
+    columns!(|v: &Option<u32>| v.map(int32) => viewport_width, viewport_height);
+    columns!(
+        |v: &u32| int32(*v) =>
         full_snapshots,
         events_before_first_full_snapshot,
         orphan_mutations,
@@ -343,21 +135,7 @@ pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError
         iframes,
         canvases,
         videos,
-        shadow_roots
-    );
-    stat!(
-        Int64Array,
-        DataType::Int64,
-        i64::from,
-        max_gap_ms,
-        active_ms
-    );
-    stat!(Int64Array, DataType::Int64, int64, dom_text_chars);
-    flag!(cold_start, node_cap_reached, moments_truncated, touch_input);
-    stat!(
-        Int32Array,
-        DataType::Int32,
-        int32,
+        shadow_roots,
         clicks,
         mouse_interactions,
         rage_clicks,
@@ -379,72 +157,355 @@ pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError
         images_inline,
         image_urls
     );
-    stat!(
-        Int64Array,
-        DataType::Int64,
-        int64,
-        image_bytes,
-        written_jsonl_bytes,
-        max_written_event_bytes
-    );
-    push(
-        "viewport_width",
-        DataType::Int32,
-        true,
-        Arc::new(
-            rows.iter()
-                .map(|r| r.stats.viewport_width.map(int32))
-                .collect::<Int32Array>(),
-        ),
-    );
-    push(
-        "viewport_height",
-        DataType::Int32,
-        true,
-        Arc::new(
-            rows.iter()
-                .map(|r| r.stats.viewport_height.map(int32))
-                .collect::<Int32Array>(),
-        ),
-    );
-    push(
-        "viewport_ts_ms",
-        DataType::Int64,
-        true,
-        Arc::new(
-            rows.iter()
-                .map(|r| r.stats.viewport_ts_ms)
-                .collect::<Int64Array>(),
-        ),
-    );
-    let moments = moments_column(rows);
-    push("moments", moments.data_type().clone(), false, moments);
-    let fingerprints = strings_column(rows, |s| &s.url_fingerprints);
-    push(
-        "url_fingerprints",
-        fingerprints.data_type().clone(),
-        false,
-        fingerprints,
-    );
-    let windows = strings_column(rows, |s| &s.window_ids);
-    push("window_ids", windows.data_type().clone(), false, windows);
-    optional_utf8!("urls", |r| r.urls.as_deref());
-    Ok(RecordBatch::try_new(
-        Arc::new(Schema::new(fields)),
-        columns,
-    )?)
+    map.serialize_entry("host", host)?;
+    map.end()
+}
+
+fn serialize_moments<S: Serializer>(moments: &&[Moment], serializer: S) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Entry<'a> {
+        kind: &'a str,
+        window_id: &'a str,
+        ts_ms: i64,
+        event_index: i32,
+    }
+    serializer.collect_seq(moments.iter().map(|moment| Entry {
+        kind: moment.kind,
+        window_id: &moment.window_id,
+        ts_ms: safe(moment.ts_ms),
+        event_index: int32(moment.event_index),
+    }))
+}
+
+/// Where one inline image sits in a pack in `images-v4`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImageIndexRow {
+    #[serde(serialize_with = "serialize_safe")]
+    pub team_id: i64,
+    pub key_month: String,
+    pub image_ref: String,
+    pub pack_s3_key: String,
+    /// Inclusive byte range of the sealed image in the pack.
+    #[serde(serialize_with = "serialize_int64")]
+    pub byte_start: u64,
+    #[serde(serialize_with = "serialize_int64")]
+    pub byte_end: u64,
+    pub mime: String,
+    #[serde(serialize_with = "serialize_int64")]
+    pub byte_size: u64,
+}
+
+/// One block's index row: where it is, what the inspector found, and its sealed URLs.
+#[derive(Debug, Serialize)]
+pub struct BlockIndexRow<'a> {
+    #[serde(serialize_with = "serialize_safe")]
+    pub team_id: i64,
+    pub session_id: &'a str,
+    pub key_month: &'a str,
+    pub block_s3_key: &'a str,
+    pub topic: &'static str,
+    pub partition: i32,
+    #[serde(serialize_with = "serialize_safe")]
+    pub start_offset: i64,
+    #[serde(serialize_with = "serialize_safe")]
+    pub end_offset: i64,
+    /// The last offset the flush covers on the partition, a message that gave no row included.
+    #[serde(serialize_with = "serialize_safe")]
+    pub flush_end_offset: i64,
+    /// The block rows this flush writes for the partition, and this row's place among them. With `flush_id`,
+    /// `topic` and `partition`, the place names the row across retries of the same publish.
+    #[serde(serialize_with = "serialize_int32")]
+    pub flush_row_count: u32,
+    #[serde(serialize_with = "serialize_int32")]
+    pub flush_row_index: u32,
+    pub flush_id: &'a str,
+    #[serde(serialize_with = "serialize_safe")]
+    pub flushed_at_ms: i64,
+    /// Inclusive byte range of the sealed frame in the block object.
+    #[serde(serialize_with = "serialize_int64")]
+    pub block_byte_start: u64,
+    #[serde(serialize_with = "serialize_int64")]
+    pub block_byte_end: u64,
+    #[serde(flatten, serialize_with = "serialize_stats")]
+    pub stats: &'a BlockStats,
+    pub snapshot_source: Option<&'a str>,
+    pub snapshot_library: Option<&'a str>,
+    #[serde(serialize_with = "serialize_moments")]
+    pub moments: &'a [Moment],
+    /// The block's visited URLs as a v4 JSON envelope under the session key.
+    pub urls: Option<String>,
+    /// Some visited URLs are not in `urls`: the block had more, or longer, than an index row keeps.
+    pub urls_truncated: bool,
+    /// Goes in the `capture-timestamp-ms` header, not in the row.
+    #[serde(skip)]
+    pub captured_at_ms: Option<i64>,
+}
+
+/// The index a row belongs to, as the `ml-index` header names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Index {
+    Blocks,
+    Images,
+}
+
+impl Index {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Index::Blocks => "blocks",
+            Index::Images => "images",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexMessage {
+    pub index: Index,
+    /// The session ID of a block row, the image reference of an image row.
+    pub key: String,
+    pub payload: Vec<u8>,
+    pub captured_at_ms: Option<i64>,
+}
+
+impl IndexMessage {
+    pub fn block(row: &BlockIndexRow<'_>) -> serde_json::Result<Self> {
+        Ok(Self {
+            index: Index::Blocks,
+            key: row.session_id.to_owned(),
+            payload: serde_json::to_vec(row)?,
+            captured_at_ms: row.captured_at_ms,
+        })
+    }
+
+    pub fn image(row: &ImageIndexRow, captured_at_ms: Option<i64>) -> serde_json::Result<Self> {
+        Ok(Self {
+            index: Index::Images,
+            key: row.image_ref.clone(),
+            payload: serde_json::to_vec(row)?,
+            captured_at_ms,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
-    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    use serde_json::{json, Value};
 
     use super::*;
 
+    /// The columns of the Parquet files the recorder wrote before the sink took them over, in file order, with their
+    /// parquetjs type and whether they are optional. The sink writes the same files, so a renamed field or a changed
+    /// type here breaks every reader.
+    const BLOCK_COLUMNS: &[(&str, &str, bool)] = &[
+        ("team_id", "INT64", false),
+        ("session_id", "UTF8", false),
+        ("key_month", "UTF8", false),
+        ("block_s3_key", "UTF8", false),
+        ("topic", "UTF8", false),
+        ("partition", "INT32", false),
+        ("start_offset", "INT64", false),
+        ("end_offset", "INT64", false),
+        ("flush_end_offset", "INT64", false),
+        ("flush_row_count", "INT32", false),
+        ("flush_row_index", "INT32", false),
+        ("flush_id", "UTF8", false),
+        ("flushed_at_ms", "INT64", false),
+        ("block_byte_start", "INT64", false),
+        ("block_byte_end", "INT64", false),
+        ("first_ts_ms", "INT64", true),
+        ("last_ts_ms", "INT64", true),
+        ("event_count", "INT64", false),
+        ("byte_size", "INT64", false),
+        ("snapshot_source", "UTF8", true),
+        ("snapshot_library", "UTF8", true),
+        ("host", "UTF8", true),
+        ("full_snapshots", "INT32", false),
+        ("events_before_first_full_snapshot", "INT32", false),
+        ("orphan_mutations", "INT32", false),
+        ("decode_failures", "INT32", false),
+        ("dom_nodes", "INT32", false),
+        ("remote_stylesheets", "INT32", false),
+        ("inline_stylesheets", "INT32", false),
+        ("iframes", "INT32", false),
+        ("canvases", "INT32", false),
+        ("videos", "INT32", false),
+        ("shadow_roots", "INT32", false),
+        ("max_gap_ms", "INT64", false),
+        ("active_ms", "INT64", false),
+        ("dom_text_chars", "INT64", false),
+        ("cold_start", "BOOLEAN", false),
+        ("node_cap_reached", "BOOLEAN", false),
+        ("moments_truncated", "BOOLEAN", false),
+        ("touch_input", "BOOLEAN", false),
+        ("clicks", "INT32", false),
+        ("mouse_interactions", "INT32", false),
+        ("rage_clicks", "INT32", false),
+        ("dead_clicks", "INT32", false),
+        ("keypresses", "INT32", false),
+        ("scrolls", "INT32", false),
+        ("mouse_moves", "INT32", false),
+        ("touches", "INT32", false),
+        ("touch_moves", "INT32", false),
+        ("selections", "INT32", false),
+        ("media_events", "INT32", false),
+        ("viewport_resizes", "INT32", false),
+        ("navigations", "INT32", false),
+        ("console_errors", "INT32", false),
+        ("console_warnings", "INT32", false),
+        ("network_requests", "INT32", false),
+        ("network_failures", "INT32", false),
+        ("images_extracted", "INT32", false),
+        ("images_inline", "INT32", false),
+        ("image_urls", "INT32", false),
+        ("image_bytes", "INT64", false),
+        ("written_jsonl_bytes", "INT64", false),
+        ("max_written_event_bytes", "INT64", false),
+        ("viewport_width", "INT32", true),
+        ("viewport_height", "INT32", true),
+        ("viewport_ts_ms", "INT64", true),
+        ("moments", "MOMENTS", false),
+        ("url_fingerprints", "LIST<UTF8>", false),
+        ("window_ids", "LIST<UTF8>", false),
+        ("urls", "UTF8", true),
+        ("urls_truncated", "BOOLEAN", false),
+    ];
+
+    const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[
+        ("team_id", "INT64", false),
+        ("key_month", "UTF8", false),
+        ("image_ref", "UTF8", false),
+        ("pack_s3_key", "UTF8", false),
+        ("byte_start", "INT64", false),
+        ("byte_end", "INT64", false),
+        ("mime", "UTF8", false),
+        ("byte_size", "INT64", false),
+    ];
+
+    fn fits(value: &Value, column_type: &str) -> bool {
+        match column_type {
+            "UTF8" => value.is_string(),
+            "BOOLEAN" => value.is_boolean(),
+            "INT64" => value.as_i64().is_some_and(|n| n.abs() <= MAX_SAFE_INTEGER),
+            "INT32" => value.as_i64().is_some_and(|n| i32::try_from(n).is_ok()),
+            "LIST<UTF8>" => value
+                .as_array()
+                .is_some_and(|items| items.iter().all(|item| fits(item, "UTF8"))),
+            "MOMENTS" => value.as_array().is_some_and(|moments| {
+                moments.iter().all(|moment| {
+                    let moment = moment.as_object().unwrap();
+                    moment.len() == 4
+                        && fits(&moment["kind"], "UTF8")
+                        && fits(&moment["window_id"], "UTF8")
+                        && fits(&moment["ts_ms"], "INT64")
+                        && fits(&moment["event_index"], "INT32")
+                })
+            }),
+            other => panic!("no column type {other}"),
+        }
+    }
+
+    /// Parses a row and checks it has exactly the columns, each value of its column's type.
+    fn assert_columns(payload: &[u8], columns: &[(&str, &str, bool)]) -> Value {
+        let value: Value = serde_json::from_slice(payload).unwrap();
+        let row = value.as_object().unwrap();
+        let mut keys: Vec<&str> = row.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        let mut names: Vec<&str> = columns.iter().map(|(name, _, _)| *name).collect();
+        names.sort_unstable();
+        assert_eq!(keys, names);
+        for (name, column_type, optional) in columns {
+            let cell = &row[*name];
+            assert!(
+                (*optional && cell.is_null()) || fits(cell, column_type),
+                "{name} = {cell} is not {column_type}"
+            );
+        }
+        value
+    }
+
     #[test]
-    fn image_index_reads_back_with_the_documented_columns() {
-        let rows = vec![ImageIndexRow {
+    fn rows_have_exactly_the_parquet_columns_and_types() {
+        let stats = BlockStats {
+            // 2^53, and a 1e100 timestamp read as an integer: past what JavaScript holds exactly.
+            first_ts_ms: Some(1 << 53),
+            max_gap_ms: i64::MIN,
+            event_count: u64::MAX,
+            clicks: u32::MAX,
+            viewport_width: Some(u32::MAX),
+            written_jsonl_bytes: u64::MAX,
+            url_fingerprints: vec!["b08517cee3ff5ecc".to_owned()],
+            window_ids: vec!["w1".to_owned(), "w2".to_owned()],
+            ..BlockStats::default()
+        };
+        let moments = [Moment {
+            kind: "full_snapshot",
+            window_id: "w1".into(),
+            ts_ms: 1e100 as i64,
+            event_index: u32::MAX,
+        }];
+        let block = BlockIndexRow {
+            team_id: 7,
+            session_id: "s",
+            key_month: "2026-09",
+            block_s3_key: "blocks/dt=2026-10-15/1-0",
+            topic: "main",
+            partition: 2,
+            start_offset: 100,
+            end_offset: 105,
+            flush_end_offset: 107,
+            flush_row_count: u32::MAX,
+            flush_row_index: 0,
+            flush_id: "0000000000000001",
+            flushed_at_ms: 1_000,
+            block_byte_start: 0,
+            block_byte_end: u64::MAX,
+            stats: &stats,
+            snapshot_source: Some("web"),
+            snapshot_library: None,
+            moments: &moments,
+            urls: None,
+            urls_truncated: false,
+            captured_at_ms: Some(5),
+        };
+        let message = IndexMessage::block(&block).unwrap();
+        let value = assert_columns(&message.payload, BLOCK_COLUMNS);
+        assert_eq!(
+            [
+                &value["first_ts_ms"],
+                &value["max_gap_ms"],
+                &value["last_ts_ms"],
+                &value["cold_start"],
+                &value["snapshot_library"],
+                &value["event_count"],
+                &value["block_byte_end"],
+                &value["clicks"],
+                &value["viewport_width"],
+                &value["written_jsonl_bytes"],
+                &value["flush_row_count"],
+                &value["url_fingerprints"],
+                &value["window_ids"],
+            ],
+            [
+                &json!(MAX_SAFE_INTEGER),
+                &json!(-MAX_SAFE_INTEGER),
+                &Value::Null,
+                &json!(false),
+                &Value::Null,
+                &json!(MAX_SAFE_INTEGER),
+                &json!(MAX_SAFE_INTEGER),
+                &json!(i32::MAX),
+                &json!(i32::MAX),
+                &json!(MAX_SAFE_INTEGER),
+                &json!(i32::MAX),
+                &json!(["b08517cee3ff5ecc"]),
+                &json!(["w1", "w2"]),
+            ]
+        );
+        assert_eq!(
+            value["moments"],
+            json!([{"kind": "full_snapshot", "window_id": "w1", "ts_ms": MAX_SAFE_INTEGER, "event_index": i32::MAX}])
+        );
+
+        let image = ImageIndexRow {
             team_id: 7,
             key_month: "2026-10".to_owned(),
             image_ref: "image:v4:7:2026-10:abc".to_owned(),
@@ -453,44 +514,9 @@ mod tests {
             byte_end: 99,
             mime: "image/png".to_owned(),
             byte_size: u64::MAX,
-        }];
-        let file = write_parquet(&image_index(&rows).unwrap()).unwrap();
-        let mut reader = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(file))
-            .unwrap()
-            .build()
-            .unwrap();
-        let batch = reader.next().unwrap().unwrap();
-        let columns: Vec<_> = batch
-            .schema()
-            .fields()
-            .iter()
-            .map(|f| (f.name().clone(), f.data_type().clone(), f.is_nullable()))
-            .collect();
-        let column = |name: &str, data_type| (name.to_owned(), data_type, false);
-        assert_eq!(
-            columns,
-            [
-                column("team_id", DataType::Int64),
-                column("key_month", DataType::Utf8),
-                column("image_ref", DataType::Utf8),
-                column("pack_s3_key", DataType::Utf8),
-                column("byte_start", DataType::Int64),
-                column("byte_end", DataType::Int64),
-                column("mime", DataType::Utf8),
-                column("byte_size", DataType::Int64),
-            ]
-        );
-        let sizes = batch
-            .column(7)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .unwrap();
-        assert_eq!(sizes.value(0), i64::MAX);
-        let refs = batch
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        assert_eq!(refs.value(0), "image:v4:7:2026-10:abc");
+        };
+        let message = IndexMessage::image(&image, None).unwrap();
+        let value = assert_columns(&message.payload, IMAGE_COLUMNS);
+        assert_eq!(value["byte_size"], json!(MAX_SAFE_INTEGER));
     }
 }
