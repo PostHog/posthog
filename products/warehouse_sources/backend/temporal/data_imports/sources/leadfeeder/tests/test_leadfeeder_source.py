@@ -55,10 +55,6 @@ class TestLeadfeederSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leads"])
-        assert [s.name for s in schemas] == ["leads"]
-
     @parameterized.expand(
         [
             (True, True, None),

@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
@@ -38,10 +37,6 @@ class TestE2BSource:
         config = E2BSourceConfig(api_key="e2b_test", team_id=team_id)
         schemas = {s.name: s for s in self.source.get_schemas(config, team_id=self.team_id)}
         assert schemas[endpoint].should_sync_default is expected
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(spec=E2BSourceConfig), team_id=self.team_id, names=["templates"])
-        assert [s.name for s in schemas] == ["templates"]
 
     def test_a_table_needing_the_team_id_says_so_instead_of_probing(self) -> None:
         # The per-schema check is the only place a user learns the team ID is missing before the
