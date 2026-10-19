@@ -353,7 +353,7 @@ jobs:
                   DIFF_OUTCOME: ${{ steps.diff.outcome }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   INSTALL_OUTCOME: ${{ steps.selector-install.outcome }}
-              run: node .github/scripts/jest-select.js
+              run: node .github/scripts/jest-select.js select
 
     frontend-format:
         name: Frontend formatting
