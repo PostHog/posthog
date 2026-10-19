@@ -61,6 +61,9 @@ from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
+    from celery import Task
+    from celery.result import AsyncResult
+
     from posthog.personhog_client import ReadConsistency
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -205,7 +208,9 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
             capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
-def _schedule_cohort_stats_collection(task: Any, args: list[Any], *, countdown: int, cohort_id: int) -> Any:
+def _schedule_cohort_stats_collection(
+    task: Task, args: list[Any], *, countdown: int, cohort_id: int
+) -> AsyncResult | None:
     """Queue the optional stats task. A broker failure must not fail the cohort calculation."""
     try:
         return task.apply_async(args=args, countdown=countdown)
@@ -266,8 +271,7 @@ def run_cohort_query(
         # This avoids waiting the full timeout when the query completed quickly
         if delayed_task and history and query and not settings.TEST:
             try:
-                if delayed_task.state in ["PENDING", "RECEIVED"]:
-                    delayed_task.revoke()  # Cancel the delayed task
+                delayed_task.revoke()  # Cancel the delayed task
             except Exception as e:
                 logger.warning("cohort_stats_collection_revoke_failed", cohort_id=cohort_id, exc_info=True)
                 capture_exception(e, additional_properties={"cohort_id": cohort_id})

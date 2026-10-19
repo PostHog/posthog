@@ -29,6 +29,8 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
+    COHORT_QUERY_TIMEOUT_SECONDS,
+    COHORT_STATS_COLLECTION_DELAY_SECONDS,
     ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
@@ -115,14 +117,20 @@ class TestRunCohortQueryStatsScheduling(SimpleTestCase):
     def test_broker_failure_after_query_returns_result(
         self, mock_stats_task: MagicMock, mock_capture: MagicMock
     ) -> None:
-        delayed_task = MagicMock(state="PENDING")
+        delayed_task = MagicMock()
         mock_stats_task.apply_async.side_effect = [delayed_task, KombuOperationalError("Timeout connecting to server")]
         delayed_task.revoke.side_effect = KombuOperationalError("Timeout connecting to server")
 
         result, _ = run_cohort_query(MagicMock(return_value=42), cohort_id=1, history=MagicMock(id=1), query="SELECT 1")
 
         self.assertEqual(result, 42)
-        self.assertEqual(mock_stats_task.apply_async.call_count, 2)
+        self.assertEqual(
+            [c.kwargs["countdown"] for c in mock_stats_task.apply_async.call_args_list],
+            [
+                COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            ],
+        )
         self.assertEqual(mock_capture.call_count, 2)
 
 
