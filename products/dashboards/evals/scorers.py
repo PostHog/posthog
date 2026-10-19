@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    resolve_effective_dashboard_filters,
+)
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
 
@@ -88,9 +91,13 @@ class SQLTilesFollowDashboardDateRange(AsyncOnlyScorerMixin, Scorer):
         return "sql_tiles_follow_dashboard_date_range"
 
     @staticmethod
-    def _results_for_date_range(source: dict[str, Any], date_from: str, team: Team) -> str:
-        query = apply_dashboard_filters_to_dict(source, {"date_from": date_from}, team)
-        return repr(get_query_runner(query, team).calculate().results)
+    def _results_for_date_range(
+        source: dict[str, Any], date_from: str, tile_filters_override: dict[str, Any] | None, team: Team
+    ) -> str:
+        effective = resolve_effective_dashboard_filters(source, {"date_from": date_from}, tile_filters_override)
+        query = apply_dashboard_filters_to_dict(effective.query, effective.filters, team)
+        # Grouped SQL without ORDER BY can return the same rows in a different order.
+        return repr(sorted(repr(row) for row in get_query_runner(query, team).calculate().results))
 
     @classmethod
     def _read_state(cls, team_id: int, name: str) -> dict[str, Any]:
@@ -109,7 +116,8 @@ class SQLTilesFollowDashboardDateRange(AsyncOnlyScorerMixin, Scorer):
                 }
                 try:
                     state["results"] = [
-                        cls._results_for_date_range(source, date_from, team) for date_from in DASHBOARD_DATE_RANGES
+                        cls._results_for_date_range(source, date_from, tile.filters_overrides, team)
+                        for date_from in DASHBOARD_DATE_RANGES
                     ]
                 except Exception as error:
                     state["error"] = repr(error)

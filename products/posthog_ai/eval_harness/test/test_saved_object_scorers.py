@@ -129,12 +129,16 @@ def test_dashboard_scores_saved_charts_and_preserves_existing_tile(
 class TestSQLTilesFollowDashboardDateRange(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
-            ("SELECT count() FROM events WHERE {filters}", 1.0),
-            ("SELECT count() FROM events WHERE {filters} AND timestamp >= now() - INTERVAL 30 DAY", 0.0),
-            ("SELECT count() FROM events", 0.0),
+            ("SELECT count() FROM events WHERE {filters}", None, 1.0),
+            ("SELECT count() FROM events WHERE {filters}", {"date_from": "-30d"}, 0.0),
+            ("SELECT count() FROM events WHERE {filters} AND timestamp >= now() - INTERVAL 30 DAY", None, 0.0),
+            ("SELECT count() FROM events", None, 0.0),
+            ("SELECT number FROM numbers(20) ORDER BY rand()", None, 0.0),
         ]
     )
-    def test_scores_sql_tiles_by_dashboard_date_range_response(self, sql: str, expected_score: float) -> None:
+    def test_scores_sql_tiles_by_dashboard_date_range_response(
+        self, sql: str, filters_overrides: dict[str, Any] | None, expected_score: float
+    ) -> None:
         for days_ago in (10, 75):
             _create_event(
                 team=self.team,
@@ -148,7 +152,7 @@ class TestSQLTilesFollowDashboardDateRange(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": sql}},
         )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight, filters_overrides=filters_overrides)
 
         state = SQLTilesFollowDashboardDateRange._read_state(self.team.id, "SQL dashboard")
         with patch.object(SQLTilesFollowDashboardDateRange, "_read_state", return_value=state):
