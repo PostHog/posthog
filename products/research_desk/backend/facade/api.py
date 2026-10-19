@@ -15,10 +15,10 @@ from django.utils import timezone
 
 from posthog.models.scoping import team_scope
 
-from ..logic import calendar_scout, contact_check, sessions, source_discovery, sources
-from ..models import ResearchSession, ResearchSource
+from ..logic import brief_posting, calendar_scout, contact_check, sessions, source_discovery, sources
+from ..models import ResearchSource
 from . import contracts
-from .enums import SessionOrigin, SessionStatus, SourceKind, SourceOrigin
+from .enums import SourceKind, SourceOrigin
 
 
 def _source_to_dto(obj: ResearchSource) -> contracts.ResearchSourceDTO:
@@ -33,24 +33,6 @@ def _source_to_dto(obj: ResearchSource) -> contracts.ResearchSourceDTO:
         active=obj.active,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
-    )
-
-
-def _session_to_dto(obj: ResearchSession) -> contracts.ResearchSessionDTO:
-    return contracts.ResearchSessionDTO(
-        id=obj.id,
-        origin=SessionOrigin(obj.origin),
-        external_ref=obj.external_ref,
-        title=obj.title,
-        start_time=obj.start_time,
-        end_time=obj.end_time,
-        status=SessionStatus(obj.status),
-        organizer_email=obj.organizer_email,
-        internal_emails=list(obj.internal_emails),
-        external_emails=list(obj.external_emails),
-        meeting_url=obj.meeting_url,
-        brief_posted_at=obj.brief_posted_at,
-        created_at=obj.created_at,
     )
 
 
@@ -71,12 +53,19 @@ def update_source(
 def list_sessions(
     *, start_after: datetime | None = None, start_before: datetime | None = None
 ) -> list[contracts.ResearchSessionDTO]:
-    return [_session_to_dto(obj) for obj in sessions.list_sessions(start_after=start_after, start_before=start_before)]
+    return [
+        sessions.session_to_dto(obj)
+        for obj in sessions.list_sessions(start_after=start_after, start_before=start_before)
+    ]
 
 
 def upsert_session(data: contracts.UpsertResearchSessionInput) -> tuple[contracts.ResearchSessionDTO, bool]:
     session, created = sessions.upsert_session(data)
-    return _session_to_dto(session), created
+    return sessions.session_to_dto(session), created
+
+
+def post_due_briefs() -> int:
+    return brief_posting.post_due_briefs()
 
 
 def check_contact(data: contracts.ContactCheckInput) -> contracts.ContactCheckResult:

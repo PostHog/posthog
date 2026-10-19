@@ -117,6 +117,7 @@ from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
+from products.research_desk.backend.facade.brief_tasks import SESSION_BRIEFS_CRONTAB, post_session_briefs
 from products.research_desk.backend.facade.tasks import (
     CALENDAR_SCOUT_CRONTAB,
     SOURCE_DISCOVERY_CRONTAB,
@@ -1214,6 +1215,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         DAILY_DIGEST_CRONTAB,
         send_daily_digests.s(),
         name="stamphog daily merged-pr digests",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        SESSION_BRIEFS_CRONTAB,
+        post_session_briefs.s(),
+        name="research desk session briefs",
     )
 
     # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
