@@ -37,6 +37,7 @@ from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
+    customized_alert_destination_ids,
     destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
@@ -191,6 +192,13 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
             "Whether every HogFunction in the group is enabled, so the destination notifies for all "
             "alert event kinds. This is the stored setting: a destination PostHog stopped delivering "
             "to after repeated failures still reads as true."
+        )
+    )
+    message_customized = serializers.BooleanField(
+        help_text=(
+            "Whether any HogFunction in the group sends something other than the stock message, "
+            "such as an edited body, headers, method or code. A customized destination sends exactly "
+            "what its HogFunctions build."
         )
     )
     slack_workspace_id = serializers.IntegerField(required=False)
@@ -905,10 +913,14 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
             alert_id=str(obj.id),
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         )
+        customized = customized_alert_destination_ids(
+            team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        )
         return [
             {
                 "hog_function_ids": list(group.hog_function_ids),
                 "enabled": group.fully_enabled,
+                "message_customized": not customized.isdisjoint(group.hog_function_ids),
                 **redact_destination_data(group.data),
             }
             for group in groups
