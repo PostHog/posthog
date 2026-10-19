@@ -1,6 +1,7 @@
 import {
     CANVAS_CHANNEL,
     CanvasNavIntent,
+    CanvasRect,
     CanvasTextSelection,
     CanvasToHostMessage,
     HostToCanvasMessage,
@@ -70,7 +71,7 @@ export interface CanvasHostCallbacks {
     onTextSelection?: (selection: CanvasTextSelection) => void
     onTextSelectionCleared?: () => void
     /** The viewer clicked a highlighted comment anchor. */
-    onCommentActivate?: (id: string) => void
+    onCommentActivate?: (id: string, rect: CanvasRect | null) => void
 }
 
 export type ExternalOpenBlockReason = 'unsafe-url' | 'no-interaction' | 'throttled'
@@ -215,7 +216,7 @@ export function createCanvasHostMessageRouter(
                 options.callbacks().onTextSelectionCleared?.()
                 break
             case 'comment-activate':
-                options.callbacks().onCommentActivate?.(message.id)
+                options.callbacks().onCommentActivate?.(message.id, message.rect ?? null)
                 break
         }
     }

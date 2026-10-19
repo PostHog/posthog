@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
@@ -27,9 +27,18 @@ export function CreateKnowledgeSourceModal({
         isUrlSourceSubmitting,
         isFileSourceSubmitting,
         urlSource,
+        libraries,
+        createLibraryIds,
     } = useValues(businessKnowledgeLogic)
-    const { closeCreateModal, setCreateTab, submitTextSource, submitUrlSource, submitFileSource, setFileSourceValue } =
-        useActions(businessKnowledgeLogic)
+    const {
+        closeCreateModal,
+        setCreateTab,
+        submitTextSource,
+        submitUrlSource,
+        submitFileSource,
+        setFileSourceValue,
+        setCreateLibraryIds,
+    } = useActions(businessKnowledgeLogic)
 
     return (
         <LemonModal
@@ -75,8 +84,8 @@ export function CreateKnowledgeSourceModal({
                                     />
                                 </LemonField>
                                 <p className="text-xs text-muted">
-                                    Text is chunked paragraph-by-paragraph and stored in Postgres. The support agent can
-                                    find it via SQL — no embeddings or vector DB in this stage.
+                                    Text is split into sections and made searchable. PostHog AI can use it after
+                                    processing finishes.
                                 </p>
                                 <AlwaysIncludeField />
                             </Form>
@@ -162,6 +171,18 @@ export function CreateKnowledgeSourceModal({
                     },
                 ]}
             />
+            {libraries.length > 0 && (
+                <LemonField.Pure label="Libraries" className="mt-2">
+                    <LemonInputSelect
+                        mode="multiple"
+                        value={createLibraryIds}
+                        options={libraries.map((library) => ({ key: library.id, label: library.name }))}
+                        onChange={setCreateLibraryIds}
+                        placeholder="No library"
+                        data-attr="business-knowledge-create-libraries"
+                    />
+                </LemonField.Pure>
+            )}
         </LemonModal>
     )
 }

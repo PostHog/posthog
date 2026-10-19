@@ -129,7 +129,6 @@ def _extract_patches(source, schemas, events):
         patch(f"{_ACTIVITIES}.ExternalDataSource") as MockSource,
         patch.object(CDCExtractActivity, "_get_cdc_schemas", return_value=schemas),
         patch.object(CDCExtractActivity, "_update_schema_sync_type_config"),
-        patch(f"{_ACTIVITIES}.convert_legacy_cdc_state"),
         patch(f"{_ACTIVITIES}.get_cdc_adapter", return_value=adapter),
         patch(f"{_ACTIVITIES}.CDCBufferWriter") as MockBufferWriter,
     ):

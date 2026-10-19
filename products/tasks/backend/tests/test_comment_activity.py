@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.models import Comment, Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskActivity, TaskCommentActivity, TaskRun
 
@@ -96,14 +96,14 @@ class TestCommentActivity(CommentActivityTestCase):
         )
         if invite_author:
             ChannelMembership.objects.create(team=self.team, channel=channel, user=self.author)
-        canvas = Canvas.objects.create(
-            team=self.team,
-            channel=channel,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=channel.id,
             name="Launch canvas",
-            created_by=self.peer,
+            created_by_id=self.peer.id,
             generation_task_id=self.task.id,
         )
-        comment = self._comment(scope="canvas", item_id=str(canvas.id))
+        comment = self._comment(scope="canvas", item_id=str(canvas_id))
 
         self._record_activity(comment, [self.author.id])
 
@@ -113,22 +113,22 @@ class TestCommentActivity(CommentActivityTestCase):
             assert activity is not None
             page = tasks_facade.list_task_activity(self.team.id, self.author.id)
             row = next(row for row in page.results if row.id == activity.id)
-            assert row.task_title == canvas.name
-            assert row.channel_id == canvas.channel_id
+            assert row.task_title == "Launch canvas"
+            assert row.channel_id == channel.id
             assert row.channel_name == channel.name
 
     @parameterized.expand([("with_task", True), ("without_task", False)])
     def test_canvas_comment_resolves_its_owner_when_the_caller_passes_none(self, _name: str, with_task: bool):
-        canvas = Canvas.objects.create(
-            team=self.team,
-            channel=self.channel,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=self.channel.id,
             name="Launch canvas",
-            created_by=self.author,
+            created_by_id=self.author.id,
             generation_task_id=self.task.id if with_task else None,
         )
         comment = self._comment(
             scope="canvas",
-            item_id=str(canvas.id),
+            item_id=str(canvas_id),
             item_context={"anchor": {"kind": "document"}, **({"taskId": str(self.task.id)} if with_task else {})},
         )
 
@@ -142,7 +142,7 @@ class TestCommentActivity(CommentActivityTestCase):
             for entry in tasks_facade.list_task_activity(self.team.id, self.author.id).results
             if entry.id == row.id
         )
-        assert (feed_row.task_id, feed_row.task_title, feed_row.is_unread) == (row.task_id, canvas.name, True)
+        assert (feed_row.task_id, feed_row.task_title, feed_row.is_unread) == (row.task_id, "Launch canvas", True)
         assert (
             tasks_facade.mark_task_activity_read(self.team.id, self.author.id, [(None, row.activity_at, row.id)]) == 1
         )

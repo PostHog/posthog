@@ -25,6 +25,7 @@ const buttonVariants = cva(
                 default: 'quill-button--size-default',
                 xs: 'quill-button--size-xs',
                 sm: 'quill-button--size-sm',
+                inline: 'quill-button--size-inline',
                 lg: 'quill-button--size-lg',
                 icon: 'quill-button--size-icon',
                 'icon-xs': 'quill-button--size-icon-xs',
@@ -44,6 +45,10 @@ const buttonVariants = cva(
                 true: 'quill-button--inert',
                 false: '',
             },
+            elevated: {
+                true: 'quill-button--elevated',
+                false: '',
+            },
         },
         defaultVariants: {
             variant: 'default',
@@ -56,6 +61,11 @@ export type ButtonProps = ButtonPrimitive.Props &
     VariantProps<typeof buttonVariants> & {
         /** Hides the label under a centered spinner and disables the button. Width stays stable. */
         loading?: boolean
+        /**
+         * Chunky raised chrome (heavy edge + bottom ledge) for strong calls to action.
+         * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
+         */
+        elevated?: boolean
     }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -66,6 +76,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             size = 'default',
             focusableWhenDisabled = true,
             left = false,
+            elevated = false,
             loading = false,
             disabled,
             children,
@@ -87,7 +98,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 // readers can reach it and announce busy. Activation stays blocked.
 
                 focusableWhenDisabled={loading ? true : focusableWhenDisabled}
-                className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
+                className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left, elevated }))}
                 {...props}
             >
                 {children}

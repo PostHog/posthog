@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -12,13 +13,23 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigConverter,
     SourceFieldSelectConfigOption,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    build_incremental_fields,
+    resolve_detected_primary_keys,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import TrinoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+    TRINO_COLUMN_NOT_FOUND_ERROR,
     TRINO_KNOWN_ERROR_MESSAGES,
+    TRINO_SCHEMA_NOT_FOUND_ERROR,
+    TRINO_TABLE_NOT_FOUND_ERROR,
+    TRINO_WORKER_NODE_ERROR,
+    TrinoImplementation,
     TrinoSchemaDiscoveryError,
     connect_trino,
     discover_trino_schemas,
@@ -27,12 +38,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+_TRINO_IMPLEMENTATION = TrinoImplementation()
+
 
 @SourceRegistry.register
-class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
-    supports_column_selection = True
-    supports_scheduled_sync = False
+class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^TRINO_",),
+        npm=("trino-client",),
+        pypi=("trino",),
+        go=("github.com/trinodb/trino-go-client",),
+        maven=("io.trino:trino-jdbc", "io.trino:trino-cli", "io.trino:trino-clickhouse", "io.trino:trino-client"),
+        rubygems=("trino-client", "trino-client-ruby"),
+    )
+
     api_docs_url = "https://trino.io/docs/current/client/python.html"
+
+    @property
+    def get_implementation(self) -> TrinoImplementation:
+        return _TRINO_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +73,6 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             iconPath="/static/services/trino.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/trino",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -215,18 +238,29 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             raise ValueError(error or "Invalid Trino host.")
         with trino_failures_as_discovery_error(), connect_trino(config) as connection:
             discovered = discover_trino_schemas(connection.cursor(), config, names)
-        return [
-            SourceSchema(
-                name=table.name if config.schema else f"{table.schema}.{table.name}",
-                supports_incremental=False,
-                supports_append=False,
-                columns=[(column.name, column.data_type, column.nullable) for column in table.columns],
-                source_catalog=table.catalog,
-                source_schema=table.schema,
-                source_table_name=table.name,
+
+        # Built from the discovered tables rather than through `SQLSource.get_schemas`, because a
+        # schema name can contain a dot (nested Iceberg namespaces), so the display name alone
+        # cannot be split back into its schema and table.
+        incremental_filter = self.get_implementation.get_incremental_filter()
+        schemas: list[SourceSchema] = []
+        for table in discovered:
+            columns = [(column.name, column.data_type, column.nullable) for column in table.columns]
+            incremental_fields = incremental_filter(columns)
+            schemas.append(
+                SourceSchema(
+                    name=table.name if config.schema else f"{table.schema}.{table.name}",
+                    supports_incremental=bool(incremental_fields),
+                    supports_append=bool(incremental_fields),
+                    incremental_fields=build_incremental_fields(incremental_fields),
+                    columns=columns,
+                    source_catalog=table.catalog,
+                    source_schema=table.schema,
+                    source_table_name=table.name,
+                    detected_primary_keys=resolve_detected_primary_keys(None, columns),
+                )
             )
-            for table in discovered
-        ]
+        return schemas
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Schema discovery hands back Trino's own verdict, so the API must show it. The message keys
@@ -240,6 +274,18 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         # filed. Closing that gap needs a shared classifier across the schema-discovery views, not a
         # per-source key. Mirrors the note on the Stripe source.
         return {
+            **self.default_non_retryable_errors(),
             **{message: message for message in TRINO_KNOWN_ERROR_MESSAGES},
+            TRINO_TABLE_NOT_FOUND_ERROR: TRINO_TABLE_NOT_FOUND_ERROR,
+            # A query failure names its Trino error code in the text, for example
+            # `TrinoUserError(type=USER_ERROR, name=TABLE_NOT_FOUND, ...)`.
+            "name=TABLE_NOT_FOUND": TRINO_TABLE_NOT_FOUND_ERROR,
+            "name=SCHEMA_NOT_FOUND": TRINO_SCHEMA_NOT_FOUND_ERROR,
+            "name=COLUMN_NOT_FOUND": TRINO_COLUMN_NOT_FOUND_ERROR,
             TrinoSchemaDiscoveryError.__name__: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The coordinator only raises this after exhausting its own attempts to reach the worker,
+        # so it reaches us already a self-recovering vendor-side blip.
+        return {TRINO_WORKER_NODE_ERROR}

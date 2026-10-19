@@ -787,7 +787,6 @@ mod tests {
             is_identified: false,
             is_deleted: false,
             last_seen_at: None,
-            approx_bytes: crate::cache::approx_person_bytes(2),
         }
     }
 

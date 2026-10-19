@@ -13,6 +13,15 @@ use hogvm::{Num, Operation};
 use serde_json::Value;
 
 use super::decode::{decode, InstrKind};
+use super::exactness::{ColumnExactness, Exactness};
+use super::projection::ELEMENTS_CHAIN_PROPERTY;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventEqualities {
+    pub row_filter: Option<EventRowFilter>,
+    /// `None` when the program reads the whole object or the grammar does not parse it.
+    pub column_exactness: Option<ColumnExactness>,
+}
 
 /// A necessary condition for the program to return true: the row's `event` is [`Self::event`], and
 /// every conjunct has some `(key, value)` with `properties[key] == value` under HogVM equality.
@@ -48,19 +57,100 @@ enum Node {
         key: Arc<str>,
         value: Arc<str>,
     },
-    OtherEquality,
+    /// Any other `==`, kept for the `properties` reads in its operands.
+    OtherEquality(Box<Node>, Box<Node>),
     And(Vec<Node>),
     Or(Vec<Node>),
+}
+
+enum PropertyRead<'a> {
+    Compared {
+        key: &'a str,
+        literal: &'a str,
+    },
+    /// Any other read of the key, including a path under it.
+    Other {
+        key: &'a str,
+    },
+    WholeObject,
+}
+
+impl<'a> PropertyRead<'a> {
+    fn exactness(self) -> Option<(&'a str, Exactness)> {
+        match self {
+            Self::Compared { key, literal } => Some((key, Exactness::of_literal(literal))),
+            Self::Other { key } => Some((key, Exactness::Inexact)),
+            Self::WholeObject => None,
+        }
+    }
+
+    fn of_chain(chain: &'a [Arc<str>]) -> Option<Self> {
+        match chain {
+            [root] if &**root == "properties" => Some(Self::WholeObject),
+            [root, key, ..] if &**root == "properties" => Some(Self::Other { key }),
+            // `elements_chain` falls back to this property.
+            [root, ..] if &**root == "elements_chain" => Some(Self::Other {
+                key: ELEMENTS_CHAIN_PROPERTY,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl Node {
     const fn is_boolean(&self) -> bool {
         !matches!(self, Self::Literal(_) | Self::Global(_))
     }
+
+    fn property_reads(&self) -> PropertyReads<'_> {
+        PropertyReads {
+            pending: vec![self],
+        }
+    }
 }
 
-pub fn event_row_filter(bytecode: &[Value]) -> Option<EventRowFilter> {
-    let root = parse(bytecode)?;
+struct PropertyReads<'a> {
+    pending: Vec<&'a Node>,
+}
+
+impl<'a> Iterator for PropertyReads<'a> {
+    type Item = PropertyRead<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(node) = self.pending.pop() {
+            match node {
+                Node::Literal(_) | Node::EventIs(_) => {}
+                Node::Global(chain) => {
+                    if let Some(read) = PropertyRead::of_chain(chain) {
+                        return Some(read);
+                    }
+                }
+                Node::PropertyIs { key, value } => {
+                    return Some(PropertyRead::Compared {
+                        key,
+                        literal: value,
+                    })
+                }
+                Node::OtherEquality(left, right) => self.pending.extend([&**left, &**right]),
+                Node::And(operands) | Node::Or(operands) => self.pending.extend(operands),
+            }
+        }
+        None
+    }
+}
+
+pub fn event_equalities(bytecode: &[Value]) -> EventEqualities {
+    let Some(root) = parse(bytecode) else {
+        return EventEqualities::default();
+    };
+    EventEqualities {
+        // A literal comparison keeps its answer under any `==`, `AND` or `OR` above it.
+        column_exactness: root.property_reads().map(PropertyRead::exactness).collect(),
+        row_filter: row_filter(root),
+    }
+}
+
+fn row_filter(root: Node) -> Option<EventRowFilter> {
     let mut conjuncts = Vec::new();
     flatten_and(root, &mut conjuncts);
 
@@ -145,19 +235,19 @@ fn parse(bytecode: &[Value]) -> Option<Node> {
 }
 
 fn equality(left: Node, right: Node) -> Node {
-    let (literal, chain) = match (left, right) {
+    let recognized = match (&left, &right) {
         (Node::Literal(literal), Node::Global(chain))
-        | (Node::Global(chain), Node::Literal(literal)) => (literal, chain),
-        _ => return Node::OtherEquality,
-    };
-    match chain.as_slice() {
-        [root] if &**root == "event" => Node::EventIs(literal),
-        [root, key] if &**root == "properties" => Node::PropertyIs {
-            key: key.clone(),
-            value: literal,
+        | (Node::Global(chain), Node::Literal(literal)) => match chain.as_slice() {
+            [root] if &**root == "event" => Some(Node::EventIs(literal.clone())),
+            [root, key] if &**root == "properties" => Some(Node::PropertyIs {
+                key: key.clone(),
+                value: literal.clone(),
+            }),
+            _ => None,
         },
-        _ => Node::OtherEquality,
-    }
+        _ => None,
+    };
+    recognized.unwrap_or_else(|| Node::OtherEquality(Box::new(left), Box::new(right)))
 }
 
 fn flatten_and(node: Node, out: &mut Vec<Node>) {
@@ -376,7 +466,11 @@ mod tests {
             ),
         ];
         for (label, body, expected) in cases {
-            assert_eq!(event_row_filter(&program(body)), Some(expected), "{label}");
+            assert_eq!(
+                event_equalities(&program(body)).row_filter,
+                Some(expected),
+                "{label}"
+            );
         }
     }
 
@@ -454,15 +548,227 @@ mod tests {
             ),
         ];
         for (label, body) in cases {
-            assert_eq!(event_row_filter(&program(body)), None, "{label}");
+            assert_eq!(event_equalities(&program(body)).row_filter, None, "{label}");
         }
 
         let mut unterminated = program(fold(AND, vec![event_is("e"), property_is("k", "v")]));
         unterminated.pop();
-        assert_eq!(event_row_filter(&unterminated), None, "no RETURN");
+        assert_eq!(
+            event_equalities(&unterminated),
+            EventEqualities::default(),
+            "no RETURN"
+        );
         let mut trailing = program(fold(AND, vec![event_is("e"), property_is("k", "v")]));
         trailing.push(json!(Operation::True as u64));
-        assert_eq!(event_row_filter(&trailing), None, "code after RETURN");
+        assert_eq!(
+            event_equalities(&trailing),
+            EventEqualities::default(),
+            "code after RETURN"
+        );
+    }
+
+    fn exact_keys(body: Vec<Value>) -> BTreeSet<String> {
+        event_equalities(&program(body))
+            .column_exactness
+            .map(|keys| keys.exact_keys().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_key_is_column_exact_only_when_every_read_compares_it_with_an_exact_literal() {
+        let under_the_key = vec![
+            json!(STRING),
+            json!("v"),
+            json!(STRING),
+            json!("sub"),
+            json!(STRING),
+            json!("k"),
+            json!(STRING),
+            json!("properties"),
+            json!(GET_GLOBAL),
+            json!(3),
+            json!(EQ),
+        ];
+        let against_the_event = vec![
+            json!(STRING),
+            json!("k"),
+            json!(STRING),
+            json!("properties"),
+            json!(GET_GLOBAL),
+            json!(2),
+            json!(STRING),
+            json!("event"),
+            json!(GET_GLOBAL),
+            json!(1),
+            json!(EQ),
+        ];
+        let the_elements_chain = vec![
+            json!(STRING),
+            json!("x"),
+            json!(STRING),
+            json!("elements_chain"),
+            json!(GET_GLOBAL),
+            json!(1),
+            json!(EQ),
+        ];
+        let the_whole_object = vec![
+            json!(STRING),
+            json!("v"),
+            json!(STRING),
+            json!("properties"),
+            json!(GET_GLOBAL),
+            json!(1),
+            json!(EQ),
+        ];
+        let pattern = {
+            let mut tokens = property_is("k", "%v%");
+            *tokens.last_mut().unwrap() = json!(Operation::Ilike as u64);
+            tokens
+        };
+        let cases: Vec<(&str, Vec<Value>, &[&str])> = vec![
+            (
+                "one exact literal",
+                fold(
+                    AND,
+                    vec![event_is("e"), property_is("k", "https://example.com/")],
+                ),
+                &["k"],
+            ),
+            (
+                "a value list",
+                fold(
+                    AND,
+                    vec![
+                        event_is("e"),
+                        fold(OR, vec![property_is("k", "a"), property_is("k", "b")]),
+                    ],
+                ),
+                &["k"],
+            ),
+            (
+                "an inexact literal beside an exact one",
+                fold(
+                    AND,
+                    vec![
+                        event_is("e"),
+                        fold(OR, vec![property_is("k", "a"), property_is("k", "TRUE")]),
+                        property_is("j", "b"),
+                    ],
+                ),
+                &["j"],
+            ),
+            (
+                "a path under the key",
+                fold(
+                    AND,
+                    vec![
+                        event_is("e"),
+                        property_is("k", "v"),
+                        under_the_key,
+                        property_is("j", "b"),
+                    ],
+                ),
+                &["j"],
+            ),
+            (
+                "the key compared with another global",
+                fold(
+                    AND,
+                    vec![
+                        event_is("e"),
+                        property_is("k", "v"),
+                        against_the_event,
+                        property_is("j", "b"),
+                    ],
+                ),
+                &["j"],
+            ),
+            (
+                "an OR with a person property, which no row filter covers",
+                fold(
+                    AND,
+                    vec![
+                        event_is("e"),
+                        fold(
+                            OR,
+                            vec![property_is("k", "v"), person_property_is("plan", "pro")],
+                        ),
+                    ],
+                ),
+                &["k"],
+            ),
+            (
+                "the elements chain, which falls back to its property",
+                fold(
+                    AND,
+                    vec![
+                        event_is("e"),
+                        property_is("$elements_chain", "a"),
+                        the_elements_chain,
+                        property_is("j", "b"),
+                    ],
+                ),
+                &["j"],
+            ),
+            (
+                "the whole object",
+                fold(
+                    AND,
+                    vec![event_is("e"), property_is("j", "b"), the_whole_object],
+                ),
+                &[],
+            ),
+            (
+                "a program outside the grammar",
+                fold(AND, vec![event_is("e"), property_is("j", "b"), pattern]),
+                &[],
+            ),
+        ];
+        for (label, body, expected) in cases {
+            let expected: BTreeSet<String> = expected.iter().map(|key| (*key).to_owned()).collect();
+            assert_eq!(exact_keys(body), expected, "{label}");
+        }
+
+        for literal in [
+            "", "5", "-1", "1e3", "inf", "true", "TRUE", "False", "null", "{}", "[1]", "\"q\"",
+            " 5",
+        ] {
+            let body = fold(AND, vec![event_is("e"), property_is("k", literal)]);
+            assert_eq!(exact_keys(body), BTreeSet::new(), "{literal:?}");
+        }
+    }
+
+    /// Mirrors `replaceRegexpAll(JSONExtractRaw(properties, key), '^"|"$', '')`.
+    fn trim_quotes(raw: &str) -> &str {
+        let raw = raw.strip_prefix('"').unwrap_or(raw);
+        raw.strip_suffix('"').unwrap_or(raw)
+    }
+
+    /// Mirrors `if(isValidJSON(m), m, concat('"', m, '"'))`.
+    fn rebuild(column: &str) -> Value {
+        serde_json::from_str(column).unwrap_or_else(|_| {
+            serde_json::from_str(&format!("\"{column}\""))
+                .expect("a string's escaped body is a valid string once quoted again")
+        })
+    }
+
+    fn exact_literal() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("my-flag".to_owned()),
+            Just("https://example.com/p?q=1".to_owned()),
+            Just("2024-01-01".to_owned()),
+            Just("a\"b\\c\n".to_owned()),
+            Just("é😀".to_owned()),
+            // Exact, but close to retyped text.
+            Just("True ".to_owned()),
+            Just("5a".to_owned()),
+            Just("nul".to_owned()),
+            Just("[".to_owned()),
+            "\\PC{1,6}",
+        ]
+        .prop_filter("a literal a column decides exactly", |literal| {
+            Exactness::of_literal(literal) == Exactness::Exact
+        })
     }
 
     fn property_value() -> impl Strategy<Value = Value> {
@@ -479,6 +785,13 @@ mod tests {
                 Just(String::new()),
                 Just("2024-01-01".to_owned()),
                 Just("a\"b\\c\n".to_owned()),
+                // Retyped by a trim-quotes column.
+                Just("5".to_owned()),
+                Just("5.0".to_owned()),
+                Just("null".to_owned()),
+                Just("[1]".to_owned()),
+                Just("{}".to_owned()),
+                Just(" 5".to_owned()),
                 "\\PC{0,6}",
             ]
             .prop_map(Value::String),
@@ -519,7 +832,7 @@ mod tests {
                 AND,
                 vec![event_is("e"), property_is("k", &expected)],
             ));
-            let Some(row_filter) = event_row_filter(&bytecode) else {
+            let Some(row_filter) = event_equalities(&bytecode).row_filter else {
                 prop_assert!(Num::from_str(&expected).is_ok());
                 return Ok(());
             };
@@ -533,6 +846,44 @@ mod tests {
                 };
                 prop_assert!(admitted, "the VM matched {actual} against {expected:?}");
             }
+        }
+
+        /// The string `"false"` is excluded: the column returns it as the boolean.
+        #[test]
+        fn an_exact_literal_answers_a_column_rebuilt_value_like_the_stored_one(
+            actual in prop::option::of(property_value()),
+            literal in exact_literal(),
+        ) {
+            let reads_as_false = |text: &str| {
+                serde_json::from_str::<Value>(text).is_ok_and(|value| value == Value::Bool(false))
+            };
+            prop_assume!(!matches!(&actual, Some(Value::String(text)) if reads_as_false(text)));
+            let bytecode = program(fold(AND, vec![event_is("e"), property_is("k", &literal)]));
+            prop_assert_eq!(
+                event_equalities(&bytecode).column_exactness.and_then(|keys| keys.get("k")),
+                Some(Exactness::Exact)
+            );
+
+            let column = actual
+                .as_ref()
+                .map_or_else(String::new, |value| trim_quotes(&value.to_string()).to_owned());
+            let stored = match &actual {
+                Some(value) => json!({"event": "e", "properties": {"k": value}}),
+                None => json!({"event": "e", "properties": {}}),
+            };
+            let rebuilt = json!({"event": "e", "properties": {"k": rebuild(&column)}});
+            let verdict = |globals| match evaluate_detailed(&bytecode, globals) {
+                EvalOutcome::Matched(matched) => matched,
+                other => panic!("an equality program failed to evaluate: {other:?}"),
+            };
+            prop_assert_eq!(
+                verdict(stored),
+                verdict(rebuilt),
+                "{:?} against {:?} through the column value {:?}",
+                actual,
+                literal,
+                column
+            );
         }
     }
 }

@@ -13,8 +13,10 @@ import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import AzureOpenAI as WrappedAzureOpenAI
 
+from posthog.exceptions_capture import capture_exception
+
 from products.ai_observability.backend.llm.errors import error_field_for_message
-from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext
 
 logger = logging.getLogger(__name__)
@@ -144,14 +146,16 @@ class AzureOpenAIAdapter(OpenAIAdapter):
                 api_key=api_key,
                 azure_endpoint=self.azure_endpoint,
                 api_version=self.api_version,
-                timeout=OpenAIConfig.TIMEOUT,
+                timeout=self.request_timeout,
+                max_retries=self.max_retries,
                 http_client=http_client,
             )
         return openai.AzureOpenAI(
             api_key=api_key,
             azure_endpoint=self.azure_endpoint,
             api_version=self.api_version,
-            timeout=OpenAIConfig.TIMEOUT,
+            timeout=self.request_timeout,
+            max_retries=self.max_retries,
             http_client=http_client,
         )
 
@@ -210,12 +214,14 @@ class AzureOpenAIAdapter(OpenAIAdapter):
                     "status_code": e.response.status_code,
                 },
             )
+            capture_exception(e, {"provider": "azure_openai", "status_code": e.response.status_code})
             return []
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Error listing Azure OpenAI deployments",
                 extra={"azure_endpoint": azure_endpoint},
             )
+            capture_exception(e, {"provider": "azure_openai"})
             return []
 
     @staticmethod

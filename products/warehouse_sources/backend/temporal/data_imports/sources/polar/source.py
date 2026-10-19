@@ -2,13 +2,18 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -18,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.polar import (
+    POLAR_VERSION_2026_10,
     PolarPermissionError,
     PolarResumeConfig,
     polar_source,
@@ -29,8 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
-    supported_versions = ("v1",)
-    default_version = "v1"
+    codebase_detection = detect(
+        env=("^POLAR_",),
+        npm=("@polar-sh/sdk", "@polar-sh/nextjs", "@polar-sh/better-auth", "@polar-sh/checkout", "@polar-sh/ui"),
+        pypi=("polar-sdk",),
+        composer=("polar-sh/sdk",),
+        go=("github.com/polarsource/polar-go",),
+    )
+
+    supported_versions = (UNVERSIONED_API_VERSION, POLAR_VERSION_2026_10)
+    default_version = POLAR_VERSION_2026_10
     api_docs_url = "https://docs.polar.sh/api-reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -83,13 +97,15 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.polar.sh": "Your Polar Organization Access Token is invalid or expired. Please generate a new token in Polar and reconnect.",
             "403 Client Error: Forbidden for url: https://api.polar.sh": "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
+            # Polar answers a removed or unknown `Polar-Version` with a 404; the list endpoints are static.
+            "404 Client Error: Not Found for url: https://api.polar.sh": "The Polar API version this source uses is no longer supported by Polar. Please contact support to move it to a newer version.",
         }
 
     def validate_credentials(
         self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
-            validate_polar_credentials(config.polar_api_key, schema_name)
+            validate_polar_credentials(config.polar_api_key, self.resolve_api_version(api_version), schema_name)
             return True, None
         except PolarPermissionError as e:
             return False, f"Polar Organization Access Token lacks permissions: {e}"
@@ -154,5 +170,6 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return polar_source(
             api_key=config.polar_api_key,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
         )

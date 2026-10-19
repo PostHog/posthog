@@ -22,7 +22,7 @@ the enforced level and where it comes from. This skill is for reading them corre
 - "Which properties are hidden from the support role?"
 - "What does the `analyst` role grant?" / "What is the default access in this project?"
 
-Not for changing rules. The read tools cannot write, and the settings page is where rules are edited.
+Access rules can also be changed with MCP write tools. Read the current rule first, explain the change, then use the prepare/execute flow and call execute only after the user confirms.
 
 ## Plan availability
 
@@ -44,8 +44,9 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 - **Scopes.** The project itself, then each tool (`dashboard`, `insight`, `feature_flag`, `notebook`,
   `experiment`, `warehouse_objects`, and so on), then single objects inside a tool, then person and event
   properties. The tool names are the keys of `resources` in a members-list entry.
-- **Project levels.** `member` can view and edit the resources their other rules permit. `admin` can also
-  edit project settings, manage the project's access rules, and delete the project.
+- **Project levels.** `none` blocks access to the project and its resources. `member` can view and edit the
+  resources their other rules permit. `admin` can also edit project settings, manage the project's access rules,
+  and delete the project.
 - **Tool and object levels.** `none` cannot view. `viewer` can view but not change. `editor` can view and
   change. `manager` can also manage the access rules of the tool or object. Order: `none` < `viewer` <
   `editor` < `manager`.
@@ -66,19 +67,22 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 
 ## Available tools
 
-| Tool                                              | Returns                                                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `posthog:access-control-members-list`             | Every member's enforced access to the project and to each tool. `member_id` narrows to a member. |
-| `posthog:access-control-roles-list`               | The same per role. `role_id` narrows to a role.                                                  |
-| `posthog:access-control-defaults-get`             | The project baseline, and which tools accept rules on single objects.                            |
-| `posthog:access-control-member-objects-list`      | The object rules set for a member: every object with a rule for that member.                     |
-| `posthog:access-control-member-properties-list`   | The property rules set for a member.                                                             |
-| `posthog:access-control-role-objects-list`        | The object rules set for a role.                                                                 |
-| `posthog:access-control-role-properties-list`     | The property rules set for a role.                                                               |
-| `posthog:access-control-default-objects-list`     | The object rules that apply to everyone in the project.                                          |
-| `posthog:access-control-default-properties-list`  | The property rules that apply to everyone in the project.                                        |
-| `posthog:org-members-list`                        | Membership ids, names and organization levels. No project access details.                        |
-| `posthog:roles-list`, `posthog:role-members-list` | Role names by id, and who is in a role.                                                          |
+| Tool                                                                                                  | Returns                                                                                          |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `posthog:access-control-members-list`                                                                 | Every member's enforced access to the project and to each tool. `member_id` narrows to a member. |
+| `posthog:access-control-roles-list`                                                                   | The same per role. `role_id` narrows to a role.                                                  |
+| `posthog:access-control-defaults-get`                                                                 | The project baseline, and which tools accept rules on single objects.                            |
+| `posthog:access-control-default-rule-set-prepare` / `posthog:access-control-default-rule-set-execute` | Set or clear a default rule for a scope.                                                         |
+| `posthog:access-control-member-rule-set-prepare` / `posthog:access-control-member-rule-set-execute`   | Set or clear one member's rule for a scope.                                                      |
+| `posthog:access-control-role-rule-set-prepare` / `posthog:access-control-role-rule-set-execute`       | Set or clear one role's rule for a scope.                                                        |
+| `posthog:access-control-member-objects-list`                                                          | The object rules set for a member: every object with a rule for that member.                     |
+| `posthog:access-control-member-properties-list`                                                       | The property rules set for a member.                                                             |
+| `posthog:access-control-role-objects-list`                                                            | The object rules set for a role.                                                                 |
+| `posthog:access-control-role-properties-list`                                                         | The property rules set for a role.                                                               |
+| `posthog:access-control-default-objects-list`                                                         | The object rules that apply to everyone in the project.                                          |
+| `posthog:access-control-default-properties-list`                                                      | The property rules that apply to everyone in the project.                                        |
+| `posthog:org-members-list`                                                                            | Membership ids, names and organization levels. No project access details.                        |
+| `posthog:roles-list`, `posthog:role-members-list`                                                     | Role names by id, and who is in a role.                                                          |
 
 All access control tools take an optional project id and default to the active project.
 
@@ -139,6 +143,8 @@ How to phrase the answer:
 
 - An empty object or property list means no rules of that kind, not no access. The tool-level entry
   still applies.
+- A project default of `none` does not remove explicit member or role grants. Check the members and roles
+  lists to find those grants. Organization admins and owners always bypass project rules.
 - A member missing from `members-list` is not proof of no access. A caller who is not an organization
   admin, in an organization where members cannot see each other, only sees members with project-scoped
   access.

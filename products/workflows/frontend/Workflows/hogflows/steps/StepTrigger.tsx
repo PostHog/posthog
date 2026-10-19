@@ -55,7 +55,11 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
-import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
+import {
+    PERSON_FREQUENCY_OPTIONS,
+    TriggerFrequencyOption,
+    getRegisteredTriggerTypes,
+} from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
@@ -240,29 +244,18 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 value: 'webhook',
                 icon: <IconWebhooks />,
             },
-            ...(type === 'manual'
-                ? [
-                      {
-                          label: 'Manual',
-                          description: 'Trigger your workflow manually... with a button!',
-                          value: 'manual',
-                          icon: <IconButton />,
-                      },
-                  ]
-                : []),
-            // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
-            // current trigger is already a schedule, so existing workflows still render and can be
-            // switched to a different trigger type without crashing.
-            ...(type === 'schedule'
-                ? [
-                      {
-                          label: 'Schedule',
-                          description: 'Run your workflow on a schedule',
-                          value: 'schedule',
-                          icon: <IconClock />,
-                      },
-                  ]
-                : []),
+            {
+                label: 'Manual',
+                description: 'Run your workflow when you click the trigger button',
+                value: 'manual',
+                icon: <IconButton />,
+            },
+            {
+                label: 'Schedule',
+                description: 'Run your workflow once or on a recurring schedule, without a person or event',
+                value: 'schedule',
+                icon: <IconClock />,
+            },
             {
                 label: 'Tracking pixel',
                 description: 'Trigger your workflow using a 1x1 tracking pixel',
@@ -286,7 +279,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 })),
         ]
         return items
-    }, [type, featureFlags])
+    }, [featureFlags])
 
     const selectedItem = allTriggerItems.find((item) => item.value === displayType)
 
@@ -574,7 +567,12 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     const isAccountAudience = filters?.audience_type === 'accounts'
     // Account audiences carry no person, so email dedup never applies to them.
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
+    const logic = batchTriggerLogic({
+        id: actionId,
+        filters,
+        dedupeKey,
+        sendsEmail: hogFlowSendsEmail(workflow),
+    })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
@@ -872,16 +870,7 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
-const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
-const CALENDAR_DAY_TTL = 24 * 60 * 60
-
-const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
-    { value: null, label: 'Every time the trigger fires' },
-    { value: '{person.id}', label: 'One time' },
-    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
-]
-
-const TTL_OPTIONS = [
+export const TTL_OPTIONS = [
     { value: null, label: 'indefinitely' },
     { value: 5 * 60, label: '5 minutes' },
     { value: 15 * 60, label: '15 minutes' },
@@ -915,7 +904,7 @@ function TTLSelect({
 }
 
 function FrequencySection({
-    options = FREQUENCY_OPTIONS,
+    options = PERSON_FREQUENCY_OPTIONS,
     description = 'Limit how often users can enter this workflow',
 }: {
     options?: TriggerFrequencyOption[]

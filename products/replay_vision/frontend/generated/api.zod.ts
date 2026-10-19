@@ -476,6 +476,95 @@ export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * Scan sessions with a saved scanner or an inline question. Poll the returned request for results.
+ */
+export const visionRequestsCreateBodySessionIdsItemMax = 128
+
+export const visionRequestsCreateBodySessionIdsMax = 200
+
+export const visionRequestsCreateBodyInlineOnePromptMax = 20000
+
+export const visionRequestsCreateBodyInlineOneScannerTypeDefault = `monitor`
+export const visionRequestsCreateBodyInlineOneModelDefault = `gemini-3-flash-preview`
+export const visionRequestsCreateBodyIdempotencyKeyMax = 200
+
+export const visionRequestsCreateBodyReferenceDefault = ``
+export const visionRequestsCreateBodyReferenceMax = 200
+
+export const visionRequestsCreateBodyWaitForSessionEndDefault = false
+
+export const VisionRequestsCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionRequestsCreateBodySessionIdsItemMax))
+            .max(visionRequestsCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.'
+            ),
+        scanner_id: zod
+            .uuid()
+            .optional()
+            .describe('A saved scanner to apply to the sessions. Pass this or `inline`, not both.'),
+        inline: zod
+            .object({
+                prompt: zod
+                    .string()
+                    .max(visionRequestsCreateBodyInlineOnePromptMax)
+                    .describe(
+                        'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
+                    ),
+                scanner_type: zod
+                    .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+                    .describe(
+                        '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneScannerTypeDefault)
+                    .describe(
+                        "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
+                    ),
+                scanner_config: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+                    ),
+                model: zod
+                    .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
+                    .describe(
+                        '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneModelDefault)
+                    .describe(
+                        'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    ),
+            })
+            .describe('A question asked inline, without saving a scanner first.')
+            .optional()
+            .describe(
+                'A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both.'
+            ),
+        idempotency_key: zod
+            .string()
+            .max(visionRequestsCreateBodyIdempotencyKeyMax)
+            .optional()
+            .describe(
+                'Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.'
+            ),
+        reference: zod
+            .string()
+            .max(visionRequestsCreateBodyReferenceMax)
+            .default(visionRequestsCreateBodyReferenceDefault)
+            .describe('Your own id for this request, such as a ticket or job id. Returned unchanged.'),
+        wait_for_session_end: zod
+            .boolean()
+            .default(visionRequestsCreateBodyWaitForSessionEndDefault)
+            .describe(
+                "Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are."
+            ),
+    })
+    .describe('Body of POST \/vision\/requests\/ - the sessions plus a saved scanner or an inline question.')
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const visionScannersCreateBodyNameMax = 255
@@ -514,12 +603,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
                 "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .describe(
-                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             ),
         goal: zod
             .string()
@@ -572,6 +661,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -664,13 +759,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
                 "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .optional()
             .describe(
-                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             ),
         goal: zod
             .string()
@@ -724,6 +819,12 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -872,7 +973,9 @@ export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
     max_total_credits: zod
         .number()
         .min(visionScannersBackfillsCreateBodyMaxTotalCreditsMin)
@@ -900,7 +1003,9 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
 })
 
 /**
@@ -923,41 +1028,6 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
- */
-export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zod.object({
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
-        ),
-})
-
-/**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
- */
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100
-
-export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
-    session_limit: zod
-        .number()
-        .min(1)
-        .max(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax)
-        .default(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault)
-        .describe(
-            'How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.'
-        ),
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config."
-        ),
-})
-
-/**
  * Create a scout that watches this scanner, recorded as belonging to it.
  */
 export const visionScannersScoutsCreateBodyDisplayNameMax = 200
@@ -976,7 +1046,9 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 10
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 12
+
+export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -992,6 +1064,8 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
+
+export const visionScannersScoutsCreateBodyVariantAnalysisDefault = false
 
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1059,7 +1133,33 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                    ),
+                lifecycle_locked: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker."
+                    ),
+                allowed_mcp_tools: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe(
+                        'Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.'
+                    ),
+                tool_preset: zod
+                    .enum(['read_only', 'support_notes'])
+                    .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
+                    .optional()
+                    .describe(
+                        'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
+                    ),
+                precheck_query: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax)
+                    .nullish()
+                    .describe(
+                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
                     ),
                 enabled: zod
                     .boolean()
@@ -1175,6 +1275,12 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
             ),
+        variant_analysis: zod
+            .boolean()
+            .default(visionScannersScoutsCreateBodyVariantAnalysisDefault)
+            .describe(
+                "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
+            ),
     })
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
@@ -1186,6 +1292,8 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
 export const visionScannersDraftCreateBodyGoalMax = 2000
 
 export const visionScannersDraftCreateBodyMonthlyCreditBudgetMax = 100000000
+
+export const visionScannersDraftCreateBodyExperimentIdMax = 2147483647
 
 export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1201,6 +1309,14 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
             ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.'
+            ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
 
@@ -1214,6 +1330,8 @@ export const visionScannersEstimateCreateBodySamplingRateMax = 1
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
+
+export const visionScannersEstimateCreateBodyExperimentOneVariantsItemMax = 400
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1274,6 +1392,22 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.'
             ),
+        experiment: zod
+            .union([
+                zod.object({
+                    experiment_id: zod.number().min(1).describe('The experiment an experiment scanner watches.'),
+                    variants: zod
+                        .array(zod.string().max(visionScannersEstimateCreateBodyExperimentOneVariantsItemMax))
+                        .min(1)
+                        .nullish()
+                        .describe('The variant keys it watches. Null or omitted means every variant.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.'
+            ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
 
@@ -1287,23 +1421,16 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
  * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
  * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
-export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
-
-export const visionScannersInlineScanCreateBodySessionIdsMax = 200
-
 export const visionScannersInlineScanCreateBodyPromptMax = 20000
 
 export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
 export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
+export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
+
+export const visionScannersInlineScanCreateBodySessionIdsMax = 200
 
 export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .object({
-        session_ids: zod
-            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
-            .max(visionScannersInlineScanCreateBodySessionIdsMax)
-            .describe(
-                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
-            ),
         prompt: zod
             .string()
             .max(visionScannersInlineScanCreateBodyPromptMax)
@@ -1311,13 +1438,13 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
                 'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
             ),
         scanner_config: zod
             .unknown()
@@ -1333,6 +1460,12 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
             .default(visionScannersInlineScanCreateBodyModelDefault)
             .describe(
                 'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+            ),
+        session_ids: zod
+            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
+            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')

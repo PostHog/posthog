@@ -210,6 +210,9 @@ const accountsCreate = (): ToolBase<ReturnType<typeof AccountsCreateSchema>, Sch
         if (params.churned_at !== undefined) {
             body['churned_at'] = params.churned_at
         }
+        if (params.ignored_at !== undefined) {
+            body['ignored_at'] = params.ignored_at
+        }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
@@ -318,6 +321,7 @@ const accountsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
                 all_roles_unassigned: params.all_roles_unassigned,
+                inactive_last: params.inactive_last,
                 include_churned: params.include_churned,
                 include_ignored: params.include_ignored,
                 limit: params.limit,
@@ -511,6 +515,9 @@ const accountsPartialUpdate = (): ToolBase<ReturnType<typeof AccountsPartialUpda
         }
         if (params.churned_at !== undefined) {
             body['churned_at'] = params.churned_at
+        }
+        if (params.ignored_at !== undefined) {
+            body['ignored_at'] = params.ignored_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
@@ -715,6 +722,9 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         const body: Record<string, unknown> = {}
         if (params.message !== undefined) {
             body['message'] = params.message
+        }
+        if (params.send_as !== undefined) {
+            body['send_as'] = params.send_as
         }
         if (params.channels !== undefined) {
             body['channels'] = params.channels

@@ -8,8 +8,8 @@ import uuid
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
+from products.ai_observability.backend.llm.decisions import DecisionClient
 from products.ai_observability.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
-from products.ai_observability.backend.llm.system_one import SystemOneClient
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -83,7 +83,7 @@ class Client:
     def validate_key(cls, provider: str, api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an API key for a provider. Returns (state, error_message)."""
         if provider == "system_one":
-            return SystemOneClient.validate_key(api_key, **kwargs)
+            return DecisionClient.validate_key(api_key, **kwargs)
         return _get_provider(provider).validate_key(api_key, **kwargs)
 
     @classmethod
@@ -114,7 +114,6 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
     from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
     from products.ai_observability.backend.llm.providers.together import TogetherAdapter
-    from products.ai_observability.backend.llm.providers.zeabur import ZeaburAdapter
 
     match name:
         case "openai":
@@ -131,8 +130,6 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
             return cast("Provider", FireworksAdapter())
         case "minimax":
             return cast("Provider", MiniMaxAdapter())
-        case "zeabur":
-            return cast("Provider", ZeaburAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
             return cast(

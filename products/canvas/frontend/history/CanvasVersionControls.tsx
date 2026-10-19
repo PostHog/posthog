@@ -1,29 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconRedo, IconUndo } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    ItemContent,
-    ItemDescription,
-    ItemTitle,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { IconRedo, IconUndo } from '@posthog/icons'
+import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { canvasEditLogic } from '../editing/canvasEditLogic'
-import {
-    canvasBuildStatusBadgeVariant,
-    canvasBuildStatusLabel,
-    canvasDraftTitle,
-    canvasVersionByline,
-    canvasVersionTitle,
-} from './canvasHistoryLabels'
+import { canvasSceneLogic } from '../scene/canvasSceneLogic'
+import { canvasSidePanelLogic } from '../sidePanel/canvasSidePanelLogic'
 import { canvasHistoryLogic } from './canvasHistoryLogic'
 
 function StepButton({
@@ -61,20 +43,13 @@ function StepButton({
     )
 }
 
-/** Undo and redo through versions, and the version and draft pickers, in the canvas header. Undo and redo through local edits while editing. */
+/** Undo and redo through versions, and buttons that open the timeline tab, in the canvas header. Undo and redo through local edits while editing. */
 export function CanvasVersionControls(): JSX.Element | null {
-    const {
-        versions,
-        drafts,
-        displayedVersionId,
-        liveBuild,
-        canUndo,
-        canRedo,
-        headVersionId,
-        browsedDraft,
-        isGenerating,
-    } = useValues(canvasHistoryLogic)
-    const { undo, redo, setBrowseVersion } = useActions(canvasHistoryLogic)
+    const { versions, drafts, displayedVersionId, liveBuild, canUndo, canRedo, browsedDraft, isGenerating } =
+        useValues(canvasHistoryLogic)
+    const { undo, redo } = useActions(canvasHistoryLogic)
+    const { canvas } = useValues(canvasSceneLogic)
+    const { openTab } = useActions(canvasSidePanelLogic)
     const { sourceEditing, canUndoEdit, canRedoEdit } = useValues(canvasEditLogic)
     const { undoEdit, redoEdit } = useActions(canvasEditLogic)
 
@@ -109,6 +84,11 @@ export function CanvasVersionControls(): JSX.Element | null {
     if (versions.length === 0 && drafts.length === 0) {
         return null
     }
+    const openTimeline = (): void => {
+        if (canvas) {
+            openTab('timeline', canvas.id)
+        }
+    }
     const generatingReason = isGenerating ? 'The agent is changing the canvas. Wait for it to finish.' : null
 
     return (
@@ -131,75 +111,36 @@ export function CanvasVersionControls(): JSX.Element | null {
                     <IconRedo />
                 </StepButton>
                 {!browsedDraft && versions.length > 0 && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger
+                    <Tooltip>
+                        <TooltipTrigger
+                            delay={0}
                             render={
-                                <Button size="sm" variant="default" data-attr="canvas-version-menu">
-                                    <span translate="no">{`v${
-                                        versions.length -
-                                        Math.max(
-                                            0,
-                                            versions.findIndex((version) => version.id === displayedVersionId)
-                                        )
-                                    }/${versions.length}`}</span>
-                                    {displayedVersionId === liveBuild?.source_version_id && <span>· Live</span>}
-                                    <IconChevronDown />
-                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="default"
+                                    onClick={openTimeline}
+                                    data-attr="canvas-version-menu"
+                                />
                             }
-                        />
-                        <DropdownMenuContent align="start" className="max-h-96 max-w-80 overflow-y-auto">
-                            {versions.map((version, index) => (
-                                <DropdownMenuItem
-                                    key={version.id}
-                                    onClick={() =>
-                                        setBrowseVersion(
-                                            version.id === liveBuild?.source_version_id ? null : version.id
-                                        )
-                                    }
-                                    data-attr="canvas-version-menu-item"
-                                >
-                                    <ItemContent variant="menuItem">
-                                        <ItemTitle className="truncate">
-                                            {`v${versions.length - index}${version.id === liveBuild?.source_version_id ? ' · Live' : version.id === headVersionId ? ' · Latest' : ''} · ${canvasVersionTitle(version)}`}
-                                        </ItemTitle>
-                                        <ItemDescription className="leading-none">
-                                            {canvasVersionByline(version)}
-                                        </ItemDescription>
-                                    </ItemContent>
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                        >
+                            <span translate="no">{`v${
+                                versions.length -
+                                Math.max(
+                                    0,
+                                    versions.findIndex((version) => version.id === displayedVersionId)
+                                )
+                            }/${versions.length}`}</span>
+                            {displayedVersionId === liveBuild?.source_version_id && <span>· Live</span>}
+                        </TooltipTrigger>
+                        <TooltipContent>Show all versions</TooltipContent>
+                    </Tooltip>
                 )}
             </div>
             {browsedDraft && <Badge variant="warning">Draft preview</Badge>}
             {drafts.length > 0 && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        render={
-                            <Button size="sm" variant="default" data-attr="canvas-drafts-menu">
-                                <span>{`Drafts (${drafts.length})`}</span>
-                                <IconChevronDown />
-                            </Button>
-                        }
-                    />
-                    <DropdownMenuContent align="start" className="max-h-96 max-w-80 overflow-y-auto">
-                        {drafts.map((draft) => (
-                            <DropdownMenuItem
-                                key={draft.version_id}
-                                onClick={() => setBrowseVersion(draft.version_id)}
-                                data-attr="canvas-drafts-menu-item"
-                            >
-                                <ItemContent variant="menuItem">
-                                    <ItemTitle className="truncate">{canvasDraftTitle(draft)}</ItemTitle>
-                                </ItemContent>
-                                <Badge variant={canvasBuildStatusBadgeVariant(draft.build_status)}>
-                                    {canvasBuildStatusLabel(draft.build_status)}
-                                </Badge>
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <Button size="sm" variant="default" onClick={openTimeline} data-attr="canvas-drafts-menu">
+                    {`Drafts (${drafts.length})`}
+                </Button>
             )}
         </div>
     )

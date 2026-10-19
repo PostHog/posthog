@@ -178,16 +178,16 @@ describe('createExperimentLogic', () => {
             expect(scannerCreateSpy).toHaveBeenCalledTimes(1)
             expect(scannerRequestBody).toMatchObject({
                 name: 'Checkout flow (#123)',
-                scanner_type: 'classifier',
-                // Enabling starts credit spend, so a created scanner must never arrive switched on
+                scanner_type: 'experiment',
+                // The experiment is a draft, so the API refuses the scanner on; it turns on at launch
                 enabled: false,
+                scanner_config: { experiment_id: 123, variants: null, start_on_launch: true },
                 // `model` is required by the create serializer — omitting it 400s every create
                 provider: DEFAULT_PROVIDER,
                 model: DEFAULT_MODEL,
-                experiment_targeting: { experiment_id: 123, variant: null },
                 query: { kind: 'RecordingsQuery', filter_test_accounts: true },
             })
-            // The API derives the exposure filter from the targeting and rejects one set in the
+            // The API derives the exposure filter from the experiment and rejects one set in the
             // query, so a hand-built population here is the regression to catch
             expect(scannerRequestBody?.query).not.toHaveProperty('events')
             expect(scannerRequestBody?.query).not.toHaveProperty('experiment_exposure')
@@ -205,7 +205,7 @@ describe('createExperimentLogic', () => {
                 })
             )
             expect(lemonToast.success).toHaveBeenCalledWith(
-                'Experiment created. The Replay Vision scanner is off until you turn it on.',
+                'Experiment created. The experiment scanner turns on when you launch the experiment.',
                 expect.objectContaining({
                     button: expect.objectContaining({ label: 'View scanner' }),
                 })
@@ -243,13 +243,56 @@ describe('createExperimentLogic', () => {
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
             expect(lemonToast.error).toHaveBeenCalledWith(
-                "Experiment created, but the Replay Vision scanner wasn't.",
+                "Experiment created, but the experiment scanner wasn't.",
                 expect.objectContaining({
-                    button: expect.objectContaining({ label: 'Set up scanner' }),
+                    button: expect.objectContaining({ label: 'Set up experiment scanner' }),
                 })
             )
+            const [, { button }] = (lemonToast.error as jest.Mock).mock.calls.at(-1)
+            button.action()
+            // The retry must reopen the experiment scanner wizard on this experiment, not the generic
+            // template list, or the person starts over without the experiment.
+            expect(routerPushSpy).toHaveBeenLastCalledWith('/replay-vision/new/details?experiment=123')
             expect(captureExceptionSpy).toHaveBeenCalledTimes(shouldCapture ? 1 : 0)
             captureExceptionSpy.mockRestore()
+        })
+
+        it('skips the scanner when the experiment flag aggregates by group', async () => {
+            useMocks({
+                post: {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
+                        const body = (await request.json()) as Experiment
+                        return [
+                            200,
+                            {
+                                ...body,
+                                id: 123,
+                                feature_flag: {
+                                    id: 456,
+                                    key: body.feature_flag_key,
+                                    filters: { groups: [], aggregation_group_type_index: 0 },
+                                },
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setCreateReplayVisionScanner(true)
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Org-level experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'org-level-experiment',
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                .toFinishAllListeners()
+
+            expect(scannerCreateSpy).not.toHaveBeenCalled()
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
         })
 
         it('refreshes tree items for experiment and feature flag after creation', async () => {

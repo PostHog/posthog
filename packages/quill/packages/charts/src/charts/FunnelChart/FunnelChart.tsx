@@ -52,6 +52,10 @@ export interface FunnelChartConfig {
     /** Min pixel height of the chart region when `stepFooter` is set, so a tall footer can't
      *  collapse the canvas to zero height in a height-constrained parent. */
     chartMinHeight?: number
+    /** Where each `stepFooter` cell sits relative to its step's bars. `start` (default) begins the
+     *  cell at the bars' left edge and extends it over the gap to the right. `center` extends it
+     *  over half the gap on each side, so centered footer content lines up under the bars. */
+    stepFooterAlign?: 'start' | 'center'
 }
 
 export interface FunnelStepClickData<Meta = unknown> extends PointClickData<Meta> {
@@ -112,17 +116,17 @@ function StepBandProbe({ onBands }: { onBands: (bands: StepBand[]) => void }): n
     return null
 }
 
-function StepFooterRow({
-    bands,
-    stepFooter,
-}: {
-    bands: StepBand[]
-    stepFooter: (stepIndex: number) => React.ReactNode
-}): React.ReactElement {
-    // One gutter column before each band column, so cells sit in normal flow (the row grows to
-    // the tallest cell) while staying pixel-aligned with the bars above. Each cell also spans
-    // the gutter to its right (the last one a trailing 1fr), so footer content can use the
-    // dead space between bands; `pr-3` keeps neighbouring cells from touching.
+interface StepFooterLayout {
+    columns: string[]
+    cellClassName: string
+    cellColumn: (stepIndex: number) => string
+}
+
+// One gutter column before each band column, so cells sit in normal flow (the row grows to
+// the tallest cell) while staying pixel-aligned with the bars above. Each cell also spans
+// the gutter to its right (the last one a trailing 1fr), so footer content can use the
+// dead space between bands; `pr-3` keeps neighbouring cells from touching.
+function startAlignedFooterLayout(bands: StepBand[]): StepFooterLayout {
     const columns: string[] = []
     let cursor = 0
     for (const band of bands) {
@@ -130,19 +134,50 @@ function StepFooterRow({
         cursor = band.left + band.width
     }
     columns.push('1fr')
+    return {
+        columns,
+        cellClassName: 'min-w-0 pr-3',
+        cellColumn: (stepIndex) => `${2 * stepIndex + 2} / span 2`,
+    }
+}
+
+// One column per cell, each reaching the same distance past both sides of its band, so the band
+// is centered in the cell. The reach is half the gap between bands, capped by the space before
+// the first band so that cell stays symmetric too.
+function centerAlignedFooterLayout(bands: StepBand[]): StepFooterLayout {
+    const first = bands[0]
+    const gap = bands.length > 1 ? bands[1].left - (first.left + first.width) : 0
+    const reach = Math.max(0, Math.min(gap / 2, first.left))
+    return {
+        columns: [`${first.left - reach}px`, ...bands.map((band) => `${band.width + 2 * reach}px`), '1fr'],
+        cellClassName: 'min-w-0',
+        cellColumn: (stepIndex) => `${stepIndex + 2}`,
+    }
+}
+
+function StepFooterRow({
+    bands,
+    stepFooter,
+    align,
+}: {
+    bands: StepBand[]
+    stepFooter: (stepIndex: number) => React.ReactNode
+    align: 'start' | 'center'
+}): React.ReactElement {
+    const layout = align === 'center' ? centerAlignedFooterLayout(bands) : startAlignedFooterLayout(bands)
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div
             className="grid shrink-0"
-            style={{ gridTemplateColumns: columns.join(' ') }}
+            style={{ gridTemplateColumns: layout.columns.join(' ') }}
             data-attr="hog-funnel-step-footer"
         >
             {bands.map((_, stepIndex) => (
                 // eslint-disable-next-line react/forbid-dom-props
                 <div
                     key={stepIndex}
-                    className="min-w-0 pr-3"
-                    style={{ gridColumn: `${2 * stepIndex + 2} / span 2`, gridRow: 1 }}
+                    className={layout.cellClassName}
+                    style={{ gridColumn: layout.cellColumn(stepIndex), gridRow: 1 }}
                     data-attr="hog-funnel-step-footer-cell"
                 >
                     {stepFooter(stepIndex)}
@@ -182,6 +217,7 @@ export function FunnelChart<Meta = unknown>({
         minBarSize,
         maxBandRange,
         chartMinHeight,
+        stepFooterAlign = 'start',
     } = config ?? {}
     const hasStepFooter = stepFooter != null
 
@@ -279,7 +315,7 @@ export function FunnelChart<Meta = unknown>({
                 {chart}
             </div>
             {bands && bands.length > 0 && (
-                <StepFooterRow bands={bands.slice(0, steps.length)} stepFooter={stepFooter} />
+                <StepFooterRow bands={bands.slice(0, steps.length)} stepFooter={stepFooter} align={stepFooterAlign} />
             )}
         </div>
     )

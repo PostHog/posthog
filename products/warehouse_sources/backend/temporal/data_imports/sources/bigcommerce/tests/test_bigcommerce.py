@@ -1,27 +1,31 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce import (
     BigCommerceResumeConfig,
     _to_v2_timestamp,
     _to_v3_timestamp,
-    bigcommerce_source,
     get_resource,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source import BigCommerceSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
+    BigCommerceSourceConfig,
+)
 
 
 class TestGetResource:
@@ -52,43 +56,37 @@ class TestGetResource:
 
     @parameterized.expand(
         [
-            ("products", False),
-            ("categories", False),
-            ("brands", False),
-            ("customers", False),
-            ("orders", False),
-            ("products", True),
-            ("categories", True),  # categories has no date_modified field: stays full refresh
-            ("brands", True),  # same for brands
-            ("customers", True),
-            ("orders", True),
+            (name, should_use_incremental_field, filter_param, cursor_path)
+            for should_use_incremental_field in (False, True)
+            for name, filter_param, cursor_path in [
+                ("products", "date_modified:min", "date_modified"),
+                ("customers", "date_modified:min", "date_modified"),
+                ("channels", "date_modified:min", "date_modified"),
+                ("orders", "min_date_modified", "date_modified"),
+                ("refunds", "created:min", "created"),
+                # No modification timestamp on these: they stay full refresh.
+                ("categories", None, None),
+                ("brands", None, None),
+                ("variants", None, None),
+            ]
         ]
     )
-    def test_write_disposition_and_incremental_param(self, name: str, should_use_incremental_field: bool) -> None:
+    def test_write_disposition_and_incremental_param(
+        self, name: str, should_use_incremental_field: bool, filter_param: str | None, cursor_path: str | None
+    ) -> None:
         resource = get_resource(name, should_use_incremental_field)
         endpoint = cast(Endpoint, resource["endpoint"])
         params = cast(dict[str, Any], endpoint["params"])
+        incremental_params = {key: value for key, value in params.items() if isinstance(value, dict)}
 
-        incremental_capable = name in ("products", "customers", "orders")
-        use_incremental = should_use_incremental_field and incremental_capable
-
-        if use_incremental:
+        if should_use_incremental_field and filter_param is not None:
             assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+            assert list(incremental_params) == [filter_param]
+            assert incremental_params[filter_param]["type"] == "incremental"
+            assert incremental_params[filter_param]["cursor_path"] == cursor_path
         else:
             assert resource["write_disposition"] == "replace"
-
-        incremental_key = "min_date_modified" if name == "orders" else "date_modified:min"
-        if use_incremental:
-            assert incremental_key in params
-            assert params[incremental_key]["type"] == "incremental"
-        else:
-            assert incremental_key not in params
-
-    def test_limit_is_set_for_every_endpoint(self) -> None:
-        for name in ("products", "categories", "brands", "customers", "orders"):
-            resource = get_resource(name, should_use_incremental_field=False)
-            endpoint = cast(Endpoint, resource["endpoint"])
-            assert cast(dict[str, Any], endpoint["params"])["limit"] == 250
+            assert incremental_params == {}
 
 
 class TestTimestampConverters:
@@ -117,16 +115,6 @@ class TestTimestampConverters:
         assert _to_v2_timestamp("already-a-string") == "already-a-string"
 
 
-def _make_http_response(body: Any, status_code: int = 200, headers: dict[str, str] | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    for key, value in (headers or {}).items():
-        resp.headers[key] = value
-    return resp
-
-
 def _v3_page(items: list[dict[str, Any]], current_page: int, total_pages: int) -> dict[str, Any]:
     return {
         "data": items,
@@ -135,186 +123,167 @@ def _v3_page(items: list[dict[str, Any]], current_page: int, total_pages: int) -
 
 
 class TestBigCommerceSourceResumeBehavior:
-    """End-to-end resume behaviour of ``bigcommerce_source`` via ``rest_api_resource``."""
+    """End-to-end resume behaviour through ``source_for_pipeline``."""
 
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response], should_use_incremental_field: bool = False
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        """Drive ``bigcommerce_source`` with a mocked HTTP session.
-
-        Returns ``(mock_session, sent_params)`` — shallow copies of ``request.params``
-        captured at send-time, since the paginator mutates the Request object in place
-        between pages.
-        """
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = bigcommerce_source(
-                store_hash="store123",
-                access_token="test-token",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            list(cast(Iterable[Any], resource))
-            return mock_session, sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(
+            BigCommerceSource(), BigCommerceSourceConfig(store_hash="store123", access_token="test-token")
+        )
 
     def test_v3_fresh_run_pages_until_total_pages_reached(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "products",
+            [
+                ScriptedResponse(json=_v3_page([{"id": 1}], current_page=1, total_pages=3)),
+                ScriptedResponse(json=_v3_page([{"id": 2}], current_page=2, total_pages=3)),
+                ScriptedResponse(json=_v3_page([{"id": 3}], current_page=3, total_pages=3)),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_v3_page([{"id": 1}], current_page=1, total_pages=3)),
-            _make_http_response(_v3_page([{"id": 2}], current_page=2, total_pages=3)),
-            _make_http_response(_v3_page([{"id": 3}], current_page=3, total_pages=3)),
-        ]
-        _, sent_params = self._drive("products", manager, responses)
-
-        pages_sent = [p.get("page") for p in sent_params]
-        assert pages_sent == [1, 2, 3]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert result.saved_states == [
             BigCommerceResumeConfig(page=2),
             BigCommerceResumeConfig(page=3),
         ]
 
     def test_v2_orders_stops_on_empty_page_with_no_pagination_envelope(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "orders",
+            [
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(json=[{"id": 2}]),
+                ScriptedResponse(json=[]),
+            ],
+        )
 
-        responses = [
-            _make_http_response([{"id": 1}]),
-            _make_http_response([{"id": 2}]),
-            _make_http_response([]),
-        ]
-        _, sent_params = self._drive("orders", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2, 3]
+        assert result.raised is None
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.rows == [{"id": 1}, {"id": 2}]
 
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BigCommerceResumeConfig(page=5)
+        result = self._driver().run(
+            "customers",
+            [ScriptedResponse(json=_v3_page([{"id": 9}], current_page=5, total_pages=5))],
+            resume_state=BigCommerceResumeConfig(page=5),
+        )
 
-        responses = [_make_http_response(_v3_page([{"id": 9}], current_page=5, total_pages=5))]
-        _, sent_params = self._drive("customers", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [5]
-        manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response(_v3_page([{"id": 1}], current_page=1, total_pages=1))]
-        self._drive("brands", manager, responses)
-
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("page") == ["5"]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "categories", [ScriptedResponse(json=_v3_page([{"id": 1}], current_page=1, total_pages=1))]
+        )
 
-        responses = [_make_http_response(_v3_page([{"id": 1}], current_page=1, total_pages=1))]
-        self._drive("categories", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("page") == ["1"]
 
     def test_v3_incremental_param_carries_converted_timestamp(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
         last_value = datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC)
+        result = self._driver().run(
+            "products",
+            [ScriptedResponse(json=_v3_page([], current_page=1, total_pages=1))],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
 
-        sent_params: list[dict[str, Any]] = []
+        assert result.raised is None
+        assert result.requests[0].param("date_modified:min") == "2024-05-06T07:08:09Z"
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return _make_http_response(_v3_page([], current_page=1, total_pages=1))
+    def test_order_transactions_fan_out_over_every_order(self) -> None:
+        result = self._driver().run(
+            "order_transactions",
+            [
+                ScriptedResponse(json=[{"id": 101}, {"id": 102}, {"id": 103}]),
+                ScriptedResponse(json={"data": [{"id": 1, "order_id": 101}, {"id": 2, "order_id": 101}], "meta": {}}),
+                # Order deleted after the order listing was read.
+                ScriptedResponse(status=404, json={"status": 404, "title": "Order not found"}),
+                ScriptedResponse(status=204),
+                ScriptedResponse(json=[]),
+            ],
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            "/stores/store123/v2/orders",
+            "/stores/store123/v3/orders/101/transactions",
+            "/stores/store123/v3/orders/102/transactions",
+            "/stores/store123/v3/orders/103/transactions",
+            "/stores/store123/v2/orders",
+        ]
+        assert result.params("page") == ["1", None, None, None, "2"]
+        assert [(row["order_id"], row["id"]) for row in result.rows] == [(101, 1), (101, 2)]
+        assert result.saved_states == [
+            BigCommerceResumeConfig(page=1, order_index=1),
+            BigCommerceResumeConfig(page=1, order_index=2),
+            BigCommerceResumeConfig(page=1, order_index=3),
+        ]
 
-            resource = bigcommerce_source(
-                store_hash="store123",
-                access_token="test-token",
-                endpoint="products",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=last_value,
-                should_use_incremental_field=True,
-            )
-            list(cast(Iterable[Any], resource))
+    def test_order_transactions_resume_skips_completed_orders(self) -> None:
+        result = self._driver().run(
+            "order_transactions",
+            [
+                ScriptedResponse(json=[{"id": 101}, {"id": 102}]),
+                ScriptedResponse(json={"data": [{"id": 3, "order_id": 102}], "meta": {}}),
+                ScriptedResponse(json=[]),
+            ],
+            resume_state=BigCommerceResumeConfig(page=4, order_index=1),
+        )
 
-        assert sent_params[0]["date_modified:min"] == "2024-05-06T07:08:09Z"
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            "/stores/store123/v2/orders",
+            "/stores/store123/v3/orders/102/transactions",
+            "/stores/store123/v2/orders",
+        ]
+        assert result.params("page") == ["4", None, "5"]
+        assert result.rows == [{"id": 3, "order_id": 102}]
+
+    def test_refunds_stop_on_empty_page_without_pagination_meta(self) -> None:
+        last_value = datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC)
+        result = self._driver().run(
+            "refunds",
+            [
+                ScriptedResponse(json={"data": [{"id": 1}], "meta": {}}),
+                ScriptedResponse(json={"data": [], "meta": {}}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.requests[0].param("created:min") == "2024-05-06T07:08:09Z"
+        assert result.rows == [{"id": 1}]
 
     def test_v2_incremental_param_carries_rfc2822_timestamp(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
         last_value = datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC)
+        result = self._driver().run(
+            "orders",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
 
-        sent_params: list[dict[str, Any]] = []
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return _make_http_response([])
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = bigcommerce_source(
-                store_hash="store123",
-                access_token="test-token",
-                endpoint="orders",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=last_value,
-                should_use_incremental_field=True,
-            )
-            list(cast(Iterable[Any], resource))
-
-        assert sent_params[0]["min_date_modified"] == "Mon, 06 May 2024 07:08:09 +0000"
+        assert result.raised is None
+        assert result.requests[0].param("min_date_modified") == "Mon, 06 May 2024 07:08:09 +0000"
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 404])
     def test_returns_status_code(self, status_code: int) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = MagicMock(status_code=status_code)
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("store123", "token") == status_code
 
+        assert network.requests_log[0].path == "/stores/store123/v3/catalog/products"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["x-auth-token"] == "token"
+
     def test_returns_none_on_connection_error(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = ConnectionError("boom")
+        with scripted_network(always(ConnectionError("boom"))) as network:
             assert validate_credentials("store123", "token") is None
+
+        assert {request.path for request in network.requests_log} == {"/stores/store123/v3/catalog/products"}

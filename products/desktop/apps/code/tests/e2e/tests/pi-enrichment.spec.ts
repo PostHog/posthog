@@ -246,7 +246,9 @@ test.describe("Pi enrichment", () => {
       expect(eventDefinitionRequests).toBe(1);
       expect(eventStatsRequests).toBe(1);
       expect(initialModelRequest).toContain("## Rich output in replies");
-      expect(initialModelRequest).toContain('<kind id=\\"...\\">');
+      expect(initialModelRequest).toContain(
+        "https://us.posthog.com/project/1/insights/9pQx3",
+      );
       expect(enrichedModelRequest).toContain(
         '[PostHog] Event: \\"checkout_completed\\"',
       );

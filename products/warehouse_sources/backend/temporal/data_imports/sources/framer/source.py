@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -18,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
+    FRAMER_SDK_VERSION_0_1_29,
+    FRAMER_SDK_VERSION_5_1_0,
     framer_source,
     validate_credentials as validate_framer_credentials,
 )
@@ -31,12 +34,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FramerSource(SimpleSource[FramerSourceConfig]):
+    codebase_detection = detect(npm=("framer", "framer-plugin"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Framer has no REST API; the official surface is the `framer-api` SDK's WebSocket
     # protocol, and the pinned version is the SDK release whose message contract we speak
     # (sent as the `sdkVersion` connection parameter).
-    supported_versions = ("0.1.29",)
-    default_version = "0.1.29"
+    supported_versions = (FRAMER_SDK_VERSION_0_1_29, FRAMER_SDK_VERSION_5_1_0)
+    default_version = FRAMER_SDK_VERSION_5_1_0
     api_docs_url = "https://www.framer.com/developers/server-api-introduction"
 
     @property
@@ -65,6 +70,10 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
             "Framer API error TIMEOUT",
             "Framer API error CONNECTION_CLOSED",
             "Framer API error PROXY",
+            # The server also reports a dropped connection to its headless browser mid-navigation
+            # as a generic `INTERNAL` code, so this one is matched on message text rather than
+            # code — `INTERNAL` alone is too broad to classify as retryable.
+            "Navigation failed: connection",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

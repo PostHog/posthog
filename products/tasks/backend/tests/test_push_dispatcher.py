@@ -81,6 +81,19 @@ class TestPushDispatcher(TestCase):
         after = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_outcomes_total", labels) or 0.0
         self.assertEqual(after, before + 1)
 
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_trial_completion_does_not_notify_the_operator(self, mock_delay, mock_flag) -> None:
+        self.task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        self.task.origin_key = f"scout-trial:{uuid4()}"
+        self.task.save(update_fields=["origin_product", "origin_key"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
+
+        mock_delay.assert_not_called()
+        mock_flag.assert_not_called()
+
     @patch(
         "products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled",
         side_effect=RuntimeError("flag service down"),

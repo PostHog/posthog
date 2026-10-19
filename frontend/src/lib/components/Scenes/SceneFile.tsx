@@ -13,9 +13,8 @@ import {
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { PROJECT_TREE_KEY, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 

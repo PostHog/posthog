@@ -1,23 +1,34 @@
 import time
 import uuid
+import random
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from time import sleep
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.backoff import ExponentialBackoff
-from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import (
+    Product,
+    add_fallback_query_tags,
+    get_query_tag_value,
+    get_query_tags,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ProductKey
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
@@ -106,6 +117,7 @@ class RateLimit:
     allow_team_bypass: bool = True
     get_time: Callable[[], float] = lambda: time.time()
     sleep: Callable[[float], None] = lambda d: sleep(d)
+    retry_jitter: bool = False
 
     @contextmanager
     def run(self, *args, **kwargs):
@@ -196,6 +208,10 @@ class RateLimit:
                     product=product_label,
                 ).inc()
                 wait_sec = backoff(count)
+                if self.retry_jitter:
+                    # Spread retries so released slots do not sit idle between synchronized polls.
+                    wait_sec = random.uniform(wait_sec / 2, wait_sec)
+                wait_sec = min(wait_sec, max(0.0, wait_deadline - self.get_time()))
                 self.sleep(wait_sec)
                 wait_total += wait_sec
                 tag_queries(rate_limit_wait_ms=int(1000 * wait_total))
@@ -264,6 +280,7 @@ def get_api_team_rate_limiter():
             # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
             # the slot is free.
             retry=0.134,
+            retry_jitter=True,
             # The default timeout for an API query on ClickHouse is 10s. p99 duration is 19s,
             # 15 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
             # the user should contact us about increasing the quota.
@@ -489,3 +506,15 @@ def get_org_app_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
         pass
 
     return None
+
+
+@contextmanager
+def app_org_concurrency_slot(team: "Team", *, task_id: str | None = None) -> Iterator[None]:
+    with get_app_org_rate_limiter().run(
+        org_id=team.organization_id,
+        team_id=team.pk,
+        task_id=task_id,
+        is_api=is_api_key_access_method(get_query_tag_value("access_method")),
+        limit=get_org_app_concurrency_limit(team.organization_id),
+    ):
+        yield

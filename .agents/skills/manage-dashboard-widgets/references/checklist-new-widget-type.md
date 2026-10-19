@@ -113,7 +113,7 @@ Directory: `products/dashboards/frontend/widgets/<product>/` (snake_case product
 - [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states
 - [ ] **Adoption CTA on the "no entities yet" empty state** — when the product has nothing to show yet (no surveys, no experiments), render a primary `LemonButton` (`targetBlank`) to the product's create flow and fire `posthog.capture('dashboard widget create <product> clicked', { widget_type, tile_id })` on click. Measures adoption driven _from_ the widget, distinct from the platform `dashboard widget added` event. See [§ Product-adoption tracking](#product-adoption-tracking).
 - [ ] **List widgets:** follow [list-widget-patterns.md](list-widget-patterns.md) — `hasMore`, footer, tile filter bar, `titleHref`
-- [ ] **Live widgets:** compose the `widgets/live/` toolkit (`liveWidgetStream`, `LiveWidgetSlidingWindow`, `useLiveWidgetSeed`, `LiveWidgetEmptyState`) — recipe in [live-widgets.md](live-widgets.md)
+- [ ] **Live widgets:** compose the `widgets/live/` toolkit (`LiveWidgetSlidingWindow`, `useLiveWidgetSeed`, `LiveWidgetEmptyState`) — recipe in [live-widgets.md](live-widgets.md)
 - [ ] Do **not** render card chrome — `DashboardWidgetItem` + catalog handle headers/menus
 
 Minimal skeleton:

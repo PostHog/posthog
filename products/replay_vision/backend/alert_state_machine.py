@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,
     AlertPolicy,

@@ -433,6 +433,8 @@ function HogFunctionHeader(): JSX.Element {
             <SceneTitleSection
                 name={configuration.name}
                 description={configuration.description || ''}
+                markdown
+                descriptionAlwaysVisible
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (

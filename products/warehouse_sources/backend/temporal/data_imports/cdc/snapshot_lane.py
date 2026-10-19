@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
 if TYPE_CHECKING:
     from structlog.types import FilteringBoundLogger
@@ -43,20 +42,12 @@ def snapshot_in_buffer(schema: ExternalDataSchema) -> bool:
 def resnapshot_stays_in_buffer(schema: ExternalDataSchema) -> bool:
     """Whether a reset of this schema to snapshot keeps its changes in the buffer.
 
-    True for a table whose buffer already holds an unbroken run of its changes: a streaming table on
-    a buffered source with no deferred runs left, or one already snapshotting there. A capture run in
-    progress keeps adding to that buffer. Any other table is started by capture, which first empties
-    the buffer, because files from before a gap in capture must not be replayed. A source capture
-    has not converted yet is one such case: its buffer holds copies of changes the legacy lane
-    already delivered.
+    True for a table whose buffer already holds an unbroken run of its changes: a streaming table, or
+    one already snapshotting there. A capture run in progress keeps adding to that buffer. Any other
+    table is started by capture, which first empties the buffer, because files from before a gap in
+    capture must not be replayed.
     """
-    if snapshot_in_buffer(schema):
-        return True
-    return (
-        parse_ingest_mode(schema.source.job_inputs) == "buffered"
-        and schema.cdc_mode == "streaming"
-        and not (schema.sync_type_config or {}).get("cdc_deferred_runs")
-    )
+    return snapshot_in_buffer(schema) or schema.cdc_mode == "streaming"
 
 
 def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
@@ -191,7 +182,6 @@ def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = Fal
     """
     current = config.get(CDC_RESET_PENDING_KEY)
     fields = dict(current) if isinstance(current, dict) else {}
-    fields["clear_deferred_runs"] = True
     fields["trigger"] = True
     if awaiting_slot:
         fields["awaiting_slot"] = True

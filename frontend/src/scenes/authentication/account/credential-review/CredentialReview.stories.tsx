@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { urls } from 'scenes/urls'
 
+import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
@@ -42,7 +43,7 @@ const partnerApiKey = {
     mask_value: 'phx_...abcd',
 }
 
-const partnerApp = {
+const unverifiedPartnerApp: ConnectedAppApi = {
     id: '0192f0e4-1f2a-7000-8000-000000000001',
     name: 'Acme Deploy',
     logo_uri: null,
@@ -50,6 +51,18 @@ const partnerApp = {
     authorized_at: '2026-08-01T09:12:00Z',
     is_verified: false,
     is_first_party: false,
+    requires_access_confirmation: true,
+}
+
+const verifiedPartnerApp: ConnectedAppApi = {
+    id: '0192f0e4-1f2a-7000-8000-000000000002',
+    name: 'Example Builder',
+    logo_uri: null,
+    scopes: ['project:read'],
+    authorized_at: '2026-08-01T09:11:00Z',
+    is_verified: true,
+    is_first_party: false,
+    requires_access_confirmation: false,
 }
 
 const passkey = {
@@ -69,7 +82,7 @@ export const AllCredentialTypes: Story = {
                 '/_preflight': cloudPreflight,
                 '/api/personal_api_keys': [partnerApiKey],
                 '/api/webauthn/credentials/': [passkey],
-                '/api/oauth/connected-apps/': [partnerApp],
+                '/api/oauth/connected-apps/': [unverifiedPartnerApp, verifiedPartnerApp],
             },
         })
         return <CredentialReview />
@@ -83,7 +96,7 @@ export const OnlyAConnectedApplication: Story = {
                 '/_preflight': cloudPreflight,
                 '/api/personal_api_keys': [],
                 '/api/webauthn/credentials/': [],
-                '/api/oauth/connected-apps/': [partnerApp],
+                '/api/oauth/connected-apps/': [unverifiedPartnerApp],
             },
         })
         return <CredentialReview />

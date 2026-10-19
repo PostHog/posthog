@@ -9,7 +9,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.rate_limit import SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle
 
 from products.error_tracking.backend.facade import (
@@ -295,7 +295,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_deprecated_endpoint",
             distinct_id=request.user.pk,
-            properties={"team_id": self.team.id, "endpoint": "create"},
+            properties={**get_request_analytics_properties(request), "team_id": self.team.id, "endpoint": "create"},
         )
 
         if not chunk_id:
@@ -324,7 +324,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_deprecated_endpoint",
             distinct_id=request.user.pk,
-            properties={"team_id": self.team.id, "endpoint": "start_upload"},
+            properties={
+                **get_request_analytics_properties(request),
+                "team_id": self.team.id,
+                "endpoint": "start_upload",
+            },
         )
 
         if not chunk_id:
@@ -387,6 +391,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_checked",
             properties={
+                **get_request_analytics_properties(request),
                 "team_id": self.team.id,
                 "force": force,
                 "skip_on_conflict": skip_on_conflict,
@@ -433,6 +438,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_started",
             properties={
+                **get_request_analytics_properties(request),
                 "team_id": self.team.id,
                 "endpoint": "bulk_start_upload",
                 "force": force,
@@ -459,6 +465,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             # we can early exit here.
             return Response({"success": True}, status=status.HTTP_201_CREATED)
 
-        symbol_sets_facade.bulk_finish_upload(self.team, content_hashes)
+        symbol_sets_facade.bulk_finish_upload(
+            self.team, content_hashes, analytics_props=get_request_analytics_properties(request)
+        )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)

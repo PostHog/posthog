@@ -125,9 +125,9 @@ def has_conversation_task_mirror_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
+def has_replay_negative_event_filters_feature_flag(team: Team, user: User) -> bool:
     return feature_enabled_or_false(
-        "user-interviews",
+        "replay-negative-event-filters",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

@@ -5,6 +5,7 @@ import importlib
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
+from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call
@@ -50,7 +51,13 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_turn_complete, pi_turn_error
+from ee.hogai.sandbox import (
+    BACKGROUND_TURN_COMPLETE_METHOD,
+    PI_RUNTIME_ERROR_MESSAGE,
+    TURN_COMPLETE_METHOD,
+    is_turn_complete,
+    pi_turn_error,
+)
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
@@ -479,33 +486,13 @@ class TestAgentActiveReactivation:
 
 
 class TestRelaySandboxEventsCancellation:
-    async def test_cancelled_relay_marks_stream_complete_without_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        redis_stream = SimpleNamespace(
-            initialize=AsyncMock(),
-            mark_complete=AsyncMock(),
-            mark_error=AsyncMock(),
-        )
-
-        class StubTaskRunRedisStream:
-            def __init__(
-                self,
-                stream_key: str,
-                use_dedicated: bool = False,
-                *,
-                presence_gated: bool = False,
-                origin_product: str | None = None,
-                thin_tail: bool = False,
-            ) -> None:
-                self.stream_key = stream_key
-
-            async def initialize(self) -> None:
-                await redis_stream.initialize()
-
-            async def mark_complete(self) -> None:
-                await redis_stream.mark_complete()
-
-            async def mark_error(self, error: str) -> None:
-                await redis_stream.mark_error(error)
+    @pytest.mark.parametrize("replaced", [False, True])
+    async def test_cancelled_relay_only_completes_its_own_stream(
+        self, monkeypatch: pytest.MonkeyPatch, replaced: bool
+    ) -> None:
+        stream_key = f"task-run-stream:test:{uuid4()}"
+        redis_stream = TaskRunRedisStream(stream_key)
+        await redis_stream._redis_client.set(f"{stream_key}:generation", "original")
 
         class StubTaskRunQuerySet:
             def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
@@ -517,9 +504,15 @@ class TestRelaySandboxEventsCancellation:
                 )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
+            if replaced:
+                await redis_stream._redis_client.set(f"{stream_key}:generation", "replacement")
             raise asyncio.CancelledError
 
-        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunRedisStream",
+            lambda _key, use_dedicated=False, **kwargs: TaskRunRedisStream(stream_key, use_dedicated, **kwargs),
+        )
         monkeypatch.setattr(
             relay_sandbox_events_module,
             "TaskRunModel",
@@ -529,20 +522,26 @@ class TestRelaySandboxEventsCancellation:
         monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
         monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", fake_relay_loop)
 
-        with pytest.raises(asyncio.CancelledError):
-            await relay_sandbox_events(
-                RelaySandboxEventsInput(
-                    run_id="run-id",
-                    task_id="task-id",
-                    sandbox_url="https://sandbox.example",
-                    sandbox_connect_token=None,
-                    team_id=1,
-                    distinct_id="distinct-id",
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await relay_sandbox_events(
+                    RelaySandboxEventsInput(
+                        run_id="run-id",
+                        task_id="task-id",
+                        sandbox_url="https://sandbox.example",
+                        sandbox_connect_token=None,
+                        team_id=1,
+                        distinct_id="distinct-id",
+                        stream_generation="original",
+                    )
                 )
-            )
 
-        redis_stream.mark_complete.assert_awaited_once()
-        redis_stream.mark_error.assert_not_awaited()
+            events = await redis_stream._redis_client.xrange(stream_key)
+            assert [json.loads(data[b"data"]) for _, data in events] == (
+                [] if replaced else [{"type": "STREAM_STATUS", "status": "complete"}]
+            )
+        finally:
+            await redis_stream.delete_stream()
 
 
 class TestRelaySandboxEventsPresenceGating:
@@ -572,6 +571,7 @@ class TestRelaySandboxEventsPresenceGating:
                 presence_gated: bool = False,
                 origin_product: str | None = None,
                 thin_tail: bool = False,
+                expected_generation: str | None = None,
             ) -> None:
                 constructed.append((presence_gated, thin_tail))
 
@@ -641,6 +641,7 @@ class TestRelaySandboxEventsMissingActor:
                 presence_gated: bool = False,
                 origin_product: str | None = None,
                 thin_tail: bool = False,
+                expected_generation: str | None = None,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -1076,6 +1077,8 @@ class TestRelaySandboxEventsErrorHandling:
         notify = MagicMock()
         monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        record_cause = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "record_run_failure_cause", record_cause)
         metric = "posthog_tasks_turn_completed_suppressed_total"
         labels = {"reason": "idle_resume"}
         suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
@@ -1092,8 +1095,10 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         if turn_failed:
+            record_cause.assert_called_once_with("run-id", "pi_runtime_error")
             handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
         else:
+            record_cause.assert_not_called()
             await asyncio.wait_for(dispatch_done.wait(), timeout=5)
             assert handle.signal.await_args_list == [
                 call("agent_state_changed", arg=False),
@@ -1510,6 +1515,7 @@ class TestRelaySandboxEventsErrorHandling:
                 presence_gated: bool = False,
                 origin_product: str | None = None,
                 thin_tail: bool = False,
+                expected_generation: str | None = None,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -1587,6 +1593,7 @@ class TestRelaySandboxEventsWorkflowOptions:
             create_pr=True,
             state={},
             _branch="feature-branch",
+            stream_generation="replacement",
         )
         execute_activity_mock = AsyncMock()
         execute_activity_mock.return_value = True
@@ -1602,6 +1609,7 @@ class TestRelaySandboxEventsWorkflowOptions:
         assert execute_activity_mock.await_args is not None
         args, kwargs = execute_activity_mock.await_args
         assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
+        assert args[1].stream_generation == "replacement"
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
         assert workflow._sandbox_gone is True
 
@@ -1723,6 +1731,72 @@ class TestPersistFinalMessage:
         _persist_final_message("00000000-0000-0000-0000-000000000000", "The report.")
 
 
+class TestRelaySlackAgentDesignFanOut:
+    async def test_background_turn_end_closes_the_slack_turn_with_the_whole_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+        )
+        events = [
+            _acp("agent_message_chunk", {"content": {"type": "text", "text": "No, it is not safe to"}}),
+            _acp("agent_message_chunk", {"content": {"type": "text", "text": " merge yet."}}),
+            {
+                "type": "notification",
+                "notification": {"method": BACKGROUND_TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+            },
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class EventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "EventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_a, **_kw: EventSource())
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            slack_thread_context={"channel": "C1"},
+            is_agent_design_enabled=True,
+        )
+
+        slack_signals = [
+            (c.args[0], c.kwargs.get("arg"))
+            for c in handle.signal.await_args_list
+            if c.args[0] in ("turn_started", "agent_text_delta", "turn_completed")
+        ]
+        assert slack_signals[0][0] == "turn_started"
+        assert slack_signals[-1] == ("turn_completed", None)
+        assert "".join(arg for name, arg in slack_signals if name == "agent_text_delta") == (
+            "No, it is not safe to merge yet."
+        )
+
+
 class TestFlushPendingText:
     """Coalescing many chunks into one agent_text_delta signal keeps the parent workflow's
     history small enough to replay under the 2s deadlock budget."""
@@ -1758,7 +1832,7 @@ class TestFlushPendingText:
 class TestShouldSignalWorkflowHeartbeat:
     @parameterized.expand(
         [
-            # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
+            # Workflow runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
@@ -1771,7 +1845,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 set(),
                 False,
             ),
-            # Idle after end_of_turn: the short loop window applies and the run winds down.
+            # Idle after end_of_turn: the short window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
             # With no tool call in flight, the default and longer windows rely on the

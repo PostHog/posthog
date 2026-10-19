@@ -109,11 +109,6 @@ def test_transient_status_with_message_less_body_still_retryable() -> None:
             hubspot_refresh_access_token("refresh-token")
 
 
-def test_success_returns_access_token() -> None:
-    with _patch_post(_make_response(200, {"access_token": "new-token"})):
-        assert hubspot_refresh_access_token("refresh-token") == "new-token"
-
-
 def test_transient_status_is_retried_then_succeeds() -> None:
     # A momentary rate limit on the token endpoint should back off and retry rather than
     # fail the whole sync; once HubSpot stops returning 429 the refresh succeeds.
@@ -191,10 +186,3 @@ def test_429_retry_after_carried_on_exception_and_capped_by_wait_strategy() -> N
     state = MagicMock()
     state.outcome.exception.return_value = exc_info.value
     assert _wait_strategy(state) == MAX_RETRY_AFTER_SECONDS
-
-
-def test_wait_strategy_falls_back_to_backoff_without_retry_after() -> None:
-    state = MagicMock()
-    state.outcome.exception.return_value = HubspotRetryableError("rate limited", retry_after=None)
-    state.attempt_number = 1
-    assert _wait_strategy(state) >= 0

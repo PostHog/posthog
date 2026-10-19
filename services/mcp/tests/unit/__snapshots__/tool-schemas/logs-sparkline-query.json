@@ -33,50 +33,124 @@
                     "type": "object"
                 },
                 "filterGroup": {
-                    "default": [],
-                    "description": "Property filters for the query.",
-                    "items": {
-                        "properties": {
-                            "key": {
-                                "description": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
-                                "type": "string"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "properties": {
+                                    "key": {
+                                        "description": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                        "enum": [
+                                            "exact",
+                                            "is_not",
+                                            "icontains",
+                                            "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
+                                            "regex",
+                                            "not_regex",
+                                            "gt",
+                                            "lt",
+                                            "is_date_exact",
+                                            "is_date_before",
+                                            "is_date_after",
+                                            "is_set",
+                                            "is_not_set"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                                        "enum": ["log", "log_attribute", "log_resource_attribute"],
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                                    }
+                                },
+                                "required": ["key", "type", "operator"],
+                                "type": "object"
                             },
-                            "operator": {
-                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
-                                "enum": [
-                                    "exact",
-                                    "is_not",
-                                    "icontains",
-                                    "not_icontains",
-                                    "starts_with",
-                                    "not_starts_with",
-                                    "ends_with",
-                                    "not_ends_with",
-                                    "regex",
-                                    "not_regex",
-                                    "gt",
-                                    "lt",
-                                    "is_date_exact",
-                                    "is_date_before",
-                                    "is_date_after",
-                                    "is_set",
-                                    "is_not_set"
-                                ],
-                                "type": "string"
-                            },
-                            "type": {
-                                "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
-                                "enum": ["log", "log_attribute", "log_resource_attribute"],
-                                "type": "string"
-                            },
-                            "value": {
-                                "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
-                            }
+                            "type": "array"
                         },
-                        "required": ["key", "type", "operator"],
-                        "type": "object"
-                    },
-                    "type": "array"
+                        {
+                            "properties": {
+                                "type": {
+                                    "description": "How to combine the groups in `values`.\n\n* `AND` - AND\n* `OR` - OR",
+                                    "enum": ["AND", "OR"],
+                                    "type": "string"
+                                },
+                                "values": {
+                                    "description": "Groups of property filters.",
+                                    "items": {
+                                        "properties": {
+                                            "type": {
+                                                "description": "How to combine the filters in `values`.\n\n* `AND` - AND\n* `OR` - OR",
+                                                "enum": ["AND", "OR"],
+                                                "type": "string"
+                                            },
+                                            "values": {
+                                                "description": "Property filters in this group.",
+                                                "items": {
+                                                    "properties": {
+                                                        "key": {
+                                                            "description": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "starts_with",
+                                                                "not_starts_with",
+                                                                "ends_with",
+                                                                "not_ends_with",
+                                                                "regex",
+                                                                "not_regex",
+                                                                "gt",
+                                                                "lt",
+                                                                "is_date_exact",
+                                                                "is_date_before",
+                                                                "is_date_after",
+                                                                "is_set",
+                                                                "is_not_set"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                                                            "enum": ["log", "log_attribute", "log_resource_attribute"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator"],
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            }
+                                        },
+                                        "required": ["type", "values"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["type", "values"],
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups."
                 },
                 "personId": {
                     "description": "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",

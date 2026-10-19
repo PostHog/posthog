@@ -1,8 +1,7 @@
 import { TIMESTAMP_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
-// `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
-export type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
+export type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number }
 
 export function isSegment(value: unknown): value is Segment {
     if (!value || typeof value !== 'object') {
@@ -100,16 +99,6 @@ export function citedTextToPlainText(text: string, segments: unknown): string {
         out += `${out && !/\s$/.test(out) ? ' ' : ''}(${label})`
     }
     return out
-}
-
-/** The moment span a cited field points at: min to max cited timestamp, or null when nothing is cited. */
-export function citedTimestampRange(text: string, segments: unknown): { startMs: number; endMs: number } | null {
-    const chips = parseCitedSegments(text, segments).filter((segment) => segment.kind === 'chip')
-    if (chips.length === 0) {
-        return null
-    }
-    const timestamps = chips.map((chip) => Math.max(0, chip.timestamp_ms))
-    return { startMs: Math.min(...timestamps), endMs: Math.max(...timestamps) }
 }
 
 export function stripCitations(text: string, segments?: unknown): string {

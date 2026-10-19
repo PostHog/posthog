@@ -10,10 +10,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.hog_invocation_results.sql import INSERT_HOG_INVOCATION_RESULT_SQL
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 

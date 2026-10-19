@@ -13,6 +13,7 @@ import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    InvocationBuildFailure,
     LogEntry,
     LogEntryLevel,
     MessageAssetRow,
@@ -183,10 +184,12 @@ export class HogFlowExecutorService {
         invocations: CyclotronJobInvocationHogFlow[]
         metrics: MinimalAppMetric[]
         logs: LogEntry[]
+        buildFailures: InvocationBuildFailure[]
     }> {
         const metrics: MinimalAppMetric[] = []
         const logs: LogEntry[] = []
         const invocations: CyclotronJobInvocationHogFlow[] = []
+        const buildFailures: InvocationBuildFailure[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -196,6 +199,15 @@ export class HogFlowExecutorService {
         // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
             const trigger = hogFlow.trigger
+
+            if (trigger.type === 'cohort') {
+                // A cohort trigger has no filters to evaluate: eligibility already matched the membership change.
+                const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+                // A membership change carries no distinct_id, so the worker loads the person by id.
+                invocation.state.personId = triggerGlobals.person?.id
+                invocations.push(invocation)
+                continue
+            }
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
             // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
@@ -222,6 +234,17 @@ export class HogFlowExecutorService {
             )
             logs.push(...filterResults.logs)
 
+            // Checked against undefined, not for truthiness: a thrown error whose message is empty is
+            // still a failure, and treating it as success drops the event with no record of it.
+            if (filterResults.error !== undefined) {
+                buildFailures.push({
+                    sourceId: hogFlow.id,
+                    sourceKind: 'hog_flow',
+                    step: 'filter',
+                    error: String(filterResults.error),
+                })
+            }
+
             if (!filterResults.match) {
                 continue
             }
@@ -234,6 +257,7 @@ export class HogFlowExecutorService {
             invocations,
             metrics,
             logs,
+            buildFailures,
         }
     }
 

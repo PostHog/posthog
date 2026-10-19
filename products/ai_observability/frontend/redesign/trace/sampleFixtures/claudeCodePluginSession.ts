@@ -1,4 +1,5 @@
-import { MessagePart, NodeProperties, ThreadMessage, TimelineRowData, TraceTreeNode } from '../types'
+import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
+import { MessagePart, NodeProperties, ThreadMessage } from '../types'
 import { SampleNodeDetail, SampleTraceFixture, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '88cfdcc8-1757-7012-663c-599c6649c0e6'
@@ -173,7 +174,7 @@ function stepOutput(step: AgentStep): ThreadMessage[] {
     ]
 }
 
-function bashNode(bash: BashCall): TraceTreeNode {
+function bashNode(bash: BashCall): TraceNodeApi {
     return {
         id: bash.spanId,
         kind: 'span',
@@ -185,7 +186,7 @@ function bashNode(bash: BashCall): TraceTreeNode {
     }
 }
 
-function stepNode(step: AgentStep): TraceTreeNode {
+function stepNode(step: AgentStep): TraceNodeApi {
     return {
         id: step.generationId,
         kind: 'generation',
@@ -278,8 +279,8 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
     ]
 }
 
-function stepTimelineRows(step: AgentStep): TimelineRowData[] {
-    const generation: TimelineRowData = {
+function stepTimelineRows(step: AgentStep): TraceTimelineRowApi[] {
+    const generation: TraceTimelineRowApi = {
         id: step.generationId,
         kind: 'generation',
         name: MODEL,
@@ -307,7 +308,7 @@ function stepTimelineRows(step: AgentStep): TimelineRowData[] {
 
 const lastStep = STEPS[STEPS.length - 1]
 
-const traceNode: TraceTreeNode = {
+const traceNode: TraceNodeApi = {
     id: TRACE_ID,
     kind: 'trace',
     name: 'seo fixes',

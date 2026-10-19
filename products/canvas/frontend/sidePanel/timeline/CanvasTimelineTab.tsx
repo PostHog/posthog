@@ -10,7 +10,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    ItemGroup,
     Skeleton,
     Text,
 } from '@posthog/quill'
@@ -83,7 +82,7 @@ export function CanvasTimelineTab(): JSX.Element {
                     <Text id="canvas-timeline-drafts" size="xs" variant="muted" weight="medium" render={<h3 />}>
                         Drafts
                     </Text>
-                    <ItemGroup combined>
+                    <div role="list" className="flex flex-col">
                         {drafts.map((draft) => (
                             <CanvasTimelineRow
                                 key={draft.version_id}
@@ -96,6 +95,7 @@ export function CanvasTimelineTab(): JSX.Element {
                                     </Badge>
                                 }
                                 viewing={draft.version_id === browseVersionId}
+                                draft
                                 onOpen={() => setBrowseVersion(draft.version_id)}
                                 action={
                                     <Button
@@ -112,14 +112,14 @@ export function CanvasTimelineTab(): JSX.Element {
                                 dataAttr="canvas-timeline-draft"
                             />
                         ))}
-                    </ItemGroup>
+                    </div>
                 </section>
             )}
             <section aria-labelledby="canvas-timeline-versions" className="flex flex-col gap-2">
                 <Text id="canvas-timeline-versions" size="xs" variant="muted" weight="medium" render={<h3 />}>
                     Versions
                 </Text>
-                <ItemGroup combined>
+                <div role="list" className="flex flex-col">
                     {versions.map((version) => {
                         const build = latestBuildByVersion.get(version.id)
                         const live = version.id === headVersionId
@@ -127,8 +127,9 @@ export function CanvasTimelineTab(): JSX.Element {
                             <CanvasTimelineRow
                                 key={version.id}
                                 icon={version.task_id ? <IconSparkles /> : <IconUser />}
+                                label={versionLabels[version.id]}
                                 title={canvasVersionTitle(version)}
-                                meta={`${versionLabels[version.id]} · ${canvasVersionByline(version)}`}
+                                meta={canvasVersionByline(version)}
                                 badges={
                                     live || (build && build.build_status !== 'ready') ? (
                                         <>
@@ -142,6 +143,7 @@ export function CanvasTimelineTab(): JSX.Element {
                                     ) : undefined
                                 }
                                 viewing={version.id === displayedVersionId}
+                                live={live}
                                 onOpen={() => setBrowseVersion(live ? null : version.id)}
                                 action={
                                     live ? null : (
@@ -161,7 +163,7 @@ export function CanvasTimelineTab(): JSX.Element {
                             />
                         )
                     })}
-                </ItemGroup>
+                </div>
             </section>
         </div>
     )

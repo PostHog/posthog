@@ -18,7 +18,9 @@ import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { freeCreditsCoverage } from '../../utils/quotaProjection'
+import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
+import { DEFAULT_GOAL_BUDGET, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
@@ -119,12 +121,12 @@ export interface EligibleFilterGroup {
 
 /** The targeted experiment and variant, named so the row stands alone before the experiment loads. */
 function experimentValues(scanner: ReplayScanner, experimentName?: string): string[] {
-    const targeting = scanner.experiment_targeting
-    if (!targeting?.experiment_id) {
+    const scope = scannerExperimentScope(scanner)
+    if (!scope) {
         return []
     }
-    const variant = targeting.variant ? `${targeting.variant} variant` : 'all variants'
-    return [`${experimentName ?? `Experiment ${targeting.experiment_id}`} (${variant})`]
+    const variant = scopeVariantsLabel(scope, 'all variants')
+    return [`${experimentName ?? `Experiment ${scope.experimentId}`} (${variant})`]
 }
 
 /** The pages a session must have visited.
@@ -301,8 +303,10 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // The budget is credits, so compare the projected credit cost against the cap (which the draft
     // set to the stated budget). The rate cannot go below the minimum, so a budget under that floor
     // projects above it.
-    const budgetCredits = scanner.credit_limit ?? goalBudgetInput
+    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? DEFAULT_GOAL_BUDGET : goalBudgetInput)
     const overBudget = monthlyCredits != null && budgetCredits != null && monthlyCredits > budgetCredits
+    // A free-only scanner without its own cap can never bill, so it gets a credit count and a note instead of a cost.
+    const freeCreditsOnly = !!scanner.free_only && scanner.credit_limit == null
 
     const saveDisabledReason =
         getReplayVisionEditDisabledReason(scanner.user_access_level) ??
@@ -400,28 +404,52 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     <StatRow label="Activity filter">
                         <LemonTag type="muted">{activityFilterLabel(scanner.sampling_mode)}</LemonTag>
                     </StatRow>
-                    <StatRow label="Cost estimate">
+                    <StatRow label={freeCreditsOnly ? 'Free credits' : 'Cost estimate'}>
                         {monthlyCredits != null ? (
-                            <span>
-                                about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})
-                            </span>
+                            freeCreditsOnly ? (
+                                overBudget ? (
+                                    <span>
+                                        uses all <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> of your free
+                                        credits a month
+                                    </span>
+                                ) : (
+                                    <span>
+                                        uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
+                                        <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> free credits a month
+                                    </span>
+                                )
+                            ) : (
+                                <span>
+                                    about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})
+                                </span>
+                            )
                         ) : scannerEstimateLoading ? (
                             <Spinner />
                         ) : (
                             <span className="text-muted">Not available</span>
                         )}
                     </StatRow>
+                    {scanner.free_only && !freeCreditsOnly ? (
+                        <StatRow label="Spend">
+                            <span className="text-muted">Free credits only</span>
+                        </StatRow>
+                    ) : null}
                     {scanner.credit_limit != null ? (
                         <StatRow label="Monthly cap">
                             <span className="text-muted">{formatCreditCount(scanner.credit_limit)}</span>
                         </StatRow>
                     ) : null}
                 </div>
-                {overBudget ? (
+                {overBudget && freeCreditsOnly ? (
+                    <LemonBanner type="info">
+                        Your free credits cover about{' '}
+                        <span>{freeCreditsCoverage(DEFAULT_GOAL_BUDGET, monthlyCredits)}</span> of the month. After that
+                        it pauses until they reset.
+                    </LemonBanner>
+                ) : overBudget ? (
                     <LemonBanner type="warning">
-                        This is already at the lowest sampling rate, so it will watch about{' '}
-                        {monthlyObservations?.toLocaleString()} recordings a month, more than your budget covers. To
-                        watch fewer, narrow which recordings are eligible above, for example by device type or country.
+                        Your budget won't last the month at about <span>{monthlyObservations?.toLocaleString()}</span>{' '}
+                        recordings a month. Narrow the eligible recordings above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>

@@ -1,23 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconFolder, IconPin, IconPinFilled, IconX } from '@posthog/icons'
-import {
-    Button,
-    Checkbox,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { IconArchive, IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { Button, Checkbox, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { TodaySessionBulkArchiveDialog } from '~/layout/today/TodaySessionBulkArchiveDialog'
 import { sessionsLabel } from '~/layout/today/todaySessionSelection'
 import { TodayBulkAction } from '~/layout/today/todaySessionSelectionLogic'
-import { TodaySpaceFileList } from '~/layout/today/TodaySpaceFileList'
-import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
 import { spaceFeedSelectionLogic } from './spaceFeedSelectionLogic'
 
@@ -29,12 +17,10 @@ interface BulkButtonProps {
     action: TodayBulkAction
     icon: JSX.Element
     dataAttr: string
-    onClick?: () => void
-    /** Wraps the button before the tooltip does, so it can open a menu. */
-    wrap?: (button: JSX.Element) => JSX.Element
+    onClick: () => void
 }
 
-function BulkButton({ spaceId, label, action, icon, dataAttr, onClick, wrap }: BulkButtonProps): JSX.Element {
+function BulkButton({ spaceId, label, action, icon, dataAttr, onClick }: BulkButtonProps): JSX.Element {
     const { bulkAction } = useValues(spaceFeedSelectionLogic({ id: spaceId }))
     const loading = bulkAction === action
     const busy = bulkAction !== null && !loading
@@ -43,7 +29,7 @@ function BulkButton({ spaceId, label, action, icon, dataAttr, onClick, wrap }: B
     )
     return (
         <Tooltip disabled={!busy}>
-            <TooltipTrigger delay={0} render={wrap ? wrap(button) : button}>
+            <TooltipTrigger delay={0} render={button}>
                 {icon}
                 {label}
             </TooltipTrigger>
@@ -59,13 +45,11 @@ export function SpaceFeedSelectionBar({ spaceId }: { spaceId: string }): JSX.Ele
     const {
         toggleSelectAll,
         pinSelected,
-        fileSelectedTo,
         requestBulkArchive,
         clearSelection,
         closeBulkArchiveConfirm,
         archiveSelected,
     } = useActions(logic)
-    const { spaces } = useValues(todaySpacesLogic)
     const count = selectedSessionIds.length
     const pin = bulkPinDirection === 'pin'
 
@@ -76,8 +60,9 @@ export function SpaceFeedSelectionBar({ spaceId }: { spaceId: string }): JSX.Ele
                 {count > 0 ? `${sessionsLabel(count)} selected` : ''}
             </span>
             {count > 0 && (
+                // Early in the tab order, so the bulk actions are a few Tabs away; shown at the bottom of the feed.
                 <div
-                    className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-fill-selected px-2 py-1"
+                    className="sticky bottom-3 z-20 order-last mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 max-w-full self-center rounded-lg border border-border bg-popover px-2 py-1.5 text-popover-foreground shadow-[var(--shadow-md)]"
                     data-attr="today-space-feed-bulk-bar"
                 >
                     <div className="flex min-w-0 items-center gap-2">
@@ -105,26 +90,6 @@ export function SpaceFeedSelectionBar({ spaceId }: { spaceId: string }): JSX.Ele
                             onClick={pinSelected}
                             dataAttr="today-space-feed-bulk-pin"
                         />
-                        {spaces.length > 1 && (
-                            <DropdownMenu>
-                                <BulkButton
-                                    spaceId={spaceId}
-                                    label="File to…"
-                                    action="file"
-                                    icon={<IconFolder />}
-                                    wrap={(button) => <DropdownMenuTrigger render={button} />}
-                                    dataAttr="today-space-feed-bulk-file"
-                                />
-                                <DropdownMenuContent align="end" className="max-h-80 w-64">
-                                    <TodaySpaceFileList
-                                        currentSpaceId={spaceId}
-                                        onSelect={fileSelectedTo}
-                                        itemDataAttr="today-space-feed-bulk-file-space"
-                                        searchDataAttr="today-space-feed-bulk-file-search"
-                                    />
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
                         <BulkButton
                             spaceId={spaceId}
                             label="Archive"

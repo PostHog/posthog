@@ -221,7 +221,7 @@
         },
         "$ai_eval_source": {
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
             "label": "AI eval source (LLM)"
         },
         "$ai_evaluation_allows_na": {
@@ -316,21 +316,9 @@
             "examples": ["llm_judge", "hog"],
             "label": "AI evaluation type (LLM)"
         },
-        "$ai_expected": {
-            "description": "The expected output for comparison in this evaluation.",
-            "label": "AI expected output (LLM)"
-        },
         "$ai_experiment_id": {
             "description": "The unique identifier of the experiment this event belongs to.",
             "label": "AI experiment ID (LLM)"
-        },
-        "$ai_experiment_item_id": {
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item ID (LLM)"
-        },
-        "$ai_experiment_item_name": {
-            "description": "The name of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item name (LLM)"
         },
         "$ai_experiment_name": {
             "description": "The name of the experiment this event belongs to.",
@@ -447,10 +435,6 @@
             "examples": ["negative", "95"],
             "label": "AI Metric Value (LLM)"
         },
-        "$ai_metric_version": {
-            "description": "The version of the metric used for evaluation.",
-            "label": "AI metric version (LLM)"
-        },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"],
@@ -559,26 +543,6 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
-        },
-        "$ai_result_type": {
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-            "label": "AI result type (LLM)"
-        },
-        "$ai_score": {
-            "description": "The numeric score assigned by this evaluation metric.",
-            "label": "AI score (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_max": {
-            "description": "The maximum possible score for this evaluation metric.",
-            "label": "AI score max (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_min": {
-            "description": "The minimum possible score for this evaluation metric.",
-            "label": "AI score min (LLM)",
-            "type": "Numeric"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
@@ -1291,6 +1255,13 @@
             "description": "The version of the feature flag that was called.",
             "examples": ["3"],
             "label": "Feature flag version"
+        },
+        "$flutter_version": {
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
+            "ignored_in_assistant": true,
+            "label": "Flutter version",
+            "system": true
         },
         "$geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers).",
@@ -2090,6 +2061,13 @@
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
             "label": "Raw user agent"
         },
+        "$react_native_version": {
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "ignored_in_assistant": true,
+            "label": "React Native version",
+            "system": true
+        },
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
             "label": "Session recording status",
@@ -2858,6 +2836,10 @@
             "description": "Klaviyo Tracking ID",
             "label": "_kx"
         },
+        "bfcid": {
+            "description": "Freebuff Click ID",
+            "label": "bfcid"
+        },
         "build": {
             "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": ["1"],
@@ -3304,7 +3286,7 @@
             "label": "Feature enrollment"
         },
         "$feature_flag_called": {
-            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
+            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.",
             "examples": ["beta-feature"],
             "hidden_in_query_builders": true,
             "ignored_in_assistant": true,
@@ -3433,7 +3415,7 @@
             "label": "Workflow email marked as spam"
         },
         "$workflows_email_bounced": {
-            "description": "Fires when a workflow email bounces.",
+            "description": "Fires when a workflow email bounces. The `$bounce_type` property holds `hard` when the address will never accept mail (it is also added to the suppression list), `soft` when the failure is temporary such as a full mailbox, and `unknown` when the provider could not tell. `$bounce_sub_type` holds the provider's own reason, such as \"MailboxFull\". Bounces recorded before these properties shipped carry neither.",
             "label": "Workflow email bounced"
         },
         "$workflows_email_delivered": {
@@ -4074,7 +4056,7 @@
         },
         "$ai_eval_source": {
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
             "label": "AI eval source (LLM)"
         },
         "$ai_evaluation_allows_na": {
@@ -4169,21 +4151,9 @@
             "examples": ["llm_judge", "hog"],
             "label": "AI evaluation type (LLM)"
         },
-        "$ai_expected": {
-            "description": "The expected output for comparison in this evaluation.",
-            "label": "AI expected output (LLM)"
-        },
         "$ai_experiment_id": {
             "description": "The unique identifier of the experiment this event belongs to.",
             "label": "AI experiment ID (LLM)"
-        },
-        "$ai_experiment_item_id": {
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item ID (LLM)"
-        },
-        "$ai_experiment_item_name": {
-            "description": "The name of the individual item being evaluated in an experiment.",
-            "label": "AI experiment item name (LLM)"
         },
         "$ai_experiment_name": {
             "description": "The name of the experiment this event belongs to.",
@@ -4300,10 +4270,6 @@
             "examples": ["negative", "95"],
             "label": "AI Metric Value (LLM)"
         },
-        "$ai_metric_version": {
-            "description": "The version of the metric used for evaluation.",
-            "label": "AI metric version (LLM)"
-        },
         "$ai_model": {
             "description": "The model used to generate the output from the LLM API.",
             "examples": ["gpt-4o-mini"],
@@ -4412,26 +4378,6 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
-        },
-        "$ai_result_type": {
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-            "label": "AI result type (LLM)"
-        },
-        "$ai_score": {
-            "description": "The numeric score assigned by this evaluation metric.",
-            "label": "AI score (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_max": {
-            "description": "The maximum possible score for this evaluation metric.",
-            "label": "AI score max (LLM)",
-            "type": "Numeric"
-        },
-        "$ai_score_min": {
-            "description": "The minimum possible score for this evaluation metric.",
-            "label": "AI score min (LLM)",
-            "type": "Numeric"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
@@ -5157,6 +5103,13 @@
             "examples": ["3"],
             "label": "Feature flag version"
         },
+        "$flutter_version": {
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
+            "ignored_in_assistant": true,
+            "label": "Flutter version",
+            "system": true
+        },
         "$geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers). Data from the last time this user was seen.",
             "examples": ["50"],
@@ -5351,6 +5304,10 @@
         "$initial_app_version": {
             "description": "The version of the app. Data from the first time this user was seen.",
             "label": "Initial app version"
+        },
+        "$initial_bfcid": {
+            "description": "Freebuff Click ID Data from the first time this user was seen.",
+            "label": "Initial bfcid"
         },
         "$initial_browser": {
             "description": "Name of the browser the user has used. Data from the first time this user was seen.",
@@ -6281,6 +6238,13 @@
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
             "label": "Latest raw user agent"
         },
+        "$react_native_version": {
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "ignored_in_assistant": true,
+            "label": "React Native version",
+            "system": true
+        },
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
             "label": "Session recording status",
@@ -7039,6 +7003,10 @@
         "_kx": {
             "description": "Klaviyo Tracking ID Data from the last time this user was seen.",
             "label": "Latest _kx"
+        },
+        "bfcid": {
+            "description": "Freebuff Click ID Data from the last time this user was seen.",
+            "label": "Latest bfcid"
         },
         "build": {
             "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",

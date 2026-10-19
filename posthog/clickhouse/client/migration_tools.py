@@ -5,7 +5,7 @@ from typing import Optional
 from infi.clickhouse_orm import migrations
 
 from posthog import settings
-from posthog.clickhouse.client.connection import DATA_NODE_ROLES, SINGLE_SHARD_DATA_NODE_ROLES, NodeRole
+from posthog.clickhouse.client.connection import DATA_NODE_ROLES, SINGLE_SHARD_DATA_NODE_ROLES, ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query, get_cluster
 from posthog.run_mode import run_mode
 from posthog.settings.data_stores import (
@@ -25,6 +25,7 @@ def get_migrations_cluster() -> ClickhouseCluster:
         cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
         data_cluster=CLICKHOUSE_CLUSTER,
         satellite_clusters=CLICKHOUSE_SATELLITE_CLUSTERS or None,
+        ch_user=ClickHouseUser.MIGRATIONS,
     )
 
 

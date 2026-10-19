@@ -54,6 +54,7 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
         emptyState,
         activeSceneId,
         params: params ?? {},
+        searchParams,
         featureFlags,
         receivedFeatureFlags,
         forcedMode,

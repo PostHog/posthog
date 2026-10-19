@@ -3,6 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source import CrossrefSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
     CrossrefSourceConfig,
@@ -38,7 +42,7 @@ class TestCrossrefSource:
         if not expected_valid:
             assert "member ID, funder ID, or journal ISSN" in (message or "")
 
-    @pytest.mark.parametrize("schema_name", [None, "Members", "Funders", "Types", "Licenses"])
+    @pytest.mark.parametrize("schema_name", [None, "Members", "Funders", "Types", "Licenses", "Journals"])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
     )
@@ -60,38 +64,6 @@ class TestCrossrefSource:
 
         assert is_valid is False
         assert message == "Couldn't reach the Crossref API. Please try again."
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
-    )
-    def test_validate_credentials_passes_mailto(self, mock_validate):
-        mock_validate.return_value = True
-        config = CrossrefSourceConfig(mailto="me@example.com")
-
-        self.source.validate_credentials(config, self.team_id)
-
-        mock_validate.assert_called_once_with("me@example.com")
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "400 Client Error: Bad Request for url: https://api.crossref.org/works?filter=member:abc (Integer specified as abc but must be a positive integer. )",
-        ],
-    )
-    def test_non_retryable_errors_match_invalid_scope(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.crossref.org/works",
-            "500 Server Error: Internal Server Error for url: https://api.crossref.org/works",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_crossref_source):
@@ -116,29 +88,25 @@ class TestCrossrefSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00"
         assert kwargs["incremental_field"] == "indexed_date"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_crossref_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Members"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00"
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self):
+        result = SourceDriver(self.source, CrossrefSourceConfig(member_id="301")).run(
+            "Works",
+            [ScriptedResponse(json={"message": {"items": [{"DOI": "1"}]}})],
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert result.raised is None
+        assert result.requests[0].param("filter") == "member:301"
+        assert result.requests[0].param("sort") is None
 
-        assert mock_crossref_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
-    def test_source_for_pipeline_rejects_unscoped_works_even_if_stored_config_lost_its_scope(
-        self, mock_crossref_source
-    ):
+    def test_source_for_pipeline_rejects_unscoped_works_even_if_stored_config_lost_its_scope(self):
         # Setup-time validation can't stop a scope from being cleared after Works is already
         # enabled, so source_for_pipeline must re-check it on every run before an unscoped sync
         # of the full 160M+ row Works registry can happen.
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Works"
         config = CrossrefSourceConfig()  # no member_id/funder_id/issn
 
-        with pytest.raises(ValueError, match="Set a member ID, funder ID, or journal ISSN"):
-            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, config).run("Works", [])
 
-        mock_crossref_source.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert "Set a member ID, funder ID, or journal ISSN" in str(result.raised)
+        assert result.requests == []

@@ -2,8 +2,10 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -61,6 +63,10 @@ class InstantlySource(
     ResumableSource[InstantlySourceConfig, InstantlyResumeConfig],
     WebhookSource[InstantlySourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^INSTANTLY_API_KEY$", "^INSTANTLY_API_BASE_URL$"), npm=("@instantlyai/sdk", "@instantlyai/cli")
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

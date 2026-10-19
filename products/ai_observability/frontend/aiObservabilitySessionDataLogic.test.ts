@@ -157,6 +157,7 @@ describe('aiObservabilitySessionDataLogic', () => {
 
         expect(summarizationCreate.mock.calls[0][1]).toEqual({
             mode: 'minimal',
+            compact_context: true,
             force_refresh: false,
             trace_id: 'trace-1',
             date_from: '2025-12-31T00:00:00.000Z',

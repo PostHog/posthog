@@ -22,13 +22,16 @@ import { canvasSpaceLabel } from '../canvasTasksApi'
 import { CanvasEditSaveStatus } from '../editing/CanvasEditSaveStatus'
 import { CanvasEditToggle } from '../editing/CanvasEditToggle'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
+import { CanvasCommentsMenu } from '../sidePanel/comments/CanvasCommentsMenu'
 import { CanvasBuildStatus } from './CanvasBuildStatus'
+import { CanvasFullscreenToggle } from './CanvasFullscreenToggle'
 import { CanvasGenerationIndicator } from './CanvasGenerationIndicator'
 import { CanvasNameField } from './CanvasNameField'
 import { CanvasRuntimeErrorNotice } from './CanvasRuntimeErrorNotice'
 import { canvasSceneLogic } from './canvasSceneLogic'
 import { CanvasSidePanelToggle } from './CanvasSidePanelToggle'
 import { CanvasToolbar } from './CanvasToolbar'
+import { CanvasVisibilityControl } from './CanvasVisibilityControl'
 
 /**
  * The bar across the top of the canvas, laid out like PostHog Desktop's: the name and version history
@@ -55,7 +58,10 @@ export function CanvasSceneHeader(): JSX.Element {
                     <CanvasRuntimeErrorNotice />
                     <CanvasEditSaveStatus />
                     <CanvasEditToggle />
+                    <CanvasCommentsMenu />
+                    <CanvasFullscreenToggle />
                     <CanvasSidePanelToggle />
+                    <CanvasVisibilityControl />
                     <DropdownMenu>
                         <Tooltip>
                             {/* quill's triggers do not forward refs under React 18, so a span anchors the tooltip. */}

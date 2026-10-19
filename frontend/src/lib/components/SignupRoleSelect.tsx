@@ -28,11 +28,24 @@ const shuffle = <T,>(items: T[]): T[] => {
 // Done at module scope so the list is stable for the page rather than reordering on every render.
 const roleOptions = [...shuffle(ROLE_OPTIONS), OTHER_ROLE_OPTION]
 
-export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
+export default function SignupRoleSelect({
+    className,
+    showOptional,
+}: {
+    className?: string
+    // Only the invite signup form lets people submit without a role
+    showOptional?: boolean
+}): JSX.Element {
     return (
-        <LemonField name="role_at_organization" label="What is your role?" className={className}>
-            {({ value, onChange }) => (
+        <LemonField
+            name="role_at_organization"
+            label="What is your role?"
+            className={className}
+            showOptional={showOptional}
+        >
+            {({ value, onChange, error, id }) => (
                 <LemonSelect
+                    id={id}
                     fullWidth
                     data-attr="signup-role-at-organization"
                     options={roleOptions}
@@ -41,6 +54,7 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                     value={value || undefined}
                     onChange={onChange}
                     placeholder="Select your role"
+                    status={error ? 'danger' : 'default'}
                 />
             )}
         </LemonField>

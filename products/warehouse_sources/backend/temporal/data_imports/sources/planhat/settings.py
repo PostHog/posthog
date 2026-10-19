@@ -22,6 +22,10 @@ PLANHAT_ENDPOINTS: dict[str, PlanhatEndpointConfig] = {
     "licenses": PlanhatEndpointConfig(name="licenses", path="/licenses"),
     "assets": PlanhatEndpointConfig(name="assets", path="/assets"),
     "nps": PlanhatEndpointConfig(name="nps", path="/nps"),
+    "conversations": PlanhatEndpointConfig(name="conversations", path="/conversations"),
+    "tickets": PlanhatEndpointConfig(name="tickets", path="/tickets"),
+    "invoices": PlanhatEndpointConfig(name="invoices", path="/invoices"),
+    "sales": PlanhatEndpointConfig(name="sales", path="/sales"),
 }
 
 ENDPOINTS = tuple(PLANHAT_ENDPOINTS.keys())

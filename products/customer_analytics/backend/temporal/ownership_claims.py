@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.dataclasses import frozen
     from posthog.models.scoping import team_scope
     from posthog.models.team import Team
+    from posthog.scheduling.jitter import deterministic_offset
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
     from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
@@ -188,7 +189,14 @@ def _build_ownership_claims_coordinator_schedule(state: ScheduleState) -> Schedu
             execution_timeout=OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=OWNERSHIP_CLAIMS_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=OWNERSHIP_CLAIMS_INTERVAL,
+                    offset=deterministic_offset(OWNERSHIP_CLAIMS_COORDINATOR_SCHEDULE_ID, OWNERSHIP_CLAIMS_INTERVAL),
+                )
+            ]
+        ),
         state=state,
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

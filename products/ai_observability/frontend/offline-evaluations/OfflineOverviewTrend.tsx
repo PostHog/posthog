@@ -8,8 +8,9 @@ import { urls } from 'scenes/urls'
 
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from './offlineOverviewTrendLogic'
+import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
-import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreMetricLabel } from './offlineScoreTrends'
+import { getOfflineHistoryCoverage } from './offlineScoreTrends'
 
 export function OfflineOverviewTrend(
     props: OfflineOverviewTrendLogicProps & {
@@ -25,6 +26,11 @@ export function OfflineOverviewTrend(
     const { loadOfflineOverviewTrend, selectVersion } = useActions(logic)
     const versionIndex = versions.findIndex((version) => version.id === activeVersion?.id)
     const hasPartialHistory = !!trend && trend.page.count > trend.page.results.length
+    const scoredItemCount = periodSummary
+        ? periodSummary.pass_count != null && periodSummary.fail_count != null
+            ? periodSummary.pass_count + periodSummary.fail_count
+            : periodSummary.status_counts.ok
+        : 0
 
     return (
         <LemonCard hoverEffect={false} className="min-w-0 flex flex-col gap-3">
@@ -92,9 +98,9 @@ export function OfflineOverviewTrend(
                         )}
                     </div>
                     {periodSummary && (
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <strong>{formatOfflineScore(periodSummary)}</strong>
-                            <span className="text-muted text-xs">{`${offlineScoreMetricLabel(periodSummary.scorer)} · ${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'}`}</span>
+                        <div className="flex flex-col gap-1">
+                            <OfflineScoreSummaryDisplay summary={periodSummary} />
+                            <div className="text-muted text-xs">{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</div>
                         </div>
                     )}
                     {hasPartialHistory && (
@@ -106,6 +112,7 @@ export function OfflineOverviewTrend(
                     {versionPoints.length ? (
                         <OfflineScoreTrendChart
                             heightClassName="h-36"
+                            showHeading={false}
                             hoverLogic={overviewLogic}
                             xDomain={props.xDomain}
                             colorOffset={props.colorOffset}

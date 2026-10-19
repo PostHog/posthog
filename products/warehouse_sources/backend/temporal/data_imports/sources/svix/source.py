@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
+    codebase_detection = detect(
+        env=("^SVIX_",),
+        npm=("svix",),
+        pypi=("svix",),
+        cargo=("svix", "svix-ksuid"),
+        composer=("svix/svix",),
+        go=("github.com/svix/svix-webhooks",),
+        maven=("com.svix:svix", "com.svix.kotlin:svix-kotlin"),
+        rubygems=("svix",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.svix.com"

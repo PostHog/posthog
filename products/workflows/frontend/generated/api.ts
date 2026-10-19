@@ -13,10 +13,17 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    DataSuggestionBuildRequestApi,
+    DataSuggestionBuildResponseApi,
+    DataSuggestionGenerateRequestApi,
+    DataSuggestionsResponseApi,
+    EmailDraftApi,
+    EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowInFlightApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
@@ -39,10 +46,11 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsMetricsVersionRetrieveParams,
     HogFlowsProposalsListParams,
-    HogFlowsProposalsOutcomeRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogFlowsSendCalendarRetrieveParams,
     HogInvocationCancelRequestApi,
     HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
@@ -60,12 +68,17 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    PeopleImportApi,
+    PeopleImportCreateApi,
+    SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
+    WorkflowProposalRejectRequestApi,
+    WorkflowSetupStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -520,6 +533,21 @@ export const hogFlowsGraphPartialUpdate = async (
     })
 }
 
+export const getHogFlowsInFlightRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/in_flight/`
+}
+
+export const hogFlowsInFlightRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowInFlightApi> => {
+    return apiMutator<HogFlowInFlightApi>(getHogFlowsInFlightRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsInvocationResultsRetrieveUrl = (
     projectId: string,
     id: string,
@@ -746,15 +774,53 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
+export const getHogFlowsMetricsVersionRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: HogFlowsMetricsVersionRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/version/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/version/`
+}
+
+/**
+ * One published version's series. Every hog flow metric is mirrored under
+ * `hog_flow_version` with the version appended to the id, which is what makes "before and
+ * after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+ * the run instead, so it is not the sum of the versions.
+ */
+export const hogFlowsMetricsVersionRetrieve = async (
+    projectId: string,
+    id: string,
+    params: HogFlowsMetricsVersionRetrieveParams,
+    options?: RequestInit
+): Promise<AppMetricsResponseApi> => {
+    return apiMutator<AppMetricsResponseApi>(getHogFlowsMetricsVersionRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsOptimizationRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
 }
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const hogFlowsOptimizationRetrieve = async (
     projectId: string,
@@ -772,15 +838,15 @@ export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const hogFlowsOptimizationCreate = async (
     projectId: string,
     id: string,
-    hogFlowOptimizationApi: HogFlowOptimizationApi,
+    hogFlowOptimizationApi: NonReadonly<HogFlowOptimizationApi>,
     options?: RequestInit
 ): Promise<HogFlowOptimizationApi> => {
     return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {
@@ -884,25 +950,8 @@ export const hogFlowsProposalsApproveCreate = async (
     })
 }
 
-export const getHogFlowsProposalsOutcomeRetrieveUrl = (
-    projectId: string,
-    id: string,
-    proposalId: string,
-    params?: HogFlowsProposalsOutcomeRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/?${stringifiedParams}`
-        : `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/`
+export const getHogFlowsProposalsOutcomeRetrieveUrl = (projectId: string, id: string, proposalId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/`
 }
 
 /**
@@ -918,16 +967,12 @@ export const hogFlowsProposalsOutcomeRetrieve = async (
     projectId: string,
     id: string,
     proposalId: string,
-    params?: HogFlowsProposalsOutcomeRetrieveParams,
     options?: RequestInit
 ): Promise<WorkflowProposalOutcomeApi> => {
-    return apiMutator<WorkflowProposalOutcomeApi>(
-        getHogFlowsProposalsOutcomeRetrieveUrl(projectId, id, proposalId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+    return apiMutator<WorkflowProposalOutcomeApi>(getHogFlowsProposalsOutcomeRetrieveUrl(projectId, id, proposalId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getHogFlowsProposalsRejectCreateUrl = (projectId: string, id: string, proposalId: string) => {
@@ -938,11 +983,14 @@ export const hogFlowsProposalsRejectCreate = async (
     projectId: string,
     id: string,
     proposalId: string,
+    workflowProposalRejectRequestApi?: WorkflowProposalRejectRequestApi,
     options?: RequestInit
 ): Promise<WorkflowProposalApi> => {
     return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsRejectCreateUrl(projectId, id, proposalId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowProposalRejectRequestApi),
     })
 }
 
@@ -1275,6 +1323,37 @@ export const hogFlowsReputationRetrieve = async (
     })
 }
 
+export const getHogFlowsSendCalendarRetrieveUrl = (projectId: string, params: HogFlowsSendCalendarRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/send_calendar/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/send_calendar/`
+}
+
+/**
+ * Active batch and schedule workflows with an email step that is not transactional, and that have a schedule with sends to come or a batch run inside the range. Each carries only the fields a calendar card shows. Read a single workflow for its full configuration.
+ * @summary List the scheduled sends for the send calendar
+ */
+export const hogFlowsSendCalendarRetrieve = async (
+    projectId: string,
+    params: HogFlowsSendCalendarRetrieveParams,
+    options?: RequestInit
+): Promise<SendCalendarFlowApi[]> => {
+    return apiMutator<SendCalendarFlowApi[]>(getHogFlowsSendCalendarRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
 }
@@ -1289,6 +1368,121 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsBuild = async (
+    projectId: string,
+    dataSuggestionBuildRequestApi: DataSuggestionBuildRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionBuildResponseApi> => {
+    return apiMutator<DataSuggestionBuildResponseApi>(getWorkflowDataSuggestionsBuildUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionBuildRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/current/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowDataSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/generate/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
+    })
+}
+
+export const getWorkflowEmailDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_drafts/`
+}
+
+/**
+ * Write a first draft of an email to the people an entity points at. A model writes it when the project has AI drafts on and the organization approved AI data processing; otherwise, or when the model fails, the fixed template for the source is returned. Nothing is saved.
+ * @summary Draft an email about an error, feature, survey, flag or cohort
+ */
+export const workflowEmailDraftsCreate = async (
+    projectId: string,
+    emailDraftRequestApi: EmailDraftRequestApi,
+    options?: RequestInit
+): Promise<EmailDraftApi> => {
+    return apiMutator<EmailDraftApi>(getWorkflowEmailDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowPeopleImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_people_imports/`
+}
+
+/**
+ * @summary Create or update people from rows and add them to a new static cohort
+ */
+export const workflowPeopleImportsCreate = async (
+    projectId: string,
+    peopleImportCreateApi: PeopleImportCreateApi,
+    options?: RequestInit
+): Promise<PeopleImportApi> => {
+    return apiMutator<PeopleImportApi>(getWorkflowPeopleImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowSetupStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_setup/status/`
+}
+
+/**
+ * Whether a project is set up to send messages from workflows.
+ */
+export const workflowSetupStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSetupStatusApi> => {
+    return apiMutator<WorkflowSetupStatusApi>(getWorkflowSetupStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

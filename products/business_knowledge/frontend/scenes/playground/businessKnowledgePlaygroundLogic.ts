@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -381,6 +382,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                         actions.loadChats()
                     }
                     const chat = await askPlaygroundChat(chatId, question)
+                    posthog.capture('business knowledge playground question asked')
                     if (cache.disposables.isDisposed || values.chatId !== chatId) {
                         return
                     }

@@ -1,12 +1,13 @@
 from typing import Any
 
-from django.test.testcases import TestCase
+from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
 from pydantic import BaseModel
 
 from posthog.schema import (
     BaseMathType,
+    BIVisualizationNode,
     BreakdownAttributionType,
     EventPropertyFilter,
     EventsNode,
@@ -27,7 +28,30 @@ base_trends: dict[str, Any] = {"series": []}
 base_funnel: dict[str, Any] = {"series": []}
 
 
-class TestSchemaHelpers(TestCase):
+class TestBIQuerySchema(SimpleTestCase):
+    def test_worksheet_survives_query_serialization(self) -> None:
+        source = {"table": "events", "connectionId": "example-connection"}
+        field = {"id": "event", "name": "event", "expression": "event", "type": "string", "source": source}
+        config = {
+            "source": source,
+            "chartType": "ActionsBar",
+            "rows": [field],
+            "columns": [],
+            "values": [{"field": field, "aggregation": "count_distinct", "label": "Event types"}],
+            "filters": [{"field": field, "operator": "in", "value": "", "values": ["signup"], "enabled": False}],
+            "limit": 1000,
+            "sort": {"key": "event", "direction": "asc"},
+        }
+        source_query = {"kind": "HogQLQuery", "query": "SELECT event FROM events"}
+        insight_query = BIVisualizationNode.model_validate(
+            {"kind": "BIVisualizationNode", "source": source_query, "config": config}
+        )
+        serialized = to_dict(insight_query)
+        self.assertEqual(serialized["config"], config)
+        self.assertEqual(serialized["source"], {"query": source_query["query"]})
+
+
+class TestSchemaHelpers(SimpleTestCase):
     maxDiff = None
 
     def test_serializes_to_differing_json_for_default_value(self):

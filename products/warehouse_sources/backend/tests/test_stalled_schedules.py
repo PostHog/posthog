@@ -148,7 +148,7 @@ class TestStalledSchedules(BaseTest):
 
     def test_a_streaming_cdc_schema_whose_consumer_stopped_is_reported_and_repairable(self) -> None:
         # Its schedule consumes the change buffer, so a stall lets the buffer age toward its expiry.
-        source = self._source(job_inputs={"cdc_ingest_mode": "buffered"})
+        source = self._source()
         schema = self._schema(
             source,
             synced_ago=timedelta(days=5),

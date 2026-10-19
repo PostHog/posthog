@@ -28,7 +28,7 @@ export function SessionRecordingCollectionsEmptyState(): JSX.Element {
                         type="primary"
                         data-attr="add-session-playlist-button-empty-state"
                         icon={<IconPlus />}
-                        onClick={() => void createPlaylist({ type: 'collection' }, true)}
+                        onClick={() => void createPlaylist({ type: 'collection', creation_method: 'new' }, true)}
                     >
                         New collection
                     </LemonButton>

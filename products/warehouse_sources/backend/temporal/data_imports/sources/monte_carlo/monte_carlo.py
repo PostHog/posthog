@@ -1,3 +1,4 @@
+import math
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -11,8 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.settings import (
+    MONITOR_UUIDS_QUERY,
     MONTE_CARLO_ENDPOINTS,
     VALIDATE_CREDENTIALS_QUERY,
+    WAREHOUSES_QUERY,
     MonteCarloEndpointConfig,
 )
 
@@ -24,6 +27,22 @@ ALERT_WINDOW = timedelta(days=30)
 # Alerts history is unbounded and the API requires a time range, so the first sync is
 # capped to the trailing year instead of guessing at account age.
 DEFAULT_LOOKBACK_DAYS = 365
+MONITOR_PAGE_SIZE = 100
+# Metric monitors (STATS) are the monitors that produce a field-health event series.
+FH_EVENT_MONITOR_TYPES = ["STATS"]
+# A monitor can write a metric point dated before the newest point of another monitor (daily
+# buckets land after hourly ones), so incremental syncs re-read a trailing overlap; merge dedupes it.
+FH_EVENTS_OVERLAP = timedelta(days=2)
+# A dbt run that started before the watermark can upload its test results after a newer run has
+# synced, so incremental syncs re-read a trailing overlap of run start times; merge dedupes it.
+DBT_TEST_RESULTS_OVERLAP = timedelta(days=2)
+# getJobExecutions only filters by whole days back and a job's startTime stays fixed while it
+# runs, so one extra day catches status updates on jobs that finished after the last sync.
+JOB_EXECUTIONS_OVERLAP = timedelta(days=1)
+
+
+# (after, before) bounds of one time-range query.
+Window = tuple[datetime, datetime]
 
 
 class MonteCarloRetryableError(Exception):
@@ -205,12 +224,73 @@ def _get_offset_rows(
         resumable_source_manager.save_state(MonteCarloResumeConfig(offset=offset))
 
 
+def _get_event_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    start = _parse_incremental_value(db_incremental_field_last_value)
+    start_time = _format_datetime(start) if start is not None else None
+    cursor: str | None = None
+    if resume is not None and resume.cursor:
+        # Replay the cursor against the filter it was issued for.
+        cursor = resume.cursor
+        start_time = resume.window_after
+        logger.debug(f"Monte Carlo: resuming {config.name} from cursor {cursor}")
+
+    variables: dict[str, Any] = {"descOrder": False}
+    if start_time is not None:
+        variables["startTime"] = start_time
+
+    for rows, next_cursor in _relay_pages(session, config, logger, variables, cursor):
+        if next_cursor:
+            resumable_source_manager.save_state(MonteCarloResumeConfig(cursor=next_cursor, window_after=start_time))
+        yield rows
+
+
 def _alert_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
     window_start = start
     while window_start < end:
         window_end = min(window_start + ALERT_WINDOW, end)
         yield window_start, window_end
         window_start = window_end
+
+
+def _window_start(value: Any, now: datetime, overlap: timedelta = timedelta(0)) -> datetime:
+    start = _parse_incremental_value(value)
+    if start is None or start > now:
+        return now - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    return start - overlap
+
+
+def _resumed_windows(
+    start: datetime,
+    now: datetime,
+    resume: MonteCarloResumeConfig | None,
+    logger: FilteringBoundLogger,
+    name: str,
+) -> tuple[list[Window], str | None]:
+    """Windows to walk from `start` (or the resumed window) to now, plus the cursor to resume the first one from."""
+    resume_cursor: str | None = None
+    pinned_before: datetime | None = None
+    if resume is not None and resume.window_after is not None:
+        resumed_after = _parse_incremental_value(resume.window_after)
+        if resumed_after is not None:
+            start = resumed_after
+            resume_cursor = resume.cursor
+            if resume.cursor and resume.window_before is not None:
+                pinned_before = _parse_incremental_value(resume.window_before)
+            logger.debug(f"Monte Carlo: resuming {name} from window_after={resume.window_after}")
+
+    windows = list(_alert_windows(start, now))
+    if pinned_before is not None and windows:
+        # Replay the interrupted window with its original upper bound so the saved cursor
+        # stays valid, then continue from that bound.
+        windows = [(windows[0][0], pinned_before), *list(_alert_windows(pinned_before, now))]
+    return windows, resume_cursor
 
 
 def _get_alert_rows(
@@ -231,26 +311,8 @@ def _get_alert_rows(
     filter_arg = "updatedTime" if filter_field == "updatedTime" else "createdTime"
 
     now = datetime.now(UTC)
-    start = _parse_incremental_value(db_incremental_field_last_value)
-    if start is None or start > now:
-        start = now - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-
-    resume_cursor: str | None = None
-    pinned_before: datetime | None = None
-    if resume is not None and resume.window_after is not None:
-        resumed_after = _parse_incremental_value(resume.window_after)
-        if resumed_after is not None:
-            start = resumed_after
-            resume_cursor = resume.cursor
-            if resume.cursor and resume.window_before is not None:
-                pinned_before = _parse_incremental_value(resume.window_before)
-            logger.debug(f"Monte Carlo: resuming alerts from window_after={resume.window_after}")
-
-    windows = list(_alert_windows(start, now))
-    if pinned_before is not None and windows:
-        # Replay the interrupted window with its original upper bound so the saved cursor
-        # stays valid, then continue from that bound.
-        windows = [(windows[0][0], pinned_before), *list(_alert_windows(pinned_before, now))]
+    start = _window_start(db_incremental_field_last_value, now)
+    windows, resume_cursor = _resumed_windows(start, now, resume, logger, config.name)
 
     for index, (window_after, window_before) in enumerate(windows):
         time_range = {"after": _format_datetime(window_after), "before": _format_datetime(window_before)}
@@ -271,6 +333,151 @@ def _get_alert_rows(
         # Bookmark the next window so a crash between windows doesn't restart the backfill.
         if index + 1 < len(windows):
             resumable_source_manager.save_state(MonteCarloResumeConfig(window_after=time_range["before"]))
+
+
+def _get_dbt_test_result_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """getDbtTestResults requires a run start time range, so walk windows oldest-first like alerts."""
+    now = datetime.now(UTC)
+    start = _window_start(db_incremental_field_last_value, now, overlap=DBT_TEST_RESULTS_OVERLAP)
+    windows, resume_cursor = _resumed_windows(start, now, resume, logger, config.name)
+
+    for window_after, window_before in windows:
+        run_start_time = _format_datetime(window_after)
+        run_end_time = _format_datetime(window_before)
+        cursor = resume_cursor
+        resume_cursor = None
+
+        # Every earlier window is fully yielded, so this window is where a resume starts.
+        resumable_source_manager.save_state(
+            MonteCarloResumeConfig(cursor=cursor, window_after=run_start_time, window_before=run_end_time)
+        )
+        resumable_source_manager.safe_point()
+
+        variables = {"runStartTime": run_start_time, "runEndTime": run_end_time}
+        for rows, next_cursor in _relay_pages(session, config, logger, variables, cursor):
+            if next_cursor:
+                resumable_source_manager.save_state(
+                    MonteCarloResumeConfig(cursor=next_cursor, window_after=run_start_time, window_before=run_end_time)
+                )
+            yield rows
+
+
+def _iter_monitor_uuids(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    monitor_types: list[str] | None,
+    start_offset: int,
+) -> Iterator[tuple[int, str]]:
+    """Yield (position, uuid) for each monitor, starting at `start_offset` in the monitor list."""
+    offset = start_offset
+    while True:
+        variables: dict[str, Any] = {"limit": MONITOR_PAGE_SIZE, "offset": offset}
+        if monitor_types is not None:
+            variables["monitorTypes"] = monitor_types
+        monitors = _execute_query(session, MONITOR_UUIDS_QUERY, variables, logger).get("getMonitors") or []
+        for index, monitor in enumerate(monitors):
+            if monitor and monitor.get("uuid"):
+                yield offset + index, monitor["uuid"]
+        if len(monitors) < MONITOR_PAGE_SIZE:
+            break
+        offset += len(monitors)
+
+
+def _get_fh_event_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over metric monitors. getFhEventsByMonitor requires a time range, so each monitor
+    walks the same windows as alerts."""
+    now = datetime.now(UTC)
+    start = _window_start(db_incremental_field_last_value, now, overlap=FH_EVENTS_OVERLAP)
+    start_offset = 0
+    if resume is not None and resume.window_after is not None:
+        resumed_after = _parse_incremental_value(resume.window_after)
+        if resumed_after is not None:
+            # Keep the original lower bound so monitors read before the resume and after it agree.
+            start = resumed_after
+            start_offset = resume.offset or 0
+            logger.debug(f"Monte Carlo: resuming {config.name} from monitor offset {start_offset}")
+
+    start_time = _format_datetime(start)
+    windows = [(_format_datetime(after), _format_datetime(before)) for after, before in _alert_windows(start, now)]
+
+    for monitor_index, monitor_uuid in _iter_monitor_uuids(session, logger, FH_EVENT_MONITOR_TYPES, start_offset):
+        # Earlier monitors are fully yielded. A resume re-reads this monitor, and merge dedupes it.
+        resumable_source_manager.save_state(MonteCarloResumeConfig(offset=monitor_index, window_after=start_time))
+        resumable_source_manager.safe_point()
+
+        for window_after, window_before in windows:
+            offset = 0
+            while True:
+                variables = {
+                    "monitorId": monitor_uuid,
+                    "startTime": window_after,
+                    "endTime": window_before,
+                    "first": config.page_size,
+                    "offset": offset,
+                }
+                data = _execute_query(session, config.query, variables, logger)
+                events = (data.get(config.data_path) or {}).get("events") or []
+                if events:
+                    yield [{**event, "monitorUuid": monitor_uuid} for event in events]
+                else:
+                    resumable_source_manager.safe_point()
+                if len(events) < config.page_size:
+                    break
+                offset += len(events)
+
+
+def _get_job_execution_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over monitors. getJobExecutions only filters by a whole number of days back, so
+    incremental syncs ask for the days since the watermark."""
+    now = datetime.now(UTC)
+    start = _window_start(db_incremental_field_last_value, now, overlap=JOB_EXECUTIONS_OVERLAP)
+    history_days = max(1, math.ceil((now - start) / timedelta(days=1)))
+    start_offset = resume.offset if resume is not None and resume.offset else 0
+
+    for monitor_index, monitor_uuid in _iter_monitor_uuids(session, logger, None, start_offset):
+        # Earlier monitors are fully yielded. A resume re-reads this monitor, and merge dedupes it.
+        resumable_source_manager.save_state(MonteCarloResumeConfig(offset=monitor_index))
+        resumable_source_manager.safe_point()
+
+        variables = {"monitorUuid": monitor_uuid, "historyDays": history_days}
+        for rows, _next_cursor in _relay_pages(session, config, logger, variables, None):
+            yield [{**row, "monitorUuid": monitor_uuid} for row in rows]
+
+
+def _get_job_schedule_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    warehouses = _execute_query(session, WAREHOUSES_QUERY, {}, logger).get("getWarehouses") or []
+    for warehouse in warehouses:
+        if not warehouse or not warehouse.get("uuid"):
+            continue
+        data = _execute_query(session, config.query, {"resourceUuid": warehouse["uuid"]}, logger)
+        rows = data.get(config.data_path) or []
+        if rows:
+            yield rows
 
 
 def get_rows(
@@ -305,6 +512,31 @@ def get_rows(
             incremental_field if should_use_incremental_field else None,
             db_incremental_field_last_value if should_use_incremental_field else None,
         )
+    elif endpoint == "events":
+        yield from _get_event_rows(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            resume,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+    elif endpoint in ("dbt_test_results", "fh_events", "job_executions"):
+        read_rows = {
+            "dbt_test_results": _get_dbt_test_result_rows,
+            "fh_events": _get_fh_event_rows,
+            "job_executions": _get_job_execution_rows,
+        }[endpoint]
+        yield from read_rows(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            resume,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+    elif endpoint == "job_schedules":
+        yield from _get_job_schedule_rows(session, config, logger)
     elif config.pagination == "relay":
         yield from _get_relay_rows(session, config, logger, resumable_source_manager, resume)
     elif config.pagination == "offset":
@@ -341,10 +573,11 @@ def monte_carlo_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # getAlerts documents no within-page ordering guarantee we could verify, so the
-        # incremental watermark is only persisted at successful job end (desc mode) rather
-        # than checkpointed per batch against an assumed ascending order.
-        sort_mode="desc" if endpoint == "alerts" else "asc",
+        # No incremental endpoint documents an ordering guarantee we could verify (and fan-out
+        # endpoints interleave monitors), so the incremental watermark is only persisted at
+        # successful job end (desc mode) rather than checkpointed per batch against an assumed
+        # ascending order.
+        sort_mode="desc" if endpoint_config.incremental_fields else "asc",
         partition_count=1 if endpoint_config.partition_key else None,
         partition_size=1 if endpoint_config.partition_key else None,
         partition_mode="datetime" if endpoint_config.partition_key else None,

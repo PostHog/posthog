@@ -3,6 +3,7 @@ import {
     normalizeIdentifier,
     parseQueryTablesAndColumns,
     queryUsesFiltersPlaceholder,
+    queryUsesPlaceholder,
 } from './sql-utils'
 
 describe('sql-utils', () => {
@@ -24,6 +25,8 @@ describe('sql-utils', () => {
             ['plain placeholder', 'SELECT * FROM events WHERE {filters}', true],
             ['field placeholder', 'SELECT * FROM events WHERE {filters.properties}', true],
             ['column-bound placeholder', 'SELECT * FROM v WHERE {filters(day AS timestamp)}', true],
+            ['placeholder with inner whitespace', 'SELECT * FROM events WHERE { filters }', true],
+            ['field placeholder with inner whitespace', 'SELECT * FROM events WHERE {\n  filters.properties\n}', true],
             ['line-commented placeholder', 'SELECT * FROM events\n-- {filters}', false],
             ['inline line-commented placeholder', 'SELECT * FROM events -- WHERE {filters}', false],
             ['block-commented placeholder', 'SELECT * FROM events /* WHERE {filters} */', false],
@@ -34,6 +37,17 @@ describe('sql-utils', () => {
             ['real placeholder after block comment', 'SELECT * FROM events /* {filters} */ WHERE {filters}', true],
         ])('%s', (_name, query, expected) => {
             expect(queryUsesFiltersPlaceholder(query)).toBe(expected)
+        })
+    })
+
+    describe('queryUsesPlaceholder', () => {
+        test.each([
+            ['placeholder in code', 'SELECT * FROM events WHERE timestamp >= {start}', true],
+            ['line-commented placeholder', 'SELECT * FROM events -- WHERE timestamp >= {start}', false],
+            ['quoted placeholder', "SELECT '{start}' FROM events", false],
+            ['placeholder with a longer name', 'SELECT * FROM events WHERE timestamp >= {start_date}', false],
+        ])('%s', (_name, query, expected) => {
+            expect(queryUsesPlaceholder(query, 'start')).toBe(expected)
         })
     })
 

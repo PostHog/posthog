@@ -270,7 +270,7 @@ def _type_hit(
                 return reason, 1.0 - share
         elif candidate.verdict == "yes":
             return {"kind": "verdict_yes"}, VERDICT_YES_STRENGTH
-    if candidate.scanner_type == "summarizer":
+    if candidate.scanner_type in ("summarizer", "experiment"):
         similarity = _max_summary_similarity(candidate, siblings)
         if similarity is not None and similarity <= NOVEL_SUMMARY_MAX_SIMILARITY:
             return {"kind": "novel_summary"}, 1.0 - similarity

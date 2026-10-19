@@ -1,6 +1,6 @@
 import type { CommentType } from '~/types'
 
-import type { CanvasCommentHighlight, CanvasTextSelection } from '../../host/canvasProtocol'
+import type { CanvasCommentHighlight, CanvasRect, CanvasTextSelection } from '../../host/canvasProtocol'
 
 // Canvas comments are ordinary PostHog comments with scope "canvas" and the canvas id as
 // item_id. The item_context shape is shared with PostHog Desktop, which writes the same
@@ -132,22 +132,23 @@ export function canvasCommentHighlights(
     return highlights
 }
 
+export function translateCanvasRect(rect: CanvasRect, frame: Pick<DOMRect, 'left' | 'top'> | null): CanvasRect {
+    const left = frame?.left ?? 0
+    const top = frame?.top ?? 0
+    return {
+        top: rect.top + top,
+        right: rect.right + left,
+        bottom: rect.bottom + top,
+        left: rect.left + left,
+    }
+}
+
 /** Moves a selection rect from the frame's coordinates into the page's, so the host can anchor UI to it. */
 export function translateCanvasTextSelection(
     selection: CanvasTextSelection,
     frame: Pick<DOMRect, 'left' | 'top'> | null
 ): CanvasTextSelection {
-    const left = frame?.left ?? 0
-    const top = frame?.top ?? 0
-    return {
-        ...selection,
-        rect: {
-            top: selection.rect.top + top,
-            right: selection.rect.right + left,
-            bottom: selection.rect.bottom + top,
-            left: selection.rect.left + left,
-        },
-    }
+    return { ...selection, rect: translateCanvasRect(selection.rect, frame) }
 }
 
 /** The anchor stored on a comment made from a selection. */

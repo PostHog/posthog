@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import type { ApiEventDefinition } from '@/schema/api'
 import { EventDefinitionUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -23,7 +24,7 @@ export const updateEventDefinitionHandler: ToolBase<typeof schema, Result>['hand
     })
 
     if (!result.success) {
-        throw new Error(`Failed to update event definition: ${result.error.message}`)
+        throw wrapError(`Failed to update event definition: ${result.error.message}`, result.error)
     }
 
     return {

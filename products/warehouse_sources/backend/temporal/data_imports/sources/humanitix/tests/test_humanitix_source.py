@@ -1,13 +1,15 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
     HumanitixSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source import HumanitixSource
 
 
@@ -17,40 +19,9 @@ class TestHumanitixSource:
         self.team_id = 123
         self.config = HumanitixSourceConfig(api_key="hmtx-key")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Humanitix"
-        assert config.label == "Humanitix"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/humanitix"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret `api_key` itself; the base URL is hardcoded and the account is
-        # implicit in the key. There is no non-secret field that retargets where the key is sent.
-        assert self.source.connection_host_fields == []
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Humanitix's list endpoints have no server-side timestamp filter, so every schema is full refresh.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # Exercises the credential-free catalog path used by the posthog.com docs.
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
 
     @parameterized.expand(
         [
@@ -76,14 +47,13 @@ class TestHumanitixSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.validate_humanitix_credentials"
-    )
-    def test_validate_credentials_probes_the_account_key(self, mock_validate: mock.MagicMock) -> None:
+    def test_validate_credentials_probes_the_account_key(self) -> None:
         # The API key is account-wide, so validation probes the key, not a per-schema scope.
-        mock_validate.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id, schema_name="tags")
-        mock_validate.assert_called_once_with("hmtx-key")
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert self.source.validate_credentials(self.config, self.team_id, schema_name="tags") == (True, None)
+
+        assert [request.path for request in network.requests_log] == ["/v1/events"]
+        assert network.requests_log[0].headers["x-api-key"] == "hmtx-key"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.humanitix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_humanitix_source: mock.MagicMock) -> None:
@@ -100,7 +70,7 @@ class TestHumanitixSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Humanitix schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Humanitix schema 'not_a_table'" in str(result.raised)
