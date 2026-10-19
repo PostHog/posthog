@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { archiveDisabledReason, confirmCreateAsBroadcast } from './broadcastLifecycle'
+
+const TITLE = 'Track this send as a broadcast?'
 
 describe('broadcastLifecycle', () => {
     describe('archiveDisabledReason', () => {
@@ -23,23 +24,31 @@ describe('broadcastLifecycle', () => {
         it.each([
             {
                 action: 'clicking "Create broadcast"',
-                answer: () => userEvent.click(screen.getByText('Create broadcast')),
+                answer: () => fireEvent.click(screen.getByText('Create broadcast')),
                 choice: 'broadcast',
             },
             {
                 action: 'clicking "Keep as workflow"',
-                answer: () => userEvent.click(screen.getByText('Keep as workflow')),
+                answer: () => fireEvent.click(screen.getByText('Keep as workflow')),
                 choice: 'workflow',
             },
-            { action: 'pressing Escape', answer: () => userEvent.keyboard('{Escape}'), choice: null },
+            {
+                action: 'pressing Escape',
+                answer: () =>
+                    fireEvent.keyDown(screen.getByText(TITLE).closest('.ReactModal__Content')!, {
+                        key: 'Escape',
+                        keyCode: 27,
+                    }),
+                choice: null,
+            },
         ])('resolves to $choice after $action', async ({ answer, choice }) => {
             const result = confirmCreateAsBroadcast()
-            await screen.findByText('Track this send as a broadcast?')
+            await screen.findByText(TITLE)
 
             await answer()
 
             await expect(result).resolves.toBe(choice)
-            await waitFor(() => expect(screen.queryByText('Track this send as a broadcast?')).not.toBeInTheDocument())
+            await waitFor(() => expect(screen.queryByText(TITLE)).not.toBeInTheDocument())
         })
     })
 })

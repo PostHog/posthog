@@ -38,7 +38,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
                 '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
             },
             post: {
-                '/api/environments/:team_id/hog_flows/': async ({ request }) => {
+                '/api/projects/:team_id/hog_flows/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     createdBodies.push(body)
                     return [201, { ...body, id: CREATED_ID, updated_at: '2026-05-01T00:00:00.000Z' }]

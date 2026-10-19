@@ -29,7 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import { hogFlowsCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
@@ -3360,9 +3360,11 @@ export const workflowLogic = kea<workflowLogicType>([
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                         if (!props.id || props.id === 'new') {
-                            const result = await api.hogFlows.createHogFlow(
-                                createsBroadcast ? { ...updates, origin_product: 'broadcasts' } : updates
-                            )
+                            // The editor's HogFlow schema and the generated HogFlowApi describe the same payload.
+                            const result = (await hogFlowsCreate(String(values.currentProjectId), {
+                                ...updates,
+                                ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
+                            } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
 
                             if (props.templateId) {
                                 posthog.capture('hog_flow_created_from_template', {
