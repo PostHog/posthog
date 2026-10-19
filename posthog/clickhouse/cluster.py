@@ -802,7 +802,7 @@ MUTATION_POLL_INITIAL_SECONDS = 0.5
 MUTATION_POLL_MAX_SECONDS = 15.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class MutationWaiter:
     table: str
     mutation_ids: Set[str]
