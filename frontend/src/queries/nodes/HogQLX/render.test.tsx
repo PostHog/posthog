@@ -66,7 +66,7 @@ describe('HogQLX', () => {
 
     describe('render', () => {
         it.each([
-            '/uploaded/logo.png',
+            '/uploaded_media/0190f5a2-3b4c-7d8e-9f01-23456789abcd',
             'data:image/png;base64,aGVsbG8=',
             'data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"/%3E',
             'data:image/svg+xml;charset=utf-8,%3Csvg/%3E',
@@ -87,6 +87,10 @@ describe('HogQLX', () => {
             { toString: 'bad' },
             'javascript:alert(1)',
             'https://example.com/logo.svg',
+            '/uploaded/logo.png',
+            '/oauth/authorize?redirect_uri=https%3A%2F%2Fexample.com',
+            '/uploaded_media/0190f5a2-3b4c-7d8e-9f01-23456789abcd' + '?next=https://example.com',
+            '/uploaded_media/../oauth/authorize',
             'http://example.com/logo.png',
             '//example.com/logo.png',
             '/\\example.com/logo.png',
