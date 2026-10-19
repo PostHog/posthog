@@ -20,7 +20,7 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
 from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_source_config import logs_source_config
@@ -130,7 +130,8 @@ def backfill_platform_alert_configurations(
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
-    source = LogsAlertConfiguration.objects.all()
+    # The platform owns these, and every edit writes both rows already.
+    source = LogsAlertConfiguration.objects.exclude(owner=PlatformAlertOwner.PLATFORM)
     if team_id is not None:
         source = source.filter(team_id=team_id)
     if alert_ids is not None:
