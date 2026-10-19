@@ -243,6 +243,7 @@ async def eval_followup_classifier(ctx: EvalContext) -> None:
         offline_suite=offline_suite(
             "slack_app/eval_followup_classifier::eval_followup_classifier",
             metrics=["followup_routing", "no_unasked_wake"],
+            suite_kind=SUITE_KIND,
         ),
         cases=[*DIRECTED_CASES, *CHATTER_CASES],
         scorers=[FollowupRoutingMatch(), NoUnaskedWake()],

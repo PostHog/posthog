@@ -279,6 +279,7 @@ async def eval_model_classifier(ctx: EvalContext) -> None:
         offline_suite=offline_suite(
             "slack_app/eval_model_classifier::eval_model_classifier",
             metrics=["model_override_match", "no_unasked_override"],
+            suite_kind=SUITE_KIND,
         ),
         cases=[*INSTRUCTION_CASES, *UNDERSPECIFIED_CASES, *SUBJECT_MATTER_CASES],
         scorers=[ModelOverrideMatch(), NoUnaskedOverride()],

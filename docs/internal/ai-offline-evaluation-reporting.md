@@ -145,6 +145,7 @@ Existing local logs, enabled case exports, and Braintrust results remain availab
 Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
 Each suite declares its destination `project_id`, selects at least one metric in `scorer_kinds`, and pins the corresponding immutable version UUIDs in `scorer_versions`.
 These fields belong to `OfflineEvalSuite` in code. Scorer version UUIDs must be distinct for the suite's enrolled metrics.
+The AI and Slack catalog helpers add `exit_code_zero` for sandboxed suites. One-shot suites pass `suite_kind=SUITE_KIND` to enroll only their declared metrics.
 Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.

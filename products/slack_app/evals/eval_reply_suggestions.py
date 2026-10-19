@@ -210,6 +210,7 @@ async def eval_reply_suggestions(ctx: EvalContext) -> None:
         offline_suite=offline_suite(
             "slack_app/eval_reply_suggestions::eval_reply_suggestions",
             metrics=["reply_offer", "no_unasked_buttons", "suggested_replies_fit"],
+            suite_kind=SUITE_KIND,
         ),
         cases=[*WAITING_CASES, *BARE_CASES],
         scorers=[ReplyOfferMatch(), NoUnaskedButtons(), SuggestedRepliesFit()],

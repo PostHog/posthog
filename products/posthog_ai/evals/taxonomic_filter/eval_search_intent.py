@@ -361,6 +361,7 @@ async def eval_search_intent(ctx: EvalContext) -> None:
         offline_suite=offline_suite(
             "taxonomic_filter/eval_search_intent::eval_search_intent",
             metrics=["search_intent_match", "switch_when_needed", "no_wrong_switch"],
+            suite_kind=SUITE_KIND,
         ),
         cases=[*WRONG_TAB_CASES, *RIGHT_TAB_CASES, *PARTIAL_CASES, *CONTEXT_CASES],
         scorers=[SearchIntentMatch(), SwitchWhenNeeded(), NoWrongSwitch()],

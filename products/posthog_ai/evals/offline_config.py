@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
+from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite, OfflineScorer
 
 _SCORERS: dict[str, dict[str, OfflineScorer]] = {
@@ -211,13 +212,14 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
 }
 
 
-def offline_suite(key: str, *, metrics: Sequence[str]) -> OfflineEvalSuite:
+def offline_suite(key: str, *, metrics: Sequence[str], suite_kind: SuiteKind = SuiteKind.SANDBOXED) -> OfflineEvalSuite:
     domain = key.split("/", 1)[0]
     scorers = _SCORERS[domain]
     component = domain.replace("_", "-")
+    enrolled_metrics = ("exit_code_zero", *metrics) if suite_kind == SuiteKind.SANDBOXED else metrics
     return OfflineEvalSuite.from_scorers(
         key=key,
         project_id=2,
-        scorers={metric: scorers[metric] for metric in ("exit_code_zero", *metrics)},
+        scorers={metric: scorers[metric] for metric in enrolled_metrics},
         tags=("team:surfaces", f"component:posthog-ai/{component}"),
     )

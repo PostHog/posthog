@@ -535,6 +535,7 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
         offline_suite=offline_suite(
             "slack_app/eval_project_classifier::eval_project_classifier",
             metrics=["project_route_match", "no_unasked_project_switch"],
+            suite_kind=SUITE_KIND,
         ),
         cases=[
             *ROUTING_CASES,

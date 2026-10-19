@@ -107,6 +107,7 @@ async def eval_event_match(ctx: EvalContext) -> None:
         offline_suite=offline_suite(
             "taxonomic_filter/eval_event_match::eval_event_match",
             metrics=["event_match_found", "no_wrong_event_match"],
+            suite_kind=SUITE_KIND,
         ),
         cases=[*DESCRIBED_CASES, *NO_MATCH_CASES],
         scorers=[EventMatchFound(), NoWrongEventMatch()],

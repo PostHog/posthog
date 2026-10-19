@@ -44,6 +44,7 @@ from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
+from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
@@ -560,26 +561,53 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         ("experiments", "eval_rollout_skill"),
         ("experiments", "eval_shared_metric_validation"),
         ("experiments", "eval_unknown_events_confirmation"),
+        ("taxonomic_filter", "eval_event_match"),
+        ("taxonomic_filter", "eval_search_intent"),
+        ("slack_app", "eval_followup_classifier"),
+        ("slack_app", "eval_model_classifier"),
+        ("slack_app", "eval_project_classifier"),
+        ("slack_app", "eval_reply_suggestions"),
+        ("slack_app", "eval_posthog_first"),
     ],
 )
 @pytest.mark.asyncio
 async def test_suite_enrolls_every_scorer_in_offline_publishing(
     monkeypatch: pytest.MonkeyPatch, domain: str, module_name: str
 ) -> None:
-    module = importlib.import_module(f"products.posthog_ai.evals.{domain}.{module_name}")
+    module_path = (
+        f"products.slack_app.evals.{module_name}"
+        if domain == "slack_app"
+        else f"products.posthog_ai.evals.{domain}.{module_name}"
+    )
+    module = importlib.import_module(module_path)
+    suite_kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
+    if domain == "taxonomic_filter":
+        monkeypatch.setattr(module, "system_one_configured", lambda: True)
+        if module_name == "eval_event_match":
+            monkeypatch.setattr(module, "EVENT_MATCH_MODEL", MagicMock())
+        else:
+            monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
-    monkeypatch.setattr(module, "SandboxedPrivateEval" if domain == "experiments" else "SandboxedPublicEval", run)
+    runner = "SandboxedPrivateEval" if domain == "experiments" else "SandboxedPublicEval"
+    if suite_kind == SuiteKind.ONE_SHOT:
+        runner = "OneShotPublicEval"
+    monkeypatch.setattr(module, runner, run)
 
     await getattr(module, module_name)(MagicMock())
 
     run.assert_awaited_once()
     suite = run.call_args.kwargs["offline_suite"]
     assert suite.key == f"{domain}/{module_name}::{module_name}"
-    assert suite.tags == ("team:surfaces", f"component:posthog-ai/{domain}")
+    component = (
+        f"slack-app/{module_name.removeprefix('eval_').replace('_', '-')}"
+        if domain == "slack_app"
+        else f"posthog-ai/{domain.replace('_', '-')}"
+    )
+    assert suite.tags == ("team:surfaces", f"component:{component}")
     if domain == "experiments":
         assert run.call_args.kwargs["send_to_posthog"] is True
         assert set(suite.scorer_kinds.values()) == {"boolean"}
-    else:
+    elif domain == "sql":
         assert suite.scorer_kinds == {
             "exit_code_zero": "boolean",
             "no_persistent_insight_save": "boolean",
@@ -590,7 +618,9 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
             "sql_result_message_alignment": "numeric",
         }
     configured_names = {scorer._name() for scorer in run.call_args.kwargs["scorers"]}
-    assert set(suite.scorer_kinds) == set(suite.scorer_versions) == {"exit_code_zero", *configured_names}
+    if suite_kind == SuiteKind.SANDBOXED:
+        configured_names.add("exit_code_zero")
+    assert set(suite.scorer_kinds) == set(suite.scorer_versions) == configured_names
 
 
 @pytest.mark.parametrize(
