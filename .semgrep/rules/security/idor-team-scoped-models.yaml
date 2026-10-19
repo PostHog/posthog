@@ -355,6 +355,8 @@ rules:
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
+                              |ResearchSession
+                              |ResearchSource
                               |ReviewInstallationClaim
                               |ReviewProjectSettings
                               |ReviewReport
@@ -817,6 +819,8 @@ rules:
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
+                        |ResearchSession
+                        |ResearchSource
                         |ReviewInstallationClaim
                         |ReviewProjectSettings
                         |ReviewReport
