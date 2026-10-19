@@ -281,4 +281,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             active="Whether the user is active.",
         ),
     },
+    "concession_types": {
+        "description": "A concession (discount) category that can be assigned to patients, such as pensioner or student.",
+        "docs_url": "https://docs.api.cliniko.com/openapi/concession-type",
+        "columns": _columns(
+            name="Name of the concession type.",
+            concession_prices="Link to the concession prices set for this concession type.",
+        ),
+    },
+    "product_suppliers": {
+        "description": "A supplier that the practice buys stocked products from.",
+        "docs_url": "https://docs.api.cliniko.com/openapi/product-supplier",
+        "columns": _columns(
+            name="Name of the supplier.",
+        ),
+    },
+    "referral_source_types": {
+        "description": "A category of referral source used to record how patients found the practice.",
+        "docs_url": "https://docs.api.cliniko.com/openapi/referral-source-type",
+        "columns": _columns(
+            name="Name of the referral source type.",
+            referrer_type="Type of record that can be selected as the referrer for this type, if any.",
+            referrers="Link to the records that can be selected as referrers for this type.",
+            subcategories="List of subcategory names a referral of this type can use.",
+        ),
+    },
+    "daily_availabilities": {
+        "description": "A practitioner's recurring working hours at a business on one day of the week.",
+        "docs_url": "https://docs.api.cliniko.com/openapi/daily-availability",
+        "columns": _columns(
+            day_of_week="Day of the week the availability applies to, as an integer from 0 to 6.",
+            availabilities="List of time ranges, each with a start and end time, when the practitioner is available.",
+            business="Link to the business the availability applies to.",
+            practitioner="Link to the practitioner the availability belongs to.",
+            time_zone="Time zone the availability times are in.",
+            time_zone_identifier="IANA time zone identifier the availability times are in.",
+        ),
+    },
 }

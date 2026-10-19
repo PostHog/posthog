@@ -116,7 +116,7 @@ pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_faile
 
 // HTTP /process observability metrics
 pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
-pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_duration_seconds";
+pub const PROCESS_REQUEST_DURATION_MS: &str = "cymbal_process_request_duration_ms";
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 

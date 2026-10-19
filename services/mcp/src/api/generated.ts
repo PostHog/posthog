@@ -60893,6 +60893,11 @@ export namespace Schemas {
     export interface InsightDataChecksRequest {
       /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
       query: _InsightQuerySchema;
+      /**
+         * An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to `query/{client_query_id}/`.
+         * @maxLength 128
+         */
+      client_query_id?: string;
     }
 
     /**
