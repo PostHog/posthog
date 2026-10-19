@@ -8,6 +8,7 @@ import type { HogFlow, HogFlowAction } from '../Workflows/hogflows/types'
 // so the list is explicit.
 export const MESSAGING_DESTINATION_TEMPLATE_IDS: ReadonlySet<string> = new Set([
     'template-activecampaign',
+    'template-beehiiv',
     'template-braze',
     'template-brevo',
     'template-customerio',

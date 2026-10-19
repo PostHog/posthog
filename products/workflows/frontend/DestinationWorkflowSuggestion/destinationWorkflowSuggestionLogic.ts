@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -160,7 +160,7 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                 router.actions.push(destinationUrl)
             }
         },
-        createWorkflow: async () => {
+        createWorkflow: async (_, breakpoint) => {
             const template = values.template
             if (!template || values.creatingWorkflow) {
                 return
@@ -171,6 +171,9 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                     String(values.currentProjectId),
                     buildDestinationWorkflow(template) as unknown as Parameters<typeof hogFlowsCreate>[1]
                 )
+                // The user can leave the list while the request runs. Then the draft stays saved, but no redirect
+                // pulls them away from the page they went to.
+                breakpoint()
                 // pinned: entry source value - 'workflow enabled' reports it, so renaming breaks the funnel
                 saveEntrySource(workflow.id, 'destination_suggestion')
                 // pinned: analytics event name - renaming breaks dashboards
@@ -184,6 +187,9 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                     combineUrl(urls.workflow(workflow.id, 'workflow'), { node: DESTINATION_STEP_ID }).url
                 )
             } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows destination suggestion create failed', {
                     ...templateProperties(template),

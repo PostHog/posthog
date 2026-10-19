@@ -114,7 +114,11 @@ export function DataPipelinesNewScene(): JSX.Element {
             {kind === 'transformation' ? (
                 <HogFunctionTemplateList type="transformation" />
             ) : kind === 'destination' ? (
-                <HogFunctionTemplateList type="destination" manualTemplates={hogFunctionTemplatesBatchExports} />
+                <HogFunctionTemplateList
+                    type="destination"
+                    manualTemplates={hogFunctionTemplatesBatchExports}
+                    suggestWorkflows
+                />
             ) : kind === 'site_app' ? (
                 <HogFunctionTemplateList type="site_app" />
             ) : kind === 'source' ? (

@@ -23,8 +23,15 @@ import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from 
 export function HogFunctionTemplateList({
     extraControls,
     hideFeedback = false,
+    suggestWorkflows = false,
     ...props
-}: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
+}: HogFunctionTemplateListLogicProps & {
+    extraControls?: JSX.Element
+    hideFeedback?: boolean
+    /** Offer a workflow instead of a messaging destination. Lists that pass their own filters must leave this off,
+     * because the workflow starts with an empty trigger. */
+    suggestWorkflows?: boolean
+}): JSX.Element {
     const { loading, filteredTemplates, filters, templates, urlForTemplate, hasMultipleDeliveryTypes } = useValues(
         hogFunctionTemplateListLogic(props)
     )
@@ -35,13 +42,11 @@ export function HogFunctionTemplateList({
     const { shouldSuggestWorkflow } = useValues(destinationWorkflowSuggestionLogic)
     const { openSuggestion } = useActions(destinationWorkflowSuggestionLogic)
 
-    // Sub-template lists (alerts, survey notifications) already carry their own context, so only the general list
-    // offers a workflow.
     const onTemplateClick =
         (template: HogFunctionTemplateType) =>
         (event: React.MouseEvent<HTMLElement>): void => {
             const destinationUrl = urlForTemplate(template)
-            if (destinationUrl && !props.subTemplateIds && shouldSuggestWorkflow(template)) {
+            if (destinationUrl && suggestWorkflows && shouldSuggestWorkflow(template)) {
                 event.preventDefault()
                 openSuggestion(template, destinationUrl)
             }
@@ -191,7 +196,7 @@ export function HogFunctionTemplateList({
                     )
                 }
             />
-            <DestinationWorkflowSuggestionModal />
+            {suggestWorkflows ? <DestinationWorkflowSuggestionModal /> : null}
         </div>
     )
 }

@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
@@ -76,5 +77,20 @@ describe('destinationWorkflowSuggestionLogic', () => {
             expectation.toNotHaveDispatchedActions([seenAction])
         }
         await expectation.toMatchValues({ template: null })
+    })
+
+    it('leaves the user on the page they went to when they leave before the draft is saved', async () => {
+        setUp({}, AccessControlLevel.Editor)
+        let saveDraft: (workflow: { id: string }) => void = () => {}
+        jest.mocked(hogFlowsCreate).mockReturnValue(new Promise((resolve) => (saveDraft = resolve)) as any)
+        logic.actions.openSuggestion(template('template-customerio'), '/functions/new/template-customerio')
+        logic.actions.createWorkflow()
+
+        router.actions.push('/insights')
+        logic.unmount()
+        saveDraft({ id: 'workflow-1' })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(router.values.location.pathname).toMatch(/\/insights$/)
     })
 })
