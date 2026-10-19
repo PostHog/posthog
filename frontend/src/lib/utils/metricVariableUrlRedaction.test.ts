@@ -4,7 +4,7 @@ describe('redactMetricVariableUrl', () => {
     it.each([
         ['filters_override', '/insights/abc'],
         ['query_filters', '/dashboard/1'],
-    ])('keeps only the names and selections of metric variables in %s', (param, path) => {
+    ])('keeps only the names of metric variables in %s', (param, path) => {
         const filters = {
             date_from: '-7d',
             metricVariables: [
@@ -17,7 +17,7 @@ describe('redactMetricVariableUrl', () => {
 
         expect(JSON.parse(redacted.searchParams.get(param)!)).toEqual({
             date_from: '-7d',
-            metricVariables: [{ name: 'env', current: { values: ['a'] } }],
+            metricVariables: [{ name: 'env' }],
         })
     })
 
