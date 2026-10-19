@@ -1120,14 +1120,24 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.31
   '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboarditem"
-  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboarditem"."deleted"))
+  SELECT "posthog_team"."id" AS "id"
+  FROM "posthog_team"
+  WHERE "posthog_team"."project_id" = 99999
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.32
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboarditem"
+  WHERE ("posthog_dashboarditem"."team_id" IN (1,
+                                               2,
+                                               3,
+                                               4,
+                                               5 /* ... */)
+         AND NOT ("posthog_dashboarditem"."deleted"))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.33
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1307,14 +1317,18 @@
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  WHERE ("posthog_team"."project_id" = 99999
+  WHERE ("posthog_dashboarditem"."team_id" IN (1,
+                                               2,
+                                               3,
+                                               4,
+                                               5 /* ... */)
          AND NOT ("posthog_dashboarditem"."deleted"))
   ORDER BY "posthog_dashboarditem"."last_modified_at" DESC,
            "posthog_dashboarditem"."id" DESC
   LIMIT 100
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.33
+# name: TestInsight.test_listing_insights_does_not_nplus1.34
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -1332,7 +1346,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.34
+# name: TestInsight.test_listing_insights_does_not_nplus1.35
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -1349,7 +1363,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.35
+# name: TestInsight.test_listing_insights_does_not_nplus1.36
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
