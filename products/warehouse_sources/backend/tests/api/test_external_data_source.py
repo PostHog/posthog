@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+    UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE,
     _classify_refresh_schemas_error,
     get_credential_account_field_names,
     get_declared_field_names,
@@ -102,6 +103,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     MetaAdsRateLimitError,
     MetaAdsTokenRefreshError,
 )
@@ -511,13 +513,23 @@ class TestExternalDataSource(APIBaseTest):
         assert "at least one destination" in response.json()["detail"]
         assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
 
+    @parameterized.expand(
+        [
+            ("unexpected_error", AttributeError("boom"), INVALID_CREDENTIALS_FALLBACK_MESSAGE),
+            (
+                "non_latin1_header_value",
+                UnicodeEncodeError("latin-1", "sk_test\u2019", 7, 8, "ordinal not in range(256)"),
+                UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE,
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
-        side_effect=AttributeError("boom"),
     )
-    def test_create_surfaces_400_when_credential_probe_raises(self, _mock_validate):
+    def test_create_surfaces_400_when_credential_probe_raises(self, _name, error, expected_message, mock_validate):
         # A source whose validate_credentials raises (rather than returning (False, message)) must
         # not 500 the create request — the user gets an actionable message and no source is created.
+        mock_validate.side_effect = error
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -533,7 +545,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertEqual(response.json()["message"], expected_message)
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):
@@ -4212,8 +4224,37 @@ class TestExternalDataSource(APIBaseTest):
         assert table is not None
         self.assertEqual(table.name, "Accounts")
 
+    @parameterized.expand(
+        [
+            (
+                "duckdb_direct",
+                ExternalDataSource.AccessMethod.DIRECT,
+                {
+                    "database": "ducklake",
+                    "version": "PostgreSQL 15.0 (Duckgres/DuckDB)",
+                    "engine": "duckdb",
+                    "function_source": "duckdb_functions",
+                    "available_functions": ["duckdb_functions", "date_bin"],
+                },
+            ),
+            (
+                "pgcrypto_synced_live",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                {
+                    "database": "analytics",
+                    "version": "PostgreSQL 15.12",
+                    "engine": "postgres",
+                    "function_source": "pg_proc",
+                    "available_functions": ["count", "digest"],
+                    "pgcrypto_schema": "crypto",
+                },
+            ),
+        ]
+    )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_updates_connection_metadata(self, mock_get_source):
+    def test_refresh_schemas_direct_postgres_updates_connection_metadata(
+        self, _name, access_method, expected_metadata, mock_get_source
+    ):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4222,19 +4263,14 @@ class TestExternalDataSource(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="test",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            access_method=access_method,
+            direct_query_enabled=access_method == ExternalDataSource.AccessMethod.WAREHOUSE,
             job_inputs={"host": "localhost", "port": 5432},
             connection_metadata={"database": "old_db", "available_functions": ["count"]},
         )
 
         mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_connection_metadata.return_value = {
-            "database": "ducklake",
-            "version": "PostgreSQL 15.0 (Duckgres/DuckDB)",
-            "engine": "duckdb",
-            "function_source": "duckdb_functions",
-            "available_functions": ["duckdb_functions", "date_bin"],
-        }
+        mock_get_source.return_value.get_connection_metadata.return_value = expected_metadata
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
@@ -4251,10 +4287,7 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         source.refresh_from_db()
-        connection_metadata = source.connection_metadata
-        assert connection_metadata is not None
-        self.assertEqual(connection_metadata["database"], "ducklake")
-        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        self.assertEqual(source.connection_metadata, expected_metadata)
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
@@ -14088,14 +14121,12 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # Meta refusing to refresh the stored token is a customer-side state (revoked access), so it
         # must reach the user as an actionable 400 rather than an unhandled 500.
         integration = self._meta_ads_integration()
-        error = MetaAdsTokenRefreshError(
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-        )
+        error = MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE)
         with patch(f"{self._META_ADS_MODULE}.get_integration_by_id", side_effect=error):
             response = self.client.get(self._url("MetaAds", integration.id))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "re-authorize" in str(response.json()).lower()
+        assert META_TOKEN_REFRESH_ERROR_MESSAGE in str(response.json())
 
     def test_meta_ads_rate_limit_returns_actionable_400(self):
         # Meta throttling us is not a bug — it must not page us as a 500. The user just retries.

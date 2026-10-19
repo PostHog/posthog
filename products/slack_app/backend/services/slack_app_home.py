@@ -33,7 +33,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -480,7 +480,7 @@ def render_home_view(
     blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(run_defaults))
     blocks.extend(_personal_section_blocks(run_defaults))
-    # `None` means the `slack-app-model-router` flag is off for this viewer.
+    # `None` means no PostHog user is linked to this viewer.
     if auto_model_choice is not None:
         blocks.extend(_auto_model_choice_blocks(auto_model_choice))
 
@@ -1701,7 +1701,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_AUTO_MODEL_CHOICE:
-        # A stale view must not turn the router on for someone the flag no longer covers.
+        # The router runs as a PostHog user, so a viewer with no linked user cannot turn it on.
         if _auto_model_choice_offered(integration, slack_user_id):
             enabled = any(
                 option.get("value") == AUTO_MODEL_CHOICE_VALUE for option in action.get("selected_options") or []
@@ -2407,10 +2407,7 @@ def _resolve_run_defaults_state(
 
 
 def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
-    home_user = _resolve_home_user(integration, slack_user_id)
-    if home_user is None:
-        return False
-    return is_slack_app_model_router_enabled(integration, distinct_id=home_user.distinct_id)
+    return _resolve_home_user(integration, slack_user_id) is not None
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:

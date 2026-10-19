@@ -110,6 +110,7 @@ export interface todayShellLogicValues {
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
+    paneHasSidebar: boolean
     phoneCanGoBack: boolean
     phoneHeaderHidden: boolean
     phoneHeaderShown: boolean
@@ -182,13 +183,20 @@ export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
         activePane: (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null) => TodayRailPane
+        paneHasSidebar: (activePane: TodayRailPane) => boolean
         leftNavWidth: (
             sidebarOpen: boolean,
             sidebarWidth: number,
             mobileLayout: boolean,
-            phoneLayout: boolean
+            phoneLayout: boolean,
+            paneHasSidebar: boolean
         ) => number
-        sidebarVisible: (mobileLayout: boolean, mobileSidebarOpen: boolean, sidebarOpen: boolean) => boolean
+        sidebarVisible: (
+            mobileLayout: boolean,
+            mobileSidebarOpen: boolean,
+            sidebarOpen: boolean,
+            paneHasSidebar: boolean
+        ) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
         phoneHeaderHidden: (
@@ -199,7 +207,12 @@ export interface todayShellLogicMeta {
         ) => boolean
         phoneHeaderShown: (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean) => boolean
         phoneCanGoBack: (phonePages: TodayPhonePage[]) => boolean
-        sidebarBreadcrumbShown: (todayRailEnabled: boolean, phoneLayout: boolean, sidebarVisible: boolean) => boolean
+        sidebarBreadcrumbShown: (
+            todayRailEnabled: boolean,
+            phoneLayout: boolean,
+            sidebarVisible: boolean,
+            paneHasSidebar: boolean
+        ) => boolean
     }
 }
 
@@ -282,15 +295,28 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null): TodayRailPane =>
                 pickedPane ?? routePane ?? 'home',
         ],
+        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
         leftNavWidth: [
-            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout],
-            (sidebarOpen: boolean, sidebarWidth: number, mobileLayout: boolean, phoneLayout: boolean): number =>
-                phoneLayout ? 0 : TODAY_RAIL_WIDTH + (sidebarOpen && !mobileLayout ? sidebarWidth : 0),
+            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout, s.paneHasSidebar],
+            (
+                sidebarOpen: boolean,
+                sidebarWidth: number,
+                mobileLayout: boolean,
+                phoneLayout: boolean,
+                paneHasSidebar: boolean
+            ): number =>
+                phoneLayout
+                    ? 0
+                    : TODAY_RAIL_WIDTH + (sidebarOpen && paneHasSidebar && !mobileLayout ? sidebarWidth : 0),
         ],
         sidebarVisible: [
-            (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen],
-            (mobileLayout: boolean, mobileSidebarOpen: boolean, sidebarOpen: boolean): boolean =>
-                mobileLayout ? mobileSidebarOpen : sidebarOpen,
+            (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen, s.paneHasSidebar],
+            (
+                mobileLayout: boolean,
+                mobileSidebarOpen: boolean,
+                sidebarOpen: boolean,
+                paneHasSidebar: boolean
+            ): boolean => paneHasSidebar && (mobileLayout ? mobileSidebarOpen : sidebarOpen),
         ],
         todayRailEnabled: [
             (s) => [s.featureFlags],
@@ -323,10 +349,15 @@ export const todayShellLogic = kea<todayShellLogicType>([
         // covers the button instead of replacing it, so it stays and the title never shifts. Phones open the
         // sidebar from the phone header.
         sidebarBreadcrumbShown: [
-            (s) => [s.todayRailEnabled, s.phoneLayout, s.sidebarVisible],
-            (todayRailEnabled: boolean, phoneLayout: boolean, sidebarVisible: boolean): boolean =>
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.sidebarVisible, s.paneHasSidebar],
+            (
+                todayRailEnabled: boolean,
+                phoneLayout: boolean,
+                sidebarVisible: boolean,
+                paneHasSidebar: boolean
+            ): boolean =>
                 // A hidden sidebar needs the crumb to come back, docked or overlay. The phone header has its own.
-                todayRailEnabled && !phoneLayout && !sidebarVisible,
+                todayRailEnabled && paneHasSidebar && !phoneLayout && !sidebarVisible,
         ],
     }),
     subscriptions(({ actions }) => ({

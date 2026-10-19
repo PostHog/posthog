@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
+from products.signals.backend.facade.spend import complete_task_spend
 from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
@@ -163,6 +164,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         status=input.status,
         termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
+
+
+@activity.defn
+@asyncify
+def complete_signal_spend(run_id: str) -> None:
+    run = TaskRun.objects.only("team_id", "status").get(id=run_id)
+    if run.status in _TERMINAL_STATUSES:
+        complete_task_spend(team_id=run.team_id, run_id=run_id)
 
 
 def _capture_posthog_ai_chat_analytics(

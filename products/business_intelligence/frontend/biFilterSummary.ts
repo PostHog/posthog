@@ -8,7 +8,7 @@ import {
     resultAsRowFilter,
 } from './biEditorTypes'
 import { buildBIConditionExpression, normalizeBIConditionGroup } from './biFilterGroups'
-import { getBIMemberLabel } from './biMemberAliases'
+import { createBIMemberLabelLookup } from './biMemberAliases'
 
 export function getBIFilterLabel(filter: BIFilter): string {
     return filter.label?.trim() || getBIFieldPillLabel(filter.field)
@@ -21,18 +21,23 @@ export function getBIResultFilterLabel(config: BIConfig, filter: BIResultFilter)
     )
 }
 
-export function describeBIFilter(filter: BIFilter, config: BIConfig): string {
+export function describeBIFilter(
+    filter: BIFilter,
+    config: BIConfig,
+    memberLabel = createBIMemberLabelLookup(config)
+): string {
     if (filter.operator === 'in' || filter.operator === 'not_in') {
-        return `${filter.operator === 'in' ? 'is one of' : 'is not one of'} ${(filter.values ?? []).map((value) => JSON.stringify(getBIMemberLabel(config, filter.field, value))).join(', ')}`
+        return `${filter.operator === 'in' ? 'is one of' : 'is not one of'} ${(filter.values ?? []).map((value) => JSON.stringify(memberLabel(filter.field, value))).join(', ')}`
     }
-    return getBIFilterSummary({
-        ...filter,
-        value: filter.value ? getBIMemberLabel(config, filter.field, filter.value) : filter.value,
-        valueTo: filter.valueTo ? getBIMemberLabel(config, filter.field, filter.valueTo) : filter.valueTo,
-    })
+    return getBIFilterSummary(
+        filter.operator === 'equals' || filter.operator === 'not_equals'
+            ? { ...filter, value: filter.value ? memberLabel(filter.field, filter.value) : filter.value }
+            : filter
+    )
 }
 
 export function getBIActiveFilterSummary(config: BIConfig): { rows: string | null; results: string | null } {
+    const memberLabel = createBIMemberLabelLookup(config)
     const rows = buildBIConditionExpression(
         normalizeBIConditionGroup(
             config.rowFilterGroup,
@@ -41,7 +46,9 @@ export function getBIActiveFilterSummary(config: BIConfig): { rows: string | nul
         new Map(
             config.filters.map((filter) => [
                 filter.field.id,
-                isBIFilterActive(filter) ? `${getBIFilterLabel(filter)}: ${describeBIFilter(filter, config)}` : null,
+                isBIFilterActive(filter)
+                    ? `${getBIFilterLabel(filter)}: ${describeBIFilter(filter, config, memberLabel)}`
+                    : null,
             ])
         )
     )
@@ -57,7 +64,7 @@ export function getBIActiveFilterSummary(config: BIConfig): { rows: string | nul
                 return [
                     filter.id,
                     row && isBIFilterActive(row)
-                        ? `${getBIResultFilterLabel(config, filter)}: ${describeBIFilter(row, config)}`
+                        ? `${getBIResultFilterLabel(config, filter)}: ${describeBIFilter(row, config, memberLabel)}`
                         : null,
                 ]
             })

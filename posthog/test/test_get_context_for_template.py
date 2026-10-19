@@ -187,6 +187,18 @@ class TestGetContextForTemplate(APIBaseTest):
         app_context = actual["posthog_app_context"]
         assert app_context["homepage"] == (stored_homepage or None)
 
+    @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={})
+    def test_flag_bootstrap_evaluates_with_the_project_group(self, mock_get_all_flags):
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        get_context_for_template("layout", request)
+
+        kwargs = mock_get_all_flags.call_args.kwargs
+        assert kwargs["groups"]["project"] == str(self.team.uuid)
+        assert kwargs["group_properties"]["project"]["id"] == self.team.id
+
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is
         # absent, so tags missing here render an empty Tags field until something refetches.

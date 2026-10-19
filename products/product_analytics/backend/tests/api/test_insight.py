@@ -3782,7 +3782,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
 
-    def test_insight_activity_respects_access_control(self) -> None:
+    def test_insight_activity_and_data_checks_respect_access_control(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -3805,6 +3805,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/activity/")
         self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        data_checks_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/data_checks/")
+        self.assertEqual(data_checks_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_insight_in_specific_folder(self):
         response = self.client.post(

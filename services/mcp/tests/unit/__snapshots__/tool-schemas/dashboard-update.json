@@ -437,6 +437,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -541,6 +542,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -685,7 +687,14 @@
                                             "orderBy": {
                                                 "default": "occurrences",
                                                 "description": "Issue ranking column.",
-                                                "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                                                "enum": [
+                                                    "last_seen",
+                                                    "first_seen",
+                                                    "occurrences",
+                                                    "users",
+                                                    "sessions",
+                                                    "severity"
+                                                ],
                                                 "type": "string"
                                             },
                                             "orderDirection": {
@@ -744,6 +753,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -935,6 +945,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",

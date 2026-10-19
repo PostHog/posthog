@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluence
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
     ConfluenceSourceConfig,
@@ -117,7 +118,7 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
     ) -> list[SourceSchema]:
         # v2 list endpoints have no server-side timestamp filter, so every endpoint is
         # full refresh only (no incremental fields -> supports_incremental/append False).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

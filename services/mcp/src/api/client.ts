@@ -342,6 +342,14 @@ export class ApiClient {
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
+        const pathname = opts.path.split(/[?#]/, 1)[0]!
+        if (
+            !pathname.startsWith('/') ||
+            pathname.includes('//') ||
+            new URL(pathname, this.baseUrl).pathname !== pathname
+        ) {
+            throw new Error('Invalid API path')
+        }
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
@@ -1099,7 +1107,7 @@ export class ApiClient {
                 // The API expects a QueryRequest object with the query wrapped
                 const queryRequest: any = {
                     query: validated,
-                    ...(refresh ? { refresh: 'blocking' } : {}),
+                    ...(refresh ? { refresh: 'force_blocking' } : {}),
                 }
 
                 const result = await this.fetchJson<ExperimentExposureQueryResponse>(
@@ -1196,7 +1204,7 @@ export class ApiClient {
 
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refresh ? { refresh: 'force_blocking' } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
@@ -1226,7 +1234,7 @@ export class ApiClient {
 
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refresh ? { refresh: 'force_blocking' } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
