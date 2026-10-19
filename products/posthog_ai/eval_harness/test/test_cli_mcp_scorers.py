@@ -384,6 +384,7 @@ _SUMMARY_TABLE = "| Period | Signups |\n| :--- | ---: |\n| Last 7 days | 45 |\n|
 @parameterized.expand(
     [
         ("long_table", [f"Signups rose.\n\n{_LONG_TABLE}\n\nThey peaked in W4."], 0.0),
+        ("long_table_short_delimiters", [f"Signups rose.\n\n{_LONG_TABLE.replace('|---|---|', '| :- | -: |')}"], 0.0),
         ("long_table_before_closing_line", [f"Signups rose.\n\n{_LONG_TABLE}", "I added two buttons above."], 0.0),
         ("summary_table", [f"Signups rose 18%.\n\n{_SUMMARY_TABLE}"], 1.0),
         ("prose_with_pipes", ["Signups rose 18% | weekly peak in W4 | no drop."], 1.0),
