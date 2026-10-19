@@ -54,7 +54,7 @@ pub struct LocalSymbolResolver {
     // negative cache in the Saving layer.
     release_id_cache: Cache<(TeamId, Vec<String>), Option<Uuid>>,
     pool: PgPool,
-    ttl_policy: FrameResultTtlPolicy,
+    base_ttl_policy: FrameResultTtlPolicy,
     // Lines of pre/post source context to attach per resolved frame.
     context_lines: usize,
     skip_unchanged_rewrites: bool,
@@ -104,7 +104,7 @@ fn expiration_duration(key: &RawFrameId, value: &CachedFrames) -> Duration {
 
 impl LocalSymbolResolver {
     pub fn new(config: &ResolverConfig, catalog: Arc<Catalog>, pool: PgPool) -> Self {
-        let ttl_policy = FrameResultTtlPolicy::new(
+        let base_ttl_policy = FrameResultTtlPolicy::new(
             chrono::Duration::seconds(config.frame_resolved_ttl_seconds as i64),
             chrono::Duration::seconds(config.frame_unresolved_ttl_seconds as i64),
         );
@@ -129,7 +129,7 @@ impl LocalSymbolResolver {
             pool,
             cache,
             release_id_cache,
-            ttl_policy,
+            base_ttl_policy,
             context_lines: config.context_line_count,
             skip_unchanged_rewrites: config.skip_unchanged_frame_rewrites,
         }
@@ -145,7 +145,7 @@ impl LocalSymbolResolver {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
         }
         let raw_id = frame.raw_id(team_id, debug_images);
-        let ttl_policy = self.ttl_policy.for_frame(frame);
+        let ttl_policy = self.base_ttl_policy.for_frame(frame);
         let mut cache_miss = false;
         let cached = self
             .cache
@@ -615,7 +615,7 @@ mod test {
 
         // get the frame
         let frame_id = frame.raw_id(0, &[]);
-        let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.ttl_policy)
+        let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.base_ttl_policy)
             .await
             .unwrap()
             .pop()
