@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -830,7 +830,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 loadReportArtefacts: async (_: void, breakpoint): Promise<SignalReportArtefact[]> => {
                     let response = await signalsReportArtefactsList(
-                        String(teamLogic.values.currentTeamId),
+                        String(ApiConfig.getCurrentProjectId()),
                         props.reportId,
                         {
                             limit: ARTEFACT_FETCH_LIMIT,
@@ -839,6 +839,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     await breakpoint()
                     const artefacts = [...response.results]
                     while (response.next) {
+                        // nosemgrep: prefer-codegen-api -- follows the server-provided pagination next link.
                         response = await api.get<PaginatedSignalReportArtefactListApi>(response.next)
                         await breakpoint()
                         artefacts.push(...response.results)
@@ -1965,7 +1966,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Auto-disposed on unmount / hidden tab.
         cache.disposables.add(() => {
             const interval = setInterval(() => {
-                if (!values.shouldPollReportTasks) {
+                if (!values.shouldPollReportTasks || values.reportArtefactsLoading) {
                     return
                 }
                 actions.loadReportArtefacts()

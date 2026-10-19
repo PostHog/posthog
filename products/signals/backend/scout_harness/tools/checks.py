@@ -39,9 +39,11 @@ from products.signals.backend.report_check_authoring import CheckCreationError, 
 from products.signals.backend.report_check_evaluation import CheckVerdict
 from products.signals.backend.report_check_execution import record_check_verdict
 from products.signals.backend.report_checks import (
+    MAX_CHECK_HORIZON,
     AgentCheckConfig,
     CheckInconclusiveReason,
     CheckOutcome,
+    monitoring_window_end,
     parse_check_config,
 )
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
@@ -78,7 +80,13 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
     These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
     is `due` to a run only when the coordinator would dispatch it too.
     """
-    if report_status != SignalReport.Status.RESOLVED:
+    if report_status == SignalReport.Status.MONITORING:
+        start = check.report.monitoring_started_at
+        if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD or not check.config.get("monitoring") or start is None:
+            return "its report is `monitoring`"
+        if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
+            return "its Monitoring window ended"
+    elif report_status != SignalReport.Status.RESOLVED:
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"
@@ -370,6 +378,7 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     checks = list(
         SignalReportCheck.objects.for_team(report.team_id)
         .filter(report_id=report.id)
+        .select_related("report")
         .order_by("-created_at")[:MAX_CHECKS_LISTED]
     )
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)

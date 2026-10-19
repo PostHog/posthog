@@ -80,6 +80,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
     soak_minutes_from_gap,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
 from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
@@ -536,6 +537,7 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
 def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved_status_filter: Q | None = None) -> int:
     parked = 0
     team_filters: dict[int, Q] = {}
+    monitoring_enabled: dict[int, bool] = {}
     for check in active:
         status_filter = resolved_status_filter
         if status_filter is None:
@@ -554,6 +556,16 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
                 if check.last_run_at is not None or check.dispatched_at is not None
                 else soak_minutes_from_gap(check.next_run_at, check.created_at)
             )
+        preserve_monitoring_errors = False
+        if (
+            check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            and check.config.get("monitoring")
+            and check.measurement_start_at is not None
+            and check.measurement_start_at == check.report.monitoring_started_at
+        ):
+            if check.team_id not in monitoring_enabled:
+                monitoring_enabled[check.team_id] = team_report_monitoring_enabled(check.team_id)
+            preserve_monitoring_errors = monitoring_enabled[check.team_id]
         parked += (
             SignalReportCheck.objects.for_team(check.team_id)
             .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
@@ -564,7 +576,7 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
                 measurement_start_at=None,
                 next_run_at=now + timedelta(minutes=soak_minutes),
                 expires_at=now + MAX_CHECK_HORIZON,
-                consecutive_errors=0,
+                consecutive_errors=F("consecutive_errors") if preserve_monitoring_errors else 0,
                 consecutive_inconclusive=0,
                 dispatched_at=None,
                 updated_at=now,
@@ -575,7 +587,9 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
 
 def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime) -> int:
     return _park_checks(
-        SignalReportCheck.objects.for_team(team_id).filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE),
+        SignalReportCheck.objects.for_team(team_id)
+        .filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE)
+        .select_related("report"),
         now,
     )
 
@@ -592,8 +606,8 @@ def park_checks_on_unresolved_reports(
     through `arm_pending_checks` with a fresh soak, and the expiry sweep retires it if the report
     never resolves.
 
-    A dated row keeps the gap its author left as its soak. The error streak and any open dispatch
-    are cleared, so retry accounting starts again after the next resolve.
+    A dated row keeps the gap its author left as its soak. An interrupted Monitoring period keeps
+    its error streak so restoring it cannot postpone a retry or reset the error budget.
     """
     candidates = SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
     if disabled_monitoring_organization_ids is None:
@@ -604,8 +618,20 @@ def park_checks_on_unresolved_reports(
         disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
     )
     active = list(
-        candidates.exclude(status_filter).only(
-            "id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at"
+        candidates.exclude(status_filter)
+        .select_related("report")
+        .only(
+            "id",
+            "team_id",
+            "created_at",
+            "next_run_at",
+            "soak_minutes",
+            "last_run_at",
+            "dispatched_at",
+            "kind",
+            "config",
+            "measurement_start_at",
+            "report__monitoring_started_at",
         )[:MAX_CHECK_PARKS_PER_TICK]
     )
     parked = _park_checks(active, now, resolved_status_filter=status_filter)

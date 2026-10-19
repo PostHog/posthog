@@ -772,6 +772,44 @@ class TestReportCheckExecution(APIBaseTest):
             record_monitoring_observation(check, observation)
         assert self.report.artefacts.filter(type="check_observation").count() == (1 if race == "duplicate" else 0)
 
+    @parameterized.expand(
+        [
+            ("due", True, "metric", -1, "due"),
+            ("scheduled", True, "metric", 60, "scheduled"),
+            ("window_ended", True, "window_ended", -1, "paused"),
+            ("expired", True, "expired", -1, "paused"),
+            ("missing_start", True, "missing_start", -1, "paused"),
+            ("agent", True, "agent", -1, "paused"),
+            ("legacy_metric", True, "legacy_metric", -1, "paused"),
+            ("flag_off", False, "metric", -1, "due"),
+        ]
+    )
+    def test_scout_monitoring_run_state_matches_coordinator(
+        self, _name: str, flag: bool, variant: str, due_in_minutes: int, expected: str
+    ) -> None:
+        now = timezone.now()
+        with (
+            time_machine.travel(now, tick=False),
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
+        ):
+            start = now - timedelta(days=1)
+            check = self._monitoring_check(start=start, next_run_at=now + timedelta(minutes=due_in_minutes))
+            if variant == "agent":
+                check.kind = SignalReportCheck.Kind.AGENT
+                check.config = {"instructions": "Investigate the report."}
+            elif variant == "legacy_metric":
+                check.config.pop("monitoring")
+            elif variant == "expired":
+                check.expires_at = now
+            elif variant == "window_ended":
+                check.soak_minutes = 1440
+            elif variant == "missing_start":
+                SignalReport.objects.filter(team_id=self.team.id, id=self.report.id).update(monitoring_started_at=None)
+            check.save()
+            (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+            assert listed.run_state == expected
+            assert {row.id for row in collect_due_checks(now)} == ({check.id} if expected == "due" else set())
+
     def test_flag_off_restores_the_legacy_soak_and_whole_window(self) -> None:
         start = datetime(2026, 10, 1, 12, tzinfo=UTC)
         with time_machine.travel(start, tick=False):
@@ -2737,7 +2775,10 @@ class TestPendingChecks(APIBaseTest):
                     assert checks[0].next_run_at == expected_due
                     assert collect_due_checks(expected_due + timedelta(minutes=1)) == [checks[0]]
 
-    def test_monitoring_definition_arms_and_restores_its_observation_cadence(self) -> None:
+    @parameterized.expand([("successful", 0, False, 24), ("first_error", 0, True, 6), ("second_error", 1, True, 6)])
+    def test_monitoring_definition_arms_and_restores_its_observation_cadence(
+        self, _name: str, prior_errors: int, query_error: bool, delay_hours: int
+    ) -> None:
         now = timezone.now()
         with (
             time_machine.travel(now, tick=False),
@@ -2763,12 +2804,16 @@ class TestPendingChecks(APIBaseTest):
             assert check.next_run_at == now + timedelta(days=1)
             assert check.measurement_start_at == now
             assert check.expires_at == now + MAX_CHECK_HORIZON
+            if prior_errors:
+                check.consecutive_errors = prior_errors
+                check.save(update_fields=["consecutive_errors"])
             sample_at = now + timedelta(days=1)
             with (
                 time_machine.travel(sample_at, tick=False),
                 patch(
                     "products.signals.backend.report_check_monitoring.measure_metric",
                     return_value=MetricMeasurement(value=8, measured_at=sample_at, series=None),
+                    side_effect=RuntimeError("query failed") if query_error else None,
                 ) as measure,
             ):
                 run_due_report_checks()
@@ -2778,9 +2823,21 @@ class TestPendingChecks(APIBaseTest):
                         self.report.save(update_fields=self.report.transition_to(self.report.restore_target_status()))
                     run_due_report_checks()
                 measure.assert_called_once()
+                check.refresh_from_db()
+                retry_at = sample_at + timedelta(hours=delay_hours)
+                assert check.measurement_start_at == now
+                assert check.next_run_at == retry_at
+                assert check.consecutive_errors == (prior_errors + 1 if query_error else 0)
+                with time_machine.travel(retry_at - timedelta(minutes=1), tick=False):
+                    run_due_report_checks()
+                measure.assert_called_once()
+                measure.side_effect = None
+                with time_machine.travel(retry_at, tick=False):
+                    run_due_report_checks()
+                assert measure.call_count == 2
             check.refresh_from_db()
-            assert check.measurement_start_at == now
-            assert check.next_run_at == sample_at + timedelta(days=1)
+            assert check.consecutive_errors == 0
+            assert self.report.artefacts.filter(type="check_observation").count() == 2
 
     def test_a_delayed_monitoring_callback_cannot_arm_a_newer_period(self) -> None:
         check = self._pending()

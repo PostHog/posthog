@@ -32,6 +32,7 @@ from products.signals.backend.models import SignalActorKind, SignalReport, Signa
 from products.signals.backend.report_check_agent import agent_check_lane_available
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER
 from products.signals.backend.report_check_research import research_can_reconcile_checks
 from products.signals.backend.report_check_telemetry import capture_report_check_created, capture_report_check_skipped
 from products.signals.backend.report_check_timing import metric_check_ready_at
@@ -519,8 +520,13 @@ def _arm_pending_checks(
         )
         if interim:
             last_sample_at = max(resolved_at, check.last_run_at or resolved_at)
+            delay = (
+                MONITORING_ERROR_RETRY_AFTER
+                if check.last_run_at is not None and check.last_run_at >= resolved_at and check.consecutive_errors > 0
+                else timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes))
+            )
             next_run_at = min(
-                last_sample_at + timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes)),
+                last_sample_at + delay,
                 monitoring_window_end(resolved_at, check.soak_minutes),
             )
         elif check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
