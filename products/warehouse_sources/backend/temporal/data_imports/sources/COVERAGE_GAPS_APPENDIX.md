@@ -1110,14 +1110,14 @@ Note: Compared every Describe and List operation in the official botocore servic
 
 ## AWS CloudTrail — gaps
 
-Today (4): `event_data_stores`, `events`, `insight_events`, `trails`
+Today (7): `event_data_stores`, `events`, `insight_events`, `insights_data`, `insights_metric_data`, `lake_queries`, `trails`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/cloudtrail/2013-11-01/service-2.json>
 
-- [ ] `CloudTrail Lake event query results (StartQuery and GetQueryResults, POST /)` — exposes stored data events and older activity unavailable through the 90-day management event lookup (high)
-- [ ] `Insights metric data (ListInsightsMetricData, POST /)` — measures API call and error rates over time around detected anomalies (high)
-- [ ] `Data-event Insights (ListInsightsData, POST /)` — adds anomalies generated from data events, beyond the management Insights available through LookupEvents (high)
-- [ ] `Lake query history (ListQueries and DescribeQuery, POST /)` — tracks query status, runtime, and data scanned for analysis of Lake usage and cost (medium)
+- ~~`CloudTrail Lake event query results (StartQuery and GetQueryResults, POST /)`~~ — skipped: `StartQuery` runs a SQL scan that AWS bills to the customer by data scanned, so a scheduled sync would add a charge on every run, and it needs a SQL statement per event store rather than a list to page
+- [x] `Insights metric data (ListInsightsMetricData, POST /)` — measures API call and error rates over time around detected anomalies (high). Added as `insights_metric_data`: one hourly series for each activity that raised an Insights event in the past 90 days.
+- [x] `Data-event Insights (ListInsightsData, POST /)` — adds anomalies generated from data events, beyond the management Insights available through LookupEvents (high). Added as `insights_data` (fan-out over trails with Insights selectors).
+- [x] `Lake query history (ListQueries and DescribeQuery, POST /)` — tracks query status, runtime, and data scanned for analysis of Lake usage and cost (medium). Added as `lake_queries` (fan-out over event stores, one `DescribeQuery` per query).
 
 Note: Parsed all read operations and response shapes in the official botocore service model. Existing insight_events use LookupEvents; data-event Insights and metric series use separate operations. Lake exports need query submission, polling, and result pagination; Lake closed to new customers on May 31, 2026. Excluded trail health, selectors, delivery configuration, keys, and import plumbing.
 
