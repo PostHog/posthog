@@ -4120,6 +4120,7 @@ Diffed against: <https://docs.easypost.com/docs/carrier-accounts>
 - [x] `GET /v2/users/children` — child user roster for platforms that break spend and volume down by sub-account (medium)
 - [x] `GET /v2/reports/{type}` — generated shipment/payment_log/tracker/refund report objects, useful for reconciling billing (low)
 - [x] `GET /v2/carrier_types` — lookup of available carrier types and their credential fields (low)
+- [x] `GET /v2/carrier_claims/usps_claims` — USPS lost/damaged claims on EasyPost-purchased labels, separate from insurance `/claims` (medium) — added as `usps_claims`, full refresh only: the list takes no time filter and claims carry no `created_at`
 
 Note: Diffed against the 45 /docs/\* pages in docs.easypost.com/sitemap.xml and read the endpoint tables on each candidate page. Orders, parcels, customs_infos and customs_items have create/retrieve only - no index endpoint - so they cannot back a warehouse table and were excluded rather than reported as gaps.
 
