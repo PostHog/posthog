@@ -20,6 +20,8 @@ import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
@@ -62,6 +64,12 @@ def _queue_db_errors() -> Iterator[None]:
         if is_transient_internal_db_error(e):
             raise PostHogInternalDatabaseError("Failed to reach PostHog's sync queue database") from e
         raise
+
+
+@frozen
+class EarlierQueueRun:
+    run_uuid: str
+    closed: bool
 
 
 class PostgresProducer:
@@ -201,8 +209,8 @@ class PostgresProducer:
             cumulative_row_count=total_rows,
         )
 
-    def latest_unfinished_earlier_run(self) -> str | None:
-        """The newest earlier run of this job, when no final batch closes it yet."""
+    def latest_earlier_run(self) -> EarlierQueueRun | None:
+        """The newest earlier run of this job in the queue, and whether a final batch closes it."""
         with _queue_db_errors():
             row = self._conn.execute(
                 f"""
@@ -215,9 +223,7 @@ class PostgresProducer:
                 """,
                 {"job_id": self._job_id, "run_uuid": self._run_uuid},
             ).fetchone()
-        if row is None or row[1]:
-            return None
-        return row[0]
+        return None if row is None else EarlierQueueRun(run_uuid=row[0], closed=bool(row[1]))
 
     def send_final_batch_for_resumed_run(self, run_uuid: str) -> None:
         """Append a final-only copy of the last queued batch from an earlier attempt."""

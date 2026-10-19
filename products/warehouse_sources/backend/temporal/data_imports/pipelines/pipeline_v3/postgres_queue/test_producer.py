@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
+    EarlierQueueRun,
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
@@ -384,19 +385,25 @@ class TestPostgresProducerHeldBatch:
 
 
 @pytest.mark.django_db
-class TestLatestUnfinishedEarlierRun:
+class TestLatestEarlierRun:
     @pytest.mark.parametrize(
         "rows, expected",
         [
-            ([("job-1", "run-a1", False, 20), ("job-1", "run-a2", False, 10)], "run-a2"),
-            ([("job-1", "run-a1", False, 20), ("job-1", "run-a2", False, 10), ("job-1", "run-a2", True, 10)], None),
+            (
+                [("job-1", "run-a1", False, 20), ("job-1", "run-a2", False, 10)],
+                EarlierQueueRun(run_uuid="run-a2", closed=False),
+            ),
+            (
+                [("job-1", "run-a1", False, 20), ("job-1", "run-a2", False, 10), ("job-1", "run-a2", True, 10)],
+                EarlierQueueRun(run_uuid="run-a2", closed=True),
+            ),
             ([("job-1", "run-a3", False, 10)], None),
             ([("job-2", "run-x", False, 10)], None),
         ],
         ids=["newest_earlier_run_is_open", "newest_earlier_run_is_closed", "only_this_run", "other_job"],
     )
     def test_finds_the_run_that_a_zero_batch_resume_must_close(
-        self, rows: list[tuple[str, str, bool, int]], expected: str | None
+        self, rows: list[tuple[str, str, bool, int]], expected: EarlierQueueRun | None
     ) -> None:
         database_url = get_test_database_url()
         with psycopg.Connection.connect(database_url, autocommit=True) as conn:
@@ -417,6 +424,6 @@ class TestLatestUnfinishedEarlierRun:
 
         producer = PostgresProducer(**_default_kwargs(database_url=database_url, run_uuid="run-a3"))
         try:
-            assert producer.latest_unfinished_earlier_run() == expected
+            assert producer.latest_earlier_run() == expected
         finally:
             producer.close()

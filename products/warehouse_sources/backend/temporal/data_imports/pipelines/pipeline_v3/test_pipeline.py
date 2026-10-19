@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     should_coalesce_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
+    EarlierQueueRun,
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
@@ -2010,34 +2011,42 @@ class TestFinalMarkerIsTheLastDataRow:
         assert pipeline._consumer_finalizes_this_run() is True
 
     @pytest.mark.parametrize(
-        "earlier_run_uuid", ["workflow-run-a2", None], ids=["earlier_run_open", "nothing_to_close"]
+        "earlier_run, expected_closed_here",
+        [
+            (EarlierQueueRun(run_uuid="workflow-run-a2", closed=False), True),
+            (EarlierQueueRun(run_uuid="workflow-run-a2", closed=True), False),
+            (None, False),
+        ],
+        ids=["earlier_run_open", "earlier_run_already_closed", "no_earlier_run"],
     )
     @pytest.mark.asyncio
-    async def test_a_resumed_source_that_reads_no_rows_closes_the_earlier_queue_run(
-        self, earlier_run_uuid: str | None
+    async def test_a_resumed_source_that_reads_no_rows_leaves_the_job_to_the_loader(
+        self, earlier_run: EarlierQueueRun | None, expected_closed_here: bool
     ) -> None:
         pipeline = _make_pipeline()
         pipeline._resumes_source_cursor = True
         pipeline._last_incremental_field_value = 200
         pipeline._earliest_incremental_field_value = 50
         producer = cast(MagicMock, pipeline._pg_producer)
-        producer.latest_unfinished_earlier_run.return_value = earlier_run_uuid
+        producer.latest_earlier_run.return_value = earlier_run
 
         with (
-            patch(f"{_PIPELINE}.finalize_desc_sort_incremental_value", new_callable=AsyncMock) as staged,
-            patch(f"{_PIPELINE}.commit_source_cursor", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.finalize_desc_sort_incremental_value", new_callable=AsyncMock) as staged_watermark,
+            patch(f"{_PIPELINE}.commit_source_cursor", new_callable=AsyncMock) as staged_cursor,
             patch.object(PipelineV3, "_stamp_full_run", new_callable=AsyncMock),
         ):
             await pipeline._finalize(row_count=0)
 
-        assert pipeline._consumer_finalizes_this_run() is (earlier_run_uuid is not None)
-        if earlier_run_uuid is None:
-            producer.send_final_batch_for_resumed_run.assert_not_called()
+        assert pipeline._consumer_finalizes_this_run() is (earlier_run is not None)
+        if expected_closed_here:
+            producer.send_final_batch_for_resumed_run.assert_called_once_with("workflow-run-a2")
+            assert staged_watermark.await_args is not None
+            assert staged_watermark.await_args.kwargs["staging_run_uuid"] == "workflow-run-a2"
+            assert staged_watermark.await_args.kwargs["earliest_incremental_field_value"] == 50
+            assert staged_cursor.await_args is not None
+            assert staged_cursor.await_args.kwargs["staging_run_uuid"] == "workflow-run-a2"
         else:
-            producer.send_final_batch_for_resumed_run.assert_called_once_with(earlier_run_uuid)
-            assert staged.await_args is not None
-            assert staged.await_args.kwargs["staging_run_uuid"] == earlier_run_uuid
-            assert staged.await_args.kwargs["earliest_incremental_field_value"] == 50
+            producer.send_final_batch_for_resumed_run.assert_not_called()
 
     @pytest.mark.parametrize(
         "ids,expected_rows",

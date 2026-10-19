@@ -1012,6 +1012,30 @@ class PipelineV3(Generic[ResumableData]):
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
         )
 
+    async def _close_earlier_run(self, run_uuid: str) -> None:
+        """Queue the final batch of an earlier attempt's run, after staging what this attempt holds.
+
+        The loader promotes the slot of the run that the final batch closes. That run can be a resumed
+        attempt that never reached `_finalize`, so its slot can miss the run's values.
+        """
+        await finalize_desc_sort_incremental_value(
+            self._resource,
+            self._schema,
+            self._last_incremental_field_value,
+            self._logger,
+            log_prefix="V3 Pipeline: ",
+            staging_run_uuid=run_uuid,
+            earliest_incremental_field_value=self._earliest_incremental_field_value,
+        )
+        await commit_source_cursor(
+            self._source_cursor_manager,
+            self._schema,
+            self._logger,
+            staging_run_uuid=run_uuid,
+            log_prefix="V3 Pipeline: ",
+        )
+        await asyncio.to_thread(self._pg_producer.send_final_batch_for_resumed_run, run_uuid)
+
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.
 
@@ -1059,23 +1083,15 @@ class PipelineV3(Generic[ResumableData]):
 
             # A laned run counts only its primary lane's batches as the loader's to finalize.
             if self._resumes_source_cursor and not self._resource.lanes:
-                # The cursor covers rows that an earlier attempt queued, and that attempt left the
-                # worker before it queued its final batch. Without a final batch the loader never
-                # completes the job or promotes its watermark, so the next job reads those rows again.
-                earlier_run_uuid = await asyncio.to_thread(self._pg_producer.latest_unfinished_earlier_run)
-                if earlier_run_uuid is not None:
-                    # The loader promotes the slot of the run that the final batch closes. That run can be a
-                    # resumed attempt that never reached `_finalize`, so its slot can miss the run's values.
-                    await finalize_desc_sort_incremental_value(
-                        self._resource,
-                        self._schema,
-                        self._last_incremental_field_value,
-                        self._logger,
-                        log_prefix="V3 Pipeline: ",
-                        staging_run_uuid=earlier_run_uuid,
-                        earliest_incremental_field_value=self._earliest_incremental_field_value,
-                    )
-                    await asyncio.to_thread(self._pg_producer.send_final_batch_for_resumed_run, earlier_run_uuid)
+                # The cursor covers rows that an earlier attempt queued. Without a final batch for that
+                # attempt's run, the loader never completes the job or promotes its watermark, and the
+                # next job reads those rows again.
+                earlier_run = await asyncio.to_thread(self._pg_producer.latest_earlier_run)
+                if earlier_run is not None:
+                    if not earlier_run.closed:
+                        await self._close_earlier_run(earlier_run.run_uuid)
+                    # The loader completes the job when it loads that final batch, also when the earlier
+                    # attempt queued it before it left the worker.
                     self._sent_resumed_run_finalization = True
                     return
 
