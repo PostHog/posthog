@@ -37,7 +37,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+    ParsingError,
+    QueryError,
+    ResolutionError,
+    SyntaxError as HogQLSyntaxError,
+)
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
@@ -51,10 +58,35 @@ from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
     execute_and_format_query,
     get_example_prompt,
+    hogql_error_code,
     is_supported_query,
 )
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+def _exposed_from(cause: Exception) -> ExposedHogQLError:
+    error = ExposedHogQLError("HogQL error")
+    error.__cause__ = cause
+    return error
+
+
+class TestHogQLErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_table", QueryError("Unknown table `evnts`."), "hogql_unknown_table"),
+            (
+                "internal_unknown_table_type",
+                ResolutionError("Unknown table type in LazyTableResolver: X"),
+                "hogql_resolution_error",
+            ),
+            ("not_implemented", HogQLNotImplementedError("No support for X"), "hogql_not_implemented"),
+            ("other_internal", ParsingError("Parsing failed"), "hogql_internal_error"),
+            ("not_hogql", ValueError("Unable to resolve field: x"), None),
+        ]
+    )
+    def test_codes_hold_no_caller_input(self, _name: str, error: Exception, expected_code: str | None) -> None:
+        self.assertEqual(hogql_error_code(error), expected_code)
 
 
 class TestSQLResultBudgets(SimpleTestCase):
@@ -296,18 +328,31 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), "API error message")
 
+    @parameterized.expand(
+        [
+            ("bare", ExposedHogQLError("HogQL error"), "internal", "hogql_error"),
+            ("unresolved_field", QueryError("Unable to resolve field: plan"), "validation", "hogql_unresolved_field"),
+            ("syntax", HogQLSyntaxError("mismatched input 'FORM'"), "validation", "hogql_syntax_error"),
+            (
+                "wrapped_cause",
+                _exposed_from(QueryError("Unable to resolve field: plan")),
+                "validation",
+                "hogql_unresolved_field",
+            ),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
-        """Test handling of ExposedHogQLError"""
-
-        mock_process_query.side_effect = ExposedHogQLError("HogQL error")
-
-        query = AssistantHogQLQuery(query="SELECT invalid")
+    async def test_run_and_format_query_handles_exposed_hogql_error(
+        self, _name, error, expected_type, expected_code, mock_process_query
+    ):
+        mock_process_query.side_effect = error
 
         with self.assertRaises(MaxToolRetryableError) as context:
-            await self.query_runner.arun_and_format_query(query)
+            await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT plan FROM events"))
 
-        self.assertIn("HogQL error", str(context.exception))
+        self.assertEqual(str(context.exception), str(error))
+        self.assertEqual(context.exception.error_type, expected_type)
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
