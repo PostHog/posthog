@@ -23,6 +23,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
+import { setFirstProductUse } from 'lib/utils/firstProductUse'
 import {
     NEW_QUERY_STARTED_ERROR_MESSAGE,
     UNMOUNTING_ERROR_MESSAGE,
@@ -1096,6 +1097,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 posthog.capture('logs no results returned')
             } else {
                 posthog.capture('logs results returned', { count: logs.length })
+                setFirstProductUse('first_used_logs_at')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstLogs)
             }
         },

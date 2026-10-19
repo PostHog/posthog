@@ -24,6 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { setFirstProductUse } from 'lib/utils/firstProductUse'
 import {
     NEW_QUERY_STARTED_ERROR_MESSAGE,
     UNMOUNTING_ERROR_MESSAGE,
@@ -101,6 +102,7 @@ function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'
         posthog.capture('tracing no results returned', { query_type: queryType })
     } else {
         posthog.capture('tracing results returned', { count, query_type: queryType })
+        setFirstProductUse('first_used_tracing_at')
     }
 }
 

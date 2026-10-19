@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import { setFirstProductUse } from 'lib/utils/firstProductUse'
 import { isUserInitiatedError } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -347,6 +348,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 has_group_by: values.groupByKeys.length > 0,
                 has_filters: values.queryFilters.length > 0,
             })
+            setFirstProductUse('first_used_metrics_at')
             // Once per mount, not per query — live refresh re-runs the query every 15s,
             // and each intent call is an API request (the backend counts repeats itself).
             if (!cache.viewerQueryIntentFired) {
