@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 25 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1319,6 +1319,45 @@ export const WorkflowDataSuggestionsBuildBody = () => zod.object({
         .default(workflowDataSuggestionsBuildBodyRetryDefault)
         .describe(
             "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
+})
+
+/**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer, and open to every project that approved AI data processing.
+ */
+export const WorkflowDataSuggestionsBuildForEventsParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowDataSuggestionsBuildForEventsBodyEventsItemMax = 400
+
+export const workflowDataSuggestionsBuildForEventsBodyEventsMax = 5
+
+export const workflowDataSuggestionsBuildForEventsBodyRetryDefault = false
+
+export const WorkflowDataSuggestionsBuildForEventsBody = () => zod.object({
+    events: zod
+        .array(
+            zod
+                .string()
+                .max(workflowDataSuggestionsBuildForEventsBodyEventsItemMax)
+                .describe('An event name, exactly as the project sends it.')
+        )
+        .min(1)
+        .max(workflowDataSuggestionsBuildForEventsBodyEventsMax)
+        .describe(
+            'The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.'
+        ),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildForEventsBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one for these events failed. Leave it false when asking for a running build's status."
         ),
 })
 

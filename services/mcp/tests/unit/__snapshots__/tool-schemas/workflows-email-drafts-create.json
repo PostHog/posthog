@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "events": {
+            "description": "The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.",
+            "items": {
+                "description": "An event name, exactly as the project sends it.",
+                "maxLength": 400,
+                "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array"
+        },
+        "retry": {
+            "default": false,
+            "description": "Start a new build when the last one for these events failed. Leave it false when asking for a running build's status.",
+            "type": "boolean"
+        }
+    },
+    "required": ["events"],
+    "type": "object"
+}
