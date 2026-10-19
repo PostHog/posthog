@@ -1,13 +1,8 @@
-import posthog, { CaptureResult } from 'posthog-js'
+import posthog from 'posthog-js'
 
 import { AppContext } from '~/types'
 
-import {
-    LastSeenFeatureFlags,
-    dropScopeNotFoundExceptions,
-    loadPostHogJS,
-    withLastSeenFeatureFlags,
-} from './loadPostHogJS'
+import { LastSeenFeatureFlags, loadPostHogJS, withLastSeenFeatureFlags } from './loadPostHogJS'
 
 describe('loadPostHogJS', () => {
     describe('withLastSeenFeatureFlags', () => {
@@ -59,29 +54,6 @@ describe('loadPostHogJS', () => {
             expect(withLastSeenFeatureFlags({ featureFlags: bootstrapFlags }, lastSeen, 'user-a').featureFlags).toEqual(
                 expected
             )
-        })
-    })
-
-    describe('dropScopeNotFoundExceptions', () => {
-        it.each([
-            ['an uncaught dead-project rejection', '$exception', ['Project not found.'], false],
-            ['an uncaught dead-organization rejection', '$exception', ['Organization not found.'], false],
-            [
-                'a dead-scope rejection wrapped as a cause',
-                '$exception',
-                ['Failed to load', 'Project not found.'],
-                false,
-            ],
-            ['an unrelated exception', '$exception', ['Not found.'], true],
-            ['a non-exception event', '$pageview', ['Project not found.'], true],
-        ])('handles %s', (_, eventName, values, kept) => {
-            const event: CaptureResult = {
-                uuid: 'example-uuid',
-                event: eventName,
-                properties: { $exception_list: values.map((value) => ({ type: 'Error', value })) },
-            }
-
-            expect(dropScopeNotFoundExceptions(event)).toBe(kept ? event : null)
         })
     })
 

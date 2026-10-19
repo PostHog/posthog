@@ -1,10 +1,15 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
-import { isScopeNotFoundMessage } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import {
+    dropHandledAuthGateExceptions,
+    dropInjectedScriptReferenceErrors,
+    dropScopeNotFoundExceptions,
+    dropUnactionableNetworkExceptions,
+} from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
@@ -50,20 +55,6 @@ export function withLastSeenFeatureFlags(
 // pinned: analytics property name. Insights filter the framed pages by it.
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
-
-/**
- * Drops an uncaught rejection from a request on a deleted or inaccessible project or organization.
- * The kea loaders and `shouldReportApiFailure` already excuse this failure, but a promise that no
- * caller handles reaches error tracking through autocapture and skips those checks.
- */
-export const dropScopeNotFoundExceptions: BeforeSendFn = (event) => {
-    if (event?.event !== '$exception') {
-        return event
-    }
-    // posthog-js appends each wrapped `cause`, so the dead-scope error is not always the first entry.
-    const exceptions: { value?: unknown }[] = event.properties?.$exception_list ?? []
-    return exceptions.some((exception) => isScopeNotFoundMessage(exception?.value)) ? null : event
-}
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
@@ -134,6 +125,9 @@ export function loadPostHogJS(): void {
             metrics: { network: true, serviceName: 'posthog-app' },
             before_send: [
                 dropScopeNotFoundExceptions,
+                dropHandledAuthGateExceptions,
+                dropUnactionableNetworkExceptions,
+                dropInjectedScriptReferenceErrors,
                 redactMetricVariableUrls,
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
