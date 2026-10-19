@@ -26,14 +26,15 @@ interface EditorVisit {
     lastEdit: WorkflowBuilderEdit
     lastAddedStepType: string | null
     layout: VisibleLayout
-    routeTab: string | undefined
+    builderRouteTab: string | undefined
     layoutSwitchCount: number
     enableAttempted: boolean
 }
 
 type VisibleLayout = 'list' | 'graph'
 
-// Without the list view flag the builder draws the graph, whatever the stored layout says.
+const KEEP_LISTENING_WHILE_THE_PAGE_HIDES_ON_LEAVE = false
+
 function visibleLayoutOf(editorLayout: HogFlowEditorLayout, featureFlags: FeatureFlagsSet): VisibleLayout {
     return featureFlags[FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW] && editorLayout === 'simple' ? 'list' : 'graph'
 }
@@ -143,23 +144,25 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
         return {
             setWorkflowValue: (_, __, ___, previousState) => recordFormEdit(previousState),
             setWorkflowValues: (_, __, ___, previousState) => recordFormEdit(previousState),
-            switchEditorLayout: ({ editorLayout }, _, __, previousState) => {
+            switchEditorLayout: (_, __, ___, previousState) => {
                 const visit = cache.visit as EditorVisit | null
                 if (!visit) {
                     return
                 }
-                if (hogFlowEditorLogic(props).selectors.editorLayout(previousState) !== editorLayout) {
+                const layoutBeforeSwitch = visibleLayoutOf(
+                    hogFlowEditorLogic(props).selectors.editorLayout(previousState),
+                    values.featureFlags
+                )
+                if (layoutBeforeSwitch !== values.visibleLayout) {
                     visit.layoutSwitchCount += 1
                 }
-                // The person is looking at the builder when they use the toggle, so its tab is the builder's now.
-                visit.layout = visibleLayoutOf(editorLayout, values.featureFlags)
-                visit.routeTab = routeTab()
+                visit.layout = values.visibleLayout
+                visit.builderRouteTab = routeTab()
             },
             setEditorLayout: () => {
                 const visit = cache.visit as EditorVisit | null
-                // Opening another workflow tab resets the stored layout before the builder unmounts. The scene
-                // can show the builder under another tab's URL, so compare with the tab the visit opened on.
-                if (visit && routeTab() === visit.routeTab) {
+                const isLeavingForAnotherTab = routeTab() !== visit?.builderRouteTab
+                if (visit && !isLeavingForAnotherTab) {
                     visit.layout = values.visibleLayout
                 }
             },
@@ -233,7 +236,7 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                 lastEdit: 'none',
                 lastAddedStepType: null,
                 layout: values.visibleLayout,
-                routeTab: routeTab(),
+                builderRouteTab: routeTab(),
                 layoutSwitchCount: 0,
                 enableAttempted: false,
             }
@@ -244,7 +247,6 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
 
         return {
             afterMount: () => {
-                // Kept live while hidden, because leaving the page hides it before `pagehide` fires.
                 cache.disposables.add(
                     () => {
                         const onPageHide = (): void => reportLeave({ transport: 'sendBeacon' })
@@ -261,7 +263,7 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                         }
                     },
                     'pageLifecycle',
-                    { pauseOnPageHidden: false }
+                    { pauseOnPageHidden: KEEP_LISTENING_WHILE_THE_PAGE_HIDES_ON_LEAVE }
                 )
                 startVisit()
             },
