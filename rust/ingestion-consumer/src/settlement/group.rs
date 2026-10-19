@@ -124,14 +124,16 @@ mod tests {
         }
     }
 
-    type FakeSettlement = GroupSettlement<Arc<FakeAccounting>, Arc<FakeAdmission>>;
-
-    fn settlement() -> (FakeSettlement, Arc<FakeAccounting>, Arc<FakeAdmission>) {
-        let accounting = Arc::new(FakeAccounting::default());
-        let admission = Arc::new(FakeAdmission::default());
+    fn settlement() -> (
+        GroupSettlement<FakeAccounting, FakeAdmission>,
+        FakeAccounting,
+        FakeAdmission,
+    ) {
+        let accounting = FakeAccounting::default();
+        let admission = FakeAdmission::default();
         let settlement = GroupSettlement {
-            accounting: Arc::clone(&accounting),
-            admission: Arc::clone(&admission),
+            accounting: accounting.clone(),
+            admission: admission.clone(),
         };
         (settlement, accounting, admission)
     }

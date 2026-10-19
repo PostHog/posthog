@@ -143,10 +143,10 @@ mod tests {
         TopicPartition::new("events", partition)
     }
 
-    fn settlement() -> (PollSettlement<Arc<FakeAccounting>>, Arc<FakeAccounting>) {
-        let accounting = Arc::new(FakeAccounting::default());
+    fn settlement() -> (PollSettlement<FakeAccounting>, FakeAccounting) {
+        let accounting = FakeAccounting::default();
         let settlement = PollSettlement {
-            uncommitted: Arc::clone(&accounting),
+            uncommitted: accounting.clone(),
         };
         (settlement, accounting)
     }
@@ -188,7 +188,7 @@ mod tests {
     }
 
     fn settle_poll_counting_skips(
-        settlement: &PollSettlement<Arc<FakeAccounting>>,
+        settlement: &PollSettlement<FakeAccounting>,
         slices: &[Slice],
     ) -> (anyhow::Result<()>, Vec<String>) {
         let recorder = DebuggingRecorder::new();

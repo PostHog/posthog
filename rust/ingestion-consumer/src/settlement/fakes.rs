@@ -13,11 +13,17 @@ pub(super) struct Settled {
     pub(super) offsets: Vec<Offset>,
 }
 
-struct Script<T>(Mutex<VecDeque<T>>);
+struct Script<T>(Arc<Mutex<VecDeque<T>>>);
 
 impl<T> Default for Script<T> {
     fn default() -> Self {
-        Self(Mutex::new(VecDeque::new()))
+        Self(Arc::new(Mutex::new(VecDeque::new())))
+    }
+}
+
+impl<T> Clone for Script<T> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
     }
 }
 
@@ -31,13 +37,13 @@ impl<T> Script<T> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct FakeAccounting {
     charges: Script<Result<Held, Rejection>>,
     settles: Script<Result<Option<Offset>, Rejection>>,
     takes: Script<HashMap<TopicPartition, HandedOut>>,
-    settled: Mutex<Vec<Settled>>,
-    forgotten: Mutex<Vec<TopicPartition>>,
+    settled: Arc<Mutex<Vec<Settled>>>,
+    forgotten: Arc<Mutex<Vec<TopicPartition>>>,
 }
 
 impl FakeAccounting {
@@ -102,13 +108,13 @@ impl Accounting for FakeAccounting {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct FakeAdmission {
     pauses: Script<Option<Pause>>,
     resumes: Script<Vec<TopicPartition>>,
-    charged: Mutex<Vec<(TopicPartition, Charge)>>,
-    handed_out: Mutex<Vec<HashMap<TopicPartition, HandedOut>>>,
-    forgotten: Mutex<Vec<TopicPartition>>,
+    charged: Arc<Mutex<Vec<(TopicPartition, Charge)>>>,
+    handed_out: Arc<Mutex<Vec<HashMap<TopicPartition, HandedOut>>>>,
+    forgotten: Arc<Mutex<Vec<TopicPartition>>>,
 }
 
 impl FakeAdmission {
@@ -152,51 +158,5 @@ impl Admission for FakeAdmission {
             .lock()
             .unwrap()
             .extend_from_slice(topic_partitions);
-    }
-}
-
-impl<A: Accounting> Accounting for Arc<A> {
-    fn charge(
-        &self,
-        topic_partition: &TopicPartition,
-        generation: u64,
-        charges: &[(Offset, Charge)],
-    ) -> Result<Held, Rejection> {
-        (**self).charge(topic_partition, generation, charges)
-    }
-
-    fn settled(
-        &self,
-        topic_partition: &TopicPartition,
-        generation: u64,
-        offsets: impl IntoIterator<Item = Offset>,
-    ) -> Result<Option<Offset>, Rejection> {
-        (**self).settled(topic_partition, generation, offsets)
-    }
-
-    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, HandedOut>> {
-        (**self).take_due(now)
-    }
-
-    fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>> {
-        (**self).take_all()
-    }
-
-    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        (**self).forget_partitions(topic_partitions)
-    }
-}
-
-impl<D: Admission> Admission for Arc<D> {
-    fn charged(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Pause> {
-        (**self).charged(topic_partition, uncommitted)
-    }
-
-    fn handed_out(&self, handed_out: &HashMap<TopicPartition, HandedOut>) -> Vec<TopicPartition> {
-        (**self).handed_out(handed_out)
-    }
-
-    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        (**self).forget_partitions(topic_partitions)
     }
 }
