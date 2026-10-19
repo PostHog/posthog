@@ -64,7 +64,7 @@ describe('usage-records-steps', () => {
                 properties: {},
                 ...event,
             },
-            headers,
+            headers: { historical_migration: false, ...headers },
             eventUsageBatch,
             ...personProcessing,
         })
