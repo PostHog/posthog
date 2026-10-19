@@ -100,6 +100,12 @@ class TestIncrementalEligibility(SimpleTestCase):
                 "is an aggregate",
             ),
             (
+                "unique_key_includes_an_alias_of_an_aggregate",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c, c + 1 AS revision FROM events GROUP BY day",
+                IncrementalConfig(incremental_key="day", unique_key=("day", "revision")),
+                "is an aggregate",
+            ),
+            (
                 "unique_key_misses_a_grouping_column",
                 "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
                 DAY_KEY,
@@ -576,6 +582,32 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 None,
             ),
             (
+                "cohort_filter",
+                GROUPED.replace(" GROUP BY", " WHERE person_id IN COHORT 1 GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "cohort_function_filter",
+                GROUPED.replace(" GROUP BY", " WHERE person_id IN cohort(1) GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "date_key_that_wraps_at_the_year",
+                "SELECT toDate(subtractYears(timestamp, toYear(timestamp) - 2000)) AS day, count() AS c "
+                "FROM events GROUP BY day",
+                {"day": "Date", "c": "UInt64"},
+                None,
+            ),
+            (
+                "date_key_that_wraps_inside_a_subquery",
+                "SELECT day, count() AS c FROM (SELECT toDate(subtractYears(timestamp, toYear(timestamp) - 2000)) "
+                "AS day FROM events) GROUP BY day",
+                {"day": "Date", "c": "UInt64"},
+                None,
+            ),
+            (
                 "array_join_over_a_subquery",
                 GROUPED.replace(" GROUP BY", " ARRAY JOIN (SELECT groupArray(event) FROM events) AS labels GROUP BY"),
                 {"day": "DateTime", "c": "UInt64"},
@@ -606,16 +638,37 @@ class TestProposeIncrementalConfig(SimpleTestCase):
     ) -> None:
         assert propose_incremental_config(query, column_types) == expected
 
-    def test_an_array_grouping_column_blocks_the_proposal(self) -> None:
-        proposed = propose_incremental_config(
-            "SELECT toStartOfDay(timestamp) AS day, [event] AS tags, count() AS c FROM events GROUP BY day, tags",
-            {"day": "DateTime", "tags": "Array(String)", "c": "UInt64"},
-            database=Database(),
-        )
+    @parameterized.expand(
+        [
+            (
+                "grouped_by_a_plain_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                DAILY_EVENT_TYPES,
+                DAY_EVENT_KEY,
+            ),
+            (
+                "grouped_by_an_array_column",
+                "SELECT toStartOfDay(timestamp) AS day, splitByChar(',', event) AS labels, count() AS c "
+                "FROM events GROUP BY day, labels",
+                {"day": "DateTime", "labels": "Array(String)", "c": "UInt64"},
+                None,
+            ),
+        ]
+    )
+    def test_proposals_against_the_resolved_schema(
+        self, _name: str, query: str, column_types: dict[str, str], expected: Optional[IncrementalConfig]
+    ) -> None:
+        assert propose_incremental_config(query, column_types, database=Database()) == expected
 
-        assert proposed is None
-
-    def test_a_moving_window_inside_a_view_the_query_reads_blocks_the_proposal(self) -> None:
+    @parameterized.expand(
+        [
+            ("moving_window", "SELECT timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY"),
+            ("cohort_filter", "SELECT timestamp FROM events WHERE person_id IN COHORT 1"),
+        ]
+    )
+    def test_a_data_dependent_filter_inside_a_view_the_query_reads_blocks_the_proposal(
+        self, _name: str, view_query: str
+    ) -> None:
         database = Database()
         database._add_views(
             TableNode(
@@ -625,7 +678,7 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                         table=SavedQuery(
                             id="last_week",
                             name="last_week",
-                            query="SELECT timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY",
+                            query=view_query,
                             fields={"timestamp": DateTimeDatabaseField(name="timestamp")},
                         ),
                     )

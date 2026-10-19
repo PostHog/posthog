@@ -66,6 +66,25 @@ NON_DETERMINISTIC_FUNCTIONS = {
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
 
+TIME_ORDER_PRESERVING_FUNCTIONS = {
+    "todate",
+    "todatetime",
+    "todatetime64",
+    "totimezone",
+    "tostartofminute",
+    "tostartoffiveminutes",
+    "tostartoftenminutes",
+    "tostartoffifteenminutes",
+    "tostartofhour",
+    "tostartofday",
+    "tostartofweek",
+    "tomonday",
+    "tostartofmonth",
+    "tostartofquarter",
+    "tostartofyear",
+    "tostartofinterval",
+}
+
 INCREMENTAL_KEY_FIELD = "incremental_key"
 UNIQUE_KEY_FIELD = "unique_key"
 
@@ -228,9 +247,9 @@ def propose_incremental_config(
         return None
     if not isinstance(node, ast.SelectQuery):
         return None
+    resolved_selects = _resolved_selects(node, database) or []
     if any(
-        _is_nondeterministic(select) or _reads_a_subquery_value(select)
-        for select in (node, *(_resolved_selects(node, database) or []))
+        _is_nondeterministic(select) or _reads_a_data_dependent_value(select) for select in (node, *resolved_selects)
     ):
         return None
     grouped_names = _grouped_output_names(node)
@@ -238,7 +257,7 @@ def propose_incremental_config(
         return None
     unique_key = sorted(set(grouped_names))
     time_keys = [name for name in unique_key if _is_time_type(column_types.get(name))]
-    if len(time_keys) != 1:
+    if len(time_keys) != 1 or not _advances_with_time((resolved_selects or [node])[0], time_keys[0]):
         return None
     config = IncrementalConfig(incremental_key=time_keys[0], unique_key=tuple(unique_key))
     result = check_incremental_eligibility(query, config, column_types=dict(column_types), database=database)
@@ -251,13 +270,29 @@ def _is_nondeterministic(node: ast.SelectQuery) -> bool:
     return bool(finder.found)
 
 
-def _reads_a_subquery_value(select: ast.SelectQuery) -> bool:
-    finder = _SubqueryValueFinder()
+def _reads_a_data_dependent_value(select: ast.SelectQuery) -> bool:
+    finder = _DataDependentValueFinder()
     for expression in _value_expressions(select):
         finder.visit(expression)
     return finder.found or any(
-        _reads_a_subquery_value(leaf) for source in _source_nodes(select) for leaf in _leaf_selects(source)
+        _reads_a_data_dependent_value(leaf) for source in _source_nodes(select) for leaf in _leaf_selects(source)
     )
+
+
+def _advances_with_time(select: ast.SelectQuery, column: str) -> bool:
+    expression = find_key_expression(select, column)
+    while isinstance(expression, ast.Alias) or (
+        isinstance(expression, ast.Call) and expression.name.lower() in TIME_ORDER_PRESERVING_FUNCTIONS
+    ):
+        if isinstance(expression, ast.Alias):
+            expression = expression.expr
+        else:
+            expression = expression.args[0] if expression.args else None
+    if not isinstance(expression, ast.Field):
+        return False
+    source_column = str(expression.chain[-1])
+    source = next((leaf for leaf in _source_selects(select) if source_column in _output_names(leaf)), None)
+    return source is None or _advances_with_time(source, source_column)
 
 
 def _value_expressions(select: ast.SelectQuery) -> list[ast.Expr]:
@@ -599,11 +634,8 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
         )
         return
 
-    aggregates = sorted(
-        column
-        for column in config.unique_key
-        if (expression := find_key_expression(select, column)) is not None and has_aggregation(expression)
-    )
+    aggregate_outputs = _aggregate_output_names(select)
+    aggregates = sorted(column for column in config.unique_key if column in aggregate_outputs)
     if aggregates:
         blockers.append(
             f"Unique key {'columns' if len(aggregates) > 1 else 'column'} {', '.join(aggregates)} "
@@ -620,6 +652,28 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
                 f"The unique key must include every GROUP BY column. Add {', '.join(uncovered)}, "
                 "or rows that differ only by those columns will overwrite each other."
             )
+
+
+def _aggregate_output_names(select: ast.SelectQuery) -> set[str]:
+    aggregates: set[str] = set()
+    found_more = True
+    while found_more:
+        found_more = False
+        for item in select.select:
+            name = _output_name(item)
+            if name is None or name in aggregates:
+                continue
+            expression = item.expr if isinstance(item, ast.Alias) else item
+            if has_aggregation(expression) or _referenced_names(expression) & aggregates:
+                aggregates.add(name)
+                found_more = True
+    return aggregates
+
+
+def _referenced_names(expression: ast.Expr) -> set[str]:
+    collector = _FieldNameCollector()
+    collector.visit(expression)
+    return collector.names
 
 
 def _check_unique_key_types(
@@ -789,7 +843,7 @@ def _check_determinism(node: ast.Expr, warnings: list[str]) -> None:
         )
 
 
-class _SubqueryValueFinder(TraversingVisitor):
+class _DataDependentValueFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.found = False
@@ -799,3 +853,23 @@ class _SubqueryValueFinder(TraversingVisitor):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         self.found = True
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+        super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name.lower() == "cohort":
+            self.found = True
+        super().visit_call(node)
+
+
+class _FieldNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain:
+            self.names.add(str(node.chain[-1]))
