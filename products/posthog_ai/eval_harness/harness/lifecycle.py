@@ -45,6 +45,7 @@ from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
+from .offline_delivery import OfflineEvalDelivery
 from .ports import DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
@@ -133,9 +134,9 @@ class SandboxedEvalHarness:
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
         self._posthog_client: Posthog | None = None
-        self._posthog_evaluation_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
-        # Read before asyncio.run so the git subprocesses never block the event loop.
+        self._offline_delivery: OfflineEvalDelivery | None = None
+        # Capture the revision before any eval starts so every result describes the same run.
         self._git_sha = _git("rev-parse", "HEAD")
         self._git_dirty = _worktree_dirty()
 
@@ -187,37 +188,53 @@ class SandboxedEvalHarness:
         started = time.monotonic()
         results: list[SuiteRunResult] | None = None
         interrupted = False
-        try:
-            reporter.setup_started("check configuration")
-            validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
-            if Infra.SANDBOX in required:
-                self.provider = build_provider(
-                    self.options.provider,
-                    keep_containers=self.options.keep_sandbox_containers,
-                    rebuild_image=self.options.rebuild_sandbox_image,
-                )
-                self._validate_agent_options()
-                self.provider.preflight()
-            if Infra.PERSONHOG in required:
-                reporter.setup_started("build personhog")
-                ensure_personhog_binaries()
-            reporter.setup_started("start shared services and prepare demo data")
-            self._bootstrap(required, reporter)
-            if self._dashboard:
-                self._dashboard.setup_finished()
-            results = asyncio.run(self._run_suites(suites, required, reporter))
-        except KeyboardInterrupt:
-            logger.warning("Interrupted, tearing down")
-            interrupted = True
-        finally:
+        self._offline_delivery = OfflineEvalDelivery(reporter)
+        with asyncio.Runner() as runner:
             try:
+                reporter.setup_started("check configuration")
+                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                if Infra.SANDBOX in required:
+                    self.provider = build_provider(
+                        self.options.provider,
+                        keep_containers=self.options.keep_sandbox_containers,
+                        rebuild_image=self.options.rebuild_sandbox_image,
+                    )
+                    self._validate_agent_options()
+                    self.provider.preflight()
+                if Infra.PERSONHOG in required:
+                    reporter.setup_started("build personhog")
+                    ensure_personhog_binaries()
+                reporter.setup_started("start shared services and prepare demo data")
+                self._bootstrap(required, reporter)
                 if self._dashboard:
-                    self._dashboard.set_stage("Cleaning up shared services")
-                self._stack.close()
+                    self._dashboard.setup_finished()
+                results = runner.run(self._run_suites(suites, required, reporter))
+            except KeyboardInterrupt:
+                logger.warning("Interrupted, tearing down")
+                interrupted = True
             finally:
-                atexit.unregister(stop_all_subprocesses)
-                if self.provider is not None:
-                    atexit.unregister(self.provider.cleanup)
+                try:
+                    if self._dashboard:
+                        self._dashboard.set_stage("Cleaning up shared services")
+                    try:
+                        runner.run(self._offline_delivery.pause())
+                    finally:
+                        self._stack.close()
+                except KeyboardInterrupt:
+                    interrupted = True
+                finally:
+                    atexit.unregister(stop_all_subprocesses)
+                    if self.provider is not None:
+                        atexit.unregister(self.provider.cleanup)
+                    try:
+                        runner.run(
+                            self._offline_delivery.cancel()
+                            if interrupted or results is None
+                            else self._offline_delivery.drain()
+                        )
+                    except KeyboardInterrupt:
+                        interrupted = True
+                        runner.run(self._offline_delivery.cancel())
 
         duration_seconds = time.monotonic() - started
         if interrupted:
@@ -324,11 +341,6 @@ class SandboxedEvalHarness:
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
 
-        # Each suite's no_send_logs setting controls result uploads to both services.
-        self._posthog_evaluation_client = get_client("US", disabled=False)
-        if self._posthog_evaluation_client is not None:
-            self._stack.callback(self._posthog_evaluation_client.shutdown)
-
         if Infra.DEMO_DATA in required:
             reporter.setup_started("prepare demo data")
             assert self._database is not None
@@ -413,6 +425,8 @@ class SandboxedEvalHarness:
                 )
             else:
                 logger.info("Running %d suite(s) without sandbox infrastructure", len(suites))
+            if self._offline_delivery is not None:
+                stack.push_async_callback(self._offline_delivery.pause)
             async with reporter.live_updates():
                 results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
         return results
@@ -441,7 +455,6 @@ class SandboxedEvalHarness:
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,
-            posthog_evaluation_client=self._posthog_evaluation_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
             team_setup_slots=asyncio.Semaphore(self.options.team_setup_concurrency),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
@@ -451,6 +464,9 @@ class SandboxedEvalHarness:
             trials=self.options.trials,
             git_sha=self._git_sha,
             git_dirty=self._git_dirty,
+            offline_delivery=self._offline_delivery,
+            posthog_trace_host="https://us.posthog.com",
+            posthog_trace_project_id=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
             infrastructure_retries=self.options.infrastructure_retries,
         )
 

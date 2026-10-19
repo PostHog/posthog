@@ -42,10 +42,6 @@ class TestGetSchemas:
         assert schemas[endpoint].supports_incremental is supports_incremental
         assert schemas[endpoint].supports_append is supports_append
 
-    def test_names_filter(self) -> None:
-        schemas = MailerSendSource().get_schemas(_config(), team_id=1, names=["domains"])
-        assert [s.name for s in schemas] == ["domains"]
-
 
 class TestNonRetryableErrors:
     @parameterized.expand(

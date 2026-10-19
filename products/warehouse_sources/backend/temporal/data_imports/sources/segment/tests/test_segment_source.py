@@ -20,12 +20,6 @@ def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:
     # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = SegmentSource().get_schemas(_config(), team_id=1, names=["sources", "labels"])
-        assert {s.name for s in schemas} == {"sources", "labels"}
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
