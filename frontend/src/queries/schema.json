@@ -39601,11 +39601,22 @@
             "description": "The value of one variable in a metrics query, set from the dashboard that shows the query.",
             "properties": {
                 "all": {
-                    "description": "True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`.",
+                    "description": "True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets every option of the variable.",
                     "type": "boolean"
                 },
                 "allValue": {
                     "type": ["string", "null"]
+                },
+                "definition": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MetricsDashboardVariable"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The definition of a variable set to All, so that a SQL query can load its options."
                 },
                 "values": {
                     "items": {

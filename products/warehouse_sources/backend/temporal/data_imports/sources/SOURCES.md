@@ -297,7 +297,7 @@ the row lists both.
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
 | docusign                         | HTTP                        | requests                                                        | ✅                          |
 | dodopayments                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| doit                             | HTTP                        | requests                                                        | ✅                          |
+| doit                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | donorbox                         | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1000,6 +1000,7 @@ doesn't conflict with concurrent PRs.
 - airbridge
 - airbyte
 - airops
+- airship
 - aiven
 - akamai_reporting
 - akeneo
@@ -1104,6 +1105,7 @@ doesn't conflict with concurrent PRs.
 - convonite
 - copper
 - couchbase
+- creem
 - crowdstrike_falcon
 - cube_cloud
 - curve
@@ -1265,6 +1267,7 @@ doesn't conflict with concurrent PRs.
 - lambda_labs
 - laravel_cloud
 - lawmatics
+- leantime
 - learnworlds
 - ledyer
 - lemon_squeezy
@@ -1485,6 +1488,7 @@ doesn't conflict with concurrent PRs.
 - ternary
 - tessitura
 - terra_api
+- testomat_io
 - thinkific_courses
 - thoughtspot
 - threads

@@ -4911,9 +4911,11 @@ export interface MetricsDashboardVariableSelection {
 export interface MetricsVariableValue {
     values: string[]
     /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the
-     * filter, and SQL gets `values`. */
+     * filter, and SQL gets every option of the variable. */
     all?: boolean
     allValue?: string | null
+    /** The definition of a variable set to All, so that a SQL query can load its options. */
+    definition?: MetricsDashboardVariable | null
 }
 
 /** A Grafana-style dashboard variable. Metrics tiles refer to it as `$name`, `${name}` or `${name:format}`. */

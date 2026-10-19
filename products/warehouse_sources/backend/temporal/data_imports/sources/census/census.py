@@ -3,9 +3,10 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.settings import (
-    CENSUS_ENDPOINTS,
+    CENSUS_API_V1,
     CENSUS_HOSTS,
     CensusEndpointConfig,
+    get_census_endpoints,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -26,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+UNSERVED_TABLE_ERROR = "Census table not served by this API version"
 
 
 @dataclasses.dataclass
@@ -77,15 +80,22 @@ def _probe(api_key: str, region: str, path: str, ok_statuses: tuple[int, ...]) -
     )
 
 
-def validate_credentials(api_key: str, region: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
+def validate_credentials(
+    api_key: str, region: str, api_version: str, schema_name: Optional[str] = None
+) -> tuple[bool, str | None]:
     # A missing scope on a workspace token would 403 rather than 401; accept that at source-create
     # (schema_name is None) since the user may only want to sync a subset of resources.
     ok_statuses = (200, 403) if schema_name is None else (200,)
-    ok, status = _probe(api_key, region, "/api/v1/syncs", ok_statuses)
+    ok, status = _probe(api_key, region, get_census_endpoints(api_version)["syncs"].path, ok_statuses)
     if ok:
         return True, None
     if status == 401:
-        return False, "Census rejected the API token. Generate a new workspace access token and reconnect."
+        if api_version == CENSUS_API_V1:
+            return False, "Census rejected the API token. Generate a new workspace access token and reconnect."
+        return (
+            False,
+            "Census rejected the API token. Generate a new Activations personal access token in Fivetran and reconnect.",
+        )
     if status == 403:
         return False, "Your Census API token does not have access to this resource."
     if status is None:
@@ -93,10 +103,13 @@ def validate_credentials(api_key: str, region: str, schema_name: Optional[str] =
     return False, f"Census API returned an unexpected status: {status}"
 
 
-def get_endpoint_permissions(api_key: str, region: str, endpoints: list[str]) -> dict[str, str | None]:
+def get_endpoint_permissions(
+    api_key: str, region: str, endpoints: list[str], api_version: str
+) -> dict[str, str | None]:
+    endpoint_configs = get_census_endpoints(api_version)
     permissions: dict[str, str | None] = dict.fromkeys(endpoints)
     for name in endpoints:
-        config = CENSUS_ENDPOINTS.get(name)
+        config = endpoint_configs.get(name)
         if config is None or config.permission_denied_reason is None:
             continue
         # Only a refusal means the token cannot read the table; a throttle, 5xx, or network
@@ -107,8 +120,8 @@ def get_endpoint_permissions(api_key: str, region: str, endpoints: list[str]) ->
     return permissions
 
 
-def get_resource(endpoint: str) -> EndpointResource:
-    config = CENSUS_ENDPOINTS[endpoint]
+def get_resource(endpoint: str, api_version: str) -> EndpointResource:
+    config = get_census_endpoints(api_version)[endpoint]
     if config.fanout:
         raise ValueError(f"Fan-out endpoint '{endpoint}' must use the fan-out path")
 
@@ -157,8 +170,12 @@ def census_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CensusResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
-    endpoint_config = CENSUS_ENDPOINTS[endpoint]
+    endpoint_configs = get_census_endpoints(api_version)
+    if endpoint not in endpoint_configs:
+        raise ValueError(f"{UNSERVED_TABLE_ERROR}: Census API {api_version} has no '{endpoint}' table")
+    endpoint_config = endpoint_configs[endpoint]
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
@@ -173,7 +190,7 @@ def census_source(
 
     if endpoint_config.fanout:
         dependent_resource = build_dependent_resource(
-            endpoint_configs=cast(Any, CENSUS_ENDPOINTS),
+            endpoint_configs=cast(Any, endpoint_configs),
             child_endpoint=endpoint,
             fanout=endpoint_config.fanout,
             client_config=_client_config(api_key, region),
@@ -199,7 +216,7 @@ def census_source(
     config: RESTAPIConfig = {
         "client": _client_config(api_key, region),
         "resource_defaults": {"write_disposition": "replace"},
-        "resources": [get_resource(endpoint=endpoint)],
+        "resources": [get_resource(endpoint=endpoint, api_version=api_version)],
     }
 
     resource = rest_api_resource(
