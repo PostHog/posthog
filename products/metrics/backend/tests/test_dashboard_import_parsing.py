@@ -629,6 +629,35 @@ def test_only_the_first_variables_stay_live() -> None:
     assert len(TemplateVariables.from_templating(items).definitions()) == 50
 
 
+@pytest.mark.parametrize(
+    "items",
+    [
+        pytest.param(
+            [{"name": "job", "type": "query", "query": 'label_values(up{job="$job"}, job)', "current": {"value": "a"}}],
+            id="self_reference",
+        ),
+        pytest.param(
+            [
+                {"name": "a", "type": "query", "query": 'label_values(up{b="$b"}, a)', "current": {"value": "x"}},
+                {"name": "b", "type": "query", "query": 'label_values(up{a="$a"}, b)', "current": {"value": "y"}},
+            ],
+            id="two_variable_loop",
+        ),
+    ],
+)
+def test_variables_in_a_loop_stay_static(items: list[dict[str, Any]]) -> None:
+    parent = items[0]
+    query = f'label_values(up{{job="${parent["name"]}"}}, pod)'
+    pod = {"name": "pod", "type": "query", "query": query, "current": {"value": "p"}}
+
+    definitions = TemplateVariables.from_templating([*items, pod]).definitions()
+
+    saved = parent["current"]["value"]
+    assert [(definition.name, definition.query) for definition in definitions] == [
+        ("pod", f'label_values(up{{job="{saved}"}}, pod)')
+    ]
+
+
 def test_a_long_chain_of_unresolvable_variables_stays_static() -> None:
     chain = [
         {"name": f"v{index}", "type": "query", "query": f'label_values(up{{x="$v{index + 1}"}}, y)'}
