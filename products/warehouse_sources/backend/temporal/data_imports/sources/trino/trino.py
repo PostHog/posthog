@@ -102,6 +102,13 @@ TRINO_COLUMN_NOT_FOUND_ERROR = (
 # by the time it reaches us the worker has likely crashed or is overloaded — a vendor-side blip a
 # fresh query normally clears, not a PostHog or customer problem.
 TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
+# The coordinator's own fixed wording when a later page fetch names a query ID it no longer holds —
+# the query already finished and was purged, a coordinator restart/failover dropped its in-memory
+# state, or a load balancer sent the follow-up request to a coordinator that never saw the query.
+# `trino.dbapi.Cursor.fetchone()` wraps the driver's `HttpError` for this response into an
+# `OperationalError`. A fresh query on the next sync attempt gets a new query ID, so this clears on
+# its own — not a PostHog or customer problem.
+TRINO_QUERY_NOT_FOUND_ERROR = "Query not found"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
