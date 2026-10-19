@@ -388,6 +388,8 @@
       'geohashDecode',
       'geohashEncode',
       'geohashesInBox',
+      'globalIn',
+      'globalNotIn',
       'greatCircleAngle',
       'greatCircleDistance',
       'h3CellAreaM2',
