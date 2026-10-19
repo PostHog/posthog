@@ -1713,7 +1713,9 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             ),
             patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
         ):
-            resp = self.client.post(f"{self.scanners_url}draft/", data={"goal": goal}, format="json")
+            resp = self.client.post(
+                f"{self.scanners_url}draft/", data={"goal": goal, "monthly_credit_budget": 5000}, format="json"
+            )
 
         self.assertEqual(resp.status_code, expected_status, resp.json())
         drafted_events = [call for call in report.call_args_list if call.args[1] == "replay_vision_scanner_drafted"]
