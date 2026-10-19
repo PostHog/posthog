@@ -53,6 +53,12 @@ The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
 
+GitHub credentials that require user action fail the run without retrying. Fresh runs and resumed sandboxes preserve the actionable error, and Temporal does not report these expected failures to error tracking.
+
+Sandbox GitHub tokens are scoped to the repositories requested by the run. When GitHub rejects a repository scope, the run refreshes installation access and resolves renamed repositories by their GitHub ID. Public repositories outside the installation can be cloned anonymously; private or missing repositories require the user to check repository access. Public-only access results are cached for five minutes before checking again. GitHub outages and connection failures remain retryable, including failures during token refresh.
+
+Without an authenticated GitHub token, the agent can still read public repositories and repository files already in its workspace. It asks the user to connect GitHub when the work requires unavailable private repository or publishing access.
+
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.

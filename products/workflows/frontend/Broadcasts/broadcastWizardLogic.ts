@@ -2353,9 +2353,10 @@ export function buildBroadcastPayload(values: {
     broadcast?: HogFlowApi | null
 }): Record<string, any> {
     const existing = values.broadcast
-    if (existing && existing.origin_product !== 'broadcasts') {
-        // A workflow shaped like a broadcast keeps its own steps: its ids, names and any setting the
-        // wizard does not manage survive, and origin_product stays as it was created.
+    if (existing) {
+        // A saved broadcast keeps its own steps: its ids, names and any setting the wizard does not manage
+        // survive, such as step conditions or a test-account exclusion on a workflow moved to broadcasts.
+        // origin_product and the exit condition stay as they were.
         return {
             name: values.name,
             conversion: values.goalEnabled ? values.conversion : null,
