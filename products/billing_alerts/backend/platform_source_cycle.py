@@ -43,8 +43,10 @@ from products.alerts_platform.backend.facade.lifecycle import (
     decide_firing_episode,
     evaluate_alert_check,
 )
+from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
+    increment_checks_deferred,
     increment_checks_skipped,
     increment_state_transition,
     record_scheduler_lag,
@@ -63,10 +65,6 @@ SOURCE = SourceKind.BILLING.value
 
 FETCH_FAILED = "Billing alert data fetch failed."
 
-# Outcomes per batch, so one activity's result stays far under Temporal's ~2 MiB payload limit. The
-# rest stay due in the same slot, and the next tick evaluates them once these are recorded.
-MAX_CHECKS_PER_BATCH = 500
-
 
 @frozen
 class _BillingStatus:
@@ -81,15 +79,6 @@ def evaluate_billing_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
     checks = due_checks(team_id, SOURCE, slot, cutoff)
     if not checks:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
-    omitted = max(0, len(checks) - MAX_CHECKS_PER_BATCH)
-    if omitted:
-        logger.warning(
-            "Platform billing batch holds more checks than one evaluation returns; the rest stay due",
-            team_id=team_id,
-            due=len(checks),
-            evaluated=MAX_CHECKS_PER_BATCH,
-        )
-        checks = checks[:MAX_CHECKS_PER_BATCH]
     legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
     # Scoped to the batch's team and its organization, so a copy can only read an alert it belongs to.
     alerts = {
@@ -117,7 +106,42 @@ def evaluate_billing_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
         )
         for check in checks
     )
-    return SourceBatchEvaluation(outcomes=outcomes, deliveries=(), omitted=omitted)
+    return _within_payload_bound(outcomes, team_id)
+
+
+def _within_payload_bound(outcomes: tuple[PlatformAlertOutcome, ...], team_id: int) -> SourceBatchEvaluation:
+    """The outcomes that fit the platform's batch payload bound. A check left out keeps its due time,
+    so a later tick evaluates it again. Billing fetches once per organization, so evaluating the
+    whole batch before trimming costs no extra billing call."""
+    kept: list[PlatformAlertOutcome] = []
+    spent = 0
+    for outcome in outcomes:
+        size = payload_bytes(outcome)
+        if size > MAX_BATCH_PAYLOAD_BYTES:
+            # It never fits, so it would stay due forever without anyone seeing why.
+            logger.error(
+                "Billing alert outcome exceeds the whole batch payload budget",
+                team_id=team_id,
+                configuration_id=str(outcome.configuration_id),
+                size_bytes=size,
+                budget_bytes=MAX_BATCH_PAYLOAD_BYTES,
+            )
+        if spent + size > MAX_BATCH_PAYLOAD_BYTES:
+            # Skip rather than stop, so one oversized outcome cannot hold back every check after it.
+            continue
+        spent += size
+        kept.append(outcome)
+    deferred = len(outcomes) - len(kept)
+    if deferred:
+        logger.warning(
+            "Deferred billing alert checks over the batch payload byte budget",
+            team_id=team_id,
+            recorded=len(kept),
+            deferred=deferred,
+            budget_bytes=MAX_BATCH_PAYLOAD_BYTES,
+        )
+        safe_record(increment_checks_deferred, SOURCE, deferred)
+    return SourceBatchEvaluation(outcomes=tuple(kept), deliveries=(), omitted=deferred)
 
 
 def _decide(
@@ -245,9 +269,8 @@ def _recorded(
     safe_record(increment_checks, SOURCE, notification.value)
     if skip is not None:
         safe_record(increment_checks_skipped, SOURCE, skip.value)
-    previous_state = check.instance().state
-    if previous_state != outcome.new_state.value:
-        safe_record(increment_state_transition, SOURCE, previous_state, outcome.new_state.value)
+    if snapshot.state != outcome.new_state:
+        safe_record(increment_state_transition, SOURCE, snapshot.state.value, outcome.new_state.value)
     failed = skip == SkipReason.QUERY_FAILED
     return PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,

@@ -85,12 +85,8 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(_billing_response(150))
 
         (outcome,) = evaluation.outcomes
-        assert (
-            _decided(outcome).kind,
-            _decided(outcome).new_state,
-            outcome.groups[0].value,
-            outcome.evaluation_key,
-        ) == (
+        (group,) = outcome.groups
+        assert (group.kind, group.new_state, group.value, outcome.evaluation_key) == (
             AlertEventKind.FIRING,
             "firing",
             150.0,
@@ -123,7 +119,8 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(response)
 
         (outcome,) = evaluation.outcomes
-        assert (_decided(outcome).kind, _decided(outcome).new_state, outcome.consecutive_failures, outcome.disable) == (
+        decided = _decided(outcome)
+        assert (decided.kind, decided.new_state, outcome.consecutive_failures, outcome.disable) == (
             AlertEventKind.CHECK,
             "firing",
             0,
@@ -154,7 +151,8 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(_billing_response(150))
 
         (outcome,) = evaluation.outcomes
-        assert (_decided(outcome).kind, _decided(outcome).muted_notification) == (AlertEventKind.FIRING, "")
+        (group,) = outcome.groups
+        assert (group.kind, group.muted_notification) == (AlertEventKind.FIRING, "")
 
     def test_a_snooze_set_on_the_billing_alert_holds_the_fire(self) -> None:
         self._copy(self._alert(snoozed_until=CUTOFF + timedelta(hours=2)))
@@ -162,7 +160,8 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, _ = self._evaluate(_billing_response(150))
 
         (outcome,) = evaluation.outcomes
-        assert (_decided(outcome).kind, _decided(outcome).muted_notification) == (AlertEventKind.CHECK, "fire")
+        (group,) = outcome.groups
+        assert (group.kind, group.muted_notification) == (AlertEventKind.CHECK, "fire")
 
     def test_one_billing_call_serves_every_alert_of_an_organization_in_a_batch(self) -> None:
         self._copy(self._alert(name="First"))
@@ -171,7 +170,7 @@ class TestPlatformBillingEvaluation(BaseTest):
         evaluation, fetch = self._evaluate(_billing_response(150))
 
         assert fetch.call_count == 1
-        assert [_decided(o).kind for o in evaluation.outcomes] == [AlertEventKind.FIRING, AlertEventKind.FIRING]
+        assert [o.groups[0].kind for o in evaluation.outcomes] == [AlertEventKind.FIRING, AlertEventKind.FIRING]
 
     @parameterized.expand([("gone", None, True), ("disabled", {"enabled": False}, False)])
     def test_a_copy_of_an_alert_that_cannot_run_skips_without_a_billing_call(
@@ -183,18 +182,23 @@ class TestPlatformBillingEvaluation(BaseTest):
 
         fetch.assert_not_called()
         (outcome,) = evaluation.outcomes
-        assert (_decided(outcome).kind, outcome.disable) == (AlertEventKind.CHECK, disables_the_copy)
+        (group,) = outcome.groups
+        assert (group.kind, outcome.disable) == (AlertEventKind.CHECK, disables_the_copy)
 
-    def test_a_batch_past_the_cap_evaluates_the_cap_and_leaves_the_rest_due(self) -> None:
-        configuration_ids = [self._copy(self._alert(name=f"Cap {n}")) for n in range(3)]
+    def test_checks_past_the_payload_bound_are_left_due(self) -> None:
+        configuration_ids = [self._copy(self._alert(name=f"Bound {n}")) for n in range(3)]
 
-        with patch(f"{_MODULE}.MAX_CHECKS_PER_BATCH", 2):
+        # The first outcome alone overruns a 25-byte budget; the two after it fit.
+        with (
+            patch(f"{_MODULE}.payload_bytes", side_effect=[30, 10, 10]),
+            patch(f"{_MODULE}.MAX_BATCH_PAYLOAD_BYTES", 25),
+        ):
             evaluation, _ = self._evaluate(_billing_response(150))
         with team_scope(self.team.id):
             record_outcomes(self.team.id, evaluation.outcomes, CUTOFF)
             still_due = count_still_due(configuration_ids, at=CUTOFF)
 
-        assert (len(evaluation.outcomes), still_due) == (2, 1)
+        assert (len(evaluation.outcomes), evaluation.omitted, still_due) == (2, 1, 1)
 
 
 def test_the_binding_holds_the_whole_batch() -> None:
