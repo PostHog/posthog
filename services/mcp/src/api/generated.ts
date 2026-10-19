@@ -52808,6 +52808,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other
+     */
+    export type FeedDismissalReasonEnum = typeof FeedDismissalReasonEnum[keyof typeof FeedDismissalReasonEnum];
+
+
+    export const FeedDismissalReasonEnum = {
+      NotARealProblem: 'not_a_real_problem',
+      AlreadyKnown: 'already_known',
+      NotMyArea: 'not_my_area',
+      Other: 'other',
+    } as const;
+
+    /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
     export type FieldNoteElementContext = { [key: string]: unknown };
@@ -64129,6 +64145,8 @@ export namespace Schemas {
       type: LogsAlertDestinationTypeEnum;
       /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
+      /** Whether any HogFunction in the group sends something other than the stock message, such as an edited body, headers, method or code. A customized destination sends exactly what its HogFunctions build. */
+      message_customized: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
@@ -69289,6 +69307,19 @@ export namespace Schemas {
       exported_asset_id?: string | null;
       /** @nullable */
       event_definition_id?: string | null;
+    }
+
+    /**
+     * Why the calling user marked an observation not useful in What to watch.
+     */
+    export interface ObservationFeedDismissal {
+      /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+       *
+       * * `not_a_real_problem` - Not a real problem
+       * * `already_known` - Already known
+       * * `not_my_area` - Not my area
+       * * `other` - Other */
+      reason?: FeedDismissalReasonEnum | null;
     }
 
     export interface ObservationLabelDayCount {
