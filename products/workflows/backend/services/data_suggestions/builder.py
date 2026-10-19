@@ -8,7 +8,7 @@ from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.api import EmailTemplateContent
 from products.workflows.backend.facade.contracts import MissingInput
-from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email, with_variables
+from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
     Channel,
@@ -41,7 +41,6 @@ class BuildContext:
     sender: EmailSender | None
     slack_integration_id: int | None
     once_per_person: bool = False
-    event_properties: frozenset[str] = frozenset()
 
 
 @frozen
@@ -79,11 +78,8 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     links: dict[str, list[_Link]] = {}
     for step in steps:
         step_links = _links(step)
-        unknown = [
-            link.target for link in step_links or [] if link.target is not None and link.target not in steps_by_id
-        ]
-        if step_links is None or unknown:
-            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type, targets=unknown)
+        if step_links is None or any(link.target is not None and link.target not in steps_by_id for link in step_links):
+            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type)
             return None
         links[step.id] = step_links
     if not _is_acyclic_and_connected(plan.first_step, links):
@@ -327,12 +323,10 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
                 subject=clean_copy(step.email_subject),
                 heading=clean_copy(step.email_heading),
                 paragraphs=tuple(clean_copy(paragraph) for paragraph in step.email_paragraphs[:3]),
-                variables=context.event_properties,
             )
         )
         body = {"subject": rendered.subject, "html": rendered.html, "text": rendered.text, "design": rendered.design}
-        # The step name is cut to fit the canvas, so it takes the fallback words rather than a Liquid tag.
-        name = with_variables(clean_copy(step.email_subject), frozenset())
+        name = rendered.subject
 
     sender = context.sender
     return {

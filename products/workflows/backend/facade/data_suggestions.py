@@ -1,14 +1,11 @@
 """Workflow ideas written by AI from a project's own events, and building one into a draft workflow."""
 
-from collections.abc import Callable
-from typing import Any
-
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSuggestionsResult
 from products.workflows.backend.services.data_suggestions import service
-from products.workflows.backend.services.data_suggestions.premade import accept_premade_idea, waiting_premade_count
+from products.workflows.backend.services.data_suggestions.premade import waiting_premade_count
 from products.workflows.backend.services.data_suggestions.service import (
     FEATURE_FLAG_KEY,
     build_caller,
@@ -26,7 +23,6 @@ from products.workflows.backend.tasks.data_suggestions import build_data_suggest
 
 __all__ = [
     "FEATURE_FLAG_KEY",
-    "accept_premade_idea",
     "build_caller",
     "count_waiting_data_suggestions",
     "data_suggestions_acting_user",
@@ -52,18 +48,10 @@ def start_data_suggestions(*, team: Team, user: User, refresh: bool) -> DataSugg
 
 
 def start_build(
-    *,
-    team: Team,
-    user: User,
-    suggestion_id: str,
-    retry: bool,
-    save: bool,
-    event_source: EventSource,
-    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    *, team: Team, user: User, suggestion_id: str, retry: bool, save: bool, event_source: EventSource
 ) -> BuiltSuggestion:
     return service.start_build(
         team=team,
-        validate_draft=validate_draft,
         suggestion_id=suggestion_id,
         caller=build_caller(event_source.value, save=save, user_id=user.id),
         retry=retry,

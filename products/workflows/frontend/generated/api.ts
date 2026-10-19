@@ -14,7 +14,6 @@ import type {
     BlastRadiusApi,
     BlastRadiusRequestApi,
     BroadcastConversionCandidatesApi,
-    DataSuggestionAcceptRequestApi,
     DataSuggestionBuildRequestApi,
     DataSuggestionBuildResponseApi,
     DataSuggestionGenerateRequestApi,
@@ -1411,26 +1410,6 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
-    })
-}
-
-export const getWorkflowDataSuggestionsAcceptUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/workflow_data_suggestions/accept/`
-}
-
-/**
- * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
- */
-export const workflowDataSuggestionsAccept = async (
-    projectId: string,
-    dataSuggestionAcceptRequestApi: DataSuggestionAcceptRequestApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWorkflowDataSuggestionsAcceptUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataSuggestionAcceptRequestApi),
     })
 }
 

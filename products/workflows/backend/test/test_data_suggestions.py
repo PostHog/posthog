@@ -289,12 +289,6 @@ class TestDataSuggestions(SimpleTestCase):
                 lambda inputs: inputs["text"]["value"],
                 "{person",
             ),
-            (
-                "a placeholder for a property the trigger event does not carry",
-                step(email_paragraphs=["You left [[secret|an item]] behind"]),
-                lambda inputs: inputs["email"]["value"]["html"],
-                "secret",
-            ),
         ]
     )
     def test_build_workflow_strips_template_tags_from_model_copy(
@@ -305,32 +299,6 @@ class TestDataSuggestions(SimpleTestCase):
         copy = copy_of(built.workflow["actions"][1]["config"]["inputs"])
         assert leftover not in copy
         assert "{%" not in copy
-
-    def test_build_workflow_shows_trigger_event_properties_through_liquid(self) -> None:
-        planned = step(
-            email_subject="You left [[product_name|something]] behind",
-            email_paragraphs=[
-                "Your [[product_name|items]] cost [[price|less than you think]].",
-                "Pick [[product_name|your team's choice]] or [[price|Tom's deal]].",
-            ],
-        )
-
-        built = build_workflow(IDEA, plan(planned), context(event_properties=frozenset({"product_name"})))
-
-        assert built is not None
-        email = built.workflow["actions"][1]
-        assert email["config"]["inputs"]["email"]["value"]["subject"] == (
-            "You left {{ event.properties.product_name | default: 'something' }} behind"
-        )
-        assert (
-            "Your {{ event.properties.product_name | default: 'items' }} cost less than you think."
-            in (email["config"]["inputs"]["email"]["value"]["html"])
-        )
-        assert (
-            "Pick {{ event.properties.product_name | default: 'your teams choice' }} or Toms deal."
-            in (email["config"]["inputs"]["email"]["value"]["html"])
-        )
-        assert email["name"] == "You left something behind"
 
     @parameterized.expand(
         [
@@ -398,30 +366,18 @@ class TestDataSuggestions(SimpleTestCase):
                 "e2": ChoiceAnswer(choice="signup", confidence=0.6, probabilities={"signup": 0.6}),
                 "e3": ChoiceAnswer(choice="failure", confidence=0.6, probabilities={"failure": 0.6}),
                 "e4": ChoiceAnswer(choice="signup", confidence=0.9, probabilities={"signup": 0.9}),
-                "e5": ChoiceAnswer(choice="signup", confidence=0.1, probabilities={"signup": 0.1}),
-                "e6": ChoiceAnswer(choice="churn_risk", confidence=0.3, probabilities={"churn_risk": 0.3}),
             },
             input_tokens=10,
         )
         assert classify_event_stages(
             team_id=1,
-            event_names=[
-                "account_created",
-                "thing_happened",
-                "summary_generated",
-                "upload_failed",
-                "query executed",
-                "workspace created",
-                "subscription paused",
-            ],
+            event_names=["account_created", "thing_happened", "summary_generated", "upload_failed", "query executed"],
         ) == {
             "account_created": "signup",
             "thing_happened": "other",
             "summary_generated": "other",
             "upload_failed": "failure",
             "query executed": "other",
-            "workspace created": "signup",
-            "subscription paused": "churn_risk",
         }
 
     @parameterized.expand([("jev is not configured", True), ("jev does not answer", False)])

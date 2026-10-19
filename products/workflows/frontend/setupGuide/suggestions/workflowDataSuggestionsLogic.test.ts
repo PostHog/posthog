@@ -90,47 +90,42 @@ describe('workflowDataSuggestionsLogic', () => {
         ['empty_state', false, false],
         ['onboarding_wizard', true, false],
         ['empty_state', false, true],
-    ] as const)(
-        'opens the saved draft after a successful build on the %s (wizard finished: %s, premade: %s)',
-        async (surface, finishesWizard, premade) => {
-            const capture = jest.spyOn(posthog, 'capture')
-            jest.mocked(workflowDataSuggestionsBuild).mockResolvedValue({
-                status: 'ready',
-                workflow: { name: 'Welcome new users' },
-                uses_saved_template: false,
-                workflow_id: premade ? 'workflow-1' : null,
-                missing_inputs: [],
-            })
-            jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
-            if (finishesWizard) {
-                workflowsOnboardingWizardLogic.mount()
-            }
-            const logic = workflowDataSuggestionsLogic({ surface })
-            logic.mount()
-
-            await logic.asyncActions.startSuggestion({ ...card, premade })
-
-            expect(jest.mocked(workflowDataSuggestionsBuild).mock.calls.map(([, body]) => body)).toEqual([
-                premade
-                    ? { suggestion_id: 'suggestion-1', save_draft: true }
-                    : { suggestion_id: 'suggestion-1', retry: true },
-            ])
-            expect(jest.mocked(hogFlowsCreate).mock.calls.map(([, body]) => body)).toEqual(
-                premade ? [] : [expect.objectContaining({ name: 'Welcome new users', status: 'draft' })]
-            )
-            expect(router.values.location.pathname).toContain('workflow-1')
-            expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
-            expect(logic.values.buildingKey).toBeNull()
-            const wizardFinished = capture.mock.calls.filter(
-                ([event]) => event === 'workflows onboarding wizard finished'
-            )
-            expect(wizardFinished).toEqual(
-                finishesWizard
-                    ? [['workflows onboarding wizard finished', { path: 'messaging', template_id: 'data_suggestion' }]]
-                    : []
-            )
+    ] as const)('opens the saved draft on the %s, wizard %s, premade %s', async (surface, finishesWizard, premade) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        jest.mocked(workflowDataSuggestionsBuild).mockResolvedValue({
+            status: 'ready',
+            workflow: { name: 'Welcome new users' },
+            uses_saved_template: false,
+            workflow_id: premade ? 'workflow-1' : null,
+            missing_inputs: [],
+        })
+        jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
+        if (finishesWizard) {
+            workflowsOnboardingWizardLogic.mount()
         }
-    )
+        const logic = workflowDataSuggestionsLogic({ surface })
+        logic.mount()
+
+        await logic.asyncActions.startSuggestion({ ...card, premade })
+
+        expect(jest.mocked(workflowDataSuggestionsBuild).mock.calls.map(([, body]) => body)).toEqual([
+            premade
+                ? { suggestion_id: 'suggestion-1', save_draft: true }
+                : { suggestion_id: 'suggestion-1', retry: true },
+        ])
+        expect(jest.mocked(hogFlowsCreate).mock.calls.map(([, body]) => body)).toEqual(
+            premade ? [] : [expect.objectContaining({ name: 'Welcome new users', status: 'draft' })]
+        )
+        expect(router.values.location.pathname).toContain('workflow-1')
+        expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
+        expect(logic.values.buildingKey).toBeNull()
+        const wizardFinished = capture.mock.calls.filter(([event]) => event === 'workflows onboarding wizard finished')
+        expect(wizardFinished).toEqual(
+            finishesWizard
+                ? [['workflows onboarding wizard finished', { path: 'messaging', template_id: 'data_suggestion' }]]
+                : []
+        )
+    })
 
     it.each([
         ['saves the draft once the background build is ready', false, 1],

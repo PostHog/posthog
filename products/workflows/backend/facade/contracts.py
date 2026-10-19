@@ -830,16 +830,8 @@ class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
 
 
-class WorkflowIdeaNotFound(Exception):
-    pass
-
-
 class WorkflowIdeaAlreadyResolved(Exception):
-    pass
-
-
-class WorkflowIdeaWorkflowMismatch(Exception):
-    """The workflow is not an unclaimed draft in the idea's project that the person may edit."""
+    """The premade idea was already used."""
 
 
 class EmailDraftSourceNotFound(Exception):

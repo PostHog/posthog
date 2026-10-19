@@ -2243,13 +2243,6 @@ export interface BlastRadiusApi {
     realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
 }
 
-export interface DataSuggestionAcceptRequestApi {
-    /** The id of a premade suggestion the draft was created from. */
-    suggestion_id: string
-    /** The draft workflow created from the suggestion's built workflow. It must still be a draft in this project and not linked to another suggestion. */
-    hog_flow_id: string
-}
-
 export interface DataSuggestionBuildRequestApi {
     /** The id of a suggestion from the list endpoint. */
     suggestion_id: string
@@ -2395,7 +2388,7 @@ export interface DataSuggestionApi {
     stage: DataSuggestionStageEnumApi
     /** The main planned step kinds after the trigger, in order. */
     step_outline: DataSuggestionStepKindEnumApi[]
-    /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Building it returns the stored workflow at once. After saving the draft, send it to accept so the suggestion is not offered again. */
+    /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it with save_draft to save the draft and stop offering the suggestion. */
     premade: boolean
 }
 

@@ -32,7 +32,6 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestionsResult,
     MissingInput,
     PreparedIdeas,
-    WorkflowIdeaNotFound,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions import team_context
@@ -53,12 +52,13 @@ from products.workflows.backend.services.data_suggestions.planner import (
     suggest_ideas,
 )
 from products.workflows.backend.services.data_suggestions.premade import (
-    accept_premade_idea,
+    is_premade_idea,
     lock_premade_idea,
-    premade_build,
+    mark_accepted,
     premade_card,
     premade_suggestions,
     store_premade_ideas,
+    with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
     pick_one_per_stage,
@@ -84,7 +84,6 @@ FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
-_PLAN_ATTEMPTS = 2
 MAX_SUGGESTIONS = 3
 _PROMPT_EVENTS_LIMIT = 60
 _GENERATION_ERRORS = (
@@ -221,13 +220,7 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
 
 
 def start_build(
-    *,
-    team: Team,
-    suggestion_id: str,
-    caller: str,
-    retry: bool,
-    enqueue: Callable[[str], None],
-    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    *, team: Team, suggestion_id: str, caller: str, retry: bool, enqueue: Callable[[str], None]
 ) -> BuiltSuggestion:
     """The built draft, or a background build through `enqueue`. Ask again while the status is building.
 
@@ -235,12 +228,6 @@ def start_build(
 
     A failed result stays until `retry` asks for a new build, so every tab that polls the build reads the failure.
     """
-    premade = premade_build(team, suggestion_id)
-    if premade is not None and premade.workflow is not None:
-        # The idea was checked with the editor's rules when it was prepared, and an API caller's rules are stricter.
-        if validate_draft(team, premade.workflow) is None:
-            return _BUILD_FAILED
-        return dataclasses.replace(premade, missing_inputs=_missing_inputs(team, premade.workflow))
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
     stored = _current_build(team, suggestion_id, caller)
@@ -274,19 +261,22 @@ def save_premade_draft(
     """Saves a premade idea's workflow as a draft and marks the idea accepted, or returns None when the id is not a
     premade idea. The idea row stays locked until both writes commit, so a second call cannot save a second draft."""
     with transaction.atomic():
-        try:
-            row = lock_premade_idea(team.id, idea_id)
-        except WorkflowIdeaNotFound:
+        row = lock_premade_idea(team.id, idea_id)
+        if row is None:
             return None
-        built = premade_build(team, idea_id)
-        if built is None or built.workflow is None:
-            return None
-        validated = validate_draft(team, built.workflow)
+        workflow = with_sender(row.definition, team_context.email_sender(team))
+        validated = validate_draft(team, workflow)
         if validated is None:
             return _BUILD_FAILED
         workflow_id = save_draft(team, user, validated)
-        accept_premade_idea(team=team, idea_id=idea_id, hog_flow_id=workflow_id, user=user, access=None)
-    result = dataclasses.replace(built, workflow_id=workflow_id, missing_inputs=_missing_inputs(team, built.workflow))
+        mark_accepted(row, hog_flow_id=workflow_id, user=user)
+    result = BuiltSuggestion(
+        status="ready",
+        workflow=workflow,
+        uses_saved_template=bool(row.evidence.get("uses_saved_template")),
+        workflow_id=workflow_id,
+        missing_inputs=_missing_inputs(team, workflow),
+    )
     # The web page sends this event itself, with the surface the card was on.
     if not caller.startswith(f"{EventSource.WEB.value}:"):
         _capture_saved_build(user=user, suggestion=premade_card(row), result=result, caller=caller)
@@ -302,7 +292,7 @@ def build_caller(event_source: str, *, save: bool, user_id: int) -> str:
 
 def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
-    if premade_build(team, suggestion_id) is not None:
+    if is_premade_idea(team.id, suggestion_id):
         return False
     stored = _current_build(team, suggestion_id, caller)
     reusable = stored is not None and not (retry and stored.status == "failed")
@@ -358,7 +348,6 @@ def prepare_premade_ideas(
     team: Team,
     user: User,
     validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
-    replace: bool,
 ) -> PreparedIdeas:
     """Generates the cards and builds each one now, then stores them as premade ideas. Nothing is cached, so the
     project's own generation runs are not affected."""
@@ -381,7 +370,7 @@ def prepare_premade_ideas(
             build = _BUILD_FAILED
         if build.status == "ready":
             built.append((suggestion, build))
-    stored = store_premade_ideas(team=team, built=built, replace=replace, source_ref="prepare_workflow_ideas")
+    stored = store_premade_ideas(team=team, built=built)
     return PreparedIdeas(status="ready", stored=stored, failed_builds=len(result.suggestions) - len(built))
 
 
@@ -404,44 +393,36 @@ def _plan_and_build(
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
     channels = team_context.channels(team)
-    event_properties = team_context.event_property_names(team, suggestion.trigger_event)
-    context = BuildContext(
-        allowed_events=frozenset({suggestion.trigger_event, *events}),
-        step_template_ids=frozenset(template.template_id for template in step_templates),
-        channels=channels,
-        email_templates={},
-        sender=team_context.email_sender(team),
-        slack_integration_id=slack_integration_id,
-        once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
-        event_properties=frozenset(event_properties),
-    )
-    built = None
-    # The model now and then links a step to an id it never wrote. A second plan almost always holds up.
-    for _ in range(_PLAN_ATTEMPTS):
-        with _analytics_client() as analytics_client:
-            plan = plan_steps(
-                team=team,
-                user=user,
-                context=StepsContext(
-                    idea=idea,
-                    email_templates=email_templates,
-                    step_templates=step_templates,
-                    events=events,
-                    channels=channels,
-                    has_slack=slack_integration_id is not None,
-                    event_properties=event_properties,
-                ),
-                analytics_client=analytics_client,
-            )
-        if plan is None:
-            return _BUILD_FAILED, None
-        built = build_workflow(
-            idea,
-            plan,
-            dataclasses.replace(context, email_templates=_chosen_template_bodies(team, plan, email_templates)),
+    with _analytics_client() as analytics_client:
+        plan = plan_steps(
+            team=team,
+            user=user,
+            context=StepsContext(
+                idea=idea,
+                email_templates=email_templates,
+                step_templates=step_templates,
+                events=events,
+                channels=channels,
+                has_slack=slack_integration_id is not None,
+            ),
+            analytics_client=analytics_client,
         )
-        if built is not None:
-            break
+    if plan is None:
+        return _BUILD_FAILED, None
+
+    built = build_workflow(
+        idea,
+        plan,
+        BuildContext(
+            allowed_events=frozenset({suggestion.trigger_event, *events}),
+            step_template_ids=frozenset(template.template_id for template in step_templates),
+            channels=channels,
+            email_templates=_chosen_template_bodies(team, plan, email_templates),
+            sender=team_context.email_sender(team),
+            slack_integration_id=slack_integration_id,
+            once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
+        ),
+    )
     if built is None:
         return _BUILD_FAILED, None
     validated = validate_draft(team, built.workflow)
@@ -646,9 +627,7 @@ def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestio
 
 def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
     used_events = team_context.used_trigger_events(team)
-    # The model can copy an event name into its JSON answer without escaping its quotes, which breaks the answer and
-    # loses every idea of the run. Names that JSON must escape are left out.
-    all_counts = {name: count for name, count in weekly_counts(team).items() if '"' not in name and "\\" not in name}
+    all_counts = weekly_counts(team)
     # A build can wait on any busy event, including one another workflow already starts from.
     planning_events = tuple(name for name, _ in select_prompt_events(all_counts, limit=_PROMPT_EVENTS_LIMIT))
     counts = {name: count for name, count in all_counts.items() if name not in used_events}
