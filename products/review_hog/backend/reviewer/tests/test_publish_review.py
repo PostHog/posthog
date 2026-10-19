@@ -601,11 +601,12 @@ class TestPublishReviewGate:
             published_priorities=_SHOULD_FIX_PUBLISHED,
             review_mode="flash",
             budget_note="Budget note.",
+            round_note="Round note.",
         )
 
         assert outcome.posted is expected_posted
         if expected_posted:
-            assert "Budget note." in mock_post.call_args.args[3]
+            assert "Budget note.\n\nRound note.\n\n" in mock_post.call_args.args[3]
         else:
             mock_post.assert_not_called()
 
