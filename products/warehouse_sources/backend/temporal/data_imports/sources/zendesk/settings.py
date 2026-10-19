@@ -134,7 +134,7 @@ INCREMENTAL_TALK_ENDPOINTS = {
 CURSOR_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=False)
 class ZendeskEndpointConfig:
     """Declarative config for a Zendesk Support API list endpoint.
 

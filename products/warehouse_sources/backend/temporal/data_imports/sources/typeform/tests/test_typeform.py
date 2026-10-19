@@ -7,6 +7,11 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform import (
     TypeformFormsPaginator,
     TypeformResponsesPaginator,
@@ -123,64 +128,57 @@ class TestTypeformTransport:
         ):
             _validated_api_base_url("https://invalid.typeform.com")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_handles_request_exception(self, mock_get) -> None:
-        mock_get.return_value.get.side_effect = requests.exceptions.RequestException("boom")
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
-        assert result == (False, "/forms request failed: boom")
+    def test_validate_credentials_handles_request_exception(self) -> None:
+        with scripted_network(always(requests.exceptions.RequestException("boom"))):
+            result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
+        ok, message = result
+        assert ok is False
+        assert message is not None and message.startswith("/forms request failed: ") and "boom" in message
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_checks_forms_and_responses_endpoints(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        responses_response = Mock(status_code=200, text="ok")
-        responses_response.json.return_value = {"items": []}
-        mock_get.return_value.get.side_effect = [forms_response, responses_response]
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
+    def test_validate_credentials_checks_forms_and_responses_endpoints(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(json={"items": [{"id": "form_1"}]}),
+                ScriptedResponse(json={"items": []}),
+            ]
+        ) as network:
+            result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (True, None)
-        assert mock_get.return_value.get.call_count == 2
-        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
-        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
+        assert [(request.origin, request.path) for request in network.requests_log] == [
+            ("https://api.typeform.com", "/forms"),
+            ("https://api.typeform.com", "/forms/form_1/responses"),
+        ]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_returns_error_when_forms_endpoint_fails(self, mock_get) -> None:
-        forms_response = Mock(status_code=403, text="forbidden")
-        forms_response.json.return_value = {"description": "forbidden"}
-        mock_get.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
+    def test_validate_credentials_returns_error_when_forms_endpoint_fails(self) -> None:
+        with scripted_network([ScriptedResponse(status=403, json={"description": "forbidden"})]):
+            result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (False, "Typeform token is missing required scope for forms endpoint: forms:read")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_returns_error_when_responses_endpoint_fails(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        responses_response = Mock(status_code=403, text="forbidden")
-        responses_response.json.return_value = {"description": "forbidden"}
-        mock_get.return_value.get.side_effect = [forms_response, responses_response]
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
+    def test_validate_credentials_returns_error_when_responses_endpoint_fails(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(json={"items": [{"id": "form_1"}]}),
+                ScriptedResponse(status=403, json={"description": "forbidden"}),
+            ]
+        ):
+            result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (False, "Typeform token is missing required scope for responses endpoint: responses:read")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_for_forms_schema_only_skips_responses_probe(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        mock_get.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            schema_name="forms",
-        )
+    def test_validate_credentials_for_forms_schema_only_skips_responses_probe(self) -> None:
+        with scripted_network([ScriptedResponse(json={"items": [{"id": "form_1"}]})]) as network:
+            result = validate_credentials(
+                auth_token="token",
+                api_base_url="https://api.typeform.com",
+                schema_name="forms",
+            )
 
         assert result == (True, None)
-        assert mock_get.return_value.get.call_count == 1
-        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert [(request.origin, request.path) for request in network.requests_log] == [
+            ("https://api.typeform.com", "/forms")
+        ]
 
     def test_get_resource_forms_non_incremental(self) -> None:
         resource = cast(

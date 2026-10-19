@@ -347,6 +347,41 @@ class TestMotherDuck:
         assert not error_message_matches(str(exc_info.value), source.get_non_retryable_errors())
         assert error_message_matches(str(exc_info.value), source.get_retryable_errors())
 
+    @pytest.mark.parametrize(
+        "message,expect_non_retryable",
+        [
+            (
+                "Out of Memory Error: failed to offload data block of size 256.0 KiB "
+                "(244.0 GiB/244.0 GiB used).\n\nConsider using a larger duckling size than Standard "
+                "or optimizing your query to reduce memory usage.",
+                True,
+            ),
+            (
+                # DuckDB's own local `memory_limit` (`DUCKDB_LOCAL_CONFIG`) raises the identical
+                # exception class for a failure entirely inside our worker, carrying no duckling
+                # guidance. Must not be blamed on the customer's MotherDuck account.
+                "Out of Memory Error: failed to allocate data of size 64.0 KiB (2.0 GiB/2.0 GiB used).",
+                False,
+            ),
+        ],
+        ids=["remote_duckling_exhausted", "local_worker_allocation_failure"],
+    )
+    def test_out_of_memory_classification_depends_on_where_it_happened(
+        self, impl, source, message, expect_non_retryable
+    ):
+        # Reproduces the real path: `get_rows` raises the driver exception uncaught (it runs
+        # outside `connect()`'s translation), so classification has to match what actually
+        # reaches the activity, not a hand-written string read back against the error map.
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 1, [pa.RecordBatch.from_pydict({"id": [1]})])
+        streaming_conn.to_arrow_reader.side_effect = duckdb.OutOfMemoryException(message)
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+            with pytest.raises(duckdb.OutOfMemoryException) as exc_info:
+                list(response.items())
+
+        assert error_message_matches(str(exc_info.value), source.get_non_retryable_errors()) is expect_non_retryable
+
     def test_validate_credentials_requires_an_access_token(self, source):
         ok, message = source.validate_credentials(_make_config(access_token=""), team_id=1)
         assert ok is False
