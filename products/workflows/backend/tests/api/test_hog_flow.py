@@ -6154,6 +6154,22 @@ class TestHogFlowSendOnceVerified(APIBaseTest):
 
         assert self.client.get(detail_url).json()["unverified_email_senders"] == []
 
+    def test_a_sender_rotation_waits_for_its_unverified_sender(self):
+        verified, unverified = self._sender(verified=True), self._sender(verified=False)
+        payload = self._email_flow(verified)
+        payload["actions"][1]["config"]["inputs"]["email"]["value"]["from"] = {
+            "integrationId": verified.id,
+            "integrationIds": [verified.id, unverified.id],
+        }
+        created = self._create(payload)
+        assert created.status_code == 201, created.json()
+
+        with self._flag(True):
+            response = self._set_status(created.json()["id"], "active")
+
+        assert created.json()["unverified_email_senders"] == [{"id": unverified.id, "domain": "example.com"}]
+        assert response.json()["status"] == "waiting_for_domain"
+
     def test_create_as_active_with_an_unverified_sender_waits(self):
         with self._flag(True):
             response = self._create(self._email_flow(self._sender(verified=False), flow_status="active"))

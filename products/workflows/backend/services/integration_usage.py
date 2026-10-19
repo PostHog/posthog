@@ -77,23 +77,31 @@ def enabled_flows_using(*, team_id: int, integration_id: int) -> list[HogFlow]:
     ]
 
 
-def _email_sender_id(action: dict) -> int | None:
-    sender = ((((action.get("config") or {}).get("inputs") or {}).get("email") or {}).get("value") or {}).get("from")
-    sender_id = sender.get("integrationId") if isinstance(sender, dict) else None
+def _as_sender_id(value: object) -> int | None:
     try:
-        return int(sender_id) if sender_id is not None else None
-    except (TypeError, ValueError):
+        return int(value) if isinstance(value, int | str) else None
+    except ValueError:
         return None
+
+
+def _email_sender_ids(action: dict) -> frozenset[int]:
+    # Same rule as the sender selection in Node: a non-empty rotation replaces the single sender.
+    sender = ((((action.get("config") or {}).get("inputs") or {}).get("email") or {}).get("value") or {}).get("from")
+    if not isinstance(sender, dict):
+        return frozenset()
+    rotation = sender.get("integrationIds")
+    configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
+    return frozenset(sender_id for value in configured if (sender_id := _as_sender_id(value)) is not None)
 
 
 def email_senders_of(flow: HogFlow) -> frozenset[int]:
     """The email integrations the workflow's live email steps send from."""
-    return frozenset(
-        sender_id
-        for action in flow.actions or []
-        if isinstance(action, dict)
-        and action.get("type") == "function_email"
-        and (sender_id := _email_sender_id(action)) is not None
+    return frozenset().union(
+        *(
+            _email_sender_ids(action)
+            for action in flow.actions or []
+            if isinstance(action, dict) and action.get("type") == "function_email"
+        )
     )
 
 
