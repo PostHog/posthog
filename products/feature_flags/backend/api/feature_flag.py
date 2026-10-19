@@ -1345,14 +1345,21 @@ class _ConditionCohort:
 def _condition_cohort_id(value: Any) -> int | None:
     """Return the cohort id a condition's value names, or None when the value is not an id."""
     # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string of
-    # digits. It rejects a float such as 42.5, which int() would truncate to a live cohort's id.
+    # digits, and only when the id fits in 32 bits. It rejects a float such as 42.5, which int() would
+    # truncate to a live cohort's id.
     # A JSON true is the Python integer 1, so the bool check must come before the int check.
     if isinstance(value, bool):
         return None
-    if isinstance(value, int):
+    if isinstance(value, str):
+        if not re.fullmatch(r"[+-]?[0-9]+", value):
+            return None
+        try:
+            value = int(value)
+        except ValueError:
+            # Python refuses to convert a string with more digits than sys.get_int_max_str_digits().
+            return None
+    if isinstance(value, int) and -(2**31) <= value < 2**31:
         return value
-    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value):
-        return int(value)
     return None
 
 
