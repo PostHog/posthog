@@ -292,6 +292,7 @@ All three list APIs accept `tags` as a JSON-encoded array of up to 20 names and 
 For example, `?tags=%5B%22quality%22%2C%22production%22%5D&tag_match=all` finds resources with both tags, including resources with additional tags.
 Filters apply before pagination; an empty array disables tag filtering. MCP list tools expose the same parameters, and update tools can replace tags.
 Assignments use the shared generic tagged-item relation. List queries use correlated existence checks and batch tag loading, so multiple matching tags do not duplicate rows or add a query per resource.
+Each save inserts normalized tag names in sorted order to prevent deadlocks when concurrent workers create the same tags.
 
 The three tables have a Tags column before the timestamp columns, showing up to two tags with remaining tags in an overflow popover and a control to edit assignments.
 Tag filters are included in the URL and remembered separately per resource type, project, and user in browser storage. Changing tags or their match mode resets table pagination.
