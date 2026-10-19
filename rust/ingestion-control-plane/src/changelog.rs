@@ -56,6 +56,7 @@ pub async fn seed(
     topic: &str,
     writer_group: &str,
 ) -> anyhow::Result<ChangelogConfig> {
+    let config = &config.personhog_kafka();
     let partitions = topic_partition_count(config, topic).await?;
     let created = store(client, prefix)
         .seed_changelog_config(topic, partitions, writer_group)
@@ -86,6 +87,7 @@ pub struct ChangelogView {
 }
 
 pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Result<ChangelogView> {
+    let config = &config.personhog_kafka();
     let store = store(client, prefix);
     let changelog = store.get_changelog_config().await?;
     let writer = match &changelog {
