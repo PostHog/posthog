@@ -48,7 +48,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
     @activity.defn(name="plan_platform_insight_round_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
-        return list(ADMITTED)
+        return [configuration_id for configuration_id in ADMITTED if configuration_id not in inputs.exclude]
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
@@ -117,7 +117,7 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_
 
     @activity.defn(name="plan_platform_insight_round_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
-        return list(ADMITTED)
+        return [configuration_id for configuration_id in ADMITTED if configuration_id not in inputs.exclude]
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:

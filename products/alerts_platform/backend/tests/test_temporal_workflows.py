@@ -81,12 +81,14 @@ class CloseAfterChildStartWorkflow:
         await workflow.wait_condition(lambda: False)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def sdk_metrics() -> MetricBuffer:
     return MetricBuffer(10000)
 
 
-@pytest_asyncio.fixture(scope="module")
+# One server per test: once a parent closes with an abandoned child, the time-skipping test server
+# stops skipping time, and every later test on that server waits out its timers in real time.
+@pytest_asyncio.fixture
 async def environment(
     sdk_metrics: MetricBuffer, span_exporter: InMemorySpanExporter
 ) -> AsyncIterator[WorkflowEnvironment]:
