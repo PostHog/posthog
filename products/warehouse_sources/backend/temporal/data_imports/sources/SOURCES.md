@@ -336,6 +336,7 @@ the row lists both.
 | eventbrite                       | HTTP                        | requests                                                        | ✅                          |
 | eventee                          | HTTP                        | requests                                                        | ✅                          |
 | eventzilla                       | HTTP                        | requests                                                        | ✅                          |
+| everflow                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | everhour                         | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api               | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory                | HTTP                        | requests                                                        | ✅                          |
