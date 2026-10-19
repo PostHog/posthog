@@ -565,10 +565,15 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             for storage in ("native", "legacy_json", "legacy_property_group", "legacy_materialized_column")
             for name, predicate, expected in [
                 ("text_equals", "properties.step = 'template'", ["template"]),
-                ("text_not_equals", "properties.step != 'template'", ["domain", "int_5", "text_5", "missing"]),
+                (
+                    "text_not_equals",
+                    "properties.step != 'template'",
+                    ["domain", "int_5", "text_5", "missing", "text_nan"],
+                ),
                 ("text_in", "properties.step IN ('template', 'domain')", ["template", "domain"]),
                 ("text_and_number_in", "properties.step IN ('template', '5')", ["template", "int_5", "text_5"]),
                 ("number_equals", "properties.step = '5'", ["int_5", "text_5"]),
+                ("non_finite_text", "properties.step = 'nan'", ["text_nan"]),
             ]
         ]
     )
@@ -609,8 +614,15 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             f"WITH {table} {printed}",
             {
                 **context.values,
-                "labels": ["template", "domain", "int_5", "text_5", "missing"],
-                "documents": ['{"step":"template"}', '{"step":"domain"}', '{"step":5}', '{"step":"5"}', "{}"],
+                "labels": ["template", "domain", "int_5", "text_5", "missing", "text_nan"],
+                "documents": [
+                    '{"step":"template"}',
+                    '{"step":"domain"}',
+                    '{"step":5}',
+                    '{"step":"5"}',
+                    "{}",
+                    '{"step":"nan"}',
+                ],
             },
         )
         assert [row[0] for row in result] == expected
