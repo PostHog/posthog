@@ -60,7 +60,7 @@ describe('featureFlagDeleteOptions', () => {
 
         expect(options.payload).toEqual({})
         expect(options.undoable).toBe(true)
-        expect(options.onError(stale)).toBe(false)
+        expect(options.handleError(stale)).toBe(false)
         expect(reload).not.toHaveBeenCalled()
     })
 
@@ -70,9 +70,9 @@ describe('featureFlagDeleteOptions', () => {
 
         expect(options.payload).toEqual({ version: 4 })
         expect(options.undoable).toBe(false)
-        expect(options.onError({ status: 400, detail: 'Bad request' })).toBe(false)
+        expect(options.handleError({ status: 400, detail: 'Bad request' })).toBe(false)
         expect(reload).not.toHaveBeenCalled()
-        expect(options.onError(stale)).toBe(true)
+        expect(options.handleError(stale)).toBe(true)
         expect(reload).toHaveBeenCalledTimes(1)
         expect(lemonToast.error).toHaveBeenCalledWith('This feature flag has changed.')
     })

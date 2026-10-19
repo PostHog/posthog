@@ -52,14 +52,16 @@ describe('deleteWithUndo', () => {
     it.each([
         [true, 0],
         [false, 1],
-    ])('shows the error toast only when onError does not handle the error (handled: %s)', async (handled, toasts) => {
+    ])('toasts unless handleError handles the error, then runs onError (handled: %s)', async (handled, toasts) => {
         const errorSpy = jest.spyOn(lemonToast, 'error')
         updateSpy.mockRejectedValue({ status: 409, detail: 'Changed elsewhere' })
-        const onError = jest.fn(() => handled)
+        const handleError = jest.fn(() => handled)
+        const onError = jest.fn()
 
-        await deleteWithUndo({ endpoint: 'projects/1/feature_flags', object: { id: 7 }, onError })
+        await deleteWithUndo({ endpoint: 'projects/1/feature_flags', object: { id: 7 }, handleError, onError })
 
-        expect(onError).toHaveBeenCalledWith({ status: 409, detail: 'Changed elsewhere' })
+        expect(handleError).toHaveBeenCalledWith({ status: 409, detail: 'Changed elsewhere' })
         expect(errorSpy).toHaveBeenCalledTimes(toasts)
+        expect(onError).toHaveBeenCalledWith(false, { id: 7 })
     })
 })

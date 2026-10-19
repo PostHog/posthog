@@ -20,7 +20,7 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     payload?: Record<string, any>
     undoable?: boolean
     /** Runs before the error toast. Return true when it handled the error, which skips the toast. */
-    onError?: (error: any) => boolean
+    handleError?: (error: any) => boolean
     callback?: (undo: boolean, object: T) => void
     /** Runs when the request fails, so a caller that removed the object from its state before the
      * request can put it back. */
@@ -50,12 +50,11 @@ export async function deleteWithUndo<T extends Record<string, any>>({
             }
         )
     } catch (error: any) {
-        if (props.onError?.(error)) {
-            return
+        if (!props.handleError?.(error)) {
+            // Show error toast with the error message from the API
+            const errorMessage = error.detail || error.message || 'Failed to delete'
+            lemonToast.error(errorMessage)
         }
-        // Show error toast with the error message from the API
-        const errorMessage = error.detail || error.message || 'Failed to delete'
-        lemonToast.error(errorMessage)
         props.onError?.(undo, props.object)
     }
 }

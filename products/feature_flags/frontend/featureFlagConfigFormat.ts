@@ -76,12 +76,12 @@ export function reloadIfStaleRowVersion(token: { version?: number }, error: any,
 export function featureFlagDeleteOptions(
     flag: { filters?: FeatureFlagConfig | null; version?: number | null },
     reload: () => void
-): { payload: { version?: number }; undoable: boolean; onError: (error: any) => boolean } {
+): { payload: { version?: number }; undoable: boolean; handleError: (error: any) => boolean } {
     const versioned = rowVersionToken(flag)
     return {
         payload: versioned,
         undoable: canRestoreFeatureFlag(flag.filters),
-        onError: (error) => reloadIfStaleRowVersion(versioned, error, reload),
+        handleError: (error) => reloadIfStaleRowVersion(versioned, error, reload),
     }
 }
 
