@@ -1,6 +1,7 @@
 import io
 import csv
 import json
+import random
 import typing
 import hashlib
 import datetime as dt
@@ -201,6 +202,33 @@ async def test_parquet_stream_transformer_writes_small_record_batches_as_large_r
     if max_file_size_bytes:
         assert len(files) > 1
         assert all(0.9 * max_file_size_bytes <= len(file) <= 1.1 * max_file_size_bytes for file in files[:-1])
+
+
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_bounds_file_size_when_compression_gets_worse():
+    max_file_size_bytes = 1024 * 1024
+    rng = random.Random(0)
+    compressible = [
+        pa.RecordBatch.from_pydict({"properties": ['{"a": "' + "x" * 10_000 + '"}'] * 20}) for _ in range(30)
+    ]
+    incompressible = [
+        pa.RecordBatch.from_pydict({"properties": [rng.randbytes(5_000).hex() for _ in range(20)]}) for _ in range(40)
+    ]
+
+    async def iter_record_batches():
+        for record_batch in compressible + incompressible:
+            yield record_batch
+
+    transformer = ParquetStreamTransformer(compression="zstd", max_file_size_bytes=max_file_size_bytes)
+    files: list[bytes] = []
+    current_file = b""
+    async for chunk in transformer.iter(iter_record_batches()):
+        current_file += chunk.data
+        if chunk.is_eof:
+            files.append(current_file)
+            current_file = b""
+
+    assert max(len(file) for file in files) <= 2 * max_file_size_bytes
 
 
 @pytest.mark.asyncio

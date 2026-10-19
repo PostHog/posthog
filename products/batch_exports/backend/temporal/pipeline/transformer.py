@@ -542,9 +542,15 @@ class ParquetStreamTransformer:
             return self._pending_record_batches_bytes >= self.target_row_group_size_bytes
 
         # Near the end of a file, the limit is the space left in the file converted to Arrow bytes
-        # using our compression ratio estimate.
+        # using our compression ratio estimate. The estimate comes from the previous row group, so
+        # data that compresses much worse than it can overshoot. Also limiting a row group to the max
+        # file size bounds that overshoot to about one max file size.
         remaining_bytes = self.max_file_size_bytes - self._current_file_size
-        limit_bytes = min(self.target_row_group_size_bytes, remaining_bytes / self._compression_ratio)
+        limit_bytes = min(
+            self.target_row_group_size_bytes,
+            remaining_bytes / self._compression_ratio,
+            self.max_file_size_bytes,
+        )
         return self._pending_record_batches_bytes >= limit_bytes
 
     def _add_pending_record_batch(self, record_batch: pa.RecordBatch) -> None:
