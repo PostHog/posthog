@@ -1327,6 +1327,40 @@ mod tests {
     }
 
     #[test]
+    fn a_completion_spanning_two_polls_commits_once_the_prefix_is_whole() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
+        let partition = TopicPartition::new("test", 0);
+        charge_offsets(&ledger, &partition, 0, &[0, 1, 2, 3, 4, 5, 6, 7]);
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
+        let mut settle = |topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]| {
+            settlement.settle_run(topic_partition, generation, offsets)
+        };
+
+        apply_completion(
+            &mut in_flight,
+            &completion(1, 0, &[2, 3, 4, 5], 4),
+            &mut settle,
+        )
+        .unwrap();
+        assert!(
+            settlement.take_due(Instant::now()).is_none(),
+            "offsets 0 and 1 are still in flight"
+        );
+
+        apply_completion(
+            &mut in_flight,
+            &completion(1, 0, &[0, 1, 6, 7], 4),
+            &mut settle,
+        )
+        .unwrap();
+        assert_eq!(
+            settlement.take_due(Instant::now()),
+            Some(HashMap::from([(partition, MessageOffset(8))]))
+        );
+    }
+
+    #[test]
     fn a_short_accepted_completion_settles_nothing() {
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
         let mut runs = 0;
