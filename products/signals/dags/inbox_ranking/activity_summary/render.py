@@ -54,6 +54,8 @@ SECTIONS_MAX_CHARS = 8000
 
 # Generated intents are a sentence or two. The cap bounds the regex work on a client-supplied value.
 MAX_INTENT_CHARS = 1000
+# Masking and whitespace folding shorten a text, so the patterns read this many times its cap.
+RAW_TEXT_FACTOR = 4
 # Task summaries run to a few hundred characters; the cap bounds the regex work on a long one.
 MAX_SUMMARY_CHARS = 2000
 # The same intent text more often than this on one day, for one person, is a scheduled job.
@@ -198,16 +200,30 @@ def _mask_token(match: re.Match[str]) -> str:
     return "<token>" if _DIGIT.search(run) and _LETTER.search(run) else run
 
 
-def clean_text(text: str, max_chars: int) -> str:
-    """Strip emails, URL query strings and token-like strings, and fold the text onto one line.
+def bounded_raw(text: str, max_chars: int) -> str:
+    """At most `max_chars` of the text, without a word that the cut splits.
 
-    The text is cut to `max_chars` before any pattern runs, because event properties are
-    client-supplied and have no length limit."""
-    text = text[:max_chars]
+    A split secret is too short for the masking patterns to match, so the partial word goes too."""
+    if len(text) <= max_chars:
+        return text
+    end = max_chars
+    if not text[end].isspace():
+        while end > 0 and not text[end - 1].isspace():
+            end -= 1
+    return text[:end]
+
+
+def clean_text(text: str, max_chars: int) -> str:
+    """Strip emails, URL query strings and token-like strings, fold the text onto one line, and cut
+    it to `max_chars`.
+
+    The cut comes after the masking, so it cannot leave part of a secret unmasked. The patterns read
+    a bounded prefix, because event properties are client-supplied and have no length limit."""
+    text = bounded_raw(text, max_chars * RAW_TEXT_FACTOR)
     text = _EMAIL.sub("<email>", text)
     text = _URL_QUERY.sub(r"\1", text)
     text = _WORD_RUN.sub(_mask_token, text)
-    return _WHITESPACE.sub(" ", text).strip()
+    return _WHITESPACE.sub(" ", text).strip()[:max_chars].strip()
 
 
 def cap_line(text: str, max_chars: int) -> str:
@@ -268,7 +284,7 @@ def mcp_unit(session: McpSession, jobs: frozenset[tuple[datetime.date, str]], dr
 
 def summary_goal(summary: str) -> str:
     """The opening sentences of a task summary, which state what was asked, without the label."""
-    text = _SUMMARY_LABEL.sub("", clean_text(_URL.sub("", summary[:MAX_SUMMARY_CHARS]), MAX_SUMMARY_CHARS))
+    text = _SUMMARY_LABEL.sub("", clean_text(_URL.sub("", bounded_raw(summary, MAX_SUMMARY_CHARS)), MAX_SUMMARY_CHARS))
     goal = ""
     for sentence in _SENTENCE_END.split(text):
         if goal and len(goal) + len(sentence) + 1 > TASK_GOAL_CHARS:

@@ -211,6 +211,12 @@ def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
         ),
         ("long run without a digit is kept", "a-" * 20, ("a-" * 20).strip()),
         ("text is cut to the cap", "x" * 100, "x" * 60),
+        (
+            "secret across the cap is masked, not cut",
+            "a" * 50 + " sk-proj-abcdefghijklmnop1234567890",
+            "a" * 50 + " <token>",
+        ),
+        ("word split by the read bound is dropped", " " * 230 + "ab sk-proj-abcdefghijklmnop1234567890", "ab"),
     ]
 )
 def test_clean_text(_name: str, text: str, expected: str) -> None:
