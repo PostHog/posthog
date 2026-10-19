@@ -19,6 +19,7 @@ import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import { DashboardTemplateStatusTag } from './DashboardTemplateStatusTag'
 import { GenerationChecks } from './GenerationChecks'
 import { metricsDashboardReviewSceneLogic } from './metricsDashboardReviewSceneLogic'
+import { SamplePanels } from './SamplePanels'
 
 // PostHog AI edits the preview with these tools. The embedded dashboard reloads after each one.
 const DASHBOARD_EDIT_TOOLS = [
@@ -41,9 +42,8 @@ function PreviewDashboard({ dashboardId }: { dashboardId: number }): JSX.Element
 }
 
 export function DashboardTemplateDetail(): JSX.Element {
-    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable } = useValues(
-        metricsDashboardReviewSceneLogic
-    )
+    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable, samplePanels } =
+        useValues(metricsDashboardReviewSceneLogic)
     const { approveTemplate, rejectTemplate } = useActions(metricsDashboardReviewSceneLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -137,9 +137,10 @@ export function DashboardTemplateDetail(): JSX.Element {
                 <PreviewDashboard dashboardId={previewDashboardId} />
             ) : previewLoading ? (
                 <LemonSkeleton className="h-96" />
-            ) : previewError ? (
+            ) : previewError && !samplePanels.length ? (
                 <LemonBanner type="info">{previewError}</LemonBanner>
             ) : null}
+            {reviewable && <SamplePanels />}
             <LemonCollapse
                 panels={[
                     {

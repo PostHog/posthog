@@ -47,6 +47,7 @@ from products.metrics.backend.facade.contracts import (
     MetricsOverview,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
+    SampledTemplatePanel,
     SuggestedDashboard,
 )
 from products.metrics.backend.facade.enums import (
@@ -856,6 +857,16 @@ def open_dashboard_template_preview(*, team: Team, user: User, template_id: str)
     )
 
     return service.open_preview(team, user, template_id)
+
+
+def sample_dashboard_template_panels(*, team: Team, template_id: str) -> list[SampledTemplatePanel]:
+    """The panels of a template that the team cannot fill, because it does not send their metrics, with made-up
+    results. A review can then see how they look. Nothing is written to the team."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.sample_panels(team, template_id)
 
 
 def approve_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:

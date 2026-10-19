@@ -21,6 +21,7 @@ import type {
     MetricsDashboardTemplatesPictureRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
     MetricsNamesRetrieveParams,
+    MetricsSampledTemplatePanelApi,
     MetricsSuggestedDashboardApi,
     MetricsValuesRetrieveParams,
     PanelQueryCheckRequestApi,
@@ -386,6 +387,28 @@ export const metricsDashboardTemplatesRejectCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getMetricsDashboardTemplatesSamplePanelsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/sample_panels/`
+}
+
+/**
+ * The charts of the template that this project cannot show, because it does not send their metrics,
+ * filled with made-up values. A review can then see how the whole dashboard looks.
+ */
+export const metricsDashboardTemplatesSamplePanelsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsSampledTemplatePanelApi[]> => {
+    return apiMutator<MetricsSampledTemplatePanelApi[]>(
+        getMetricsDashboardTemplatesSamplePanelsListUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getMetricsDashboardTemplatesAnalyzeCreateUrl = (projectId: string) => {

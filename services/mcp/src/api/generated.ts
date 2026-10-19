@@ -68384,6 +68384,42 @@ export namespace Schemas {
       reviewed_at: string | null;
     }
 
+    /**
+     * Insight query of the panel: a MetricsQuery or a MetricsHistogramQuery.
+     */
+    export type MetricsSampledTemplatePanelQuery = { [key: string]: unknown };
+
+    /**
+     * Made-up results in the shape that the query returns: a MetricsQueryResponse or a MetricsHistogramQueryResponse. They are not data from this project.
+     */
+    export type MetricsSampledTemplatePanelResponse = { [key: string]: unknown };
+
+    export interface MetricsTemplatePanelLayout {
+      /** Column of the left edge, 0 to 11. */
+      x: number;
+      /** Row of the top edge. */
+      y: number;
+      /** Width in columns. */
+      w: number;
+      /** Height in rows. */
+      h: number;
+    }
+
+    export interface MetricsSampledTemplatePanel {
+      /** Key of the panel in the template. */
+      key: string;
+      /** Chart title. */
+      title: string;
+      /** What the chart shows. */
+      description: string;
+      /** Box of the panel on the dashboard grid. */
+      layout: MetricsTemplatePanelLayout;
+      /** Insight query of the panel: a MetricsQuery or a MetricsHistogramQuery. */
+      query: MetricsSampledTemplatePanelQuery;
+      /** Made-up results in the shape that the query returns: a MetricsQueryResponse or a MetricsHistogramQueryResponse. They are not data from this project. */
+      response: MetricsSampledTemplatePanelResponse;
+    }
+
     export interface MetricsSuggestedDashboard {
       /** Suggestion id. */
       id: string;
