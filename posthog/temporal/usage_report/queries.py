@@ -243,8 +243,7 @@ class QuerySpec:
     multi_keys_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
     timeout_minutes: int = 15
     kind: Literal["period", "snapshot"] = "period"
-    # A spec added after the workflow shipped runs only when `workflow.patched(patch_id)` is true,
-    # so a run that started before the deploy replays its recorded history without it.
+    # Runs only when `workflow.patched(patch_id)` is true, so older histories replay without it.
     patch_id: str | None = None
 
     @property
