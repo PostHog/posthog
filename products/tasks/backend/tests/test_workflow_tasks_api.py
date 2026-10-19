@@ -825,6 +825,48 @@ class TestWorkflowTasksAPI(APIBaseTest):
         mapping = SlackThreadTaskMapping.objects.get()
         assert str(mapping.task_run_id) == first.json()["run_id"]
 
+    @parameterized.expand([("reply", "1699999999.000001", True), ("root", "1700000000.000100", False)])
+    @patch("products.tasks.backend.logic.services.workflow_tasks.slack_thread_history_before")
+    def test_a_reply_triggered_run_reads_the_thread_before_the_reply(
+        self, _name: str, thread_ts: str, expects_history: bool, history
+    ) -> None:
+        # The triggering event carries the reply alone. Without the thread above it, a run
+        # fired by "approve 1, 2, 3" under a bot-posted report never sees the report.
+        history.return_value = "<slack_thread_history>\nAlerts:\n  candidates ready\n</slack_thread_history>"
+        integration = self._slack_integration()
+
+        response = self._post(
+            {
+                "slack_context": self._slack_context(integration, thread_ts=thread_ts),
+                "event": {"event": "$slack_message_received", "properties": {"text": "approve 1, 2, 3"}},
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        message = TaskRun.objects.get(id=response.json()["run_id"]).state["initial_prompt_override"]
+        if expects_history:
+            history.assert_called_once_with(
+                integration, channel="C0ALERTS", thread_ts=thread_ts, before_ts="1700000000.000100"
+            )
+            assert (
+                message.index("look into the alert")
+                < message.index(history.return_value)
+                < message.index("<triggering_event>")
+            )
+        else:
+            history.assert_not_called()
+            assert "slack_thread_history" not in message
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.slack_thread_history_before")
+    def test_a_failing_thread_read_does_not_fail_the_task(self, history) -> None:
+        history.side_effect = Exception("slack is down")
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration, thread_ts="1699999999.000001")})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert SlackThreadTaskMapping.objects.filter(integration=integration).exists()
+
     def test_anchors_the_follow_up_watermark_on_the_triggering_reply(self) -> None:
         # Anchoring on the thread would replay the triggering reply, which is already in the
         # prompt, into the agent's first follow-up diff.

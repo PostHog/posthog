@@ -24,7 +24,11 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
-from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
+from products.slack_app.backend.facade.api import (
+    slack_artifact_delivery_state_updates,
+    slack_channel_is_approved,
+    slack_thread_history_before,
+)
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
@@ -256,6 +260,9 @@ def create_workflow_task(
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
     skills = resolve_attached_skills(team, gate_owner, skill_names)
+    # Also outside the transaction: a Slack read under the advisory locks below would stall
+    # every workflow fire for the team.
+    slack_thread_history = _slack_thread_history(team.id, slack_context)
 
     # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
     # minter reads back. The mounts themselves follow the same list stamped on the task as its
@@ -346,6 +353,7 @@ def create_workflow_task(
                 event,
                 skills,
                 slack_reply_context=slack_binding is not None,
+                slack_thread_history=slack_thread_history,
                 output_schema=output_schema,
             )
             # Derived from the thread context rather than tested separately, because the two
@@ -532,6 +540,7 @@ def _render_run_message(
     skills: list[AttachedSkill] | None = None,
     *,
     slack_reply_context: bool = False,
+    slack_thread_history: str | None = None,
     output_schema: Mapping[str, Any] | None = None,
 ) -> str:
     # PostHog Code strips this established wrapper from user-message bubbles while still
@@ -553,6 +562,9 @@ def _render_run_message(
         "</user_custom_instructions>\n\n"
         f"{prompt}"
     )
+    # Chronological: what the thread said first, then the message that fired the run.
+    if slack_thread_history:
+        message += f"\n\n{slack_thread_history}"
     if event:
         message += (
             "\n\n<triggering_event>\n"
@@ -606,15 +618,47 @@ class _SlackBinding:
     thread_context: SlackThreadContext
 
 
-def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> _SlackBinding | None:
+def _find_slack_integration(team_id: int, ctx: contracts.WorkflowTaskSlackContext) -> Integration | None:
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
-    if ctx is None:
-        return None
     integration = Integration.objects.filter(id=ctx.integration_id, team_id=team_id, kind="slack").first()
     if integration is None and ctx.slack_team_id:
         integration = Integration.objects.filter(
             team_id=team_id, kind="slack", integration_id=ctx.slack_team_id
         ).first()
+    return integration
+
+
+def _slack_thread_history(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> str | None:
+    """What the thread said before the reply that fired the run, framed for the prompt.
+
+    Only a reply has history: a run the thread root fired already holds the root as its
+    triggering event. An externally shared channel without an approval is not read, for the
+    same reason the task may not reply there. Never raises: the reply is already in the
+    prompt, so a Slack failure is logged and the run starts without the history.
+    """
+    if ctx is None or not ctx.message_ts or ctx.message_ts == ctx.thread_ts:
+        return None
+    integration = _find_slack_integration(team_id, ctx)
+    if integration is None or not _may_speak_in_channel(integration, ctx):
+        return None
+    try:
+        return slack_thread_history_before(
+            integration, channel=ctx.channel, thread_ts=ctx.thread_ts, before_ts=ctx.message_ts
+        )
+    except Exception:
+        logger.exception(
+            "workflow_task_slack_thread_history_failed",
+            team_id=team_id,
+            channel=ctx.channel,
+            thread_ts=ctx.thread_ts,
+        )
+        return None
+
+
+def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> _SlackBinding | None:
+    if ctx is None:
+        return None
+    integration = _find_slack_integration(team_id, ctx)
     if integration is None:
         logger.warning(
             "workflow_task_slack_bind_no_integration",
