@@ -1226,7 +1226,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
             if clone_result.exit_code != 0:
                 error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
                 raise RepositoryCloneError(
-                    f"Git clone failed with exit code {clone_result.exit_code}",
+                    f"Could not clone {input.repository} (git exited with code {clone_result.exit_code})",
                     {
                         "repository": input.repository,
                         "sandbox_id": input.sandbox_id,
