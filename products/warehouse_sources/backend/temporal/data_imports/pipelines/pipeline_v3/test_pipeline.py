@@ -313,6 +313,48 @@ class TestTableRebuildAcrossAttempts:
         assert schema.sync_type_config.get("table_rebuild_run_uuid") == expected_record
 
 
+class TestPreWriteMaintenanceBeforeAnAppendRestore:
+    @pytest.mark.parametrize(
+        "loader_restores, expected_maintained",
+        [(True, False), (False, True)],
+        ids=["restore_pending", "no_restore"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_pre_write_pass_is_skipped_when_the_first_batch_restores_the_table(
+        self, loader_restores: bool, expected_maintained: bool
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._attempt = 2
+        pipeline._run_uuid = "run-abc-a2"
+        pipeline._schema.table = MagicMock()
+        pipeline._schema.sync_type_config = {}
+        pipeline._delta_table_ref = MagicMock(is_first_sync=False)
+        pipeline._pg_producer = MagicMock(sync_type="append", is_first_ever_sync=False)
+        pipeline._resource.items = MagicMock(return_value=iter([]))
+        pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.validate_incremental_sync"))
+            maintenance = stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance"))
+            maintenance.return_value.run_scheduled = AsyncMock()
+            append_runs = stack.enter_context(patch(f"{_PIPELINE}.UnfinishedAppendRuns"))
+            append_runs.return_value.restores_before_first_batch.return_value = loader_restores
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+
+            await pipeline.run()
+
+        append_runs.return_value.restores_before_first_batch.assert_called_once_with("run-abc-a2")
+        assert maintenance.return_value.run_scheduled.called is expected_maintained
+
+
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:

@@ -142,6 +142,17 @@ class UnfinishedAppendRuns:
             self._schema.id, self._schema.team_id, updates={APPEND_RUN_MARKER_KEY: started.to_config()}
         )
 
+    def restores_before_first_batch(self, run_uuid: str) -> bool:
+        """Whether `start_run` restores the table at the first batch of the fresh attempt `run_uuid`.
+
+        The restore also adds back every file that a compaction after the recorded version removed.
+        A compaction before that batch therefore only makes the restore larger.
+        """
+        if not settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED:
+            return False
+        marker = self._marker()
+        return marker is not None and marker.run_uuid != run_uuid and self._never_completed(marker)
+
     def _never_completed(self, marker: AppendRunMarker) -> bool:
         """Whether every row written after the recorded version belongs to a run that did not complete.
 

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     make_local_table_ref,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (
+    UnfinishedAppendRuns,
     clear_append_run_marker,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
@@ -297,6 +298,32 @@ class TestUnfinishedAppendRun:
 
         assert loader.ids() == _SEED_IDS + _WINDOW_IDS
         assert "RESTORE" not in loader.operations()
+
+    @pytest.mark.parametrize(
+        "before, attempt, restores",
+        [
+            (lambda loader, job: _failed_mid_run(loader), 1, True),
+            (lambda loader, job: loader.load(loader.messages(job, [[3, 4]], final=False)), 2, True),
+            (lambda loader, job: loader.load(loader.messages(job, [[3, 4]], final=False)), 1, False),
+            (lambda loader, job: loader.load(loader.messages(loader.new_job(), [[3, 4]], final=True)), 1, False),
+        ],
+        ids=["failed_job", "earlier_attempt", "same_attempt", "completed_job"],
+    )
+    def test_the_pre_load_check_predicts_the_restore(
+        self, loader: _Loader, before: Any, attempt: int, restores: bool
+    ) -> None:
+        loader.seed()
+        job = loader.new_job()
+        before(loader, job)
+        restores_so_far = loader.operations().count("RESTORE")
+
+        predicted = UnfinishedAppendRuns(
+            ExternalDataSchema.objects.get(id=loader.schema.id), make_local_table_ref(loader.table_path)
+        ).restores_before_first_batch(f"{job.workflow_run_id}-a{attempt}")
+        loader.load(loader.messages(job, [[5, 6]], attempt=attempt, final=False))
+
+        assert predicted is restores
+        assert loader.operations().count("RESTORE") == restores_so_far + int(restores)
 
     def test_a_first_resumed_batch_records_the_job(self, loader: _Loader) -> None:
         loader.seed()
