@@ -3,6 +3,7 @@ import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
+from time import monotonic
 
 from django.utils import timezone
 
@@ -175,6 +176,7 @@ TRAFFIC_TARGET_PAGEVIEWS = TRACKS[TrackKey.TRAFFIC].stages[-1].threshold
 TRAFFIC_BOOTSTRAP_CHUNK_HOURS = 24
 TRAFFIC_BOOTSTRAP_TARGET_ROWS = 50_000_000
 TRAFFIC_BOOTSTRAP_MAX_CHUNK_HOURS = 24 * 365 * 60
+TRAFFIC_BOOTSTRAP_TIME_BUDGET_SECONDS = 30
 TRAFFIC_MIN_TIMESTAMP = datetime(1970, 1, 1, tzinfo=UTC)
 
 
@@ -258,6 +260,7 @@ def _next_traffic_chunk_hours(chunk_hours: int, rows: int) -> int:
 
 
 def _advance_traffic_bootstrap(teams: list[Team], bootstrap: TrafficBootstrap) -> TrafficBootstrap:
+    deadline = monotonic() + TRAFFIC_BOOTSTRAP_TIME_BUDGET_SECONDS
     for _ in range(ACHIEVEMENT_MAX_EMPTY_CHUNKS):
         upper = bootstrap.before or bootstrap.created_until
         lower = max(TRAFFIC_MIN_TIMESTAMP, upper - timedelta(hours=bootstrap.chunk_hours))
@@ -279,7 +282,7 @@ def _advance_traffic_bootstrap(teams: list[Team], bootstrap: TrafficBootstrap) -
             before=lower,
             chunk_hours=_next_traffic_chunk_hours(bootstrap.chunk_hours, rows),
         )
-        if bootstrap.done or rows:
+        if bootstrap.done or rows or monotonic() >= deadline:
             break
     return bootstrap
 
