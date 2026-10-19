@@ -17,12 +17,17 @@ from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.workflows.backend.facade.contracts import (
     AudienceSuggestion,
     AudienceSuggestionsResult,
     DataSuggestionNotFound,
 )
 from products.workflows.backend.services.audience_suggestions.audience import (
+    EMAIL_PROPERTY,
     activity_counts,
     cohort_filters,
     reachable_count,
@@ -64,6 +69,12 @@ def is_enabled(user: User, organization_id: str) -> bool:
             group_properties={"organization": {"id": organization_id}},
         )
     )
+
+
+def can_read_email(user: User, team_id: int) -> bool:
+    """The cards count people by their email address, so only someone who can read it may see them."""
+    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    return EMAIL_PROPERTY not in split_restricted_property_names(restrictions).person
 
 
 def get_audience_suggestions(*, team: Team) -> AudienceSuggestionsResult:
@@ -137,7 +148,7 @@ def get_audience_suggestion(*, team: Team, suggestion_id: str) -> AudienceSugges
 
 
 def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSuggestionsResult:
-    counts = {**weekly_counts(team), **activity_counts(team)}
+    counts = {**weekly_counts(team), **activity_counts(team, user)}
     events = prompt_events(counts)
     if not events:
         return AudienceSuggestionsResult(status="ready", suggestions=())
@@ -149,7 +160,7 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSugges
     for idea in ideas:
         # One audience too costly to count drops that idea only, not the cards that counted fine.
         try:
-            suggestion = _sized(team, idea, counts)
+            suggestion = _sized(team, user, idea, counts)
         except _COUNT_ERRORS:
             logger.warning(
                 "workflows.audience_suggestions.count_failed", team_id=team.id, kind=idea.kind, exc_info=True
@@ -180,7 +191,7 @@ def prompt_events(counts: dict[str, int]) -> tuple[tuple[str, int], ...]:
     return tuple([*lifecycle, *(item for item in eligible if item[0] not in chosen)][:_PROMPT_EVENTS_LIMIT])
 
 
-def _sized(team: Team, idea: AudienceIdea, counts: dict[str, int]) -> AudienceSuggestion | None:
+def _sized(team: Team, user: User, idea: AudienceIdea, counts: dict[str, int]) -> AudienceSuggestion | None:
     # The schema limits the names to the listed events. The checks below catch a plan that does not fit its kind.
     if idea.event not in counts:
         return None
@@ -195,7 +206,7 @@ def _sized(team: Team, idea: AudienceIdea, counts: dict[str, int]) -> AudienceSu
         "window_days": idea.window_days,
         "min_count": min_count,
     }
-    size = reachable_count(team, **shape)
+    size = reachable_count(team, user=user, **shape)
     if size < MIN_REACHABLE:
         return None
     return AudienceSuggestion(

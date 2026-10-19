@@ -14,6 +14,7 @@ from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.workflows.backend.facade.audience_suggestions import (
+    can_read_email,
     get_audience_suggestions,
     is_enabled,
     needs_new_generation,
@@ -55,7 +56,7 @@ class AudienceSuggestionSerializer(serializers.Serializer):
         help_text="People in the audience with an email address, counted when the suggestion was made."
     )
     cohort_filters = serializers.JSONField(
-        help_text="A dynamic cohort definition for the audience, in the cohorts endpoint's `filters` format."
+        help_text="The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort."
     )
 
 
@@ -116,4 +117,8 @@ class BroadcastAudienceSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
         user = request.user
         if not isinstance(user, User) or not is_enabled(user, str(self.organization.id)):
             raise PermissionDenied("This feature is not available.")
+        # The cards are shared by the whole project and count people by email, so they stay hidden from anyone
+        # whose access hides email addresses.
+        if not can_read_email(user, self.team.id):
+            raise PermissionDenied("Audience ideas need access to people's email addresses.")
         return user

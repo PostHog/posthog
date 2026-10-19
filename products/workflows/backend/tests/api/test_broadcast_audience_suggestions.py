@@ -7,9 +7,13 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models import PropertyDefinition
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import AudienceKind
 from products.workflows.backend.services.audience_suggestions.audience import cohort_filters, reachable_count
@@ -159,8 +163,9 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ai_not_approved", False, True, 200, "ai_not_approved"),
-            ("flag_off", True, False, 403, None),
+            ("ai_not_approved", False, True, False, 200, "ai_not_approved"),
+            ("flag_off", True, False, False, 403, None),
+            ("email_hidden_from_the_user", True, True, True, 403, None),
         ]
     )
     @patch(f"{SERVICE}.suggest_audiences")
@@ -169,12 +174,23 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         approved: bool,
         flag_on: bool,
+        email_restricted: bool,
         status_code: int,
         status: str | None,
         suggest: MagicMock,
     ) -> None:
         self.flag.return_value = flag_on
         self.organization.is_ai_data_processing_approved = approved
+        if email_restricted:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            email = PropertyDefinition.objects.create(
+                team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+            )
         self.organization.save()
 
         response = self.client.post(f"/api/projects/{self.team.id}/broadcast_audience_suggestions/generate/", {})

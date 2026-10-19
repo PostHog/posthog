@@ -6,6 +6,7 @@ from products.workflows.backend.facade.contracts import AudienceSuggestionsResul
 from products.workflows.backend.services.audience_suggestions import service
 from products.workflows.backend.services.audience_suggestions.service import (
     FEATURE_FLAG_KEY,
+    can_read_email,
     get_audience_suggestion,
     get_audience_suggestions,
     is_enabled,
@@ -15,6 +16,7 @@ from products.workflows.backend.tasks.audience_suggestions import generate_audie
 
 __all__ = [
     "FEATURE_FLAG_KEY",
+    "can_read_email",
     "get_audience_suggestion",
     "get_audience_suggestions",
     "is_enabled",

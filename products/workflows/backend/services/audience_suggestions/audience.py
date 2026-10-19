@@ -10,7 +10,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.workflows.backend.facade.contracts import AudienceKind
 
@@ -53,7 +53,14 @@ def cohort_filters(
 
 
 def reachable_count(
-    team: Team, *, kind: AudienceKind, event: str, missing_event: str | None, window_days: int, min_count: int | None
+    team: Team,
+    *,
+    kind: AudienceKind,
+    event: str,
+    missing_event: str | None,
+    window_days: int,
+    min_count: int | None,
+    user: User | None = None,
 ) -> int:
     """How many people match the cohort definition and have an email address. Windows start at
     the start of the day, like the cohort's relative dates, so the card and the calculated cohort agree."""
@@ -90,17 +97,25 @@ def reachable_count(
                 GROUP BY person_id
                 HAVING max(timestamp) < toStartOfDay(now() - toIntervalDay({window}))
             """
-    # The email comes from the person, not the events, because the send reads it from the person.
+    # The email comes from the person, not the events, because the send reads it from the person. Only the
+    # candidates' rows are read: the persons table would copy the events subquery into its own filter and fail.
     query = parse_select(
-        "SELECT count() FROM {matched} WHERE person_id IN (SELECT id FROM persons WHERE toString({email}) ILIKE '%@%')",
+        """
+        SELECT count() FROM (
+            SELECT id FROM raw_persons
+            WHERE id IN (SELECT person_id FROM {matched})
+            GROUP BY id
+            HAVING argMax(is_deleted, version) = 0 AND toString(argMax({email}, version)) ILIKE '%@%'
+        )
+        """,
         placeholders={"matched": parse_select(inner, placeholders=placeholders), "email": placeholders["email"]},
     )
-    response = _run(team, query, "workflows_audience_suggestions_size")
+    response = _run(team, query, "workflows_audience_suggestions_size", user)
     rows = response.results or []
     return int(rows[0][0]) if rows else 0
 
 
-def activity_counts(team: Team) -> dict[str, int]:
+def activity_counts(team: Team, user: User | None = None) -> dict[str, int]:
     """Weekly counts of the PostHog events that stand for being active, which the project's own event counts skip."""
     query = parse_select(
         """
@@ -110,11 +125,13 @@ def activity_counts(team: Team) -> dict[str, int]:
         """,
         placeholders={"events": ast.Tuple(exprs=[ast.Constant(value=name) for name in sorted(ACTIVITY_EVENTS)])},
     )
-    response = _run(team, query, "workflows_audience_suggestions_activity")
+    response = _run(team, query, "workflows_audience_suggestions_activity", user)
     return {str(row[0]): int(row[1]) for row in response.results or [] if int(row[1]) > 0}
 
 
-def _run(team: Team, query: ast.SelectQuery | ast.SelectSetQuery, query_type: str) -> HogQLQueryResponse:
+def _run(
+    team: Team, query: ast.SelectQuery | ast.SelectSetQuery, query_type: str, user: User | None
+) -> HogQLQueryResponse:
     tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
     settings = HogQLGlobalSettings(
         max_execution_time=_COUNT_TIMEOUT_SECONDS,
@@ -123,7 +140,8 @@ def _run(team: Team, query: ast.SelectQuery | ast.SelectSetQuery, query_type: st
         # A partial count would cache a size that is too small for a week, so a big scan fails instead.
         read_overflow_mode="throw",
     )
-    return execute_hogql_query(query=query, team=team, query_type=query_type, settings=settings)
+    # The user's property access rules apply, so a masked email address counts nobody.
+    return execute_hogql_query(query=query, team=team, query_type=query_type, settings=settings, user=user)
 
 
 def _performed(event: str, days: int, *, negation: bool = False) -> dict[str, Any]:
