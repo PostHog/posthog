@@ -156,7 +156,7 @@ function regexError(regex: string | null | undefined): string | null {
     }
 }
 
-// The limits of the variable options API, which gets each definition and the values of a list variable set to All.
+// The limits of the variable options API.
 const MAX_NAME_LENGTH = 128
 const MAX_QUERY_LENGTH = 10000
 const MAX_CUSTOM_VALUES = 1000
