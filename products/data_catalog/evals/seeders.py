@@ -160,6 +160,7 @@ def seed_approved_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
         description=APPROVED_METRIC_DESCRIPTION,
         unit="usd",
         definition=APPROVED_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return {
@@ -214,6 +215,7 @@ def _seed_top_customers_metric(
         description=TOP_CUSTOMERS_METRIC_DESCRIPTION,
         unit="usd",
         definition=definition,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return team, user
@@ -242,6 +244,7 @@ def seed_ambiguous_top_customers_metrics(context: CustomPromptSandboxContext) ->
         description=CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
         unit="usd",
         definition=CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(current_metric, user)
     return {
@@ -274,6 +277,7 @@ def seed_operational_metric(context: CustomPromptSandboxContext) -> dict[str, An
         description=OPERATIONAL_METRIC_DESCRIPTION,
         unit="percent",
         definition=OPERATIONAL_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return {
@@ -305,6 +309,7 @@ def _seed_named_operational_metric(
         description=description,
         unit=unit,
         definition=definition,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return {"metric": {"name": name, "status": "approved", "is_drifted": False}}
@@ -417,6 +422,7 @@ def seed_ambiguous_customer_count_metrics(context: CustomPromptSandboxContext) -
             description=description,
             unit="customers",
             definition=definition,
+            overwrite=True,
         )
         approve_metric(metric, user)
     return {
@@ -437,6 +443,7 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
         description=APPROVED_METRIC_DESCRIPTION,
         unit="usd",
         definition=APPROVED_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(approved, user)
     upsert_metric(
@@ -447,6 +454,7 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
         description=YOY_MRR_GROWTH_METRIC_DESCRIPTION,
         unit="percent",
         definition=YOY_MRR_GROWTH_METRIC_DEFINITION,
+        overwrite=True,
     )
     return {
         "metrics": [
@@ -464,6 +472,7 @@ def seed_proposed_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
         name=PROPOSED_METRIC_NAME,
         description=PROPOSED_METRIC_DESCRIPTION,
         definition=PROPOSED_METRIC_DEFINITION,
+        overwrite=True,
     )
     return {"metric": {"name": PROPOSED_METRIC_NAME, "status": "proposed"}}
 
@@ -477,6 +486,7 @@ def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
         name=DRIFTED_METRIC_NAME,
         description=DRIFTED_METRIC_DESCRIPTION,
         source_insight_short_id=insight.short_id,
+        overwrite=True,
     )
     approve_metric(metric, user)
     # Mutating the source insight after approval is what makes the metric read as drifted.
@@ -511,6 +521,7 @@ def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str
         description=APPROVED_METRIC_DESCRIPTION,
         unit="usd",
         definition=APPROVED_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(approved, user)
     upsert_metric(
@@ -519,6 +530,7 @@ def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str
         name=PROPOSED_METRIC_NAME,
         description=PROPOSED_METRIC_DESCRIPTION,
         definition=PROPOSED_METRIC_DEFINITION,
+        overwrite=True,
     )
     for insight_name in DECOY_INSIGHT_NAMES:
         Insight.objects.create(team=team, created_by=user, name=insight_name, query=DRIFTED_INSIGHT_ORIGINAL_QUERY)
