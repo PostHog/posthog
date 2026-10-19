@@ -4,7 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
-import { QuillExperimentActionsMenu } from './QuillExperimentActionsMenu'
+import { QuillExperimentActionsMenu } from 'products/experiments/frontend/components/QuillExperimentActionsMenu'
+
 import { useExperimentActions } from './useExperimentActions'
 
 export function ExperimentActionsMenu(): JSX.Element | null {

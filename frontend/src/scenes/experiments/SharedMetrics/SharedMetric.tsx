@@ -32,12 +32,12 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import { QuillSharedMetricActions } from 'products/experiments/frontend/components/QuillSharedMetricActions'
 import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { isLegacyExperimentQuery } from '../utils'
 import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
-import { QuillSharedMetricActions } from './QuillSharedMetricActions'
 import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 

@@ -11,7 +11,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { useExperimentActions } from './useExperimentActions'
+import { useExperimentActions } from 'scenes/experiments/ExperimentView/useExperimentActions'
 
 export function QuillExperimentActionsMenu(): JSX.Element | null {
     const sections = useExperimentActions('actions-dropdown-')
