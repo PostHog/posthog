@@ -57,6 +57,9 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.
   - **Stranded-run sweep** (same cadence and connection, `get_stale_stranded_runs`): runs the loader abandoned, meaning non-terminal batches, no live lease, and no loader progress for 6 hours.
     These have no `failed` batch for the reconcile sweep to key on (the extraction died before a final batch), so without this pass they would strand until the retention prune.
+  - **Aged-out run sweep** (same cadence and connection, `get_aged_out_runs`): runs that hold a `pending` or `waiting_retry` batch older than `CLAIM_ELIGIBILITY_INTERVAL`.
+    No claim offers that batch again, but the run gates do not read `pending` rows, so the later batches of the run stay claimable. The sweep fails the run's batches, then the job, then releases the pipeline lock.
+    The stranded-run sweep does not catch these runs, because the group makes progress on the later batches.
 - **Sync producer** (`pipeline_v3/postgres_queue/producer.py`, in warehouse_sources): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each queue row is a single INSERT.
   The v3 pipeline holds each batch's row back by one (`hold_batch`): staging batch N inserts the row for batch N-1, and the end of the run inserts the held row with `is_final_batch = true`, so the run's last data row is its own final marker and the loader reads every parquet file once.
   A resumable source releases the held row before it commits a cursor (`release_held_batch`), because the cursor promises that every row before it is loadable; when that leaves nothing held at the end, `send_final_batch` inserts the last batch a second time as a final-only marker, which the loader still accepts (`_run_post_load_for_already_processed_batch`).
@@ -75,6 +78,7 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
   The bucket's 8-day lifecycle rule for extraction files also stays above this window, so a claimable batch's parquet still exists.
   `TestClaimEligibilityWindow` in `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/test_jobs_db.py` enforces the retention coupling.
   The bucket rule lives in the infrastructure repo, and nothing in this repo checks it.
+  As a second guard, the loader refuses to complete a job when an earlier batch of the final batch's run did not reach `succeeded` (`_refuse_incomplete_run` in `load/processor.py`). The consumer then fails the run, so the staged cursor never moves past rows that did not load.
 - **Partition pruning bounds**: consumer queries include `created_at > now() - interval '14 days'` (2x the retention) so the planner can skip dropped partitions.
 
 ### Query cost scales with the answer, not with history
@@ -122,7 +126,7 @@ The overall topology (Temporal producer activity, two tables, a fleet of consume
 
 The consumer engine emits nine `warehouse_pg_consumer_*` metrics (`metrics.py`): `batches_processed_total`, `batch_processing_duration_seconds`, `batch_retry_total`, `runs_failed_total`, `poll_duration_seconds`, `poll_batches_fetched`, `poll_failures_total`, `active_groups`, `recovery_sweeps_total`.
 Other sinks get that nine-metric engine set under their own `{prefix}_pg_consumer_*` names via `make_consumer_metrics`, so dashboards and KEDA queries never conflate two consumers' series.
-Two further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total` and `runs_terminalized_stale_total`.
+Further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total`, `runs_terminalized_stale_total` and `runs_failed_aged_out_total`.
 
 The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
