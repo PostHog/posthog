@@ -20,10 +20,13 @@ import asyncio
 import hashlib
 import tempfile
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import layers
 import requests
+from PIL import Image
 from playwright.async_api import BrowserContext, Locator, Page, async_playwright
 
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
@@ -432,6 +435,10 @@ class Recorder:
         self.voice_log: list[dict[str, Any]] = []
         self.base = Path(".")
         self.mouse: tuple[float, float] = (720.0, 450.0)
+        # With a zoom in the storyboard, captions and stickers are drawn after the camera pass, so they don't zoom.
+        self.layered = any("zoom" in step for step in storyboard["steps"])
+        self.timeline: dict[str, list[dict[str, Any]]] = {"captions": [], "stickers": [], "cards": [], "zooms": []}
+        self.last_box: dict[str, float] | None = None
 
     def now(self) -> float:
         return time.monotonic() - self.t0
@@ -454,6 +461,11 @@ class Recorder:
             await asyncio.sleep(0.1)
 
     async def sticker(self, page: Page, spec: dict[str, Any]) -> None:
+        if self.layered:
+            self.timeline["stickers"].append({**spec, "at": self.now(), "text": self.vars.shown(spec.get("text", ""))})
+            if self.pop:
+                self.sounds.append((self.video_now() + 0.05, self.pop))
+            return
         position = STICKER_POSITIONS.get(spec.get("position", "bottom-right"), STICKER_POSITIONS["bottom-right"])
         await page.evaluate(
             "([src, label, pos, seconds]) => window.__sticker && window.__sticker(src, label, pos, seconds)",
@@ -500,12 +512,16 @@ class Recorder:
         return loc.nth(target.get("nth", 0))
 
     async def caption(self, page: Page, text: str) -> None:
+        if self.layered:
+            self.timeline["captions"].append({"at": self.now(), "text": self.vars.shown(text)})
+            return
         await page.evaluate("t => window.__caption && window.__caption(t)", self.vars.shown(text))
 
     async def glide(self, page: Page, loc: Locator) -> None:
         await loc.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
         await loc.scroll_into_view_if_needed()
         box = await loc.bounding_box()
+        self.last_box = box
         if box:
             await self.move_mouse(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
             await asyncio.sleep(0.2)
@@ -559,6 +575,11 @@ class Recorder:
         await page.close()
 
     async def card(self, page: Page, spec: dict[str, Any], key: str, dark: bool = False) -> None:
+        start = self.now()
+        await self._card(page, spec, key, dark)
+        self.timeline["cards"].append({"from": start, "to": self.now()})
+
+    async def _card(self, page: Page, spec: dict[str, Any], key: str, dark: bool = False) -> None:
         html = card_html(
             self.brand,
             self.vars.shown(spec.get("heading", "")),
@@ -573,6 +594,11 @@ class Recorder:
         await self.finish_speaking()
 
     async def http(self, page: Page, spec: dict[str, Any], key: str) -> None:
+        start = self.now()
+        await self._http(page, spec, key)
+        self.timeline["cards"].append({"from": start, "to": self.now()})
+
+    async def _http(self, page: Page, spec: dict[str, Any], key: str) -> None:
         method = spec.get("method", "POST").upper()
         shown_url, real_url = self.url(self.vars.shown(spec["url"])), self.url(spec["url"])
         headers = spec.get("headers", {})
@@ -638,6 +664,8 @@ class Recorder:
         if "caption" in step:
             await self.caption(page, step["caption"])
         self.speak(key)
+        self.last_box = None
+        acting = self.now()
         if "scroll" in step:
             await page.mouse.wheel(0, step["scroll"])
             await asyncio.sleep(0.6)
@@ -660,13 +688,25 @@ class Recorder:
                 for _ in range(int(times or 1)):
                     await page.keyboard.press(name)
             await page.keyboard.type(self.vars.real(spec.get("text", "")), delay=spec.get("delay_ms", 80))
+        acted = self.now()
         if "wait_for" in step and "goto" not in step:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS))
+        zoom = step.get("zoom")
+        detail = None
+        if zoom is True and self.last_box:
+            box, until = self.last_box, acted + layers.ZOOM_AFTER_ACTION
+            self.timeline["zooms"].append({"from": acting, "to": until, "box": box, "level": None})
+        elif isinstance(zoom, dict) and "target" in zoom:
+            target = self.locate(page, zoom["target"])
+            await self.waited(target.wait_for(state="visible", timeout=STEP_TIMEOUT_MS))
+            detail = {"from": self.now(), "box": await target.bounding_box(), "level": zoom.get("level")}
         if "sticker" in step:
             await self.sticker(page, step["sticker"])
         default_hold = 0.5 if self.voice else max(1.5, len(step.get("caption", "").split()) * 0.25)
         await asyncio.sleep(step.get("hold", default_hold))
         await self.finish_speaking()
+        if detail and detail["box"]:
+            self.timeline["zooms"].append({**detail, "to": self.now()})
 
     async def run(self, output: Path) -> dict[str, Any]:
         viewport = self.sb.get("viewport", DEFAULT_VIEWPORT)
@@ -722,20 +762,67 @@ class Recorder:
         if self.voice_log:
             log["voice"] = self.voice_log
         if raw_video and "error" not in log:
+            source, cuts, duration = raw_video, self.cuts, log["duration"]
+            if self.layered:
+                # The camera and overlay pass cuts the video itself, so the encode below only adds the sound.
+                source = output.with_suffix(".camera.mp4")
+                frames = _kept_frames(raw_video, self.cuts, duration, viewport)
+                # The overlay pass renders with Playwright's sync API, which can't run inside this event loop.
+                await asyncio.to_thread(
+                    layers.compose,
+                    sys.modules[__name__],
+                    self.brand,
+                    frames,
+                    self.timeline,
+                    viewport,
+                    viewport["width"],
+                    FPS,
+                    source,
+                )
+                cuts, duration = [], duration_of(source)
+                log["zooms"] = len(self.timeline["zooms"])
             encode(
-                raw_video,
+                source,
                 output,
-                self.cuts,
-                log["duration"],
+                cuts,
+                duration,
                 self.sounds,
                 self.sb["music"] if "music" in self.sb else None,
                 self.base,
             )
+            if source != raw_video:
+                source.unlink()
             contact_sheet(output)
         elif raw_video:
             shutil.copy(raw_video, output.with_suffix(".failed.webm"))
         shutil.rmtree(video_dir, ignore_errors=True)
         return log
+
+
+def _kept_frames(
+    raw: Path, cuts: list[tuple[float, float]], duration: float, viewport: dict[str, int]
+) -> Iterator[tuple[float, Image.Image]]:
+    """The frames of the raw take that stay in the video, with their time on the recording clock."""
+    width, height = viewport["width"], viewport["height"]
+    decode = subprocess.Popen(
+        ["ffmpeg", "-loglevel", "error", "-i", str(raw), "-vf", f"fps={FPS},scale={width}:{height}",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        stdout=subprocess.PIPE,
+    )  # fmt: skip
+    assert decode.stdout is not None
+    size = width * height * 3
+    index = 0
+    while chunk := decode.stdout.read(size):
+        if len(chunk) < size:
+            break
+        t = index / FPS
+        index += 1
+        if t > duration + 0.5:
+            break
+        if not any(start <= t <= end for start, end in cuts):
+            yield t, Image.frombytes("RGB", (width, height), chunk)
+    decode.stdout.close()
+    decode.wait()
 
 
 def music_track(spec: dict[str, Any], seconds: float, base: Path) -> Path:
@@ -882,7 +969,9 @@ def main() -> None:
     output = (storyboard_path.parent / storyboard.get("output", "demo.mp4")).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     values = {**os.environ, **storyboard.get("vars", {})}
-    recorder = Recorder(storyboard, Brand(repo_root), Vars(values, storyboard.get("secrets", [])))
+    variables = Vars(values, storyboard.get("secrets", []))
+    brand = Brand(repo_root)
+    recorder = Recorder(storyboard, brand, variables)
     recorder.base = storyboard_path.parent
     log = asyncio.run(recorder.run(output))
     if skipped:
