@@ -16,7 +16,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconArrowUpRight } from '@posthog/icons'
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -365,7 +365,29 @@ function ManagedSourceTabs({
     tabs.push({
         label: 'History',
         key: 'history',
-        content: <ActivityLog id={sourceId} scope={ActivityScope.EXTERNAL_DATA_SOURCE} />,
+        content: (
+            <ActivityLog
+                id={sourceId}
+                scope={ActivityScope.EXTERNAL_DATA_SOURCE}
+                emptyState={
+                    showSyncsTab
+                        ? {
+                              description:
+                                  'History lists changes to the configuration of this source. It does not list syncs. To see the syncs, open the Syncs tab.',
+                              action: (
+                                  <LemonButton
+                                      type="primary"
+                                      onClick={() => setCurrentTab('syncs')}
+                                      data-attr="source-history-empty-view-syncs"
+                                  >
+                                      View syncs
+                                  </LemonButton>
+                              ),
+                          }
+                        : undefined
+                }
+            />
+        ),
     })
 
     tabs.push({

@@ -327,7 +327,25 @@ function BatchExportSceneContentInner({
             ? {
                   label: 'History',
                   key: 'history',
-                  content: <ActivityLog id={id} scope={ActivityScope.BATCH_EXPORT} />,
+                  content: (
+                      <ActivityLog
+                          id={id}
+                          scope={ActivityScope.BATCH_EXPORT}
+                          emptyState={{
+                              description:
+                                  'History lists changes to the configuration of this batch export. It does not list export runs. To see the runs, open the Runs tab.',
+                              action: (
+                                  <LemonButton
+                                      type="primary"
+                                      onClick={() => setCurrentTab('runs')}
+                                      data-attr="batch-export-history-empty-view-runs"
+                                  >
+                                      View runs
+                                  </LemonButton>
+                              ),
+                          }}
+                      />
+                  ),
               }
             : null,
     ]
