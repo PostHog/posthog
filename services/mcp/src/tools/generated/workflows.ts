@@ -158,35 +158,6 @@ const workflowsDataSuggestionsCreate = (): ToolBase<
         ),
     })
 
-const WorkflowsEmailDraftsCreateSchema = () => {
-    const WorkflowDataSuggestionsBuildForEventsBody = orvalSchemas.WorkflowDataSuggestionsBuildForEventsBody()
-    return WorkflowDataSuggestionsBuildForEventsBody
-}
-
-const workflowsEmailDraftsCreate = (): ToolBase<
-    ReturnType<typeof WorkflowsEmailDraftsCreateSchema>,
-    Schemas.EventWorkflowsBuildResponse
-> => ({
-    name: 'workflows-email-drafts-create',
-    schema: WorkflowsEmailDraftsCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEmailDraftsCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.events !== undefined) {
-            body['events'] = params.events
-        }
-        if (params.retry !== undefined) {
-            body['retry'] = params.retry
-        }
-        const result = await context.api.request<Schemas.EventWorkflowsBuildResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build_for_events/`,
-            body,
-        })
-        return result
-    },
-})
-
 const WorkflowsDataSuggestionsGetSchema = () => z.object({})
 
 const workflowsDataSuggestionsGet = (): ToolBase<
@@ -271,6 +242,35 @@ const workflowsDiscardDraft = (): ToolBase<ReturnType<typeof WorkflowsDiscardDra
             return result
         },
     })
+
+const WorkflowsEmailDraftsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildForEventsBody = orvalSchemas.WorkflowDataSuggestionsBuildForEventsBody()
+    return WorkflowDataSuggestionsBuildForEventsBody
+}
+
+const workflowsEmailDraftsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailDraftsCreateSchema>,
+    Schemas.EventWorkflowsBuildResponse
+> => ({
+    name: 'workflows-email-drafts-create',
+    schema: WorkflowsEmailDraftsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEmailDraftsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.events !== undefined) {
+            body['events'] = params.events
+        }
+        if (params.retry !== undefined) {
+            body['retry'] = params.retry
+        }
+        const result = await context.api.request<Schemas.EventWorkflowsBuildResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build_for_events/`,
+            body,
+        })
+        return result
+    },
+})
 
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
@@ -869,10 +869,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
     'workflows-create': workflowsCreate,
     'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
-    'workflows-email-drafts-create': workflowsEmailDraftsCreate,
     'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
+    'workflows-email-drafts-create': workflowsEmailDraftsCreate,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
