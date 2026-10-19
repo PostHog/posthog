@@ -11,8 +11,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.deleted_cohort_notices import (
     AffectedFlag,
@@ -276,3 +278,39 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
 
         assert stored_notifications_for_team(self.team.id) == sent
         assert expected_resend_line in second_send
+
+    @parameterized.expand(
+        [
+            ("denied_the_listed_flag", "feature_flag", True),
+            ("denied_all_surveys", "survey", False),
+        ]
+    )
+    def test_send_leaves_out_a_member_denied_an_object_the_notice_names(
+        self, _name: str, denied_resource: str, deny_only_the_flag: bool
+    ) -> None:
+        self.enterContext(
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag == "real-time-notifications",
+            )
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        deleted_cohort = self._cohort("Beta testers", deleted=True)
+        plain_flag = self._flag("checkout-redesign", deleted_cohort.id)
+        survey_flag = self._flag("survey-targeting-nps", deleted_cohort.id)
+        Survey.objects.create(team=self.team, name="NPS check-in", type="popover", targeting_flag=survey_flag)
+        denied = User.objects.create_and_join(self.organization, "denied@example.com", "password")
+        AccessControl.objects.create(
+            team=self.team,
+            resource=denied_resource,
+            resource_id=str(plain_flag.id) if deny_only_the_flag else None,
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=denied),
+            access_level="none",
+        )
+
+        self._run("--send", "--team-id", str(self.team.id))
+
+        assert [notice.resolved_user_ids for notice in stored_notifications_for_team(self.team.id)] == [[self.user.id]]

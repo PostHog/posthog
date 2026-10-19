@@ -11,18 +11,20 @@ an included cohort, so no new case can arise.
 
 from collections import defaultdict
 from collections.abc import Collection, Iterator, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 
 from posthog.dataclasses import frozen
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.scopes import APIScopeObject
 from posthog.utils import human_list
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.facade.config import ConfigFormatError, decode_config
 from products.feature_flags.backend.facade.references import references
@@ -199,10 +201,43 @@ def _owners(flag_ids: Collection[int]) -> dict[int, FlagOwner]:
     return owners
 
 
+class _ViewersOfListedObjects(RecipientsResolver):
+    """Narrow team recipients to the members who can view every object the notice names.
+
+    create_notification checks access to the notice's one resource type and ignores per-object
+    rules. A notice can name surveys and flags together. A member can be denied one flag.
+    This resolver narrows the recipients first. create_notification then applies its own check.
+    """
+
+    def __init__(self, flags: Sequence[AffectedFlag]) -> None:
+        self._flags = tuple(flags)
+
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
+        user_ids = super().resolve(target_type, target_id, team_id)
+        team = Team.objects.filter(id=team_id).first() if team_id is not None else None
+        if not user_ids or team is None:
+            return []
+        # The body names the survey for a survey's flag, and the flag for a plain or product tour flag.
+        survey_ids = [flag.owner.id for flag in self._flags if flag.owner and flag.owner.kind == "survey"]
+        flag_ids = [flag.flag_id for flag in self._flags if not (flag.owner and flag.owner.kind == "survey")]
+        named: list[Model] = [*Survey.objects.filter(id__in=survey_ids), *FeatureFlag.objects.filter(id__in=flag_ids)]
+        if survey_ids:
+            user_ids = self.filter_by_access_control(user_ids, "survey", team)
+        if flag_ids:
+            user_ids = self.filter_by_access_control(user_ids, "feature_flag", team)
+        viewers = []
+        for user in User.objects.filter(id__in=user_ids):
+            access = UserAccessControl(user, team)
+            if access.is_organization_admin or all(
+                access.check_access_level_for_object(obj, required_level="viewer") for obj in named
+            ):
+                viewers.append(user.id)
+        return viewers
+
+
 def build_notice(team_id: int, flags: Sequence[AffectedFlag]) -> NotificationData:
-    if len(flags) == 1:
-        return _single_flag_notice(team_id, flags[0])
-    return _several_flags_notice(team_id, flags)
+    notice = _single_flag_notice(team_id, flags[0]) if len(flags) == 1 else _several_flags_notice(team_id, flags)
+    return replace(notice, resolver=_ViewersOfListedObjects(flags))
 
 
 def _single_flag_notice(team_id: int, flag: AffectedFlag) -> NotificationData:
@@ -338,7 +373,7 @@ def preview_delivery(team: Team, notice: NotificationData) -> DeliveryPreview:
         send_feature_flag_events=False,
     ):
         return DeliveryPreview(notifications_enabled=False, recipient_count=0)
-    resolver = RecipientsResolver()
+    resolver = notice.resolver or RecipientsResolver()
     user_ids = resolver.resolve(notice.target_type, notice.target_id, team.id)
     if notice.resource_type:
         user_ids = resolver.filter_by_access_control(user_ids, str(notice.resource_type), team)
