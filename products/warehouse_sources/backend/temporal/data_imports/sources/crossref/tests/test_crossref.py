@@ -129,11 +129,30 @@ class TestGetRowsCursorPagination:
         assert result.committed_states == [CrossrefResumeConfig(cursor="c2")]
         assert result.final_state == CrossrefResumeConfig(cursor="c2")
 
-    def test_works_rows_are_normalized(self) -> None:
-        result = self._driver().run("Works", [_page([{"DOI": "1", "indexed": {"date-time": "2026-01-01T00:00:00Z"}}])])
+    @parameterized.expand(
+        [
+            (
+                "works_date",
+                "Works",
+                {"DOI": "1", "indexed": {"date-time": "2026-01-01T00:00:00Z"}},
+                "indexed_date",
+                "2026-01-01T00:00:00Z",
+            ),
+            (
+                "journal_issns_sorted",
+                "Journals",
+                {"title": "J", "ISSN": ["1097-4547", "0360-4012"]},
+                "issn_key",
+                "0360-4012,1097-4547",
+            ),
+            ("journal_without_issn", "Journals", {"title": "J", "ISSN": []}, "issn_key", ""),
+        ]
+    )
+    def test_rows_are_normalized(self, _name, endpoint, item, column, expected) -> None:
+        result = self._driver().run(endpoint, [_page([item])])
 
         assert result.raised is None
-        assert result.rows[0].to_pylist()[0]["indexed_date"] == "2026-01-01T00:00:00Z"
+        assert result.rows[0].to_pylist()[0][column] == expected
 
     def test_mailto_passed_as_redact_value(self) -> None:
         """mailto is a user-typed contact email, not a secret, but it should still be kept out

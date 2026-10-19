@@ -66,6 +66,29 @@ describe('experimentResultsNotificationLogic', () => {
         expect(logic.values.notifyWhenResultsReady).toBe(false)
     })
 
+    it('does not announce results when the page abandons the run, and drops the subscription', async () => {
+        const notificationSpy = jest.fn()
+        Object.defineProperty(window, 'Notification', {
+            value: Object.assign(notificationSpy, { permission: 'granted' }),
+            configurable: true,
+        })
+        try {
+            // The seeded run has a gap, so mount also fires a heal request; let it land before driving the edge.
+            await expectLogic(metricsLogic).toFinishAllListeners()
+            metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'in_progress' } as any)
+            logic.actions.setNotifyWhenResultsReady(true)
+
+            metricsLogic.actions.abandonRecalculation('poll_timeout', 'x')
+
+            expect(notificationSpy).not.toHaveBeenCalled()
+            expect(logic.values.notifyWhenResultsReady).toBe(false)
+            expect(dispatchBeforeUnload()).toBe(false)
+        } finally {
+            // jsdom has no Notification; leaving the key would make `'Notification' in window` true elsewhere.
+            delete (window as any).Notification
+        }
+    })
+
     it('warns before unload while subscribed and stops once results land', async () => {
         metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'in_progress' } as any)
         expect(dispatchBeforeUnload()).toBe(false)

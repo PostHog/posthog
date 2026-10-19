@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHide, IconPlusSmall } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumns,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconBrowser, IconHide, IconImage, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -17,7 +9,6 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -55,63 +46,53 @@ export function HeatmapsScene(): JSX.Element {
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
-            title: 'Name',
+            title: 'Heatmap',
             dataIndex: 'name',
-            render: (_, row) => (
-                <Link to={urls.heatmap(row.short_id)}>
-                    <span className="truncate max-w-[32rem] inline-block align-middle">{row.name}</span>
-                </Link>
-            ),
-        },
-        {
-            title: 'Page',
-            dataIndex: 'url',
             render: (_, row) => {
                 const wontCapture = showCaptureStatus && !!row.url && !isUrlCoveredByAllowlist(row.url, urlAllowlist)
                 return (
-                    <div className="flex items-center gap-2">
-                        <Link to={urls.heatmap(row.short_id)}>
-                            <span className="truncate max-w-[28rem] inline-block align-middle">{row.url}</span>
-                        </Link>
-                        {wontCapture && (
-                            <Tooltip title={wontCaptureTooltip}>
-                                <IconHide className="text-muted shrink-0" />
-                            </Tooltip>
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Link to={urls.heatmap(row.short_id)} className="font-semibold truncate" title={row.name}>
+                                {row.name}
+                            </Link>
+                            {wontCapture && (
+                                <Tooltip title={wontCaptureTooltip}>
+                                    <IconHide className="text-muted shrink-0" />
+                                </Tooltip>
+                            )}
+                        </div>
+                        <span className="text-xs text-muted truncate ph-no-capture" title={row.url ?? undefined}>
+                            {row.url}
+                        </span>
+                        {row.data_url && row.data_url !== row.url && (
+                            <span className="text-xs text-muted truncate ph-no-capture" title={row.data_url}>
+                                <span>Data: </span>
+                                <span>{row.data_url}</span>
+                            </span>
                         )}
+                        <span className="text-xs text-muted flex flex-wrap gap-x-1">
+                            {row.created_at && <TZLabel time={row.created_at} />}
+                            {row.created_by && (
+                                <span className="truncate ph-no-capture">{`by ${row.created_by.first_name || row.created_by.email}`}</span>
+                            )}
+                        </span>
                     </div>
                 )
             },
         },
         {
-            title: 'Heatmap data URL',
-            dataIndex: 'data_url',
+            title: 'Background',
+            dataIndex: 'type',
+            width: 140,
             render: (_, row) => (
-                <Link to={urls.heatmap(row.short_id)}>
-                    <span className="truncate max-w-[32rem] inline-block align-middle">{row.data_url}</span>
-                </Link>
+                <LemonTag icon={row.type === 'iframe' ? <IconBrowser /> : <IconImage />}>
+                    {row.type === 'iframe' ? 'Live page' : 'Screenshot'}
+                </LemonTag>
             ),
         },
         {
-            title: 'Type',
-            dataIndex: 'type',
-            render: (_, row) => row.type.charAt(0).toUpperCase() + row.type.slice(1),
-        },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            render: function Render(created_at) {
-                return <div>{created_at && typeof created_at === 'string' && <TZLabel time={created_at} />}</div>
-            },
-        },
-        {
-            ...(createdByColumn<HeatmapScreenshotType>() as LemonTableColumn<
-                HeatmapScreenshotType,
-                keyof HeatmapScreenshotType | undefined
-            >),
-            width: 0,
-        },
-        {
-            width: 0,
+            width: 48,
             render: function Render(_, row) {
                 return (
                     <More
@@ -141,7 +122,6 @@ export function HeatmapsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <HeatmapsWarnings />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Heatmaps].name}
                 description={sceneConfigurations[Scene.Heatmaps].description}
@@ -184,6 +164,7 @@ export function HeatmapsScene(): JSX.Element {
                     </>
                 }
             />
+            <HeatmapsWarnings />
             <HeatmapsPricingNotice />
             <div className="flex justify-between gap-2 items-center flex-wrap">
                 <Shortcut
@@ -201,7 +182,7 @@ export function HeatmapsScene(): JSX.Element {
                     />
                 </Shortcut>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <span>Created by:</span>
                     <MemberSelect
                         value={filters.createdBy === 'All users' ? null : (filters.createdBy as string | number | null)}
@@ -215,6 +196,12 @@ export function HeatmapsScene(): JSX.Element {
                     loading={savedHeatmapsLoading}
                     columns={columns}
                     rowKey="id"
+                    tableLayout="fixed"
+                    emptyState={
+                        filters.search
+                            ? 'No heatmaps match your search.'
+                            : 'Create a heatmap to explore how visitors interact with a page.'
+                    }
                     pagination={{
                         controlled: true,
                         pageSize: HEATMAPS_PER_PAGE,

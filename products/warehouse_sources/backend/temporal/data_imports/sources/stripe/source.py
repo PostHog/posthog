@@ -572,21 +572,19 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 "Couldn't reach Stripe to validate your credentials. This is usually temporary. Please try again in a few minutes.",
             )
         except StripeValidationError as e:
-            # Non-403, non-transient failures (e.g. an unexpected schema or response error) are not
-            # configuration issues, so surface the underlying Stripe message verbatim — the cause
-            # isn't obvious from the resource name. Transient 5xx/connection/rate-limit failures are
-            # handled by the StripeTransientError branch above. Fold any 403s collected before the
-            # unknown error into the same toast. Guard against empty / whitespace-only error strings
-            # so we never crash the response path while reporting a different error.
-            def _first_line(msg: str) -> str:
-                lines = (msg or "").splitlines()
-                return lines[0][:200] if lines else "(no detail)"
-
-            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
-            message = f"Stripe validation failed — {details}"
-            if e.missing_permissions:
-                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
-            return False, message
+            # Non-403, non-transient failures. Stripe's own text names request parameters the user
+            # never controls, so map known rejections to their curated copy and send the rest to
+            # error tracking behind a generic next step.
+            for msg in e.errors.values():
+                for pattern, friendly in self.get_non_retryable_errors().items():
+                    if friendly and pattern in msg:
+                        return False, friendly
+            capture_exception(e, {"stripe_errors": e.errors, "missing_permissions": e.missing_permissions})
+            return (
+                False,
+                "Stripe couldn't read your account with this API key. Check that the account is active in "
+                "your Stripe dashboard or contact Stripe support, then reconnect.",
+            )
         except ValueError as e:
             # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
             # missing integration ID, missing access token). The user-facing wording already lives

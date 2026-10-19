@@ -386,7 +386,37 @@ The harness shortens long case names in filenames to stay within 255 bytes. It k
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 
-`SandboxedPublicEval` sets `no_send_logs=False` and reports results to both Braintrust and PostHog.
+`SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
 PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
+
+### SQL offline experiment pilot
+
+The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
+It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
+Other public suites report scores to Braintrust until they opt into offline publishing.
+Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
+
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.
+The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
+`POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
+The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metrics and explains local and CI key configuration.
+Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
+Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to the full 60-second upload deadline for delivery to finish.
+Requests use a 5-second timeout and up to two retries within that overall deadline. Terminal API failures trigger a best-effort attempt to mark the experiment failed, limited to 5 seconds; pauses and interruptions leave it resumable.
+Both sandboxed and one-shot suites can opt in through `offline_suite`. Rich scorer recording runs only when offline publishing is configured and uploads are allowed.
+The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, external dataset references, version fields, and suite configuration. Hosted datasets are not supported by the harness publisher.
+
+```bash
+hogli evals sql/eval_sql::eval_sql
+```
+
+With no API key, the SQL run reports that offline uploads are disabled.
+Invalid configuration and upload failures produce warnings while Braintrust and local reporting continue.
+Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
+Raw agent logs stay in the existing local and Braintrust outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
+
+Failed or interrupted uploads and uploads rejected by a full queue are not saved for later retry.
+To try publishing again, correct the configuration or connectivity problem and rerun the suite.
+Existing local logs, enabled case exports, and Braintrust results remain available; upload failures do not change the score gate.

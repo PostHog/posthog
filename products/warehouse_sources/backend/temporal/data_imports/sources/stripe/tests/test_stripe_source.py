@@ -106,6 +106,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     StripeTransientError,
+    StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
@@ -504,6 +505,34 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "stripe_error,expected_start",
+        [
+            ("Invalid request (check your request parameters)", "Stripe couldn't read your account"),
+            ("This API call cannot be made with a publishable API key.", "Your Stripe API key is a publishable key"),
+        ],
+    )
+    def test_validate_credentials_validation_error_hides_raw_stripe_text(self, stripe_error, expected_start):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+                side_effect=StripeValidationError({"Customer": stripe_error}),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.capture_exception"
+            ),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert message.startswith(expected_start)
+        assert stripe_error not in message
 
     @pytest.mark.parametrize(
         "body,expected",

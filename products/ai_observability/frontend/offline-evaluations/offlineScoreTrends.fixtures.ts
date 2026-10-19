@@ -1,6 +1,7 @@
 import type { OfflineHistoryPointApi, ScoreDefinitionApi, ScoreDefinitionVersionApi } from '../generated/api.schemas'
 
 export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
+    tags: [],
     id: '10000000-0000-4000-8000-000000000001',
     name: 'Answer relevance',
     description: 'Relevance to the question, scored from 0 to 5.',
@@ -28,6 +29,7 @@ export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
 export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2): OfflineHistoryPointApi {
     return {
         experiment: {
+            tags: [],
             id: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
             name: `Answer evaluation ${index}`,
             run_source: index % 2 === 0 ? 'ci' : 'local',

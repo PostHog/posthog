@@ -1513,3 +1513,4 @@ class KeyMetric:
     daily: list[tuple[date, float]]
     this_week: float
     last_week: float
+    node: dict[str, Any]

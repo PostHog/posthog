@@ -775,7 +775,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Runs older than the staleness guard are excluded too, so a scout that stopped running "
             "reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, "
             "which each scout's own cadence extends. Use `list` instead when you want a literal "
-            "time window or a text/emitted filter. Strictly team-scoped."
+            "time window or a text/emitted filter. Pass `skill_name` to probe one scout only. "
+            "Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_recent_per_scout",
     )
@@ -792,16 +793,23 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
+        skill_name = validated.get("skill_name")
         run_ids = recent_run_ids_per_scout(
             team_id=_canonical_team_id(self),
             per_scout_limit=per_scout_limit,
             max_age_days=max_age_days,
             exclude_skill_name=saved.context.skill_name if saved is not None else None,
+            skill_name=skill_name,
         )
         if saved is not None:
             rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
             rows.extend(
-                saved.recent_runs([], limit=per_scout_limit, date_from=timezone.now() - timedelta(days=max_age_days))
+                saved.recent_runs(
+                    [],
+                    limit=per_scout_limit,
+                    date_from=timezone.now() - timedelta(days=max_age_days),
+                    skill_name=skill_name,
+                )
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
             return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)

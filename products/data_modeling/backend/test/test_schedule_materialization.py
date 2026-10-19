@@ -50,13 +50,11 @@ class TestScheduleMaterializationV2Guard(BaseTest):
     def test_skips_v1_and_nulls_frequency_when_dag_on_v2(self):
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths") as setup_paths,
             mock.patch(f"{NODE_MAT}.sync_connect") as sync_connect,
             mock.patch(f"{MODEL}.capture_exception") as capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
             self.sq.schedule_materialization()
-        setup_paths.assert_not_called()
         # reporting on the healthy path would bury the one signal that matters
         capture.assert_not_called()
         # a frequency-only call carries no enable intent, so it must not start a one-off run
@@ -107,7 +105,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{NODE_MAT}.sync_connect"),
@@ -130,7 +127,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         bare = temporal_listing([str(self.dag.id)])
         with (
             mock.patch("products.data_modeling.backend.schedule.async_connect", new=mock.AsyncMock(return_value=bare)),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=bare)),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
@@ -156,7 +152,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["is_materialized"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(
                 f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=Exception("temporal unavailable"))
@@ -179,7 +174,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             self.captureOnCommitCallbacks(execute=True),
