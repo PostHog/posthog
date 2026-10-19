@@ -124,18 +124,28 @@ def _sql_series(
         return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
     breakdown_column = settings.get("seriesBreakdownColumn")
+    zero_fill = bool(settings.get("showNullsAsZero"))
     series: dict[tuple[int, str | None], dict[date, float]] = {}
+    with_gaps: set[tuple[int, str | None]] = set()
     try:
         for row in response.get("results") or []:
-            day = date.fromisoformat(str(row[position[x_column]])[:10])
+            stamp = str(row[position[x_column]])
+            if stamp[11:19] not in ("", "00:00:00"):
+                return None
+            day = date.fromisoformat(stamp[:10])
             breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
             for index, axis in enumerate(y_axes):
-                points = series.setdefault((index, breakdown), {})
+                key = (index, breakdown)
+                points = series.setdefault(key, {})
                 if day in points:
                     return None
-                points[day] = float(row[position[axis["column"]]] or 0)
+                value = row[position[axis["column"]]]
+                if value is None and not zero_fill:
+                    with_gaps.add(key)
+                points[day] = float(value or 0)
     except (KeyError, TypeError, ValueError):
         return None
+    series = {key: points for key, points in series.items() if key not in with_gaps}
     period = _sql_period(sorted({day for points in series.values() for day in points}), team.week_start_day)
     if period is None:
         return None

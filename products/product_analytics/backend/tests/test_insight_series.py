@@ -131,10 +131,41 @@ class TestSqlSeries(SimpleTestCase):
                 _sql_query(yAxis=[{"column": "p50"}, {"column": "p90"}], seriesBreakdownColumn="kind"),
                 {
                     "columns": ["week", "kind", "p50", "p90"],
-                    "results": [["2026-10-04", "html", 1, 2], ["2026-10-11", "html", 3, None]],
+                    "results": [["2026-10-04", "html", 1, 2], ["2026-10-11", "html", 3, 4]],
                 },
                 WeekStartDay.SUNDAY,
-                ("week", {"p50 · html": [1.0, 3.0], "p90 · html": [2.0, 0.0]}, None, None),
+                ("week", {"p50 · html": [1.0, 3.0], "p90 · html": [2.0, 4.0]}, None, None),
+            ),
+            (
+                "a series with a null leaves the tile and keeps the others",
+                _sql_query(yAxis=[{"column": "p50"}, {"column": "p90"}]),
+                {
+                    "columns": ["week", "p50", "p90"],
+                    "results": [["2026-10-04", 1, 2], ["2026-10-11", 3, None]],
+                },
+                WeekStartDay.SUNDAY,
+                ("week", {"p50": [1.0, 3.0]}, None, None),
+            ),
+            (
+                "a chart that shows nulls as zero keeps the zero",
+                _sql_query(showNullsAsZero=True),
+                _weekly(["2026-10-04", 1], ["2026-10-11", None]),
+                WeekStartDay.SUNDAY,
+                ("week", {"p50": [1.0, 0.0]}, None, None),
+            ),
+            (
+                "midnight timestamps are days",
+                _sql_query(),
+                _weekly(["2026-10-04T00:00:00-07:00", 1], ["2026-10-11T00:00:00-07:00", 2]),
+                WeekStartDay.SUNDAY,
+                ("week", {"p50": [1.0, 2.0]}, None, None),
+            ),
+            (
+                "hourly timestamps are not days",
+                _sql_query(),
+                _weekly(["2026-10-01T10:00:00", 1], ["2026-10-02T13:00:00", 2]),
+                WeekStartDay.SUNDAY,
+                None,
             ),
             (
                 "two columns that share a label keep both series",
