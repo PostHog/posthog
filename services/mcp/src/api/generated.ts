@@ -19085,6 +19085,43 @@ export namespace Schemas {
     }
 
     /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    export type HogFlowStateEnum = typeof HogFlowStateEnum[keyof typeof HogFlowStateEnum];
+
+
+    export const HogFlowStateEnum = {
+      Draft: 'draft',
+      Active: 'active',
+      Archived: 'archived',
+    } as const;
+
+    export interface BroadcastConversionCandidate {
+      /** Workflow id. */
+      readonly id: string;
+      /** Workflow name. Empty when unnamed. */
+      readonly name: string;
+      /** Workflow status.
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      readonly status: HogFlowStateEnum;
+    }
+
+    /**
+     * Workflows that only send one email to a batch audience and can move to broadcasts.
+     */
+    export interface BroadcastConversionCandidates {
+      /** True when more workflows can move than `results` lists. */
+      readonly has_more: boolean;
+      /** The most recently updated candidates, at most 100. */
+      readonly results: readonly BroadcastConversionCandidate[];
+    }
+
+    /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
      * * `novel_burst` - Novel Burst
@@ -55640,20 +55677,6 @@ export namespace Schemas {
     export type HogFlowActionRedirects = {[key: string]: string} | null;
 
     /**
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived
-     */
-    export type HogFlowStateEnum = typeof HogFlowStateEnum[keyof typeof HogFlowStateEnum];
-
-
-    export const HogFlowStateEnum = {
-      Draft: 'draft',
-      Active: 'active',
-      Archived: 'archived',
-    } as const;
-
-    /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
@@ -56117,6 +56140,17 @@ export namespace Schemas {
       remaining: number;
       /** True when no in-flight runs of this batch remain unflagged. */
       done: boolean;
+    }
+
+    export interface HogFlowConvertedToBroadcast {
+      /** Id of the workflow that is now a broadcast. */
+      readonly id: string;
+      /** The product that now owns the workflow. Always `broadcasts`.
+       *
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails */
+      readonly origin_product: HogFlowOriginProductEnum;
     }
 
     /**
