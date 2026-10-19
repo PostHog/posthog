@@ -40,6 +40,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
+from posthog.clickhouse.logs.logs_pattern_buckets import TABLE_NAME as LOGS_PATTERN_BUCKETS_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -72,6 +73,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
+    get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
@@ -2393,6 +2396,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
+            ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
             ("posthog_code_credits", "posthog_code_credits_used_in_period"),
         ]
@@ -3746,6 +3750,72 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         }
         assert get_teams_with_sdk_logs_records_in_period(begin, end, [team_id]) == expected
         assert get_teams_with_sdk_logs_records_in_period(begin, end, []) == {sdk: [] for sdk in expected}
+
+    def test_logs_distinct_patterns_count_latest_version_across_period(self) -> None:
+        self._setup_teams()
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_PATTERN_BUCKETS_TABLE}")
+        begin = datetime(2026, 10, 16, tzinfo=UTC)
+        end = begin + timedelta(days=1)
+        team_id = self.org_1_team_1.id
+        other_team_id = self.org_1_team_2.id
+
+        def row(
+            team: int, bucket: datetime, version: int, pattern: str, service: str = "api", severity: str = "info"
+        ) -> str:
+            return json.dumps(
+                {
+                    "team_id": team,
+                    "time_bucket": bucket.strftime("%Y-%m-%d %H:%M:%S"),
+                    "service_name": service,
+                    "namespace": "",
+                    "environment": "",
+                    "severity_text": severity,
+                    "pattern_version": version,
+                    "pattern": pattern,
+                    "retention_days": 30,
+                    "log_count": 1,
+                }
+            )
+
+        rows = [
+            row(team_id, begin, 5, "old a"),
+            row(team_id, begin, 5, "old b"),
+            row(team_id, begin, 5, "old c"),
+            row(team_id, begin + timedelta(hours=12), 6, "a"),
+            row(team_id, begin + timedelta(hours=13), 6, "a", service="worker", severity="error"),
+            row(team_id, end - timedelta(minutes=5), 6, "b"),
+            row(team_id, begin - timedelta(minutes=5), 6, "before"),
+            row(team_id, end, 6, "after"),
+            row(other_team_id, begin, 5, "x"),
+        ]
+        sync_execute(f"INSERT INTO {LOGS_PATTERN_BUCKETS_TABLE} FORMAT JSONEachRow\n" + "\n".join(rows))
+
+        assert dict(get_teams_with_logs_distinct_patterns_in_period(begin, end)) == {team_id: 2, other_team_id: 1}
+
+    @parameterized.expand([("ingest_day", 0, 1_000), ("second_month", 30, 2_000)])
+    def test_logs_retention_byte_days_bill_each_month_on_its_own_day(
+        self, _name: str, period_offset_days: int, expected_count: int
+    ) -> None:
+        team_id = 1
+        ingest_day = now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # The consumer dates each later month of retention in the future, so only the row dated
+        # in the report period may bill there.
+        for offset_days, count in ((0, 1_000), (30, 2_000)):
+            create_app_metric2(
+                team_id=team_id,
+                app_source="logs",
+                timestamp=ingest_day + timedelta(days=offset_days),
+                app_source_id="",
+                instance_id="",
+                metric_kind="usage",
+                metric_name="retention_byte_days",
+                count=count,
+            )
+
+        begin = ingest_day + timedelta(days=period_offset_days)
+        assert get_teams_with_logs_retention_byte_days_in_period(begin, begin + timedelta(days=1)) == [
+            (team_id, expected_count)
+        ]
 
     @parameterized.expand(
         [

@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconEllipsis, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonModal, Spinner } from '@posthog/lemon-ui'
@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,9 @@ import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+
+import { buildBIAgentContext } from './biAgentContext'
 import { BIChartAxis } from './BIChartAxisControls'
 import { BIChartAxisModal } from './BIChartAxisModal'
 import { BIEditor } from './BIEditor'
@@ -48,6 +52,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         name,
         lastRunQuery,
         insightLoading,
+        catalogMetricLoading,
         loadError,
         hasUnsavedChanges,
         saveDisabledReason,
@@ -58,8 +63,11 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canRedo,
         copyDisabledReason,
         worksheet,
+        insight,
         displayedQueryIsCurrent,
         generatedQuery,
+        currentTeamId,
+        agentUpdateState,
     } = useValues(logic)
     const {
         setName,
@@ -75,9 +83,28 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         redo,
         navigateHierarchy,
         setSqlPreviewOpen,
+        refreshInsightFromAgent,
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
+
+    const contextItems = useMemo(
+        () => buildBIAgentContext(worksheet, insight?.short_id, name),
+        [worksheet, insight?.short_id, name]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'business-intelligence',
+        contextItems,
+        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        autoOpen: false,
+        headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
+    })
+    useMcpToolApplyBack({
+        tools: ['insight-update'],
+        targetKey: `bi-worksheet:${currentTeamId}:${insight?.id ?? 'unsaved'}`,
+        active: !!insight && !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        onApply: (_event, { innerInput }) => refreshInsightFromAgent(innerInput),
+    })
 
     useKeyboardHotkeys({
         z: {
@@ -106,8 +133,8 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
                 <BISQLPreviewModal />
                 <header className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
-                    <LemonButton size="small" to={urls.businessIntelligence()}>
-                        Worksheets
+                    <LemonButton size="small" to={urls.businessIntelligence()} tooltip="Back to Business Intelligence">
+                        BI
                     </LemonButton>
                     <LemonButton size="small" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
                         New worksheet
@@ -166,7 +193,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                             },
                             {
                                 label: 'Discard changes',
-                                onClick: discardChanges,
+                                onClick: () => discardChanges(),
                                 disabledReason: !hasUnsavedChanges ? 'No changes to discard' : undefined,
                                 'data-attr': 'bi-discard-changes',
                             },
@@ -191,11 +218,26 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         Save insight
                     </LemonButton>
                 </header>
+                {agentUpdateState === 'conflict' && (
+                    <LemonBanner type="warning">
+                        The assistant changed fields you also edited. Your draft is preserved. Discard changes to use
+                        the saved version, or save your draft as a copy.
+                    </LemonBanner>
+                )}
+                {agentUpdateState === 'error' && (
+                    <LemonBanner type="warning">
+                        Could not refresh assistant changes. Retry before saving.
+                        <LemonButton size="small" onClick={() => refreshInsightFromAgent(insight?.id)}>
+                            Retry
+                        </LemonButton>
+                    </LemonBanner>
+                )}
                 {loadError ? (
                     <LemonBanner type="error">{loadError}</LemonBanner>
-                ) : insightLoading && !lastRunQuery ? (
-                    <div className="flex flex-1 items-center justify-center">
+                ) : catalogMetricLoading || (insightLoading && !lastRunQuery) ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2" role="status">
                         <Spinner />
+                        <span>Loading worksheet…</span>
                     </div>
                 ) : (
                     <BIEditor tabId={tabId} settingsPanelRef={setSettingsContainer}>

@@ -18,6 +18,7 @@ class InsightVariableType(LabeledStrEnum):
 
 
 class InsightDataCheckKey(LabeledStrEnum):
+    INTERNAL_USERS = "internal_users", "Internal and test users"
     LOCAL_DEVELOPMENT = "local_development", "Local development events"
     BOT_TRAFFIC = "bot_traffic", "Bot and crawler traffic"
     DUPLICATE_EVENTS = "duplicate_events", "Events sent twice"
@@ -42,9 +43,12 @@ class InsightDataCheckSkipReason(LabeledStrEnum):
     MEMORY_LIMIT = "memory_limit", "The check needed more memory than it is allowed"
     TOO_FEW_SAMPLED_EVENTS = "too_few_sampled_events", "The sample has too few events to give a share"
     FILTERED_BY_TRAFFIC_TYPE = "filtered_by_traffic_type", "The insight already filters on traffic type"
+    HIDDEN_PROPERTY = "hidden_property", "A property the check reads is hidden from you"
+    INVALID_FILTER = "invalid_filter", "The project's internal and test users filter cannot run"
 
 
 class InsightDataCheckAction(LabeledStrEnum):
+    FILTER_INTERNAL_USERS = "filter_internal_users", "Turn on the internal and test users filter for the insight"
     OPEN_FILTER_SETTINGS = "open_filter_settings", "Change the project's internal and test users filter"
 
 

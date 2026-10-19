@@ -25,7 +25,7 @@ DATED_PAGE_SIZE = 50
 class QuoEndpointConfig:
     name: str
     path: str
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     # None means the endpoint returns the full collection in one unpaginated response.
     page_size: int | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -40,6 +40,9 @@ class QuoEndpointConfig:
     # /v1/calls serves one-to-one conversations only (`participants` caps at one number);
     # /v1/messages accepts the full participants array of a group conversation.
     supports_group_conversations: bool = True
+    # Contact notes exist only under 2026-03-30 and list one contact at a time, so the endpoint
+    # fans out over the dated contacts list under every pinned version.
+    fan_out_over_contacts: bool = False
 
 
 QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
@@ -63,7 +66,7 @@ QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
     "contact_custom_fields": QuoEndpointConfig(
         name="contact_custom_fields",
         path="/v1/contact-custom-fields",
-        primary_key="key",
+        primary_keys=("key",),
     ),
     "conversations": QuoEndpointConfig(
         name="conversations",
@@ -91,6 +94,15 @@ QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
         incremental_params={"createdAt": "createdAfter"},
         partition_key="createdAt",
         fan_out_over_conversations=True,
+    ),
+    "contact_notes": QuoEndpointConfig(
+        name="contact_notes",
+        path="/contacts/{contactId}/notes",
+        page_size=DATED_PAGE_SIZE,
+        # Notes carry no contact reference, and Quo documents no global uniqueness for note IDs.
+        primary_keys=("contactId", "id"),
+        partition_key="createdAt",
+        fan_out_over_contacts=True,
     ),
 }
 
