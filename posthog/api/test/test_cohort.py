@@ -1481,6 +1481,75 @@ Jane Smith,25
         self.assertIn("empty", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
+    @parameterized.expand([("create",), ("update",)])
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_rejects_file_over_size_limit(self, action, patch_calculate_cohort_from_list):
+        csv = SimpleUploadedFile("ids.csv", b"user_1\nuser_2\n", content_type="application/csv")
+
+        with override_settings(COHORT_CSV_UPLOAD_MAX_BYTES=4):
+            if action == "create":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/cohorts/",
+                    {"name": "test_size", "csv": csv, "is_static": True},
+                    format="multipart",
+                )
+            else:
+                cohort = Cohort.objects.create(team=self.team, name="test_size", is_static=True)
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                    {"name": "test_size", "csv": csv},
+                    format="multipart",
+                )
+                cohort.refresh_from_db()
+                self.assertFalse(cohort.is_calculating)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "csv")
+        self.assertIn("larger than the", response.json()["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_rejects_more_rows_than_limit(self, patch_calculate_cohort_from_list):
+        cohort = Cohort.objects.create(team=self.team, name="test_rows", is_static=True)
+        csv = SimpleUploadedFile("ids.csv", b"user_1\nuser_2\nuser_3\n", content_type="application/csv")
+
+        with override_settings(COHORT_CSV_UPLOAD_MAX_ROWS=2):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                {"name": "test_rows", "csv": csv},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "csv")
+        self.assertIn("more than 2 rows", response.json()["detail"])
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_reads_file_spooled_to_disk(self, patch_calculate_cohort_from_list):
+        csv = SimpleUploadedFile(
+            "ids.csv", "\ufeffemail\na@example.com\nb@example.com\n".encode(), content_type="application/csv"
+        )
+
+        # A file above FILE_UPLOAD_MAX_MEMORY_SIZE reaches the serializer as a TemporaryUploadedFile.
+        with override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=1):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test_disk", "csv": csv, "is_static": True},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        patch_calculate_cohort_from_list.assert_called_once_with(
+            response.json()["id"],
+            ["a@example.com", "b@example.com"],
+            team_id=self.team.id,
+            id_type="email",
+            email_property_key="email",
+        )
+
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_no_valid_ids_fails(self, patch_calculate_cohort_from_list):
         """Test that CSV with no valid distinct IDs fails with clear error"""

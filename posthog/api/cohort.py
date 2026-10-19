@@ -1,3 +1,4 @@
+import io
 import csv
 import json
 import time
@@ -8,6 +9,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.conf import settings
 from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -792,6 +794,20 @@ class CSVConfig:
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
+        FILE_TOO_LARGE = "CSV file is larger than the {limit} MB limit. Split the file into smaller parts and upload them one at a time."
+        TOO_MANY_ROWS = (
+            "CSV file has more than {limit} rows. Split the file into smaller parts and upload them one at a time."
+        )
+
+    @staticmethod
+    def file_too_large_message() -> str:
+        return CSVConfig.ErrorMessages.FILE_TOO_LARGE.format(
+            limit=settings.COHORT_CSV_UPLOAD_MAX_BYTES // (1024 * 1024)
+        )
+
+    @staticmethod
+    def too_many_rows_message() -> str:
+        return CSVConfig.ErrorMessages.TOO_MANY_ROWS.format(limit=f"{settings.COHORT_CSV_UPLOAD_MAX_ROWS:,}")
 
 
 @extend_schema_field(CohortFilters)  # type: ignore[arg-type]
@@ -1220,8 +1236,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _parse_csv_file(self, file) -> tuple[list[str], Iterator[list[str]]]:
         """Handle file reading and CSV parsing with error handling"""
-        decoded_file = file.read().decode(CSVConfig.ENCODING).splitlines()
-        reader = csv.reader(decoded_file)
+        # The wrapper decodes rows as the reader asks for them, so the upload is never held whole in
+        # memory as bytes, as text, or as a list of lines. newline="" leaves line endings to the csv module.
+        reader = csv.reader(io.TextIOWrapper(file, encoding=CSVConfig.ENCODING, newline=""))
 
         # Skip empty rows at the beginning
         first_row: list[str] = []
@@ -1268,6 +1285,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         return None
 
+    def _append_id(self, ids: list[str], id_value: str) -> None:
+        if len(ids) >= settings.COHORT_CSV_UPLOAD_MAX_ROWS:
+            raise ValidationError({"csv": [CSVConfig.too_many_rows_message()]})
+        ids.append(id_value)
+
     def _extract_ids_single_column(
         self,
         first_row: list[str],
@@ -1275,22 +1297,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         skip_header: bool = False,
     ) -> list[str]:
         """Process single-column CSV format"""
-        distinct_ids = []
+        distinct_ids: list[str] = []
 
         # Include first row only if it's not a header
         if not skip_header and first_row and first_row[0].strip() != "":
-            distinct_ids.append(first_row[0].strip())
+            self._append_id(distinct_ids, first_row[0].strip())
 
         for row in reader:
             if len(row) > 0:
                 stripped_id = row[0].strip()
                 if stripped_id != "":
-                    distinct_ids.append(stripped_id)
+                    self._append_id(distinct_ids, stripped_id)
         return distinct_ids
 
     def _extract_ids_multi_column(self, reader: Iterator[list[str]], id_col: int, cohort_pk: int) -> list[str]:
         """Process multi-column CSV format with robust error handling"""
-        ids = []
+        ids: list[str] = []
         skipped_rows = 0
 
         for row in reader:
@@ -1302,7 +1324,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # Extract ID if present and non-empty
             id_value = row[id_col].strip()
             if id_value != "":
-                ids.append(id_value)
+                self._append_id(ids, id_value)
 
         if skipped_rows > 0:
             logger.info(f"Skipped {skipped_rows} rows with incorrect column count in CSV for cohort {cohort_pk}")
@@ -1364,6 +1386,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
+        # `size` is what the upload handler received, not the Content-Length header. The check runs
+        # before the calculating flag is set so a rejected upload leaves the cohort untouched.
+        if file.size > settings.COHORT_CSV_UPLOAD_MAX_BYTES:
+            raise ValidationError({"csv": [CSVConfig.file_too_large_message()]})
+
         # Set calculating flag immediately so UI shows loading state
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
