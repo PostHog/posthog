@@ -65,6 +65,7 @@ const ICON_SIZE: Record<AgentPromptButtonSize, QuillButtonProps['size']> = {
     sm: 'icon-sm',
     lg: 'icon-lg',
     row: 'icon',
+    inline: 'icon-xs',
 }
 
 export interface AgentPromptButtonProps {
