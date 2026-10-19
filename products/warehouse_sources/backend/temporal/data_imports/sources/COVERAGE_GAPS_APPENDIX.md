@@ -2642,8 +2642,8 @@ Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc
 - [x] `Dataset versions (ListDatasetVersions, GET /v2/users/{user_id}/apps/{app_id}/datasets/{dataset_id}/versions)` — track dataset snapshots and connect evaluation outcomes with training data changes (medium)
 - [x] `Workflow versions (ListWorkflowVersions, GET /v2/users/{user_id}/apps/{app_id}/workflows/{workflow_id}/versions)` — compare workflow revisions and their model dependencies over time (medium)
 - [x] `Concept relations (ListConceptRelations, GET /v2/users/{user_id}/apps/{app_id}/concepts/{concept_id}/relations)` — analyze concept hierarchies and aggregate labels through parent relationships (medium)
-- [ ] `Tasks (ListTasks, GET /v2/users/{user_id}/apps/{app_id}/tasks)` — measure labeling work, task progress, and annotation workload (medium)
-- [ ] `Collaborators (ListCollaborators, GET /v2/users/{user_id}/apps/{app_id}/collaborators)` — analyze app memberships and collaborator access (medium)
+- [x] `Tasks (ListTasks, GET /v2/users/{user_id}/apps/{app_id}/tasks)` — measure labeling work, task progress, and annotation workload (medium)
+- [x] `Collaborators (ListCollaborators, GET /v2/users/{user_id}/apps/{app_id}/collaborators)` — analyze app memberships and collaborator access (medium)
 
 Note: Vendor Swagger and documentation hosts failed DNS resolution, so the official Python SDK provided the reference. Decoded its service descriptor to read list operations and HTTP GET bindings, then checked the official Go SDK descriptions. Placeholder names are simplified from descriptor field names; nested collections require parent IDs, and models currently include only their latest version. Deprecated evaluation routes, authentication, uploads, and prediction writes are excluded.
 
