@@ -56,13 +56,7 @@ def _all_destination_keys() -> list[str]:
     """Every key `_get_team_report` reads, derived from the registry so we
     don't have to keep the test in sync with the spec list by hand.
     """
-    keys: list[str] = []
-    for spec in QUERIES:
-        if spec.output == "multi":
-            keys.extend(spec.multi_keys_mapping.values())
-        else:
-            keys.append(spec.name)
-    return keys
+    return [key for spec in QUERIES for key in spec.destination_keys]
 
 
 def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, dict[int, int]]:

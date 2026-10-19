@@ -51,13 +51,7 @@ def test_single_specs_have_no_mapping() -> None:
 
 
 def _destination_keys() -> set[str]:
-    keys: set[str] = set()
-    for spec in QUERIES:
-        if spec.output == "multi":
-            keys.update(spec.multi_keys_mapping.values())
-        else:
-            keys.add(spec.name)
-    return keys
+    return {key for spec in QUERIES for key in spec.destination_keys}
 
 
 def _get_team_report_all_data_keys() -> set[str]:
@@ -83,8 +77,7 @@ def test_destination_keys_are_unique_across_registry() -> None:
     """
     destinations: dict[str, str] = {}
     for spec in QUERIES:
-        keys = list(spec.multi_keys_mapping.values()) if spec.output == "multi" else [spec.name]
-        for key in keys:
+        for key in spec.destination_keys:
             assert key not in destinations, (
                 f"Destination key {key!r} produced by both {destinations[key]!r} and {spec.name!r}"
             )
