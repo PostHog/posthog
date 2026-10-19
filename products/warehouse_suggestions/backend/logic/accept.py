@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
-from dataclasses import asdict
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import asdict, fields
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -16,22 +16,20 @@ from products.data_modeling.backend.facade.api import (
     MaterializationForbiddenError,
     MaterializationRefusedError,
     SavedQueryNotFoundError,
-    definition_database,
     enable_saved_query_materialization,
-    get_saved_query_columns,
-    get_saved_query_sql,
     get_saved_query_summary,
-    propose_incremental_config,
+    incremental_enabled,
 )
 from products.warehouse_sources.backend.facade.api import get_queryable_table
 
 from ..facade.contracts import (
     AcceptFailedError,
+    AcceptOptionRefusedError,
+    AcceptOptions,
     CertificationAsset,
     CreatedAsset,
     MaterializationAsset,
     MaterializePayload,
-    RefreshIntervalRefusedError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SuggestionAlreadyDecidedError,
@@ -61,11 +59,13 @@ if TYPE_CHECKING:
 class AcceptRequest:
     team: "Team"
     user: "User"
-    refresh_interval: timedelta | None
+    options: AcceptOptions
     was_impersonated: bool
 
 
 class Acceptor(ABC):
+    option_fields: ClassVar[frozenset[str]] = frozenset()
+
     @abstractmethod
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -109,18 +109,30 @@ class CertificationAcceptor(Acceptor):
 VIEW_CHANGED_SINCE_SUGGESTED = (
     "This view changed after the suggestion was made, so it can no longer refresh incrementally on the suggested keys."
 )
+OPTION_NOT_APPLICABLE = "This option does not apply to a {kind} suggestion."
+KEYS_NEED_INCREMENTAL = "Keys only apply to an incremental refresh. Set refresh_mode to incremental, or leave this out."
+INCREMENTAL_UNAVAILABLE = "Incremental refresh is not available for this project. Use a full refresh."
+KEYS_REQUIRED = (
+    "An incremental refresh needs an incremental_key and a unique_key. Choose them with view-check-incremental."
+)
+REFRESH_INTERVAL_FIELD = "refresh_interval_seconds"
+REFRESH_MODE_FIELD = "refresh_mode"
+INCREMENTAL_KEY_FIELD = "incremental_key"
+UNIQUE_KEY_FIELD = "unique_key"
+KEY_FIELDS = (INCREMENTAL_KEY_FIELD, UNIQUE_KEY_FIELD, "lookback_seconds")
 
 
 class MaterializeAcceptor(Acceptor):
+    option_fields = frozenset({REFRESH_INTERVAL_FIELD, REFRESH_MODE_FIELD, *KEY_FIELDS})
+
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
     ) -> CreatedAsset:
         if not isinstance(payload, MaterializePayload):
             raise AcceptFailedError("This suggestion has no refresh interval to apply.")
-        interval = request.refresh_interval or timedelta(seconds=payload.refresh_interval_seconds)
-        incremental_config = _incremental_config(payload)
-        if incremental_config is not None and not _still_proposed(suggestion, incremental_config, request.user):
-            raise SuggestionOutdatedError(VIEW_CHANGED_SINCE_SUGGESTED)
+        options = request.options
+        interval = timedelta(seconds=options.refresh_interval_seconds or payload.refresh_interval_seconds)
+        incremental_config = _incremental_config(payload, options, suggestion.team_id)
         try:
             enable_saved_query_materialization(
                 suggestion.team_id,
@@ -136,37 +148,58 @@ class MaterializeAcceptor(Acceptor):
         except MaterializationForbiddenError:
             raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
         except IncrementalConfigRefusedError as error:
+            chosen = chosen_fields(options, (*KEY_FIELDS, REFRESH_MODE_FIELD))
+            if chosen:
+                raise AcceptOptionRefusedError(chosen[0], str(error))
             raise SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
         except MaterializationRefusedError as error:
-            raise RefreshIntervalRefusedError(str(error))
+            raise AcceptOptionRefusedError(REFRESH_INTERVAL_FIELD, str(error))
         except MaterializationFailedError as error:
             raise AcceptFailedError(str(error))
         return MaterializationAsset(
-            saved_query_id=str(suggestion.subject_id), refresh_interval_seconds=int(interval.total_seconds())
+            saved_query_id=str(suggestion.subject_id),
+            refresh_interval_seconds=int(interval.total_seconds()),
+            refresh_mode=WarehouseSuggestionRefreshMode.INCREMENTAL
+            if incremental_config
+            else WarehouseSuggestionRefreshMode.FULL,
+            incremental_key=incremental_config.incremental_key if incremental_config else None,
+            unique_key=incremental_config.unique_key if incremental_config else (),
+            lookback_seconds=incremental_config.lookback_seconds if incremental_config else 0,
         )
 
 
-def _incremental_config(payload: MaterializePayload) -> IncrementalConfig | None:
-    if payload.refresh_mode != WarehouseSuggestionRefreshMode.INCREMENTAL or payload.incremental_key is None:
+def _incremental_config(payload: MaterializePayload, options: AcceptOptions, team_id: int) -> IncrementalConfig | None:
+    if (options.refresh_mode or payload.refresh_mode) == WarehouseSuggestionRefreshMode.FULL:
+        _refuse_keys_without_incremental(options)
         return None
+    if not incremental_enabled(team_id):
+        raise AcceptOptionRefusedError(REFRESH_MODE_FIELD, INCREMENTAL_UNAVAILABLE)
+    incremental_key = options.incremental_key or payload.incremental_key
+    unique_key = options.unique_key or payload.unique_key
+    if incremental_key is None:
+        raise AcceptOptionRefusedError(INCREMENTAL_KEY_FIELD, KEYS_REQUIRED)
+    if not unique_key:
+        raise AcceptOptionRefusedError(UNIQUE_KEY_FIELD, KEYS_REQUIRED)
     return IncrementalConfig(
-        incremental_key=payload.incremental_key,
-        unique_key=payload.unique_key,
-        lookback_seconds=payload.lookback_seconds,
+        incremental_key=incremental_key,
+        unique_key=unique_key,
+        lookback_seconds=payload.lookback_seconds if options.lookback_seconds is None else options.lookback_seconds,
     )
 
 
-def _still_proposed(suggestion: WarehouseSuggestion, config: IncrementalConfig, user: "User") -> bool:
-    proposed = propose_incremental_config(
-        get_saved_query_sql(suggestion.team_id, suggestion.subject_id) or "",
-        get_saved_query_columns(suggestion.team_id, suggestion.subject_id),
-        database=definition_database(suggestion.team_id, user=user),
-    )
-    return (
-        proposed is not None
-        and proposed.incremental_key == config.incremental_key
-        and set(proposed.unique_key) == set(config.unique_key)
-    )
+def _refuse_keys_without_incremental(options: AcceptOptions) -> None:
+    chosen = chosen_fields(options, KEY_FIELDS)
+    if chosen:
+        raise AcceptOptionRefusedError(chosen[0], KEYS_NEED_INCREMENTAL)
+
+
+def chosen_fields(options: AcceptOptions, names: Iterable[str] | None = None) -> tuple[str, ...]:
+    candidates = names if names is not None else (field.name for field in fields(options))
+    return tuple(name for name in candidates if getattr(options, name) is not None)
+
+
+def changed_fields(options: AcceptOptions, payload: SuggestionPayload) -> tuple[str, ...]:
+    return tuple(name for name in chosen_fields(options) if getattr(payload, name, None) != getattr(options, name))
 
 
 ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
@@ -187,6 +220,7 @@ RELEASE_TRANSITIONS: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozense
 class AcceptOutcome:
     suggestion: WarehouseSuggestion
     newly_accepted: bool
+    changed_fields: tuple[str, ...] = ()
 
 
 def accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
@@ -208,6 +242,9 @@ def _resolve_quietly(team_id: int, suggestion_id: UUID) -> WarehouseSuggestion |
 
 def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
     suggestion = WarehouseSuggestion.objects.for_team(team_id).get(id=suggestion_id)
+    kind = WarehouseSuggestionKind(suggestion.kind)
+    acceptor = ACCEPTORS[kind]
+    _refuse_options_the_kind_ignores(acceptor, kind, request.options)
     status = WarehouseSuggestionStatus(suggestion.status)
     if status == WarehouseSuggestionStatus.ACCEPTED:
         return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
@@ -215,7 +252,6 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
         raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
     if not _subject_exists(suggestion):
         raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind(suggestion.subject_kind))
-    kind = WarehouseSuggestionKind(suggestion.kind)
     payload = payload_from_json(kind, suggestion.payload_version, suggestion.payload)
     try:
         claimed = transition_to(
@@ -231,7 +267,7 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
             raise
         return AcceptOutcome(suggestion=current, newly_accepted=False)
     try:
-        created_asset = ACCEPTORS[kind].accept(claimed, payload, request)
+        created_asset = acceptor.accept(claimed, payload, request)
     except Exception:
         transition_to(
             suggestion.id, team_id, WarehouseSuggestionStatus.PROPOSED, user_id=None, transitions=RELEASE_TRANSITIONS
@@ -239,7 +275,15 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
         raise
     claimed.created_asset = asdict(created_asset)
     claimed.save(update_fields=["created_asset"])
-    return AcceptOutcome(suggestion=claimed, newly_accepted=True)
+    return AcceptOutcome(
+        suggestion=claimed, newly_accepted=True, changed_fields=changed_fields(request.options, payload)
+    )
+
+
+def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggestionKind, options: AcceptOptions) -> None:
+    ignored = [name for name in chosen_fields(options) if name not in acceptor.option_fields]
+    if ignored:
+        raise AcceptOptionRefusedError(ignored[0], OPTION_NOT_APPLICABLE.format(kind=kind))
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:

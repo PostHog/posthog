@@ -150,6 +150,21 @@ class CertificationAsset:
 class MaterializationAsset:
     saved_query_id: str
     refresh_interval_seconds: int
+    refresh_mode: WarehouseSuggestionRefreshMode
+    incremental_key: str | None
+    unique_key: tuple[str, ...]
+    lookback_seconds: int
+
+
+@frozen
+class AcceptOptions:
+    """Payload values a person chose instead of the suggested ones. None keeps the suggested value."""
+
+    refresh_interval_seconds: int | None = None
+    refresh_mode: WarehouseSuggestionRefreshMode | None = None
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] | None = None
+    lookback_seconds: int | None = None
 
 
 CreatedAsset = CertificationAsset | MaterializationAsset
@@ -207,8 +222,10 @@ class SubjectAlreadyCertifiedError(Exception):
         self.subject_kind = subject_kind
 
 
-class RefreshIntervalRefusedError(Exception):
-    pass
+class AcceptOptionRefusedError(Exception):
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 class SuggestionOutdatedError(Exception):

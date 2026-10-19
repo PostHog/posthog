@@ -1,7 +1,6 @@
 """DRF views for warehouse_suggestions."""
 
-from collections.abc import Callable
-from datetime import timedelta
+from collections.abc import Callable, Mapping
 from functools import cached_property
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -29,8 +28,9 @@ from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
     AcceptFailedError,
+    AcceptOptionRefusedError,
+    AcceptOptions,
     CatalogEditAccessRequiredError,
-    RefreshIntervalRefusedError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
@@ -41,7 +41,12 @@ from ..facade.contracts import (
     SuggestionPage,
     SuggestionSubjectGoneError,
 )
-from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionRefreshMode,
+    WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
+)
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
@@ -196,14 +201,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     )
     @action(detail=True, methods=["post"])
     def accept(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        interval_seconds = request.validated_data.get("refresh_interval_seconds")
         return self._respond(
             lambda: api.accept_suggestion(
                 self.team,
                 self.user_access_control,
                 UUID(pk),
                 user=cast(User, request.user),
-                refresh_interval=timedelta(seconds=interval_seconds) if interval_seconds else None,
+                options=_accept_options(request.validated_data),
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
             )
@@ -237,9 +241,21 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(ALREADY_CERTIFIED[error.subject_kind])
         except SuggestionSubjectGoneError as error:
             raise ValidationError({"subject_id": SUBJECT_GONE[error.subject_kind]})
-        except RefreshIntervalRefusedError as error:
-            raise ValidationError({"refresh_interval_seconds": str(error)})
+        except AcceptOptionRefusedError as error:
+            raise ValidationError({error.field: str(error)})
         except SuggestionOutdatedError as error:
             raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))
+
+
+def _accept_options(validated_data: Mapping[str, Any]) -> AcceptOptions:
+    refresh_mode = validated_data.get("refresh_mode")
+    unique_key = validated_data.get("unique_key")
+    return AcceptOptions(
+        refresh_interval_seconds=validated_data.get("refresh_interval_seconds"),
+        refresh_mode=WarehouseSuggestionRefreshMode(refresh_mode) if refresh_mode else None,
+        incremental_key=validated_data.get("incremental_key"),
+        unique_key=tuple(unique_key) if unique_key else None,
+        lookback_seconds=validated_data.get("lookback_seconds"),
+    )

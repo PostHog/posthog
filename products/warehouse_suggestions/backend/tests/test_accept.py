@@ -37,6 +37,8 @@ from .test_suggestions import make_draft
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
+ACCEPT_INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.accept.incremental_enabled"
+DAY_KEYS = {"refresh_mode": "incremental", "incremental_key": "day", "unique_key": ["day"]}
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
@@ -95,6 +97,7 @@ class TestAcceptSuggestion(APIBaseTest):
         super().setUp()
         self.enterContext(patch(FLAG, return_value=True))
         self.enterContext(patch.object(DataWarehouseSavedQuery, "schedule_materialization"))
+        self.enterContext(patch(ACCEPT_INCREMENTAL_FLAG, return_value=True))
         self.url = f"/api/projects/{self.team.id}/warehouse_suggestions"
         self.view = create_view_in_dag(self.team, self.user)
 
@@ -241,6 +244,104 @@ class TestAcceptSuggestion(APIBaseTest):
 
         self.view.refresh_from_db()
         assert (accepted["http_status"], self.view.incremental_config) == (expected_status, expected_config), accepted
+
+    @parameterized.expand(
+        [
+            (
+                "chosen_keys_replace_a_full_refresh",
+                MATERIALIZE_PAYLOAD,
+                DAY_KEYS,
+                True,
+                status.HTTP_200_OK,
+                None,
+                STORED_DAY_KEY,
+                ["refresh_mode", "incremental_key", "unique_key"],
+            ),
+            (
+                "chosen_full_refresh_replaces_keys",
+                INCREMENTAL_DAY_PAYLOAD,
+                {"refresh_mode": "full"},
+                True,
+                status.HTTP_200_OK,
+                None,
+                None,
+                ["refresh_mode"],
+            ),
+            (
+                "hostile_key_is_refused",
+                INCREMENTAL_DAY_PAYLOAD,
+                {"incremental_key": 'day"; DROP TABLE events; --'},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "incremental_key",
+                None,
+                None,
+            ),
+            (
+                "keys_with_a_full_refresh",
+                MATERIALIZE_PAYLOAD,
+                {"incremental_key": "day"},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "incremental_key",
+                None,
+                None,
+            ),
+            (
+                "incremental_while_the_flag_is_off",
+                MATERIALIZE_PAYLOAD,
+                DAY_KEYS,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "refresh_mode",
+                None,
+                None,
+            ),
+            (
+                "an_option_for_another_kind",
+                PAYLOADS[WarehouseSuggestionKind.CERTIFY],
+                {"refresh_interval_seconds": 60 * 60},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "refresh_interval_seconds",
+                None,
+                None,
+            ),
+        ]
+    )
+    def test_a_person_can_change_the_refresh_before_accepting(
+        self,
+        _name: str,
+        payload: SuggestionPayload,
+        body: dict,
+        flag_on: bool,
+        expected_status: int,
+        expected_attr: str | None,
+        expected_config: dict | None,
+        expected_changed_fields: list[str] | None,
+    ) -> None:
+        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(
+            query={"kind": "HogQLQuery", "query": DAILY_COUNTS}
+        )
+        kind = (
+            WarehouseSuggestionKind.MATERIALIZE
+            if isinstance(payload, MaterializePayload)
+            else WarehouseSuggestionKind.CERTIFY
+        )
+        draft = make_draft(fingerprint=f"{kind}:orders", subject_id=self.view.id)
+        suggestion = ingest_surfaced(self.team.id, replace(draft, kind=kind, payload=payload))
+
+        with patch(ACCEPT_INCREMENTAL_FLAG, return_value=flag_on), patch(REPORT) as report:
+            accepted = self._accept(suggestion.id, body)
+
+        self.view.refresh_from_db()
+        reported = [call.args[1]["changed_fields"] for call in report.call_args_list] or [None]
+        assert (accepted["http_status"], accepted.get("attr"), self.view.incremental_config, reported) == (
+            expected_status,
+            expected_attr,
+            expected_config,
+            [expected_changed_fields],
+        ), accepted
 
     @parameterized.expand([("not_a_schedulable_interval", 7), ("past_the_largest_interval", 10**14)])
     def test_a_refused_interval_is_a_field_error_and_keeps_the_suggestion_open(
