@@ -64,10 +64,10 @@ export interface BroadcastsFilters {
 
 const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
 
+type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
+
 /** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
-export function isBroadcastShaped(
-    actions: { type?: string; config?: { type?: string } }[] | null | undefined
-): boolean {
+export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boolean {
     const steps = actions ?? []
     return (
         steps.some((step) => step.type === 'trigger' && step.config?.type === 'batch') &&
@@ -76,7 +76,6 @@ export function isBroadcastShaped(
     )
 }
 
-type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 type FlowEdge = { from?: string; to?: string }
 
 /**
