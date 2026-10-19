@@ -24,8 +24,10 @@ class CommercetoolsEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_LAST_MODIFIED_INCREMENTAL_FIELDS))
     # Every commercetools resource carries an immutable createdAt.
     partition_key: str = "createdAt"
-    should_sync_default: bool = True
 
+
+# Endpoints that only exist on some projects (variants: Modular catalog model only).
+_OPT_IN_ENDPOINTS = frozenset({"variants"})
 
 COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
     "orders": CommercetoolsEndpointConfig(
@@ -69,7 +71,6 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         name="variants",
         path="/variants",
         scope="view_products",
-        should_sync_default=False,
     ),
     "categories": CommercetoolsEndpointConfig(
         name="categories",
@@ -128,6 +129,5 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in COMMERCETOOLS_ENDPOINTS.items() if config.incremental_fields
 }
 
-SHOULD_SYNC_DEFAULT: dict[str, bool] = {
-    name: config.should_sync_default for name, config in COMMERCETOOLS_ENDPOINTS.items()
-}
+# Tables that only exist on some projects stay off until the user opts in.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in _OPT_IN_ENDPOINTS for name in COMMERCETOOLS_ENDPOINTS}
