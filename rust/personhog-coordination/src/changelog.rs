@@ -155,11 +155,9 @@ fn gcd(a: u32, b: u32) -> u32 {
     }
 }
 
-/// The sources a warm of `partition` replays: for each draining generation,
-/// oldest first, the old partitions congruent to it modulo `gcd(old, new)`
-/// filtered to its own keys, then the live partition. The partitioner is a
-/// hash reduced modulo the count, so a key's old home and new home agree
-/// modulo the gcd.
+/// What a warm of `partition` replays: each draining generation's partitions
+/// that can hold its keys (a key's old and new partitions agree mod the gcd),
+/// oldest first, then the live partition.
 pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource> {
     let mut draining = config.draining.clone();
     draining.sort_by_key(|g| g.epoch);

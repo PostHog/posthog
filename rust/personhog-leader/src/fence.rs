@@ -200,10 +200,8 @@ pub async fn rebuild_partition_fences(
     Ok(installed)
 }
 
-/// Drop the fences homed on `partition` under `num_partitions`, the
-/// counterpart of [`rebuild_partition_fences`] for partition release, except
-/// the keys `keep` claims for another partition this pod has captured under
-/// that partition's own modulus. The new owner rebuilds its own fences.
+/// Drop the fences homed on `partition`, except keys `keep` claims for another
+/// partition this pod serves. The new owner rebuilds its own.
 pub fn drop_partition_fences(
     fences: &FenceMap,
     partition: u32,

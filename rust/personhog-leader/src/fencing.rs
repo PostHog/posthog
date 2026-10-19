@@ -171,9 +171,7 @@ pub fn fenced_producer_count(partitions: u32, lanes: usize) -> u32 {
     partitions.max(1).saturating_mul(lanes)
 }
 
-/// One producer's share of an aggregate queue limit. The fenced path runs a
-/// producer per lane per owned partition, so the shared producer's limit is an
-/// aggregate to divide, not a figure to copy; one is librdkafka's floor.
+/// One producer's share of an aggregate queue limit, never below 1.
 pub fn queue_share(aggregate: u32, producers: u32) -> u32 {
     (aggregate / producers.max(1)).max(1)
 }
@@ -2235,8 +2233,7 @@ pub fn preregister_fencing_metrics() {
     // startup call can materialize.
 }
 
-/// One partition's fencing series, materialized when the partition is captured,
-/// so a grow's new partitions get them as well as the boot set.
+/// Registers one partition's fencing series when it is captured.
 pub fn preregister_partition_fencing_metrics(partition: u32) {
     let p = partition.to_string();
     counter!("personhog_leader_fence_aborts_total", "partition" => p.clone()).increment(0);

@@ -83,17 +83,10 @@ const SHRINK_CAPACITY_FLOOR: usize = 4 * PRUNE_CHUNK;
 /// proportional to the marks actually reclaimed — never the index size —
 /// which is what lets the prune loop run every second.
 ///
-/// The queue is a hint; the map is the truth. Every marked key has at least
-/// one entry in the queue of its live mark's home (partition and stream),
-/// carrying some offset at or below its map offset: `mark` enqueues a new
-/// key and a key whose home moved, so a re-marked key's entry goes stale,
-/// and when the prune pops it and finds the map ahead of the committed
-/// offset it re-enqueues the entry at the map's offset instead of removing
-/// the mark. An entry left in another home's queue by a move is dropped
-/// when popped there. Task scheduling can also interleave near-
-/// simultaneous marks slightly out of offset order; the prune stops at the
-/// first unapplied head, so an inversion only delays the entries behind it
-/// until a later tick.
+/// The map is the truth and the queues are a hint. Each marked key has a queue
+/// entry under its mark's home (partition and stream), at or below its offset.
+/// The prune re-queues an entry whose mark moved ahead, and drops one whose mark
+/// moved home. Out-of-order marks only delay the entries behind them.
 ///
 /// The index is soft-bounded by `max_entries`: under a sustained writer
 /// outage it would otherwise grow one mark per unique person written —
@@ -114,9 +107,7 @@ pub struct DirtyIndex {
     /// detach have already had their map marks removed; everything else
     /// is still in the queue for the drain — no entry escapes a release.
     queues: DashMap<QueueKey, ReclaimQueue>,
-    /// Highest offset ever marked per queue since its last clear: an O(1)
-    /// read for the writer-lag gauge. It is not lowered when a mark moves
-    /// home, so after a flip an old home can over-report until its queue empties.
+    /// Highest offset marked per queue since its last clear, for the writer-lag gauge.
     max_marked: DashMap<QueueKey, i64>,
     /// Entry count maintained alongside the map: `DashMap::len()` takes a
     /// read lock on every shard, which is too expensive for the admission
@@ -148,15 +139,9 @@ impl DirtyIndex {
         self.size.load(Ordering::Relaxed) < self.max_entries || self.map.contains_key(key)
     }
 
-    /// Record the latest acked offset for a person. Writers hold the
-    /// per-key lock, so marks normally arrive in offset order; within one
-    /// home the guard against regressing keeps a concurrent warm-seeding
-    /// pass from clobbering a newer mark with an older replayed one, and a
-    /// mark that moves home replaces the old one at any offset. The map is
-    /// updated before the queue so a concurrent prune popping the entry
-    /// always sees the mark. A key is queued under its live mark's home,
-    /// so a mark that moves home is queued again there; the stale entry
-    /// under the old home is dropped when that queue next pops it.
+    /// Record the latest acked offset for a person. A replayed mark never moves one
+    /// backwards within a home; a mark that moves home replaces the old one. The map
+    /// updates before the queue, so a concurrent prune always sees the mark.
     pub fn mark(&self, key: PersonCacheKey, mark: DirtyMark) {
         let queue_key = (mark.partition, mark.stream.clone());
         let offset = mark.offset;
@@ -267,12 +252,8 @@ impl DirtyIndex {
                     pruned.death_marks.push(entry);
                 }
             } else if let Some(mark) = self.map.get(&key) {
-                // Superseded on this home: the live mark is ahead of the
-                // threshold and this entry is its only queue presence, so
-                // it is re-enqueued at the map's offset; the tail lands
-                // past the threshold and the head check ends the pass. A
-                // mark that moved home is already queued there; its entry
-                // here is stale and dropped.
+                // The live mark is newer: re-queue it at its offset. An entry whose mark
+                // moved home is stale here and dropped.
                 if mark.partition == partition && mark.stream == *stream {
                     queue.push_back((mark.offset, key.clone()));
                 }
