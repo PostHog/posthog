@@ -15,7 +15,7 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             projectBased: true,
             description:
-                'When something happens in your product, make anything happen. Post to Slack, call a webhook, or send a message.',
+                'Automate anything around your product. When something happens, like a signup or a new error, post to Slack, call a webhook, start an AI task, or send an email.',
             docsHref: 'https://posthog.com/docs/workflows',
         },
         Workflow: {
