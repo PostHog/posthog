@@ -1069,8 +1069,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sonatype_nexus/sonatype_nexus.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sourcegraph/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sourcegraph/sourcegraph.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/spacelift/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/spacelift/spacelift.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sparkpost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sparkpost/sparkpost.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/split_io/settings.py
