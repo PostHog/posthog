@@ -61,7 +61,7 @@ function withState(state: ConversionRecommendationStateApi): ReturnType<typeof m
 const meta: Meta<typeof ConversionGoalRecommendations> = {
     title: 'Scenes-App/Marketing Analytics/Persisted conversion recommendations',
     component: ConversionGoalRecommendations,
-    args: { onConfigureGoals: () => {} },
+    args: { onConfigureGoals: () => {}, onUseSuggestion: () => {} },
     parameters: {
         layout: 'padded',
         featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI],

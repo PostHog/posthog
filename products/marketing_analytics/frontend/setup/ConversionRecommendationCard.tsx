@@ -1,11 +1,15 @@
-import { LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import type { ConversionRecommendationApi } from '../generated/api.schemas'
 
 export function ConversionRecommendationCard({
     recommendation,
+    onUseSuggestion,
+    disabledReason,
 }: {
     recommendation: ConversionRecommendationApi
+    onUseSuggestion: () => void
+    disabledReason?: string | null
 }): JSX.Element {
     return (
         <LemonCard className="space-y-3 min-w-0">
@@ -40,6 +44,14 @@ export function ConversionRecommendationCard({
                     ))}
                 </ul>
             )}
+            <LemonButton
+                type="secondary"
+                onClick={onUseSuggestion}
+                disabledReason={disabledReason}
+                data-attr="marketing-conversion-use-suggestion"
+            >
+                Use suggestion
+            </LemonButton>
         </LemonCard>
     )
 }

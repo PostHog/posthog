@@ -2,21 +2,29 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import type { ConversionRecommendationApi } from '../generated/api.schemas'
 import { ConversionRecommendationCard } from './ConversionRecommendationCard'
 import { conversionRecommendationsLogic } from './conversionRecommendationsLogic'
 
 export function ConversionGoalRecommendations({
     onConfigureGoals,
+    onUseSuggestion,
 }: {
     onConfigureGoals: () => void
+    onUseSuggestion: (recommendation: ConversionRecommendationApi) => void
 }): JSX.Element | null {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const enabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]
@@ -105,7 +113,15 @@ export function ConversionGoalRecommendations({
                 </LemonBanner>
             )}
             {state?.results.recommendations?.map((recommendation) => (
-                <ConversionRecommendationCard key={recommendation.source_ref} recommendation={recommendation} />
+                <ConversionRecommendationCard
+                    key={recommendation.source_ref}
+                    recommendation={recommendation}
+                    onUseSuggestion={() => onUseSuggestion(recommendation)}
+                    disabledReason={
+                        restrictedReason ||
+                        (currentTeamLoading ? 'Wait for the project settings to finish saving.' : undefined)
+                    }
+                />
             ))}
             {!!state?.results.limitations?.length && (
                 <details>

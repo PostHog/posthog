@@ -6,6 +6,7 @@ import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { IntegrationSettingsModal } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/IntegrationSettingsModal'
 import {
     SetupSection,
@@ -15,6 +16,7 @@ import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marke
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
+import { conversionGoalFormLogic } from 'products/marketing_analytics/frontend/setup/conversionGoalFormLogic'
 import { ConversionGoalRecommendations } from 'products/marketing_analytics/frontend/setup/ConversionGoalRecommendations'
 
 import { runNavigateOp } from './navigateOps'
@@ -45,6 +47,8 @@ function SectionBadge({
 }
 
 export function SetupTab(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const { selectRecommendation } = useActions(conversionGoalFormLogic({ projectId: currentTeamId ?? -1 }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { setupSection } = useValues(marketingAnalyticsLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
@@ -127,6 +131,10 @@ export function SetupTab(): JSX.Element {
                     (active.key === SetupSection.SUGGESTIONS || active.key === SetupSection.CONVERSION_GOALS) && (
                         <ConversionGoalRecommendations
                             onConfigureGoals={() => setSetupSection(SetupSection.CONVERSION_GOALS)}
+                            onUseSuggestion={(recommendation) => {
+                                selectRecommendation(recommendation)
+                                setSetupSection(SetupSection.CONVERSION_GOALS)
+                            }}
                         />
                     )}
                 {active.key === SetupSection.SOURCES && (
