@@ -1459,12 +1459,12 @@ Today: tables are discovered from the user's account at sync time, so there is n
 
 Diffed against: <https://api.baserow.io/api/schema.json>
 
-- [ ] `Row change history (GET /api/database/rows/table/{table_id}/{row_id}/history/)` — reconstruct record changes and measure time in each state beyond current row snapshots (high)
-- [ ] `Row comments (GET /api/row_comments/{table_id}/{row_id}/)` — analyze collaboration, discussions, and response activity attached to imported records (medium)
-- [ ] `Workspace users (GET /api/workspaces/users/workspace/{workspace_id}/)` — analyze workspace membership, roles, and contributor participation (medium)
-- [ ] `Workspace audit log (GET /api/audit-log/)` — analyze user activity and changes to workspace objects over time (medium)
+- [ ] `Row change history (GET /api/database/rows/table/{table_id}/{row_id}/history/)` — reconstruct record changes and measure time in each state beyond current row snapshots (high). Skipped: JWT-only (see note), and it takes one request per row of every table with no changed-since filter, so each sync would re-request every row.
+- [ ] `Row comments (GET /api/row_comments/{table_id}/{row_id}/)` — analyze collaboration, discussions, and response activity attached to imported records (medium). Skipped: JWT-only (see note), a Premium feature, and one request per row of every table.
+- [ ] `Workspace users (GET /api/workspaces/users/workspace/{workspace_id}/)` — analyze workspace membership, roles, and contributor participation (medium). Skipped: JWT-only (see note), and only a workspace admin can call it.
+- [ ] `Workspace audit log (GET /api/audit-log/)` — analyze user activity and changes to workspace objects over time (medium). Skipped: JWT-only (see note), and an Enterprise feature.
 
-Note: The live OpenAPI schema lists row history, comments, membership, and audit operations. The source discovers user table names, so no fixed table list can populate today without credentials. These gaps require JWT authentication; comments need Premium, and audit logs need Enterprise. History and comments require requests for each row; settings, tokens, and views are excluded.
+Note: The live OpenAPI schema (2.4.1) lists row history, comments, membership, and audit operations, but all four declare JWT security only. The source authenticates with a database token, which reaches only six GET operations: rows (list and single row), fields, row names, all tables, and token check. A JWT comes from `POST /api/user/token-auth/` with the account email and password. That grants full read and write access to the account instead of per-table read access, and accounts with two-factor authentication get a second-factor challenge instead of a token. These tables need that auth change first. The source discovers user table names, so no fixed table list can populate today without credentials. Settings, tokens, and views are excluded.
 
 ## Baseten — gaps
 
