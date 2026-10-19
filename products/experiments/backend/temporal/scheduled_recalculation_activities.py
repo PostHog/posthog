@@ -5,9 +5,11 @@ A failure skips one experiment and never stops the batch, because the recalculat
 it starts owns its own retries and error reporting.
 """
 
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -119,7 +121,14 @@ async def check_experiment_exposures(experiment_id: int, hour: int) -> bool:
 
 
 @database_sync_to_async_pool
-def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+def _start_scheduled_recalculation_sync(
+    experiment_id: int, hour: int, start_before: datetime | None = None
+) -> ScheduledRecalculationStartResult:
+    if start_before is not None and timezone.now() >= start_before:
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id, started=False, skip_reason="start_window_elapsed"
+        )
+
     # Deferred: recalculation.py imports temporal.recalculation_logic at module level, and this
     # module is loaded from the temporal package's __init__, so a module-level import here closes
     # a cycle back into a partially initialized module.
@@ -143,6 +152,11 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
     if skip is not None:
         capture_skip(experiment, hour, reason=skip.reason, detail=dict(skip.detail))
         return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False, skip_reason=skip.reason)
+
+    if start_before is not None and timezone.now() >= start_before:
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id, started=False, skip_reason="start_window_elapsed"
+        )
 
     try:
         payload = request_recalculation(experiment, None, ExperimentMetricsRecalculation.Trigger.SCHEDULED)
@@ -183,9 +197,11 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
 
 
 @temporalio.activity.defn
-async def start_scheduled_recalculation(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+async def start_scheduled_recalculation(
+    experiment_id: int, hour: int, start_before: datetime | None = None
+) -> ScheduledRecalculationStartResult:
     """Create the recalculation row and dispatch its workflow, unless a recent or active run exists."""
-    return await _start_scheduled_recalculation_sync(experiment_id, hour)
+    return await _start_scheduled_recalculation_sync(experiment_id, hour, start_before)
 
 
 @temporalio.activity.defn

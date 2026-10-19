@@ -37,9 +37,9 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
 
     Each started run is an ordinary `ExperimentMetricsRecalculationWorkflow`, dispatched the same
     way the API dispatches one. The workflow waits for a run to finish before it uses that slot
-    for the next experiment, so at most MAX_CONCURRENT_EXPERIMENTS runs query ClickHouse at once.
+    for the next experiment, so each batch admits at most MAX_CONCURRENT_EXPERIMENTS runs at once.
     Experiments not started within RUN_START_WINDOW are deferred to their next scheduled hour, so
-    the workflow ends before the next hourly firing, which the SKIP overlap policy would drop.
+    activity queueing and retries cannot consume the next hourly firing, which SKIP would drop.
     The counts it returns are for an operator reading the run, not a source of truth: each run's
     real outcome lands on its own `ExperimentMetricsRecalculation` row.
     """
@@ -51,9 +51,12 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self) -> dict[str, int]:
         started_at = temporalio.workflow.now()
+        start_before = started_at + RUN_START_WINDOW
+        wait_for_runs = temporalio.workflow.patched(WAIT_FOR_RUNS_PATCH)
         discovery: ScheduledRecalculationDiscovery = await temporalio.workflow.execute_activity(
             discover_scheduled_recalculation_candidates,
             start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=RUN_START_WINDOW if wait_for_runs else None,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         hour, candidates = discovery.hour, discovery.candidates
@@ -62,35 +65,51 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
             return {"hour": hour, "candidates": 0, "started": 0, "skipped": 0, "deferred": 0}
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENTS)
-        wait_for_runs = temporalio.workflow.patched(WAIT_FOR_RUNS_PATCH)
         deferred = 0
+        stop_starting = False
 
-        def _past_start_window() -> bool:
+        def _should_defer() -> bool:
             nonlocal deferred
-            if wait_for_runs and temporalio.workflow.now() - started_at > RUN_START_WINDOW:
+            if wait_for_runs and (stop_starting or temporalio.workflow.now() >= start_before):
                 deferred += 1
                 return True
             return False
 
         async def _process(experiment_id: int) -> bool:
+            nonlocal deferred, stop_starting
             async with semaphore:
-                if _past_start_window():
+                if _should_defer():
                     return False
                 has_exposures = await temporalio.workflow.execute_activity(
                     check_experiment_exposures,
                     args=[experiment_id, hour],
                     start_to_close_timeout=timedelta(minutes=10),
+                    schedule_to_close_timeout=(start_before - temporalio.workflow.now()) if wait_for_runs else None,
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-                if not has_exposures or _past_start_window():
+                if not has_exposures or _should_defer():
                     return False
-                result = await temporalio.workflow.execute_activity(
-                    start_scheduled_recalculation,
-                    args=[experiment_id, hour],
-                    start_to_close_timeout=START_ACTIVITY_TIMEOUT,
-                    retry_policy=RetryPolicy(maximum_attempts=START_ACTIVITY_MAX_ATTEMPTS),
-                )
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        start_scheduled_recalculation,
+                        args=[experiment_id, hour, start_before] if wait_for_runs else [experiment_id, hour],
+                        start_to_close_timeout=START_ACTIVITY_TIMEOUT,
+                        schedule_to_close_timeout=(
+                            min(
+                                START_ACTIVITY_TIMEOUT * START_ACTIVITY_MAX_ATTEMPTS,
+                                start_before - temporalio.workflow.now(),
+                            )
+                            if wait_for_runs
+                            else None
+                        ),
+                        retry_policy=RetryPolicy(maximum_attempts=START_ACTIVITY_MAX_ATTEMPTS),
+                    )
+                except ActivityError:
+                    stop_starting = True
+                    raise
                 if not result.started:
+                    if result.skip_reason == "start_window_elapsed":
+                        deferred += 1
                     return False
                 if wait_for_runs and result.recalculation_id is not None:
                     try:
@@ -101,6 +120,7 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
                             heartbeat_timeout=timedelta(minutes=1),
                         )
                     except ActivityError:
+                        stop_starting = True
                         temporalio.workflow.logger.warning(
                             f"scheduled recalculation {result.recalculation_id} wait ended before the run finished"
                         )

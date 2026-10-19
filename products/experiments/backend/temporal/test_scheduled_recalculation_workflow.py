@@ -1,6 +1,6 @@
 import uuid
 import asyncio
-from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,8 +13,9 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
@@ -55,21 +56,23 @@ def _started(experiment_id: int) -> ScheduledRecalculationStartResult:
     )
 
 
-async def _run(discover, exposures, start, hour: int = 2, wait=_no_wait) -> dict:
+async def _run(discover, exposures, start, hour: int = 2, wait=_no_wait, replay_legacy=False) -> dict:
     @activity.defn(name="discover_scheduled_recalculation_candidates")
     async def discover_activity() -> ScheduledRecalculationDiscovery:
         return ScheduledRecalculationDiscovery(hour=hour, candidates=discover(hour))
 
-    return await _execute(discover_activity, exposures, start, wait)
+    return await _execute(discover_activity, exposures, start, wait, replay_legacy=replay_legacy)
 
 
-async def _execute(discover_activity, exposures, start, wait=_no_wait) -> dict:
+async def _execute(discover_activity, exposures, start, wait=_no_wait, replay_legacy=False) -> dict:
     @activity.defn(name="check_experiment_exposures")
     async def exposures_activity(experiment_id: int, hour: int) -> bool:
         return exposures(experiment_id)
 
     @activity.defn(name="start_scheduled_recalculation")
-    async def start_activity(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+    async def start_activity(
+        experiment_id: int, hour: int, start_before: datetime | None = None
+    ) -> ScheduledRecalculationStartResult:
         return start(experiment_id)
 
     @activity.defn(name="wait_for_scheduled_recalculation")
@@ -85,11 +88,25 @@ async def _execute(discover_activity, exposures, start, wait=_no_wait) -> dict:
             activities=[discover_activity, exposures_activity, start_activity, wait_activity],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            return await env.client.execute_workflow(
-                ScheduledExperimentRecalculationWorkflow.run,
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
+            with (
+                patch(f"{WORKFLOW_MODULE}.temporalio.workflow.patched", return_value=False)
+                if replay_legacy
+                else nullcontext(),
+            ):
+                handle = await env.client.start_workflow(
+                    ScheduledExperimentRecalculationWorkflow.run,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=SCHEDULE_INTERVAL,
+                )
+                result = await handle.result()
+                history = await handle.fetch_history()
+    if replay_legacy:
+        assert not any(event.HasField("marker_recorded_event_attributes") for event in history.events)
+        await Replayer(
+            workflows=[ScheduledExperimentRecalculationWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
+        ).replay_workflow(history)
+    return result
 
 
 @pytest.mark.asyncio
@@ -99,7 +116,8 @@ async def test_no_candidates_returns_zeroes():
 
 
 @pytest.mark.asyncio
-async def test_every_candidate_starts():
+@pytest.mark.parametrize("replay_legacy", [False, True])
+async def test_every_candidate_starts(replay_legacy):
     started: list[int] = []
 
     def start(experiment_id: int) -> ScheduledRecalculationStartResult:
@@ -108,7 +126,7 @@ async def test_every_candidate_starts():
             experiment_id=experiment_id, started=True, recalculation_id=str(uuid.uuid4())
         )
 
-    result = await _run(lambda hour: _candidates(1, 2, 3), lambda eid: True, start)
+    result = await _run(lambda hour: _candidates(1, 2, 3), lambda eid: True, start, replay_legacy=replay_legacy)
     assert result["candidates"] == 3
     assert result["started"] == 3
     assert result["skipped"] == 0
@@ -138,20 +156,9 @@ async def test_runs_in_flight_never_exceed_the_cap():
     assert peak <= 3
 
 
-def _clock_advancing_by(step: timedelta) -> Callable[[], datetime]:
-    current = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)
-
-    def now() -> datetime:
-        nonlocal current
-        reading = current
-        current += step
-        return reading
-
-    return now
-
-
 @pytest.mark.asyncio
-async def test_experiments_left_after_the_start_window_are_deferred():
+@pytest.mark.parametrize("failure", [None, "wait", "start"])
+async def test_experiments_left_after_the_start_window_are_deferred(failure):
     checked: list[int] = []
     started: list[int] = []
 
@@ -161,17 +168,47 @@ async def test_experiments_left_after_the_start_window_are_deferred():
 
     def start(experiment_id: int) -> ScheduledRecalculationStartResult:
         started.append(experiment_id)
+        if failure == "start":
+            raise ApplicationError("unknown dispatch outcome", non_retryable=True)
         return _started(experiment_id)
+
+    now = datetime.now(UTC)
+
+    async def wait(recalculation_id):
+        nonlocal now
+        if failure == "wait":
+            raise ApplicationError("cannot observe run", non_retryable=True)
+        now += RUN_START_WINDOW
 
     with (
         patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 1),
-        patch(f"{WORKFLOW_MODULE}.temporalio.workflow.now", _clock_advancing_by(RUN_START_WINDOW * 0.4)),
+        patch(f"{WORKFLOW_MODULE}.temporalio.workflow.now", lambda: now),
     ):
-        result = await _run(lambda hour: _candidates(1, 2, 3), exposures, start)
+        result = await _run(lambda hour: _candidates(1, 2, 3), exposures, start, wait=wait)
 
     assert checked == [1]
     assert started == [1]
-    assert result == {"hour": 2, "candidates": 3, "started": 1, "skipped": 2, "deferred": 2}
+    count = 0 if failure == "start" else 1
+    assert result == {"hour": 2, "candidates": 3, "started": count, "skipped": 3 - count, "deferred": 2}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delayed_activity", ["exposures", "start"])
+async def test_retry_backoff_cannot_start_another_attempt_after_the_window(delayed_activity):
+    attempts = []
+
+    def delayed(experiment_id):
+        attempts.append(experiment_id)
+        raise ApplicationError("worker unavailable", next_retry_delay=RUN_START_WINDOW + timedelta(minutes=1))
+
+    result = await _run(
+        lambda hour: _candidates(1),
+        delayed if delayed_activity == "exposures" else lambda eid: True,
+        delayed if delayed_activity == "start" else _started,
+    )
+    assert result["started"] == 0
+    assert result["skipped"] == 1
+    assert attempts == [1]
 
 
 def test_last_run_ends_before_the_next_hourly_firing():
