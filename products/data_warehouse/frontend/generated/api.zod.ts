@@ -503,6 +503,19 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
@@ -605,6 +618,19 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
@@ -709,6 +735,19 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
@@ -828,6 +867,19 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
@@ -971,6 +1023,19 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .describe(
                 'Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table.'
             ),
+        snapshot: zod
+            .union([
+                zod.object({
+                    unique_key: zod
+                        .array(zod.string())
+                        .describe(
+                            'Output columns that identify an entity. Every key column must be present, non-null, and unique.'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Keep a history of changes observed each time this query runs.'),
         description: zod
             .string()
             .nullish()
