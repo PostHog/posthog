@@ -520,17 +520,26 @@ describe('integrationsLogic', () => {
                 document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
             })
 
-            it('creates the integration against the team carried in the OAuth state', async () => {
+            const plainState =
+                'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&team_id=228502'
+
+            // Providers that do not return the state verbatim get it hex-encoded at authorize time, and
+            // the callback must decode it before it checks the token or posts the state.
+            it.each([
+                ['a plain state', plainState],
+                ['a hex-encoded state', Buffer.from(plainState).toString('hex')],
+            ])('creates the integration against the team carried in %s', async (_name, state) => {
                 // The callback is a full-page round-trip on a non-project-scoped URL, so the SPA's
                 // current team is the user's default team here (MOCK_TEAM_ID) — not team 228502,
                 // which the state says initiated the flow.
-                const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&team_id=228502'
-
                 await expectLogic(logic, () => {
                     logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
                 }).toFinishAllListeners()
 
-                expect(createSpy).toHaveBeenCalledWith({ kind: 'slack', config: { state, code: 'oauth-code' } }, 228502)
+                expect(createSpy).toHaveBeenCalledWith(
+                    { kind: 'slack', config: { state: plainState, code: 'oauth-code' } },
+                    228502
+                )
                 expect(requestedTeamIds).toEqual(['228502'])
                 expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
                 expect(router.values.searchParams.integration_id).toBe(7)
