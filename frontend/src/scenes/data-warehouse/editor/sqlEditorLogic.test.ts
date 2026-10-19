@@ -1917,9 +1917,9 @@ describe('sqlEditorLogic', () => {
                 { display_name: 'Monthly active users', unit: 'users' },
             ],
             [
-                'omits the optional fields when they are blank',
+                'posts blank optional fields as blank, so an overwrite clears them',
                 { ...PREFILL, display_name: '', unit: '' },
-                { display_name: undefined, unit: undefined },
+                { display_name: '', unit: '' },
             ],
         ])('%s', async (_case, fields, expectedOptionalFields) => {
             let createBody: Record<string, any> | undefined
@@ -1938,7 +1938,11 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetricSubmit(fields)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody).toMatchObject({
+                name: fields.name,
+                description: fields.description,
+                created_source: 'user',
+            })
             expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
             expect(logic.values.metricPrefill).toBeNull()
@@ -1974,15 +1978,23 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(createBodies.map((body) => body.overwrite)).toEqual([false])
-            const dialog = open.mock.calls.at(-1)?.[0]
-            dialog?.onAfterClose?.()
+            // A dismissal runs only onAfterClose.
+            open.mock.calls.at(-1)?.[0].onAfterClose?.()
             await expectLogic(logic).toFinishAllListeners()
-            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
+            const reopenedForm = openForm.mock.calls.at(-1)?.[0]
+            expect(reopenedForm?.initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
 
-            dialog?.primaryButton?.onClick?.({} as any)
+            await reopenedForm?.onSubmit({ ...PREFILL, saveTarget: 1 })
             await expectLogic(logic).toFinishAllListeners()
-            expect(createBodies.map((body) => body.overwrite)).toEqual([false, true])
-            expect(createBodies[1].definition.query).toEqual('SELECT 2')
+            // A click on Overwrite runs onClick, and the close that follows runs onAfterClose.
+            const confirmDialog = open.mock.calls.at(-1)?.[0]
+            confirmDialog?.primaryButton?.onClick?.({} as any)
+            confirmDialog?.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false, false, true])
+            expect(createBodies[2].definition.query).toEqual('SELECT 2')
+            expect(openForm).toHaveBeenCalledTimes(1)
             expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
             open.mockRestore()
             openForm.mockRestore()

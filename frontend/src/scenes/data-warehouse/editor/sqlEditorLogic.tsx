@@ -3044,11 +3044,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsMetricSubmit: async ({ fields, queryOverride, overwrite }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
+                    // Blank fields are sent as blank, so an overwrite clears the old values.
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
                         name: fields.name,
-                        display_name: fields.display_name || undefined,
+                        display_name: fields.display_name,
                         description: fields.description,
-                        unit: fields.unit || undefined,
+                        unit: fields.unit,
+                        created_source: 'user',
                         definition: normalizeRawQuerySource({
                             ...(values.sourceQuery.source as HogQLQuery),
                             query: queryOverride ?? values.queryInput ?? '',
