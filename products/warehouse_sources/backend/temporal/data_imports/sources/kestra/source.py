@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,8 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.kes
 from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.settings import (
     AUTH_ERROR,
     ENDPOINTS,
-    EXECUTION_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS,
+    LOOKBACK_SECONDS,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,6 +39,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
+    codebase_detection = detect(
+        env=("^KESTRA_",),
+        npm=("@kestra-io/kestra-sdk", "@kestra-io/libs", "@kestra-io/ui-libs"),
+        pypi=("kestrapy", "kestra"),
+        go=(
+            "github.com/kestra-io/client-sdk/go-sdk",
+            "github.com/kestra-io/kestra2-flow-migration",
+            "github.com/kestra-io/kestractl",
+        ),
+        maven=("io.kestra:kestra-api-client", "io.kestra:kestra"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -73,11 +86,15 @@ class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"executions"})
-        for schema in schemas:
-            if schema.name == "executions":
-                schema.default_incremental_lookback_seconds = EXECUTION_LOOKBACK_SECONDS
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            # Logs hold every debug line of every task, so a user turns them on deliberately.
+            should_sync_default={"logs": False},
+            default_incremental_lookback_seconds=LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,

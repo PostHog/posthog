@@ -732,26 +732,18 @@ def string_config(value: str, default: str | None, rule_id: str | None = RULE_A)
     return config(targeted(rule_id=rule_id, value=value), return_type="string", default_value=default)
 
 
+RULE_VALUE_DETAIL = 'Must be a non-empty string other than $false, $true or "null".'
+DEFAULT_VALUE_DETAIL = 'Must be null or a non-empty string other than $false, $true or "null".'
 RESERVED_STRING_VALUES = [
-    (
-        "rule_value",
-        "$false",
-        None,
-        "filters__rules__0__value",
-        "Must be a non-empty string other than $false or $true.",
-    ),
-    (
-        "default_value",
-        "compact",
-        "$true",
-        "filters__default_value",
-        "Must be a non-empty string other than $false or $true, or null.",
-    ),
+    ("rule_value", "$false", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
+    ("default_value", "compact", "$true", "filters__default_value", DEFAULT_VALUE_DETAIL),
+    ("null_rule_value", "null", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
+    ("null_default_value", "compact", "null", "filters__default_value", DEFAULT_VALUE_DETAIL),
 ]
 
 
 class TestWriterOnlyRules(AdmittedV2TestCase):
-    """The writer reserves `$false` and `$true` as string values; the caches accept them, so a stored one stays replaceable."""
+    """The writer reserves `$false`, `$true` and `"null"` as string values. The caches accept them, so a stored one stays replaceable."""
 
     @parameterized.expand(RESERVED_STRING_VALUES)
     def test_create_rejects_a_reserved_value(
@@ -792,6 +784,21 @@ class TestWriterOnlyRules(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (string_config("compact", None), 4)
+
+    def test_an_update_keeps_a_null_value_the_row_already_holds(self) -> None:
+        flag = self.flag(string_config("null", "null"))
+        replacement = config(targeted(value="null", description="Reviewed"), return_type="string", default_value="null")
+        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (replacement, 4)
+
+    def test_a_stored_null_value_can_be_enabled(self) -> None:
+        flag = self.flag(string_config("null", "null"), active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (True, 4)
 
     def test_a_stored_reserved_value_can_be_disabled(self) -> None:
         flag = self.flag(string_config("$false", None), active=True)

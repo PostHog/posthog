@@ -50,6 +50,9 @@ Bing Ads connections need to sync `keyword_performance_report` or `destination_u
 Older rows without placement data show no value.
 The Traffic and Conversions views both include spend when a paid source is ready.
 The first column stays visible while the metrics scroll horizontally.
+The `marketing-analytics-search-conversions` flag controls PostHog conversion goals in Search performance, independently of the precomputation flags.
+When the flag is off or unavailable, the UI hides the goal columns and the backend skips conversion attribution, including requests from older clients.
+Platform-reported conversions remain available, and the main Ad performance conversion goals keep their existing behavior.
 In Search performance → Conversions, the Ad performance Include conversion goals switch adds the first five supported event or action goals and their cost per conversion.
 Goals with missing actions are skipped with a warning before the five-goal limit is applied.
 If more goals are configured, a warning directs users to the attribution report for other goals.
@@ -269,3 +272,27 @@ Manual retries bypass the event scan cache, including retries without a loaded p
 Managed external tables count as ready only when their schema sync status is completed; self-managed mapped tables remain available directly.
 
 The source onboarding header opens the in-app feedback form directly. The legacy feedback banner remains unchanged when source onboarding is disabled.
+
+## Bing Ads reconnection warning
+
+The `legacy-oauth-reconnect-warning` feature flag controls the reconnection banner in Marketing analytics and its settings.
+The banner only appears when a project has a Bing Ads integration marked with `oauth_uses_legacy_client`.
+It asks users to reconnect before November 30, 2026.
+The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
+Use project targeting to release the warning gradually.
+
+## Required table status
+
+The source status banner names each required table that needs attention and links native connections directly to their Schemas tab.
+Disabled imports, missing tables, running syncs, failures, pauses, cancellations, and tables awaiting a completed sync have separate messages.
+Multiple table problems remain visible together, even when the connection has one overall status.
+Google Ads connections using the legacy `campaign_stats` schema retain support and display that actual schema name.
+
+## Connection issues
+
+The source onboarding panel groups connected sources by integration and identifies each connection by its prefix, or its source ID when no prefix exists.
+Expand an integration to review the affected tables and open the connection’s source settings.
+The panel includes the source validation details shown by the status banner.
+When the panel displays a connection, its duplicate status banner entry is hidden.
+Configuration validation failures and issues for sources outside the panel remain in the banner.
+With source onboarding disabled, the existing banner remains available.

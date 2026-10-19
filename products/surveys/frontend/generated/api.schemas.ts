@@ -2141,6 +2141,8 @@ export interface GeneratedSurveyRootTranslationApi {
     introScreenDescription?: string
     /** Translated intro screen button text. */
     introScreenButtonText?: string
+    /** Translated back button text. */
+    backButtonText?: string
 }
 
 /**
@@ -2360,6 +2362,10 @@ export type SurveysListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Filter surveys by the ID of the feature flag they are linked to.
+     */
+    linked_flag_id?: number
     /**
      * The initial index from which to return the results.
      */

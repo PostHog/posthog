@@ -51,6 +51,7 @@ sequenceDiagram
     Worker->>Activity: wrap execute (latency + success/failure counters)
     Activity->>Result: upsert recalc-fingerprinted row (scoped by query_to)
     Activity->>DB: merge metric_errors on final-attempt failure
+    Workflow->>Activity: persist the failure of a metric Temporal ended from the outside (backstop)
     Workflow->>DB: mark completed/failed (first-write-wins)
 
     loop poll until terminal
@@ -100,7 +101,11 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 The trade-off: reads have to recompute the fingerprint set to find a run's results (`MetricResultStore.for_run` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If the experiment's `start_date` / `exposure_criteria` / stats config changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard.
 
-Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt, the sync's copy window and the relaunch rule on `query_from` stay in one module.
+Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt and the sync's copy window stay in one module.
+The current result of a metric (`current_outcome`) is the completed row whose data ends last under the metric's current calculation key, salted or bare.
+A row's data ends at the earlier of its `query_to` and its `completed_at`, because the backfill stamps the current day with the end of that day but holds data only up to the moment it ran.
+The experiment-completed event reads it for the first primary metric in display order, inline or saved, and the setup context reads it for its outcomes.
+A backfilled past window does not win over a newer window, a backfilled current day does not win over a later run of that day, and a row under an earlier configuration, for example from before a relaunch, does not count.
 When several rows share `(experiment, metric_uuid, query_to)`, each query returns the row with the newest `completed_at`, then the highest id.
 The unique constraint on that key allows only one row, so this order decides nothing until the constraint goes.
 Every writer (the calc activity, the daily activities, the backfill and the timeseries sync) looks the row up on `(experiment, metric_uuid, query_to)` and stores its fingerprint as an updated field.
@@ -124,7 +129,8 @@ Two safeguards on the POST endpoint:
 
 ### Activity-aware staleness
 
-The "still active" check uses different timestamps depending on the row's status: PENDING anchors on `created_at` (workflow never reached the start activity), IN_PROGRESS anchors on `started_at` (workflow began executing then stalled). Past the 30-minute threshold, the row is treated as dead, marked FAILED, and a fresh run is allowed. This protects against the failure mode where a Temporal-connect failure leaves a PENDING row behind and the rollback UPDATE also fails: without this, the experiment would be permanently locked out of recalculations.
+The "still active" check uses different timestamps depending on the row's status: PENDING anchors on `created_at` (workflow never reached the start activity), IN_PROGRESS anchors on `started_at` (workflow began executing then stalled). Past the 30-minute threshold, the row is treated as dead, marked FAILED, and a fresh run is allowed.
+The calc activity's total budget keeps a healthy run below that threshold; see "Per-metric time budget" below. This protects against the failure mode where a Temporal-connect failure leaves a PENDING row behind and the rollback UPDATE also fails: without this, the experiment would be permanently locked out of recalculations.
 
 ### Terminal-failure backstop
 
@@ -243,13 +249,21 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 - **`is_final_attempt` is derived inside the activity.** Because Temporal now owns retries, the activity reads its own attempt count from `activity.info().attempt` and compares it against `MAX_METRIC_ATTEMPTS` (the same constant the workflow's `RetryPolicy` is built from, so both sides agree on which attempt is last). The activity persists a transient failure (FAILED row + `metric_errors`) only on the final attempt (or at the error class cap above), so a metric still being retried stays in its loading/dim state on the frontend instead of flashing an error that may yet resolve. Non-final transient state is tracked separately in the `metric_retries` column for the UI.
 
+- **Per-metric time budget.** The calc activity call sets `schedule_to_close_timeout` to `METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS` (20 minutes). It covers all attempts of one metric, the retry delays between them, and the time each attempt waits in the task queue. Without it, one metric could use 8 attempts of 300s plus backoff, which is more than the 30-minute staleness threshold, and a slow but healthy run could be marked stale while it still ran.
+  The IN_PROGRESS phase is this budget, the failure backstop below (120s `schedule_to_close_timeout`, queue wait included), and the finish step (3 attempts of 90s), about 26 minutes in the worst case. `test_in_progress_phase_ends_before_the_staleness_ttl` keeps that sum below `_STALE_RECALC_THRESHOLD`.
+  With the budget, a metric with slow attempts can stop before `MAX_METRIC_ATTEMPTS`.
+
+- **Failure backstop for metrics Temporal ends from the outside.** The activity can persist its own failure only when an attempt runs to the end. Temporal ends a metric without that in three cases: the budget has no room for the next retry, the last attempt passes `start_to_close_timeout`, or the last attempt misses its heartbeats (a dead worker). The workflow detects these from the activity error (a `TIMEOUT` retry state or a timeout cause) and runs `record_metric_out_of_time_failure` for each such metric. That activity writes the FAILED row, a `metric_errors` entry with `error_type="timeout"` and `retriable=True`, and the terminal `experiment metric error` event. It does nothing when the metric already has a `metric_errors` entry from its final attempt. It also keeps a COMPLETED row, because a last attempt can write its result and then die before it reports success. The check and both failure writes run under the result store's run-write locks. If the killed attempt's thread still finishes later, its result write removes the timeout entry from `metric_errors`, so the frontend shows the result. The new commands are gated on `workflow.patched("recalc-persist-out-of-time-metrics-2026-10")`, so executions that started before the gate replay without them.
+
 - **Per-org fairness.** Each calc activity is dispatched with `priority=Priority(fairness_key=inputs.fairness_key)`, where the key is the org id. Under backlog, Temporal round-robins across orgs so one org's large recalc does not starve another's. It is a no-op on namespaces without fairness support.
 
 - **In-query execution guard.** The calc activity sets ClickHouse `max_execution_time=270s` (`METRIC_CALC_MAX_EXECUTION_TIME_SECONDS`), deliberately below the 300s activity timeout. A slow query then fails inside the activity with a typed ClickHouse timeout error, so the FAILED result row and the terminal event still get written, instead of Temporal killing the attempt from the outside and losing all of that.
 
 - **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` limits the attempt in Temporal, but cannot stop the synchronous calculation thread.
-  Local activity cancellation waits for that thread with a bounded cleanup deadline.
-  The activity has no heartbeats, so workflow cancellation does not promptly reach it.
+  Local activity cancellation kills the ClickHouse query and waits for that thread with a bounded cleanup deadline.
+- **Heartbeat.** The calc activity heartbeats through `Heartbeater` every `METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS / 4` (15s) while the thread runs, and the call sets a 60s `heartbeat_timeout`.
+  Temporal delivers a cancellation only in a heartbeat response, so a workflow cancel or a server-side timeout now reaches the running attempt and starts the cleanup above.
+  A dead worker misses its heartbeats, so Temporal retries the metric after 60s instead of after the full 300s attempt.
   See [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md) for the locking contract and cleanup limits.
 - **Calc queries run on the online ClickHouse cluster.** The calc activity builds its `ExperimentQueryRunner` with `workload=Workload.ONLINE`, so the queries hit the same replicas that serve interactive product traffic rather than the offline cluster that heavy background jobs use.
 

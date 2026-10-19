@@ -1,9 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { LemonBadge, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { watchPicksLogic } from '../watchPicksLogic'
+import { watchPicksStarterLogic } from '../watchPicksStarterLogic'
 import { WatchPicksList } from './WatchPicksList'
 
 interface WatchPicksListColumnProps {
@@ -11,8 +12,10 @@ interface WatchPicksListColumnProps {
 }
 
 export function WatchPicksListColumn({ recordingsList }: WatchPicksListColumnProps): JSX.Element {
-    const { effectiveListMode, unwatchedCount } = useValues(watchPicksLogic)
-    const { setListMode } = useActions(watchPicksLogic)
+    const picksLogic = useMountedLogic(watchPicksLogic)
+    const { effectiveListMode, unwatchedCount } = useValues(picksLogic)
+    const { setListMode } = useActions(picksLogic)
+    useMountedLogic(watchPicksStarterLogic(picksLogic.props))
 
     return (
         <>

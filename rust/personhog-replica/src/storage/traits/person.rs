@@ -112,7 +112,8 @@ pub trait PersonLookup: Send + Sync {
     /// 1. Locks the specified PersonDistinctId rows with SELECT FOR UPDATE and
     ///    validates ownership under the lock
     /// 2. Creates new persons via one bulk upsert (deterministic UUIDv5,
-    ///    version = original person version + 101)
+    ///    version = original person version + 101). A live person at that
+    ///    UUID is never reused: the distinct_id gets a random UUID instead.
     /// 3. Reassigns PDIs to new persons in one bulk update
     ///    (version = original PDI version + 101)
     ///

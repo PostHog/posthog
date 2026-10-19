@@ -13,6 +13,7 @@ from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
 from products.experiments.backend.health.context import ExposureTotals, FlagState, FlagVariant, HealthContext
 from products.experiments.backend.health.registry import EXPOSURE_HEALTH_CHECKS, evaluate
+from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
 
 UNEVEN_SPLIT_TOTALS = ExposureTotals(
     total_exposures={"control": 800, "test": 200, "$multiple": 20},
@@ -21,12 +22,8 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     hours_since_launch=72,
 )
 
-RUNNING_UNEVEN_SPLIT = HealthContext(
-    is_launched=True,
-    is_running=True,
-    has_ended=False,
-    is_paused=False,
-    archived=False,
+RUNNING_UNEVEN_SPLIT = replace(
+    RUNNING_CONTEXT,
     flag=FlagState(
         active=True,
         deleted=False,
@@ -37,9 +34,6 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
         ),
         reachable_conditions=(),
     ),
-    baseline_variant_key=None,
-    primary_metric_count=1,
-    secondary_metric_count=0,
     exposures=UNEVEN_SPLIT_TOTALS,
 )
 

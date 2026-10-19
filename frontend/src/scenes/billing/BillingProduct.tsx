@@ -27,6 +27,7 @@ import {
     isUsageAtOrOverLimit,
     isProductVariantPrimary,
 } from './billing-utils'
+import { BillingCompanionSection } from './BillingCompanionSection'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -60,7 +61,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug, isBillingManagedByPartner } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, selfServeBillingDisabledReason } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -538,7 +539,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             {/* Add-ons title */}
                             <h4 className="my-4">{addonSectionLabel}</h4>
-                            {billing?.subscription_level == 'free' && !isBillingManagedByPartner && (
+                            {billing?.subscription_level == 'free' && !selfServeBillingDisabledReason && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>
@@ -577,6 +578,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <BillingLimit product={product} />
                     </div>
                 )}
+
+                <BillingCompanionSection
+                    product={product}
+                    cardShowsBillingLimit={!isTemporaryFreeProduct}
+                    // Same branches as the header: the variants' combined amounts or the usage-priced (tiered) layout.
+                    cardShowsProjection={isProductWithVariants || (!isTemporaryFreeProduct && product.tiered)}
+                />
 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />

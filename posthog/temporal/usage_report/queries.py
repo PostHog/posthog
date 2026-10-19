@@ -45,7 +45,6 @@ from typing import Any, Literal
 
 from django.db.models import Count
 
-from posthog.constants import FlagRequestType
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
@@ -60,18 +59,17 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
-    get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_exceptions_captured_in_period,
-    get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
     get_teams_with_heatmap_count_in_period,
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
@@ -89,12 +87,9 @@ from posthog.tasks.usage_report import (
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
-    get_teams_with_workflow_billable_invocations_in_period,
-    get_teams_with_workflow_emails_sent_in_period,
-    get_teams_with_workflow_push_sent_in_period,
-    get_teams_with_workflow_sms_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
+from posthog.usage_counters import UsageCounter, UsageCounterService
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -312,6 +307,7 @@ QUERIES: list[QuerySpec] = [
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
+            "roblox_events": "teams_with_roblox_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
         },
         timeout_minutes=30,
@@ -357,11 +353,11 @@ QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(
         name="teams_with_decide_requests_count_in_period",
-        fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.DECIDE),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_REQUESTS, b, e),
     ),
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
-        fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.LOCAL_EVALUATION),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
@@ -484,7 +480,7 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="teams_with_cdp_billable_invocations_in_period",
-        fn=get_teams_with_cdp_billable_invocations_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.CDP_INVOCATIONS, b, e),
     ),
     # ---- ClickHouse: AI ------------------------------------------------------
     QuerySpec(
@@ -527,19 +523,19 @@ QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
-        fn=get_teams_with_workflow_emails_sent_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_EMAILS, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_push_sent_in_period",
-        fn=get_teams_with_workflow_push_sent_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_PUSH, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_sms_sent_in_period",
-        fn=get_teams_with_workflow_sms_sent_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_SMS, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_billable_invocations_in_period",
-        fn=get_teams_with_workflow_billable_invocations_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_INVOCATIONS, b, e),
     ),
     # ---- ClickHouse: logs ---------------------------------------------------
     QuerySpec(
@@ -576,6 +572,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_logs_retention_byte_days_in_period",
         fn=get_teams_with_logs_retention_byte_days_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_logs_distinct_patterns_in_period",
+        fn=get_teams_with_logs_distinct_patterns_in_period,
     ),
     # ---- ClickHouse: APM tracing ---------------------------------------------
     QuerySpec(

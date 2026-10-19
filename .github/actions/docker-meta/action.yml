@@ -148,6 +148,14 @@ runs:
                   type=sha,format=long
                   type=raw,value=${{ github.sha }}
                   type=raw,value=latest,enable={{is_default_branch}}
+              labels: |
+                  org.opencontainers.image.title=posthog
+                  org.opencontainers.image.url=https://github.com/PostHog/posthog
+                  org.opencontainers.image.source=https://github.com/PostHog/posthog
+              annotations: |
+                  org.opencontainers.image.title=posthog
+                  org.opencontainers.image.url=https://github.com/PostHog/posthog
+                  org.opencontainers.image.source=https://github.com/PostHog/posthog
 
         - name: Add commit annotations
           id: annotations

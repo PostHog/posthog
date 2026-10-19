@@ -129,9 +129,13 @@ describe('credentials server end to end', () => {
             // Start a rotation on the mount; the running server picks it up on reload.
             await writeFile(join(dir, `${KEY}_FALLBACKS`), 'staged-value-2')
             await server.reload()
-            expect(await (await resolve(port, token)).json()).toMatchObject({
-                secrets: { [KEY]: { state: 'rotating', value: 'current-value-1', previous: 'staged-value-2' } },
+            const rotating = (await (await resolve(port, token)).json()) as { secrets: Record<string, unknown> }
+            expect(rotating.secrets[KEY]).toMatchObject({
+                state: 'rotating',
+                value: 'current-value-1',
+                incoming: 'staged-value-2',
             })
+            expect(rotating.secrets[KEY]).not.toHaveProperty('previous')
 
             // Completing a rotation is deleting the sibling, and that has to end the
             // overlap rather than serving the retired value forever.
@@ -139,6 +143,7 @@ describe('credentials server end to end', () => {
             await server.reload()
             const settled = (await (await resolve(port, token)).json()) as { secrets: Record<string, unknown> }
             expect(settled.secrets[KEY]).toMatchObject({ state: 'steady', value: 'current-value-1' })
+            expect(settled.secrets[KEY]).not.toHaveProperty('incoming')
             expect(settled.secrets[KEY]).not.toHaveProperty('previous')
 
             await writeFile(join(dir, 'CREDENTIALS_RECOVERY_KEYS'), BURNED_KEY)

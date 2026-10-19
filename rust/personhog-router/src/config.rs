@@ -177,6 +177,10 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
 
+    /// Maximum age of an inbound gRPC connection before a graceful GOAWAY (0 = disabled)
+    #[envconfig(default = "300")]
+    pub grpc_max_connection_age_secs: u64,
+
     /// Interval between HTTP/2 keepalive pings sent to the replica backend (0 = disabled)
     #[envconfig(default = "30")]
     pub backend_keepalive_interval_secs: u64,
@@ -762,6 +766,14 @@ impl Config {
             None
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
+        }
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
         }
     }
 

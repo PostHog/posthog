@@ -56,7 +56,7 @@ one call needed:
     "GOOGLE_ADS_APP_CLIENT_SECRET": {
       "state": "rotating",
       "value": "…",
-      "previous": "…",
+      "incoming": "…",
       "version_id": "…",
       "fetched_at": "…",
     },
@@ -169,7 +169,7 @@ pick it up before completing.
 | State      | Condition                                        | Response                              |
 | ---------- | ------------------------------------------------ | ------------------------------------- |
 | `steady`   | no `_FALLBACKS` sibling, or it repeats the value | `value` only                          |
-| `rotating` | the sibling holds a different, staged value      | `value` + `previous` (the staged one) |
+| `rotating` | the sibling holds a different, staged value      | `value` + `incoming` (the staged one) |
 | `recovery` | field named in `CREDENTIALS_RECOVERY_KEYS`       | no value; caller raises a typed error |
 
 `recovery` covers a credential that is known-burned with no valid replacement yet. These
