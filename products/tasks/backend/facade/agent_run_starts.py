@@ -9,6 +9,7 @@ records its parent in its state, which ``run_task`` writes before the workflow s
 from uuid import UUID
 
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.metrics import observe_sandbox_run_start
 from products.tasks.backend.models import Task, TaskRun
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "AGENT_RUN_FANOUT_CAP",
     "AGENT_STARTED_RUN_COUNT_STATE_KEY",
     "capture_sandbox_run_start_refused",
+    "observe_sandbox_run_start",
     "release_agent_run_slot",
     "reserve_agent_run_slot",
     "resolve_sandbox_run_starter",
