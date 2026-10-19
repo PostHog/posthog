@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { saveEntrySource } from '../../Broadcasts/broadcastUsage'
 import {
     hogFlowsCreate,
+    workflowDataSuggestionsAccept,
     workflowDataSuggestionsBuild,
     workflowDataSuggestionsCurrent,
     workflowDataSuggestionsGenerate,
@@ -221,7 +222,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestions shown', {
                     surface: props.surface,
-                    source: 'ai',
+                    source: aiResult.suggestions.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
                     trigger_events: aiResult.suggestions.map((suggestion) => suggestion.trigger_event),
                     stages: aiResult.suggestions.map((suggestion) => suggestion.stage),
                 })
@@ -240,7 +241,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestion clicked', {
                     surface: props.surface,
-                    source: 'ai',
+                    source: card.premade ? 'premade' : 'ai',
                     trigger_event: card.triggerEvent,
                     weekly_count: card.weeklyCount,
                     stage: card.stage,
@@ -287,6 +288,14 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         >[1],
                         { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
                     )
+                    if (card.premade) {
+                        // The draft is saved either way. A failed link only means the card is offered again.
+                        await workflowDataSuggestionsAccept(
+                            projectId,
+                            { suggestion_id: card.suggestionId, hog_flow_id: workflow.id },
+                            { signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS) }
+                        ).catch(() => undefined)
+                    }
                     breakpoint()
                     // pinned: entry source value - 'workflow enabled' reports it, so renaming breaks the funnel
                     saveEntrySource(workflow.id, 'data_suggestion')

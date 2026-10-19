@@ -4,28 +4,37 @@ from django.db import models
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import get_event_source
+from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
+from products.workflows.backend.facade.contracts import (
+    DataSuggestionNotFound,
+    DataSuggestionsResult,
+    WorkflowIdeaAlreadyResolved,
+    WorkflowIdeaNotFound,
+    WorkflowIdeaWorkflowMismatch,
+)
 from products.workflows.backend.facade.data_suggestions import (
     FEATURE_FLAG_KEY,
+    accept_premade_idea,
     build_caller,
     email_sender_ready,
     get_data_suggestions,
     needs_new_build,
     needs_new_generation,
+    save_premade_draft,
     start_build,
     start_data_suggestions,
 )
+from products.workflows.backend.presentation.views.data_suggestion_drafts import save_draft, validated_draft
 
 
 class DataSuggestionStepKind(models.TextChoices):
@@ -75,6 +84,11 @@ class DataSuggestionSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=DataSuggestionStepKind.choices),
         help_text="The main planned step kinds after the trigger, in order.",
     )
+    premade = serializers.BooleanField(
+        help_text="Whether PostHog prepared this suggestion ahead of time with its workflow already built. Building "
+        "it returns the stored workflow at once. After saving the draft, send it to accept so the suggestion is "
+        "not offered again."
+    )
 
 
 class DataSuggestionsResponseSerializer(serializers.Serializer):
@@ -113,6 +127,14 @@ class DataSuggestionBuildRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Save the built draft in the project and return its workflow_id. Blank settings, like a webhook "
         "URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving.",
+    )
+
+
+class DataSuggestionAcceptRequestSerializer(serializers.Serializer):
+    suggestion_id = serializers.CharField(help_text="The id of a premade suggestion the draft was created from.")
+    hog_flow_id = serializers.UUIDField(
+        help_text="The draft workflow created from the suggestion's built workflow. It must still be a draft in this "
+        "project and not linked to another suggestion."
     )
 
 
@@ -162,7 +184,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = True
     scope_object_read_actions = ["current"]
     # Both calls can run ClickHouse and the models, so a read-only key cannot cause that spend.
-    scope_object_write_actions = ["generate", "build"]
+    scope_object_write_actions = ["generate", "build", "accept"]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # The cards carry the project's event names and weekly counts, so a key also needs the scope that reads them.
@@ -231,6 +253,19 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = self._user_with_feature(request)
         payload = DataSuggestionBuildRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        if payload.validated_data["save_draft"]:
+            try:
+                saved = save_premade_draft(
+                    team=self.team,
+                    user=user,
+                    idea_id=payload.validated_data["suggestion_id"],
+                    validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
+                    save_draft=save_draft,
+                )
+            except WorkflowIdeaAlreadyResolved:
+                return Response({"detail": "This suggestion was already used."}, status=status.HTTP_409_CONFLICT)
+            if saved is not None:
+                return Response(DataSuggestionBuildResponseSerializer(saved).data)
         try:
             built = start_build(
                 team=self.team,
@@ -243,6 +278,32 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
         return Response(DataSuggestionBuildResponseSerializer(built).data)
+
+    @extend_schema(
+        operation_id="workflow_data_suggestions_accept",
+        request=DataSuggestionAcceptRequestSerializer,
+        responses={204: None},
+    )
+    @action(detail=False, methods=["post"])
+    def accept(self, request: Request, **kwargs: Any) -> Response:
+        user = self._user_with_feature(request)
+        payload = DataSuggestionAcceptRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            accept_premade_idea(
+                team=self.team,
+                idea_id=payload.validated_data["suggestion_id"],
+                hog_flow_id=str(payload.validated_data["hog_flow_id"]),
+                user=user,
+                access=self.user_access_control,
+            )
+        except WorkflowIdeaNotFound:
+            raise NotFound("This suggestion no longer exists.")
+        except WorkflowIdeaWorkflowMismatch:
+            raise ValidationError({"hog_flow_id": "That workflow is not an unclaimed draft in this project."})
+        except WorkflowIdeaAlreadyResolved:
+            return Response({"detail": "This suggestion was already used."}, status=status.HTTP_409_CONFLICT)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _user_with_feature(self, request: Request) -> User:
         user = request.user

@@ -3236,6 +3236,18 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
+export const WorkflowDataSuggestionsAcceptBody = /* @__PURE__ */ zod.object({
+    suggestion_id: zod.string().describe('The id of a premade suggestion the draft was created from.'),
+    hog_flow_id: zod
+        .uuid()
+        .describe(
+            "The draft workflow created from the suggestion's built workflow. It must still be a draft in this project and not linked to another suggestion."
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
 export const workflowDataSuggestionsBuildBodyRetryDefault = false
 export const workflowDataSuggestionsBuildBodySaveDraftDefault = false
 

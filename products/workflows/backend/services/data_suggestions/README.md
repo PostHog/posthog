@@ -33,6 +33,16 @@ Building a draft (`_plan_and_build` in `service.py`):
 2. The builder turns the plan into a workflow and rejects plans that do not hold up.
 3. The draft is checked the way the caller's own create request checks it.
 
+## Premade ideas
+
+A project can get its ideas ahead of time: `python manage.py prepare_workflow_ideas --team-ids 1 2` (or `--org-ids`) runs the card run and a build for each card, then stores each built card as a `WorkflowIdea` row with its workflow in `definition`.
+It only runs for the IDs given, skips organizations without the flag, and skips projects that still have ideas waiting unless `--replace` is passed.
+
+While a project has ideas waiting, `current` and `generate` return only those cards, marked `premade`, read from Postgres. No run starts and the cache is not read.
+`build` returns the stored workflow at once, with the default email sender filled in when the project has one now.
+After the draft is saved, `accept` links it to the idea, so the card is not offered again. A build with `save_draft` saves and links in one step.
+Once every idea is used, the project gets the generated cards again.
+
 Agents use the same endpoints through three MCP tools in `products/workflows/mcp/tools.yaml`: `workflows-data-suggestions-list`, `-get` and `-create`.
 The create tool always sends `save_draft`, so the build task saves the draft itself with the editor's draft rules and returns its `workflow_id`.
 Blank settings come back as `missing_inputs`, for the agent to ask the user about.
@@ -42,6 +52,7 @@ Blank settings come back as `missing_inputs`, for the agent to ask the user abou
 | File              | What it does                                                                                           |
 | ----------------- | ------------------------------------------------------------------------------------------------------ |
 | `service.py`      | Runs both jobs: caching, locks, consent checks, and the order of the steps above. Start here.          |
+| `premade.py`      | Premade ideas: the cards, the stored build, saving rows and linking a draft.                           |
 | `event_volume.py` | Counts events in ClickHouse. Samples large teams and recounts what the sample missed.                  |
 | `stages.py`       | Asks Jev for each event's lifecycle stage, with confidence rules.                                      |
 | `ranking.py`      | Stage weights, scoring, and which events reach Jev and Claude.                                         |

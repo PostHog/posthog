@@ -30181,6 +30181,15 @@ export namespace Schemas {
       stage: DataSuggestionStageEnum;
       /** The main planned step kinds after the trigger, in order. */
       step_outline: DataSuggestionStepKindEnum[];
+      /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Building it returns the stored workflow at once. After saving the draft, send it to accept so the suggestion is not offered again. */
+      premade: boolean;
+    }
+
+    export interface DataSuggestionAcceptRequest {
+      /** The id of a premade suggestion the draft was created from. */
+      suggestion_id: string;
+      /** The draft workflow created from the suggestion's built workflow. It must still be a draft in this project and not linked to another suggestion. */
+      hog_flow_id: string;
     }
 
     export interface DataSuggestionBuildRequest {

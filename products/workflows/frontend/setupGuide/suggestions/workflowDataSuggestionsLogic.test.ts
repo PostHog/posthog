@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { loadEntrySource } from '../../Broadcasts/broadcastUsage'
 import {
     hogFlowsCreate,
+    workflowDataSuggestionsAccept,
     workflowDataSuggestionsBuild,
     workflowDataSuggestionsCurrent,
     workflowDataSuggestionsGenerate,
@@ -18,6 +19,7 @@ import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 
 jest.mock('../../generated/api', () => ({
     hogFlowsCreate: jest.fn(),
+    workflowDataSuggestionsAccept: jest.fn(() => Promise.resolve()),
     workflowDataSuggestionsBuild: jest.fn(),
     workflowDataSuggestionsCurrent: jest.fn(),
     workflowDataSuggestionsGenerate: jest.fn(),
@@ -32,6 +34,7 @@ const card: SuggestionCard = {
     weeklyCount: 42,
     steps: ['email'],
     suggestionId: 'suggestion-1',
+    premade: false,
 }
 
 describe('workflowDataSuggestionsLogic', () => {
@@ -65,6 +68,7 @@ describe('workflowDataSuggestionsLogic', () => {
                         weekly_count: 42,
                         stage: 'signup',
                         step_outline: ['email'],
+                        premade: false,
                     },
                 ],
             })
@@ -85,41 +89,50 @@ describe('workflowDataSuggestionsLogic', () => {
     })
 
     it.each([
-        ['empty_state', false],
-        ['onboarding_wizard', true],
-    ] as const)('opens the saved draft after a successful build on the %s', async (surface, finishesWizard) => {
-        const capture = jest.spyOn(posthog, 'capture')
-        jest.mocked(workflowDataSuggestionsBuild).mockResolvedValue({
-            status: 'ready',
-            workflow: { name: 'Welcome new users' },
-            uses_saved_template: false,
-            workflow_id: null,
-            missing_inputs: [],
-        })
-        jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
-        if (finishesWizard) {
-            workflowsOnboardingWizardLogic.mount()
+        ['empty_state', false, false],
+        ['onboarding_wizard', true, false],
+        ['empty_state', false, true],
+    ] as const)(
+        'opens the saved draft after a successful build on the %s (wizard finished: %s, premade: %s)',
+        async (surface, finishesWizard, premade) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            jest.mocked(workflowDataSuggestionsBuild).mockResolvedValue({
+                status: 'ready',
+                workflow: { name: 'Welcome new users' },
+                uses_saved_template: false,
+                workflow_id: null,
+                missing_inputs: [],
+            })
+            jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
+            if (finishesWizard) {
+                workflowsOnboardingWizardLogic.mount()
+            }
+            const logic = workflowDataSuggestionsLogic({ surface })
+            logic.mount()
+
+            await logic.asyncActions.startSuggestion({ ...card, premade })
+
+            expect(hogFlowsCreate).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({ name: 'Welcome new users', status: 'draft' }),
+                expect.objectContaining({ signal: expect.anything() })
+            )
+            expect(jest.mocked(workflowDataSuggestionsAccept).mock.calls.map(([, body]) => body)).toEqual(
+                premade ? [{ suggestion_id: 'suggestion-1', hog_flow_id: 'workflow-1' }] : []
+            )
+            expect(router.values.location.pathname).toContain('workflow-1')
+            expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
+            expect(logic.values.buildingKey).toBeNull()
+            const wizardFinished = capture.mock.calls.filter(
+                ([event]) => event === 'workflows onboarding wizard finished'
+            )
+            expect(wizardFinished).toEqual(
+                finishesWizard
+                    ? [['workflows onboarding wizard finished', { path: 'messaging', template_id: 'data_suggestion' }]]
+                    : []
+            )
         }
-        const logic = workflowDataSuggestionsLogic({ surface })
-        logic.mount()
-
-        await logic.asyncActions.startSuggestion(card)
-
-        expect(hogFlowsCreate).toHaveBeenCalledWith(
-            expect.any(String),
-            expect.objectContaining({ name: 'Welcome new users', status: 'draft' }),
-            expect.objectContaining({ signal: expect.anything() })
-        )
-        expect(router.values.location.pathname).toContain('workflow-1')
-        expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
-        expect(logic.values.buildingKey).toBeNull()
-        const wizardFinished = capture.mock.calls.filter(([event]) => event === 'workflows onboarding wizard finished')
-        expect(wizardFinished).toEqual(
-            finishesWizard
-                ? [['workflows onboarding wizard finished', { path: 'messaging', template_id: 'data_suggestion' }]]
-                : []
-        )
-    })
+    )
 
     it.each([
         ['saves the draft once the background build is ready', false, 1],

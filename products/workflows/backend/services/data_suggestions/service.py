@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 
 import structlog
 import posthoganalytics
@@ -18,6 +19,7 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQue
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client, ph_scoped_capture
 from posthog.utils import get_instance_region
 
@@ -28,6 +30,8 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestionNotFound,
     DataSuggestionsResult,
     MissingInput,
+    PreparedIdeas,
+    WorkflowIdeaNotFound,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions import team_context
@@ -46,6 +50,13 @@ from products.workflows.backend.services.data_suggestions.planner import (
     WorkflowIdea,
     plan_steps,
     suggest_ideas,
+)
+from products.workflows.backend.services.data_suggestions.premade import (
+    accept_premade_idea,
+    lock_premade_idea,
+    premade_build,
+    premade_suggestions,
+    store_premade_ideas,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
     pick_one_per_stage,
@@ -95,6 +106,9 @@ NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain un
 
 def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     """The cards as they are now. This never runs a query or a model, so a read-only caller cannot cause spend."""
+    premade = _premade_result(team)
+    if premade is not None:
+        return premade
     unavailable = _unavailable_reason(team)
     if unavailable is not None:
         return unavailable
@@ -116,6 +130,21 @@ def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
     )
 
 
+def data_suggestions_acting_user(team: Team) -> User | None:
+    """The organization's longest-standing owner or admin, who runs the models when ideas are prepared ahead of time."""
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+            level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
+        .select_related("user")
+        .order_by("-level", "joined_at")
+        .first()
+    )
+    return membership.user if membership is not None else None
+
+
 def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
     """The ideas this person would see on the empty workflows page. Like `get_data_suggestions`, it never runs a model."""
     if HogFlow.objects.filter(team_id=team.id).exclude(status=HogFlow.State.ARCHIVED).exists():
@@ -127,7 +156,11 @@ def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
 
 
 def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:
-    """Returns the cached cards, or starts a background run through `enqueue` and reports that it is generating."""
+    """Returns the cached cards, or starts a background run through `enqueue` and reports that it is generating.
+    A project with premade ideas gets only those, and no run starts."""
+    premade = _premade_result(team)
+    if premade is not None:
+        return premade
     unavailable = _unavailable_reason(team)
     if unavailable is not None:
         return unavailable
@@ -153,6 +186,8 @@ def email_sender_ready(*, team: Team) -> bool:
 
 def needs_new_generation(*, team: Team, refresh: bool) -> bool:
     """Whether a generate call would start a run, the only case that costs model time."""
+    if _premade_result(team) is not None:
+        return False
     # A refresh always counts, because the run it joins can end before the request reaches the lock.
     return refresh or (_read_cache(team) is None and cache.get(_generation_lock_key(team)) is None)
 
@@ -192,6 +227,9 @@ def start_build(
 
     A failed result stays until `retry` asks for a new build, so every tab that polls the build reads the failure.
     """
+    premade = premade_build(team, suggestion_id)
+    if premade is not None and premade.workflow is not None:
+        return dataclasses.replace(premade, missing_inputs=_missing_inputs(team, premade.workflow))
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
     stored = _current_build(team, suggestion_id, caller)
@@ -213,6 +251,32 @@ def start_build(
     return _read_build(team.id, suggestion_id, caller) or _BUILDING
 
 
+def save_premade_draft(
+    *,
+    team: Team,
+    user: User,
+    idea_id: str,
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    save_draft: Callable[[Team, User, dict[str, Any]], str],
+) -> BuiltSuggestion | None:
+    """Saves a premade idea's workflow as a draft and marks the idea accepted, or returns None when the id is not a
+    premade idea. The idea row stays locked until both writes commit, so a second call cannot save a second draft."""
+    with transaction.atomic():
+        try:
+            lock_premade_idea(team.id, idea_id)
+        except WorkflowIdeaNotFound:
+            return None
+        built = premade_build(team, idea_id)
+        if built is None or built.workflow is None:
+            return None
+        validated = validate_draft(team, built.workflow)
+        if validated is None:
+            return _BUILD_FAILED
+        workflow_id = save_draft(team, user, validated)
+        accept_premade_idea(team=team, idea_id=idea_id, hog_flow_id=workflow_id, user=user, access=None)
+    return dataclasses.replace(built, workflow_id=workflow_id, missing_inputs=_missing_inputs(team, built.workflow))
+
+
 def build_caller(event_source: str, *, save: bool, user_id: int) -> str:
     """The key a build is stored under. A saved build is checked with the editor's draft rules, so it differs from an
     unsaved build for the same caller. A saved build is also kept per user, because its draft can carry access
@@ -222,6 +286,8 @@ def build_caller(event_source: str, *, save: bool, user_id: int) -> str:
 
 def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
+    if premade_build(team, suggestion_id) is not None:
+        return False
     stored = _current_build(team, suggestion_id, caller)
     reusable = stored is not None and not (retry and stored.status == "failed")
     return not reusable and cache.get(_build_lock_key(team.id, suggestion_id, caller)) is None
@@ -269,6 +335,38 @@ def run_build(
             _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
     finally:
         _release(lock_key, lock_token)
+
+
+def prepare_premade_ideas(
+    *,
+    team: Team,
+    user: User,
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    replace: bool,
+) -> PreparedIdeas:
+    """Generates the cards and builds each one now, then stores them as premade ideas. Nothing is cached, so the
+    project's own generation runs are not affected."""
+    unavailable = _unavailable_reason(team)
+    if unavailable is not None:
+        return PreparedIdeas(status=unavailable.status)
+    with _analytics_client() as analytics_client:
+        result = _generate(team=team, user=user, analytics_client=analytics_client)
+    if result.status != "ready":
+        return PreparedIdeas(status=result.status)
+    built: list[tuple[DataSuggestion, BuiltSuggestion]] = []
+    for suggestion in result.suggestions:
+        try:
+            build, _ = _plan_and_build(
+                team=team, user=user, suggestion=suggestion, events=result.events, validate_draft=validate_draft
+            )
+        except Exception as error:
+            logger.exception("workflows.data_suggestions.prepare_build_failed", team_id=team.id)
+            capture_exception(error, {"team_id": team.id})
+            build = _BUILD_FAILED
+        if build.status == "ready":
+            built.append((suggestion, build))
+    stored = store_premade_ideas(team=team, built=built, replace=replace, source_ref="prepare_workflow_ideas")
+    return PreparedIdeas(status="ready", stored=stored, failed_builds=len(result.suggestions) - len(built))
 
 
 def _plan_and_build(
@@ -341,6 +439,11 @@ def _plan_and_build(
         missing_inputs=_missing_inputs(team, built.workflow),
     )
     return result, validated
+
+
+def _premade_result(team: Team) -> DataSuggestionsResult | None:
+    cards = premade_suggestions(team)
+    return DataSuggestionsResult(status="ready", suggestions=cards) if cards else None
 
 
 def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggestion | None:
