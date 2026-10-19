@@ -46,15 +46,6 @@ export const AI_TASKS: SetupTask[] = [
         requiresManualCompletion: true,
         getUrl: () => urls.ai(),
     },
-    {
-        id: SetupTaskId.UsePosthogCode,
-        title: 'Try PostHog Desktop',
-        description:
-            'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
-        taskType: 'ai',
-        requiresManualCompletion: true,
-        docsUrl: 'https://posthog.com/desktop',
-    },
 ]
 
 /** MCP and Slack tasks - add only to products where an agent or a Slack thread is a natural way to use them */

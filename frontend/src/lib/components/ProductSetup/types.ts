@@ -13,7 +13,7 @@ export type SetupTaskId = AvailableSetupTaskIdsEnumApi
  *   Examples: Create first insight, watch first recording, create first survey
  * - explore: Advanced/optional features to try after getting started
  *   Examples: Create funnel, set up cohorts, create multivariate flag
- * - ai: PostHog's AI surfaces. PostHog AI and PostHog Desktop show for every product;
+ * - ai: PostHog's AI surfaces. PostHog AI shows for every product;
  *   PostHog MCP and PostHog in Slack show only for the products that list them
  */
 export type TaskType = 'setup' | 'onboarding' | 'explore' | 'ai'
