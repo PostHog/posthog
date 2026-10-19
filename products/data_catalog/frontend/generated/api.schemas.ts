@@ -344,6 +344,40 @@ export interface DataCatalogMetricCreateApi {
 }
 
 /**
+ * The live metric that holds the name a create was sent with.
+ */
+export interface DataCatalogMetricNameConflictExistingApi {
+    /** Name of the existing metric. */
+    name: string
+    /** Lifecycle state of the existing metric: 'proposed' or 'approved'. */
+    status: string
+}
+
+export interface DataCatalogMetricNameConflictExtraApi {
+    /** The metric that holds the name. Send overwrite true to replace it. */
+    existing_metric: DataCatalogMetricNameConflictExistingApi
+}
+
+/**
+ * The 409 body of a create whose name a live metric already holds.
+ */
+export interface DataCatalogMetricNameConflictApi {
+    /** Error class the API attaches to every error body. */
+    type: string
+    /** Always 'metric_name_taken'. */
+    code: string
+    /** Human-readable reason, safe to show as is. */
+    detail: string
+    /**
+     * Always null: the conflict is not tied to one field.
+     * @nullable
+     */
+    attr: string | null
+    /** Absent when the existing metric is hidden from the caller because it reads a table they cannot access. */
+    extra?: DataCatalogMetricNameConflictExtraApi
+}
+
+/**
  * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
  * @nullable
  */

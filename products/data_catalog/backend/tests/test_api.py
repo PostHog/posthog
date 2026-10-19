@@ -223,6 +223,15 @@ class TestMetricAPI(APIBaseTest):
             assert "extra" not in conflict.json()
         assert Metric.objects.for_team(self.team.id).get(pk=hidden["id"]).description == "d"
 
+        conflict = self.client.post(self.url, {"name": "allowed", "description": "taken over"}, format="json")
+        assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+        assert conflict.json()["extra"] == {"existing_metric": {"name": "allowed", "status": MetricStatus.PROPOSED}}
+        overwritten = self.client.post(
+            self.url, {"name": "allowed", "description": "taken over", "overwrite": True}, format="json"
+        )
+        assert overwritten.status_code == status.HTTP_201_CREATED, overwritten.json()
+        assert overwritten.json()["description"] == "taken over"
+
 
 class TestMetricLifecycleAPI(APIBaseTest):
     def setUp(self) -> None:

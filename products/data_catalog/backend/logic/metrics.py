@@ -199,13 +199,38 @@ def _refine(metric: Metric, fields: dict) -> None:
         # computes or how it reads; its review no longer holds, so drop back to proposed (matching
         # update_metric's PATCH behavior).
         _reset_to_proposed(metric)
+    if fields.get("created_source") == CreatedSource.USER and metric.created_source != CreatedSource.USER:
+        # A person's overwrite replaces an agent's proposal, so the agent's model, confidence, and
+        # reasoning no longer describe the metric unless the request supplies new values.
+        fields = {"ai_model": "", "confidence": None, "reasoning": "", **fields}
     for key, value in fields.items():
         setattr(metric, key, value)
     metric.save()
 
 
-def _name_taken(existing: Metric, *, team: Team, user: Optional[User], request: "Request | None") -> MetricNameTaken:
-    capture_metric_event(METRIC_NAME_CONFLICT_EVENT, existing, team=team, user=user, request=request)
+def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
+
+
+def _hidden_from_caller(metric: Metric, team: Team, user: User, user_access_control: UserAccessControl) -> bool:
+    """True when the metric reads a table the caller cannot read, so the catalog hides it from them."""
+    if not metric.referenced_table_names:
+        return False
+    return references_denied_table(metric.referenced_table_names, _denied_tables(team, user, user_access_control))
+
+
+def _name_conflict(
+    existing: Metric, *, visible: bool, team: Team, user: Optional[User], request: "Request | None"
+) -> MetricNameTaken:
+    """Count the conflict and build its 409.
+
+    A hidden metric's 409 carries no metric data, so it confirms only that the name is taken.
+    """
+    capture_metric_event(
+        METRIC_NAME_CONFLICT_EVENT, existing, team=team, user=user, request=request, extra={"existing_visible": visible}
+    )
+    if not visible:
+        return MetricNameTaken(detail="A metric with this name already exists. Use a different name.")
     return MetricNameTaken(
         detail=f"A metric named '{existing.name}' already exists. Use a different name, or overwrite the existing metric.",
         extra={"existing_metric": {"name": existing.name, "status": existing.status}},
@@ -240,13 +265,17 @@ def upsert_metric(
     ai_model: str | _Unset = _UNSET,
     confidence: float | None | _Unset = _UNSET,
     reasoning: str | _Unset = _UNSET,
-    overwrite: bool = True,
+    overwrite: bool = False,
+    user_access_control: UserAccessControl | None = None,
     request: "Request | None" = None,
 ) -> Metric:
-    """Create a metric, or refine the live one already holding ``name`` for this team.
+    """Create a metric, or with ``overwrite`` refine the live one already holding ``name`` for this team.
 
-    With ``overwrite=False``, a live metric holding ``name`` raises ``MetricNameTaken`` and stays
-    unchanged, so the caller can ask a person before replacing it.
+    Without ``overwrite``, a live metric holding ``name`` raises ``MetricNameTaken`` and stays
+    unchanged, so the caller can ask a person before replacing it. With a ``user_access_control``,
+    a name held by a metric hidden from ``user`` (see ``metrics_visible_to_user``) raises the same
+    error for every value of ``overwrite`` and discloses nothing about that metric. Both checks run
+    under the row lock, so a concurrent write cannot slip a hidden metric past them.
 
     Refine is a partial merge: only the fields the caller supplies are written, so a refine that
     omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
@@ -277,6 +306,16 @@ def upsert_metric(
     fields.update(_resolve_definition_fields(definition, source_insight_short_id, team, user))
     written_fields = set(fields)
 
+    def refuse_taken_name(existing: Metric) -> None:
+        if (
+            user is not None
+            and user_access_control is not None
+            and _hidden_from_caller(existing, team, user, user_access_control)
+        ):
+            raise _name_conflict(existing, visible=False, team=team, user=user, request=request)
+        if not overwrite:
+            raise _name_conflict(existing, visible=True, team=team, user=user, request=request)
+
     # team_scope so the ModelActivityMixin's before-update lookup (via the fail-closed manager)
     # works regardless of caller context (viewset, Celery, MCP, tests).
     with team_scope(team.id):
@@ -285,8 +324,7 @@ def upsert_metric(
                 existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 created = existing is None
                 if existing is not None:
-                    if not overwrite:
-                        raise _name_taken(existing, team=team, user=user, request=request)
+                    refuse_taken_name(existing)
                     _refine(existing, fields)
                     metric = existing
                 else:
@@ -303,8 +341,7 @@ def upsert_metric(
                 existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 if existing is None:
                     raise
-                if not overwrite:
-                    raise _name_taken(existing, team=team, user=user, request=request)
+                refuse_taken_name(existing)
                 _refine(existing, fields)
                 metric, created = existing, False
 
@@ -576,10 +613,6 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
-def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
-    return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
-
-
 def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
     """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
     metrics = metrics_for_team(team)
@@ -592,22 +625,6 @@ def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAcc
         if not references_denied_table(metric.referenced_table_names, denied_tables)
     ]
     return metrics.filter(id__in=visible_metric_ids)
-
-
-def reject_name_held_by_hidden_metric(
-    team: Team, user: User, user_access_control: UserAccessControl, name: str
-) -> None:
-    """Refuse a create whose name a live metric hidden from the caller holds.
-
-    Create does not read through ``metrics_visible_to_user``, so without this check an overwrite could
-    refine a metric whose definition reads a table the caller is denied, and the response would return
-    that definition. The conflict carries no metric data, so it confirms only that the name is taken.
-    """
-    existing = metrics_for_team(team).filter(name=name).only("referenced_table_names").first()
-    if existing is None:
-        return
-    if references_denied_table(existing.referenced_table_names, _denied_tables(team, user, user_access_control)):
-        raise MetricNameTaken(detail="A metric with this name already exists. Use a different name.")
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
