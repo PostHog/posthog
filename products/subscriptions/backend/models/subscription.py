@@ -13,9 +13,24 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
+from dateutil.rrule import (
+    DAILY,
+    FR,
+    MO,
+    MONTHLY,
+    SA,
+    SU,
+    TH,
+    TU,
+    WE,
+    WEEKLY,
+    YEARLY,
+    rrule,
+    weekday as rrule_weekday,
+)
 
 from posthog.constants import AvailableFeature
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
@@ -27,6 +42,7 @@ from posthog.utils import absolute_uri
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
+    from posthog.models.user import User
 
     # Resolved lazily via __getattr__ below; declared here so consumers type-check as int.
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int
@@ -231,7 +247,7 @@ class Subscription(ModelActivityMixin, models.Model):
         ]
         db_table = "posthog_subscription"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Only cache rrule if all required fields are loaded (not deferred).
         # The rrule property accesses multiple fields (frequency, count, interval, etc).
@@ -497,7 +513,7 @@ class Subscription(ModelActivityMixin, models.Model):
         return host or "webhook"
 
     @property
-    def summary(self):
+    def summary(self) -> str:
         try:
             human_frequency = {
                 "daily": "day",
@@ -568,9 +584,9 @@ class Subscription(ModelActivityMixin, models.Model):
 
 
 @receiver(post_save, sender=Subscription, dispatch_uid="hook-subscription-saved")
-def subscription_saved(sender, instance, created, raw, using, **kwargs):
-    from posthog.event_usage import report_user_action
-
+def subscription_saved(
+    sender: type["Subscription"], instance: "Subscription", created: bool, raw: bool, using: str, **kwargs: Any
+) -> None:
     # Partial-field saves are internal bookkeeping (e.g. next_delivery_date rescheduling), not a
     # user create/update — a real API save writes the whole row. Skip them so re-enabling or the
     # scheduler doesn't emit a second "<kind> subscription updated" event.
@@ -599,8 +615,15 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
 
 @mutable_receiver(model_activity_signal, sender=Subscription)
 def log_subscription_activity(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+    sender: type["Subscription"],
+    scope: str,
+    before_update: Optional["Subscription"],
+    after_update: Optional["Subscription"],
+    activity: str,
+    user: Optional["User"],
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
     instance = after_update or before_update
     if instance is None:
         return
@@ -643,8 +666,8 @@ def log_subscription_activity(
         capture_exception(exc)
 
 
-def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
-    return {DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME.get(x) for x in weekday}
+def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay) -> set[rrule_weekday]:
+    return {DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME[x] for x in weekday}
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
