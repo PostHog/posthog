@@ -36,6 +36,7 @@ from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
     disable_platform_alert_configurations,
+    follow_logs_alert,
     platform_upsert_of,
 )
 from products.logs.backend.platform_cutover import cut_over_team, hand_over
@@ -2348,13 +2349,19 @@ class TestLogsAlertAPI(APIBaseTest):
             ("service_name",),
         )
 
-    def test_a_backfill_snapshot_taken_before_a_disable_does_not_turn_the_copy_back_on(self) -> None:
+    @parameterized.expand(
+        [
+            ("backfill", lambda stale: upsert_configuration(platform_upsert_of(stale))),
+            ("delayed_follow", follow_logs_alert),
+        ]
+    )
+    def test_a_snapshot_read_before_a_disable_does_not_turn_the_copy_back_on(self, _name: str, write: Any) -> None:
         created = self._owned_by_the_platform()
-        snapshot = platform_upsert_of(LogsAlertConfiguration.objects.get(pk=created["id"]))
+        stale = LogsAlertConfiguration.objects.get(pk=created["id"])
 
         response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        upsert_configuration(snapshot)
+        write(stale)
 
         with team_scope(self.team.id):
             view = get_configuration(
