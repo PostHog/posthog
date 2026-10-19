@@ -190,7 +190,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
             raise PydanticOutputParserException(
                 llm_output=cleaned_query, validation_message=hogql_validation_message(err, cleaned_query)
-            )
+            ) from err
 
         return AssistantHogQLQuery(query=cleaned_query)
 

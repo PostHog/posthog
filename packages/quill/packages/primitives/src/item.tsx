@@ -1,10 +1,11 @@
+import './item.css'
+
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { CheckboxIndicator } from './checkbox'
-import './item.css'
 import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
 import { Separator } from './separator'
@@ -42,41 +43,37 @@ const ItemSeparator = React.forwardRef<React.ComponentRef<typeof Separator>, Rea
     }
 )
 
-const itemVariants = cva(
-    'quill-item item group/item flex w-full flex-wrap items-center',
-    {
-        variants: {
-            variant: {
-                default: 'quill-item--variant-default',
-                outline: 'quill-item--variant-outline',
-                pressable: 'quill-item--variant-pressable',
-                muted: 'quill-item--variant-muted',
-                menuItem: 'quill-item--variant-menu',
-            },
-            size: {
-                default: 'quill-item--size-default',
-                sm: 'quill-item--size-sm',
-                xs: 'quill-item--size-xs',
-            },
-            tone: {
-                default: '',
-                info: 'quill-item--tone-info',
-                success: 'quill-item--tone-success',
-                warning: 'quill-item--tone-warning',
-                completed: 'quill-item--tone-completed',
-                destructive: 'quill-item--tone-destructive',
-            },
+const itemVariants = cva('quill-item item group/item flex w-full flex-wrap items-center', {
+    variants: {
+        variant: {
+            default: 'quill-item--variant-default',
+            outline: 'quill-item--variant-outline',
+            muted: 'quill-item--variant-muted',
+            menuItem: 'quill-item--variant-menu',
         },
-        defaultVariants: {
-            variant: 'default',
-            size: 'default',
-            tone: 'default',
+        size: {
+            default: 'quill-item--size-default',
+            sm: 'quill-item--size-sm',
+            xs: 'quill-item--size-xs',
         },
-    }
-)
+        tone: {
+            default: '',
+            info: 'quill-item--tone-info',
+            success: 'quill-item--tone-success',
+            warning: 'quill-item--tone-warning',
+            completed: 'quill-item--tone-completed',
+            destructive: 'quill-item--tone-destructive',
+        },
+    },
+    defaultVariants: {
+        variant: 'default',
+        size: 'default',
+        tone: 'default',
+    },
+})
 
 const Item = React.forwardRef<HTMLDivElement, useRender.ComponentProps<'div'> & VariantProps<typeof itemVariants>>(
-    function Item({ className, variant = 'default', size = 'default', tone = 'default', role, render, ...props }, ref) {
+    function Item({ className, variant = 'default', size = 'default', tone = 'default', render, ...props }, ref) {
         return useRender({
             ref,
             defaultTagName: 'div',
@@ -85,7 +82,6 @@ const Item = React.forwardRef<HTMLDivElement, useRender.ComponentProps<'div'> & 
                     'data-quill': '',
                     'data-tone': tone && tone !== 'default' ? tone : undefined,
                     className: cn(itemVariants({ variant, size, tone, className })),
-                    role: variant === 'pressable' ? 'link' : undefined,
                 } as Omit<React.ComponentProps<'div'>, 'ref'>,
                 props
             ),
