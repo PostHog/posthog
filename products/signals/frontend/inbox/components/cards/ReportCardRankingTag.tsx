@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useCallback } from 'react'
 
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
@@ -47,12 +48,15 @@ function RankingHoverCard({ ranking, active }: { ranking: Ranking; active: Inbox
         <div className="flex max-w-80 min-w-72 flex-col gap-2 text-xs">
             <div>
                 <div className="font-semibold">
-                    {active.name}: {lift !== null ? RANKING_STRENGTH_LABELS[rankingStrength(lift)] : 'no comparison'}
+                    <span>{active.name}</span>:{' '}
+                    <span>{lift !== null ? RANKING_STRENGTH_LABELS[rankingStrength(lift)] : 'no comparison'}</span>
                 </div>
                 <div className="opacity-70">{active.description}</div>
             </div>
             {lift !== null && (
-                <div>The model rates this report {formatRankingLift(lift)} as likely as the average report.</div>
+                <div>
+                    The model rates this report <span>{formatRankingLift(lift)}</span> as likely as the average report.
+                </div>
             )}
             <div className="flex flex-col gap-1">
                 {[active, ...others].map((score) => {
@@ -108,13 +112,17 @@ export function ReportCardRankingTag({
     const probability = ranking ? rankingProbability(ranking, score.head) : null
     const state = !ranking || (lift === null && probability === null) ? 'unscored' : ranking.stale ? 'stale' : 'scored'
     const strength = lift !== null ? rankingStrength(lift) : null
-    const onOpen = (): void =>
-        captureInboxRankingDetailsViewed({
-            report,
-            head: score.head,
-            state,
-            strength: state === 'scored' ? strength : null,
-        })
+    // Tooltip re-fires onOpen when the callback identity changes, so a new one each render would double count views.
+    const onOpen = useCallback(
+        (): void =>
+            captureInboxRankingDetailsViewed({
+                report,
+                head: score.head,
+                state,
+                strength: state === 'scored' ? strength : null,
+            }),
+        [report, score.head, state, strength]
+    )
 
     if (!ranking || state === 'unscored') {
         return (

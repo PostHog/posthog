@@ -2547,7 +2547,7 @@ class SignalReportViewSet(
                     "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
                     "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
-                    "last in either direction. They are staff only: other users get a 400."
+                    "last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),
             OpenApiParameter(
