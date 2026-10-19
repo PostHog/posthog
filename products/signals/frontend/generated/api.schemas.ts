@@ -661,7 +661,7 @@ export const SignalReportBillingExemptReasonEnumApi = {
 } as const
 
 /**
- * Outcome head name to its calibrated probability. Empty when the served model skipped the report.
+ * Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users.
  */
 export type ReportRankingApiScores = { [key: string]: number }
 
@@ -671,17 +671,17 @@ export type ReportRankingApiScores = { [key: string]: number }
 export type ReportRankingApiLifts = { [key: string]: number }
 
 export interface ReportRankingApi {
-    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
+    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users. */
     served_key: string
-    /** Feature family of the served model. */
+    /** Feature family of the served model. Empty for non-staff users. */
     model_name: string
-    /** Training partition of the served model, as `YYYY-MM-DD`. */
+    /** Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users. */
     model_version: string
-    /** Version of the serving manifest that chose the model. */
+    /** Version of the serving manifest that chose the model. Empty for non-staff users. */
     manifest_version: string
     /** When the scoring sweep scored the report. */
     scored_at: string
-    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
+    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users. */
     scores: ReportRankingApiScores
     /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
     lifts: ReportRankingApiLifts
@@ -812,7 +812,7 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
     /**
      * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -1056,7 +1056,7 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
 }
 
