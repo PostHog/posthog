@@ -209,6 +209,26 @@ mod tests {
     }
 
     #[test]
+    fn a_take_moves_only_its_own_partitions_charge() {
+        let uncommitted = uncommitted();
+        let p1 = TopicPartition::new("events", 1);
+        let charge_p1 = |offset: i64| {
+            uncommitted
+                .charge(&p1, 0, &[(Offset(offset), EACH)])
+                .expect("the ledger accepts the charge")
+        };
+        charge(&uncommitted, 0, 10);
+        charge_p1(20);
+        settled(&uncommitted, &[10]);
+
+        assert_eq!(charge_p1(21), held(2), "partition 0's take stays its own");
+
+        uncommitted.take_due(Instant::now()).expect("due");
+        assert_eq!(charge(&uncommitted, 0, 11), held(1));
+        assert_eq!(charge_p1(22), held(3));
+    }
+
+    #[test]
     fn a_forgotten_partition_drops_its_window_and_its_pending_take() {
         let uncommitted = uncommitted();
         charge(&uncommitted, 0, 10);
