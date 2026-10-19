@@ -16,7 +16,7 @@ use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
 use deltalite_core::limits::ProcessLimits;
 use deltalite_core::schema::import_column;
-use deltalite_core::table::{table_exists, MultipartConfig};
+use deltalite_core::table::{open_table, table_exists, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -254,11 +254,25 @@ impl DeltaLiteTable {
         Ok(Self { handle })
     }
 
-    /// `deltalake.DeltaTable.is_deltatable`'s check. Storage errors raise: a caller that reads
-    /// "no table" can create a new table over an existing one.
+    /// Whether `uri` points at a loadable Delta table.
     #[staticmethod]
     #[pyo3(signature = (uri, storage_options = None))]
     fn is_deltatable(
+        py: Python<'_>,
+        uri: String,
+        storage_options: Option<HashMap<String, String>>,
+    ) -> PyResult<bool> {
+        let so = storage_options.unwrap_or_default();
+        Ok(py
+            .detach(|| runtime().block_on(open_table(&uri, so)))
+            .is_ok())
+    }
+
+    /// `deltalake.DeltaTable.is_deltatable`'s check. Unlike `is_deltatable`, storage errors
+    /// raise: a caller that reads "no table" can create a new table over an existing one.
+    #[staticmethod]
+    #[pyo3(signature = (uri, storage_options = None))]
+    fn table_exists(
         py: Python<'_>,
         uri: String,
         storage_options: Option<HashMap<String, String>>,

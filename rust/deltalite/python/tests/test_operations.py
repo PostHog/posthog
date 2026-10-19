@@ -1022,7 +1022,7 @@ def test_restore_matches_delta_rs_restore(tmp_path):
         pytest.param({"00000000000000000000.json": "not a commit"}, id="damaged_commit"),
     ],
 )
-def test_is_deltatable_agrees_on_a_log_without_a_loadable_table(tmp_path, log_files):
+def test_table_exists_agrees_with_delta_rs_on_a_log_without_a_loadable_table(tmp_path, log_files):
     import deltalite
 
     log = tmp_path / "t" / "_delta_log"
@@ -1031,10 +1031,10 @@ def test_is_deltatable_agrees_on_a_log_without_a_loadable_table(tmp_path, log_fi
         (log / name).write_text(body)
     uri = str(tmp_path / "t")
 
-    assert deltalite.DeltaLiteTable.is_deltatable(uri) is deltalake.DeltaTable.is_deltatable(uri)
+    assert deltalite.DeltaLiteTable.table_exists(uri) is deltalake.DeltaTable.is_deltatable(uri)
 
 
-def test_is_deltatable_raises_on_a_storage_error():
+def test_table_exists_raises_on_a_storage_error():
     import deltalite
 
     unreachable = {
@@ -1047,4 +1047,4 @@ def test_is_deltatable_raises_on_a_storage_error():
     }
 
     with pytest.raises(deltalite.DeltaLiteError):
-        deltalite.DeltaLiteTable.is_deltatable("s3://bucket/table", storage_options=unreachable)
+        deltalite.DeltaLiteTable.table_exists("s3://bucket/table", storage_options=unreachable)

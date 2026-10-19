@@ -99,7 +99,8 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 | Method | Description |
 |---|---|
 | `DeltaLiteTable.open(uri, storage_options=None)` | Open an existing Delta table. `storage_options` is the usual object-store dict (S3/GCS/Azure/local). |
-| `DeltaLiteTable.is_deltatable(uri, storage_options=None)` | `True` if the log at `uri` holds a commit or a checkpoint, the same check as `DeltaTable.is_deltatable`. Storage errors raise; they never read as `False`. |
+| `DeltaLiteTable.is_deltatable(uri, storage_options=None)` | `True` if a Delta table exists at `uri`. |
+| `DeltaLiteTable.table_exists(uri, storage_options=None)` | `True` if the log at `uri` holds a commit or a checkpoint, the same check as `DeltaTable.is_deltatable`. Storage errors raise; they never read as `False`. |
 | `.upsert(data, primary_keys, partition_key=None, **opts)` | Insert-or-replace `data` by key. Returns `UpsertStats`. See knobs below. |
 | `.compact(**opts)` | Small-file compaction, the replacement for `DeltaTable.optimize.compact`. Returns a stats dict. See "Compaction" below. |
 | `.restore(version, *, commit_metadata=None)` | delta-rs's restore to `version`, in one commit, with the GIL released. Returns `numRemovedFile`, `numRestoredFile` and the committed `version`. The handle moves onto the restored table. |
