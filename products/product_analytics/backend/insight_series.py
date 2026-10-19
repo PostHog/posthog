@@ -1,6 +1,5 @@
 import json
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel
@@ -86,25 +85,8 @@ def _decimal_places(places: Any) -> int | None:
     return None if places is None else min(max(int(places), 0), 9)
 
 
-def _as_date(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        try:
-            return date.fromisoformat(value[:10])
-        except ValueError:
-            return None
-    return None
-
-
-def _as_number(value: Any) -> float | None:
-    if value is None:
-        return 0.0
-    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
-        return None
-    return float(value)
+def _axis_settings(axis: dict[str, Any], key: str) -> dict[str, Any]:
+    return (axis.get("settings") or {}).get(key) or {}
 
 
 def _sql_period(days: list[date], week_start_day: int | None) -> str | None:
@@ -138,45 +120,38 @@ def _sql_series(
     if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
         return None
     response = _run(team, user, query["source"], filters, variables)
+    if response.get("hasMore"):
+        return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
     breakdown_column = settings.get("seriesBreakdownColumn")
-    wanted = [x_column, *(axis["column"] for axis in y_axes), *([breakdown_column] if breakdown_column else [])]
-    if response.get("hasMore") or any(column not in position for column in wanted):
-        return None
-    labels: dict[tuple[int, str | None], str] = {}
-    copies: dict[str, int] = {}
-    taken: set[str] = set()
     series: dict[tuple[int, str | None], dict[date, float]] = {}
-    for row in response.get("results") or []:
-        day = _as_date(row[position[x_column]])
-        if day is None:
-            return None
-        breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
-        for index, axis in enumerate(y_axes):
-            value = _as_number(row[position[axis["column"]]])
-            if value is None:
-                return None
-            key = (index, breakdown)
-            if key not in labels:
-                base = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
-                if breakdown is not None:
-                    base = f"{base} · {breakdown}" if len(y_axes) > 1 else breakdown
-                label, copy = base, copies.get(base, 1)
-                while label in taken:
-                    copy += 1
-                    label = f"{base} ({copy})"
-                copies[base] = copy
-                taken.add(label)
-                labels[key] = label
-            points = series.setdefault(key, {})
-            if day in points:
-                return None
-            points[day] = value
+    try:
+        for row in response.get("results") or []:
+            day = date.fromisoformat(str(row[position[x_column]])[:10])
+            breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
+            for index, axis in enumerate(y_axes):
+                points = series.setdefault((index, breakdown), {})
+                if day in points:
+                    return None
+                points[day] = float(row[position[axis["column"]]] or 0)
+    except (KeyError, TypeError, ValueError):
+        return None
     period = _sql_period(sorted({day for points in series.values() for day in points}), team.week_start_day)
     if period is None:
         return None
-    named = {labels[key]: sorted(points.items()) for key, points in series.items()}
-    formatting = ((y_axes[0].get("settings") or {}).get("formatting") or {}) if len(y_axes) == 1 else {}
+    named: dict[str, list[tuple[date, float]]] = {}
+    copies: dict[str, int] = {}
+    for (index, breakdown), points in series.items():
+        base = str(_axis_settings(y_axes[index], "display").get("label") or y_axes[index]["column"])
+        if breakdown is not None:
+            base = f"{base} · {breakdown}" if len(y_axes) > 1 else breakdown
+        label, copy = base, copies.get(base, 1)
+        while label in named:
+            copy += 1
+            label = f"{base} ({copy})"
+        copies[base] = copy
+        named[label] = sorted(points.items())
+    formatting = _axis_settings(y_axes[0], "formatting") if len(y_axes) == 1 else {}
     return InsightSeries(
         short_id=short_id,
         name=name,
