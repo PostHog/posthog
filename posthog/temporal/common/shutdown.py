@@ -109,16 +109,19 @@ class ShutdownMonitor:
                 return
 
             self.logger.info("Shutdown detected.")
-            # Run the callbacks before the event is set: a caller that sees the event can raise and
-            # leave the monitor at once, and a callback that ran after that would never run at all.
-            for context, callback in self._on_shutdown_callbacks:
-                try:
-                    context.run(callback)
-                except Exception:
-                    self.logger.exception("A shutdown callback failed.")
+            self._run_shutdown_callbacks()
             self._is_shutdown_event.set()
 
         self._monitor_shutdown_task = asyncio.create_task(monitor())
+
+    def _run_shutdown_callbacks(self) -> None:
+        # Run the callbacks before the event is set: a caller that sees the event can raise and
+        # leave the monitor at once, and a callback that ran after that would never run at all.
+        for context, callback in self._on_shutdown_callbacks:
+            try:
+                context.run(callback)
+            except Exception:
+                self.logger.exception("A shutdown callback failed.")
 
     def run_on_shutdown(self, callback: Callable[[], None]) -> None:
         """Call `callback` once when the worker starts to shut down.
