@@ -1,8 +1,10 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
+from posthog.dataclasses import frozen
 
 
 class Element(models.Model):
@@ -20,14 +22,130 @@ class Element(models.Model):
     group = models.ForeignKey("ElementGroup", on_delete=models.CASCADE, null=True, blank=True)
 
 
-parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE)
-
-# Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
-
 # Below splits the tag/classes from attributes
 # Needs a regex because classes can have : too
 split_class_attributes = re.compile(r"(.*?)($|:([a-zA-Z\-\_0-9]*=.*))")
+
+_CHAIN_SEPARATOR = ";"
+_QUOTE = '"'
+_ESCAPE = "\\"
+
+
+@frozen
+class ElementAttribute:
+    key: str
+    value: str
+
+
+def _find_closing_quote(chain: str, opening: int) -> int:
+    """Returns the index of the quote that closes the value opened at `opening`, or -1.
+
+    A backslash escapes the character after it, so an escaped quote never closes the value.
+    """
+    position = opening + 1
+    length = len(chain)
+    while position < length:
+        char = chain[position]
+        if char == _ESCAPE:
+            position += 2
+        elif char == _QUOTE:
+            return position
+        else:
+            position += 1
+    return -1
+
+
+def split_elements_chain(chain: str) -> list[str]:
+    """Splits an elements chain into one string per element.
+
+    Elements are separated by whitespace or semicolons outside quoted attribute values.
+    Inside a quoted value both are literal and a backslash escapes the next character.
+    A quote with no closing quote ends the current element and is dropped. The chain is
+    client-supplied, so this is a single left-to-right pass: every character is visited
+    once, and no input shape can make it backtrack.
+    """
+    elements: list[str] = []
+    token_start = -1
+    position = 0
+    length = len(chain)
+    # A failed search for a closing quote skipped every later quote as escaped, so the
+    # same search from any later quote fails too and must not scan the chain again.
+    closing_quotes_remain = True
+
+    def end_token(end: int) -> None:
+        nonlocal token_start
+        if token_start != -1 and end > token_start:
+            elements.append(chain[token_start:end])
+        token_start = -1
+
+    while position < length:
+        char = chain[position]
+        if char == _QUOTE:
+            closing = _find_closing_quote(chain, position) if closing_quotes_remain else -1
+            if closing == -1:
+                closing_quotes_remain = False
+                end_token(position)
+                position += 1
+                continue
+            if token_start == -1:
+                token_start = position
+            position = closing + 1
+        elif char == _CHAIN_SEPARATOR or char.isspace():
+            end_token(position)
+            position += 1
+        else:
+            if token_start == -1:
+                token_start = position
+            position += 1
+    end_token(length)
+    return elements
+
+
+def _find_attribute_value_end(attrs: str, value_start: int) -> int:
+    """Returns the index of the quote that closes the value starting at `value_start`, or -1.
+
+    The closing quote must follow a character that is not a backslash. The value cannot
+    contain a newline, except as that final character before the quote.
+    """
+    position = value_start
+    last = len(attrs) - 1
+    while position < last:
+        char = attrs[position]
+        if char != _ESCAPE and attrs[position + 1] == _QUOTE:
+            return position + 1
+        if char == "\n":
+            return -1
+        position += 1
+    return -1
+
+
+def iter_element_attributes(attrs: str) -> Iterator[ElementAttribute]:
+    """Yields the attributes found in the attributes part of one element string.
+
+    Each attribute is key="value". The key runs from the end of the previous attribute
+    to the next =" on the same line. If no closing quote follows on that line, nothing
+    before the end of the line can start an attribute, so scanning resumes after it.
+    This keeps the scan to a single pass over client-supplied input.
+    """
+    start = 0
+    while True:
+        separator = attrs.find('="', start)
+        if separator == -1:
+            return
+        newline = attrs.find("\n", start, separator)
+        if newline != -1:
+            start = newline + 1
+            continue
+        value_start = separator + 2
+        closing = _find_attribute_value_end(attrs, value_start)
+        if closing == -1:
+            newline = attrs.find("\n", value_start)
+            if newline == -1:
+                return
+            start = newline + 1
+            continue
+        yield ElementAttribute(key=attrs[start:separator], value=attrs[value_start:closing])
+        start = closing + 1
 
 
 def _escape(input: str) -> str:
@@ -144,15 +262,13 @@ def _parse_element(el_string: str, order: int, attributes_filter: Callable[[str]
             element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
 
     if attrs_part:
-        for attribute_match in parse_attributes_regex.finditer(attrs_part):
-            key = attribute_match.group("key")
-            value = attribute_match.group("value")
-            promoted = _PROMOTED_ATTRIBUTES.get(key)
+        for attribute in iter_element_attributes(attrs_part):
+            promoted = _PROMOTED_ATTRIBUTES.get(attribute.key)
             if promoted:
                 field, convert = promoted
-                element[field] = convert(value)
-            elif key and (attributes_filter is None or attributes_filter(key)):
-                element["attributes"][key] = value
+                element[field] = convert(attribute.value)
+            elif attribute.key and (attributes_filter is None or attributes_filter(attribute.key)):
+                element["attributes"][attribute.key] = attribute.value
 
     return element
 
@@ -165,8 +281,7 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
     map to matching keys (see build_attributes_filter).
     """
     return [
-        _parse_element(el_string, idx, attributes_filter)
-        for idx, el_string in enumerate(split_chain_regex.findall(chain))
+        _parse_element(el_string, idx, attributes_filter) for idx, el_string in enumerate(split_elements_chain(chain))
     ]
 
 

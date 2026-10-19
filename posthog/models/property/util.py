@@ -150,7 +150,7 @@ def _chain_attribute_order(key: str) -> str:
 # A semicolon separates elements only outside a quoted attribute value — an inline
 # style="display: flex; gap: 4px" carries its own. Quotes inside a value are escaped
 # as \" (see _escape in posthog/models/element/element.py), so an escaped quote must
-# not close the span. split_chain_regex draws the boundary the same way. A backslash
+# not close the span. split_elements_chain draws the boundary the same way. A backslash
 # is consumed only together with the character after it, so a long run of backslashes
 # has one way to match and cannot cause catastrophic backtracking.
 _QUOTED_VALUE = r'"(?:\\.|[^"\\])*"'

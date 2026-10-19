@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.api.element import ElementSerializer
 from posthog.models.element import Element, chain_to_elements, elements_to_string
-from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
+from posthog.models.element.element import (
+    ElementAttribute,
+    build_attributes_filter,
+    chain_to_element_dicts,
+    iter_element_attributes,
+)
 
 
 class TestElement(ClickhouseTestMixin, SimpleTestCase):
@@ -126,6 +131,34 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
         element_dicts = chain_to_element_dicts('a:="x"nth-child="0"')
         assert element_dicts[0]["attributes"] == {}
         assert element_dicts[0]["nth_child"] == 0
+
+    @parameterized.expand(
+        [
+            ("long backslash run", 'a:text="' + "\\" * 5000, ["a", "\\" * 5000]),
+            ("quote at the end of the chain", 'button:nth-child="1"text="unclosed', ["button", "unclosed"]),
+            ("long run of escaped quotes", '"\\' * 100_000, ["\\"] * 100_000),
+        ]
+    )
+    def test_chain_to_element_dicts_ends_element_at_unterminated_quote(
+        self, _name: str, chain: str, expected_tag_names: list[str]
+    ) -> None:
+        element_dicts = chain_to_element_dicts(chain)
+        assert [element["tag_name"] for element in element_dicts] == expected_tag_names
+        assert all(element["text"] is None for element in element_dicts)
+
+    @parameterized.expand(
+        [
+            ("value never closes", 'href="/a"text="' + '\\"' * 2000, [ElementAttribute(key="href", value="/a")]),
+            ("value cannot span lines", 'a="1\nb="2"', [ElementAttribute(key="b", value="2")]),
+            (
+                "escaped quote inside value",
+                'text="say \\"hi\\""',
+                [ElementAttribute(key="text", value='say \\"hi\\"')],
+            ),
+        ]
+    )
+    def test_iter_element_attributes(self, _name: str, attrs: str, expected: list[ElementAttribute]) -> None:
+        assert list(iter_element_attributes(attrs)) == expected
 
     def test_build_attributes_filter_caps_entry_count(self) -> None:
         many_attrs = [f"data-attr-{i}" for i in range(100)]

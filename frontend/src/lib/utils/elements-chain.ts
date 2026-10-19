@@ -5,7 +5,7 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
     const elements: ElementType[] = []
 
     // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-    const splitChainRegex = /(?:[^\s;"]|"(?:\\.|[^"])*")+/g
+    const splitChainRegex = /(?:[^\s;"]|"(?:[^"\\]|\\.)*")+/g
 
     // Below splits the tag/classes from attributes
     // Needs a regex because classes can have : too
