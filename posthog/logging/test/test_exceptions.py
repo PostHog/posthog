@@ -48,7 +48,7 @@ def test_json_formatter_renders_otel_exception_attributes(from_structlog: bool) 
 
     assert "exc_info" not in rendered
     assert "exception" not in rendered
-    assert rendered["exception.type"] == f"{__name__}.PaymentDeclined"
+    assert rendered["exception.type"] == "PaymentDeclined"
     assert rendered["exception.message"] == "card declined"
     stacktrace = rendered["exception.stacktrace"]
     assert "KeyError: 'card'" in stacktrace
@@ -67,6 +67,6 @@ def test_json_formatter_survives_exception_with_raising_str() -> None:
     except UnprintableError:
         rendered = json.loads(_json_formatter().format(_record("payment failed", sys.exc_info())))
 
-    assert rendered["exception.type"] == f"{__name__}.UnprintableError"
+    assert rendered["exception.type"] == "UnprintableError"
     assert rendered["exception.message"] == "<exception str() failed>"
     assert "Traceback (most recent call last):" in rendered["exception.stacktrace"]

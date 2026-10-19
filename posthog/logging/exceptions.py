@@ -15,13 +15,6 @@ def _resolve_exc_info(exc_info: object) -> BaseException | None:
     return None
 
 
-def _exception_type_name(exc: BaseException) -> str:
-    exc_type = type(exc)
-    if exc_type.__module__ == "builtins":
-        return exc_type.__qualname__
-    return f"{exc_type.__module__}.{exc_type.__qualname__}"
-
-
 def _exception_message(exc: BaseException) -> str:
     try:
         return str(exc)
@@ -40,7 +33,9 @@ def add_otel_exception_attributes(
     if exc is None:
         return event_dict
 
-    event_dict["exception.type"] = _exception_type_name(exc)
+    # The bare class name matches what the OTel Python SDK `LoggingHandler` writes, although the spec asks
+    # for a qualified name. Services that log through the SDK then group with these logs.
+    event_dict["exception.type"] = type(exc).__name__
     event_dict["exception.message"] = _exception_message(exc)
     event_dict["exception.stacktrace"] = "".join(traceback.format_exception(exc))
     return event_dict
