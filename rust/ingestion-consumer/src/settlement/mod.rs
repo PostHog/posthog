@@ -83,7 +83,7 @@ pub(crate) struct HandedOut {
 
 pub(crate) trait Admission: Send + Sync {
     fn charged(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Pause>;
-    fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume>;
+    fn handed_out(&self, handed_out: &HashMap<TopicPartition, HandedOut>) -> Vec<TopicPartition>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 }
@@ -91,35 +91,9 @@ pub(crate) trait Admission: Send + Sync {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Pause;
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Resume;
-
 pub(crate) struct Commit {
     pub(crate) offsets: HashMap<TopicPartition, Offset>,
     pub(crate) resume: Vec<TopicPartition>,
-}
-
-impl Commit {
-    fn new(handed_out: HashMap<TopicPartition, HandedOut>, admission: &impl Admission) -> Self {
-        let mut resume = Vec::new();
-        for (topic_partition, handed_out) in &handed_out {
-            if let Some(Resume) = admission.handed_out(topic_partition, handed_out.remaining.charge)
-            {
-                resume.push(topic_partition.clone());
-            }
-        }
-        Self {
-            offsets: offsets(handed_out),
-            resume,
-        }
-    }
-
-    fn without_resumes(handed_out: HashMap<TopicPartition, HandedOut>) -> Self {
-        Self {
-            offsets: offsets(handed_out),
-            resume: Vec::new(),
-        }
-    }
 }
 
 fn offsets(handed_out: HashMap<TopicPartition, HandedOut>) -> HashMap<TopicPartition, Offset> {

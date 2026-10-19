@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use super::{
-    Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted,
+    offsets, Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement,
+    Uncommitted,
 };
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
@@ -71,12 +72,18 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
         let handed_out = self.accounting.take_due(now)?;
-        Some(Commit::new(handed_out, &self.admission))
+        Some(Commit {
+            resume: self.admission.handed_out(&handed_out),
+            offsets: offsets(handed_out),
+        })
     }
 
     fn take_all(&self) -> Option<Commit> {
         let handed_out = self.accounting.take_all()?;
-        Some(Commit::new(handed_out, &self.admission))
+        Some(Commit {
+            resume: self.admission.handed_out(&handed_out),
+            offsets: offsets(handed_out),
+        })
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -92,7 +99,7 @@ mod tests {
     use common_kafka_consumer::{Held, LedgerError};
 
     use super::super::fakes::{FakeAccounting, FakeAdmission, Settled};
-    use super::super::{HandedOut, Resume};
+    use super::super::HandedOut;
     use super::*;
 
     fn p(partition: i32) -> TopicPartition {
@@ -150,13 +157,11 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_out_asks_the_admission_for_each_partition_with_what_it_still_holds() {
+    fn a_hand_out_commits_its_offsets_and_resumes_what_the_admission_decides() {
         let settlement = settlement();
-        settlement.accounting.take_hands_out(HashMap::from([
-            (p(0), handed_out(11, 3)),
-            (p(1), handed_out(21, 0)),
-        ]));
-        settlement.admission.handed_out_returns(&p(0), Resume);
+        let hand_out = HashMap::from([(p(0), handed_out(11, 3)), (p(1), handed_out(21, 0))]);
+        settlement.accounting.take_hands_out(hand_out.clone());
+        settlement.admission.handed_out_returns(vec![p(0)]);
 
         let commit = settlement.take_due(Instant::now()).expect("handed out");
 
@@ -165,9 +170,7 @@ mod tests {
             HashMap::from([(p(0), Offset(11)), (p(1), Offset(21))])
         );
         assert_eq!(commit.resume, vec![p(0)]);
-        let mut asked = settlement.admission.handed_out();
-        asked.sort_by_key(|(topic_partition, _)| topic_partition.partition);
-        assert_eq!(asked, vec![(p(0), events(3)), (p(1), events(0))]);
+        assert_eq!(settlement.admission.handed_out(), vec![hand_out]);
     }
 
     #[test]
@@ -176,7 +179,7 @@ mod tests {
         settlement
             .accounting
             .take_hands_out(HashMap::from([(p(0), handed_out(11, 0))]));
-        settlement.admission.handed_out_returns(&p(0), Resume);
+        settlement.admission.handed_out_returns(vec![p(0)]);
 
         assert_eq!(
             settlement.take_all().expect("handed out").resume,

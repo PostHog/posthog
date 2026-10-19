@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use common_kafka_consumer::{Charge, TopicPartition};
 use metrics::{counter, gauge};
 use tracing::info;
 
-use super::{Admission, Pause, Resume};
+use super::{Admission, HandedOut, Pause};
 use crate::partition_budget::BudgetLimits;
 
 const PAUSED_PARTITIONS: &str = "ingestion_consumer_budget_paused_partitions";
@@ -43,15 +43,21 @@ impl Admission for PartitionBudget {
         Some(Pause)
     }
 
-    fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume> {
+    fn handed_out(&self, handed_out: &HashMap<TopicPartition, HandedOut>) -> Vec<TopicPartition> {
         let mut paused = self.paused.lock().unwrap();
-        if !paused.contains(topic_partition) || !self.limits.resumes(uncommitted) {
-            return None;
+        let mut resume = Vec::new();
+        for (topic_partition, handed_out) in handed_out {
+            let uncommitted = handed_out.remaining.charge;
+            if paused.contains(topic_partition) && self.limits.resumes(uncommitted) {
+                paused.remove(topic_partition);
+                log_transition(topic_partition, "resume", uncommitted);
+                resume.push(topic_partition.clone());
+            }
         }
-        paused.remove(topic_partition);
-        gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
-        log_transition(topic_partition, "resume", uncommitted);
-        Some(Resume)
+        if !resume.is_empty() {
+            gauge!(PAUSED_PARTITIONS).set(paused.len() as f64);
+        }
+        resume
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -77,6 +83,8 @@ fn log_transition(topic_partition: &TopicPartition, transition: &str, uncommitte
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
+
+    use common_kafka_consumer::{Held, Offset};
 
     use super::*;
 
@@ -115,32 +123,48 @@ mod tests {
         assert_eq!(budget.charged(&p0(), events(12)), None);
     }
 
+    fn hand_out_leaving(budget: &PartitionBudget, remaining_events: u64) -> Vec<TopicPartition> {
+        budget.handed_out(&HashMap::from([(
+            p0(),
+            HandedOut {
+                offset: Offset(1),
+                remaining: Held {
+                    offsets: remaining_events as usize,
+                    charge: events(remaining_events),
+                },
+            },
+        )]))
+    }
+
     #[rstest::rstest]
-    #[case::above_the_watermark(9, None)]
-    #[case::at_the_watermark(8, None)]
-    #[case::under_the_watermark(7, Some(Resume))]
+    #[case::above_the_watermark(9, false)]
+    #[case::at_the_watermark(8, false)]
+    #[case::under_the_watermark(7, true)]
     fn a_hand_out_resumes_a_paused_partition_under_the_watermark(
-        #[case] uncommitted: u64,
-        #[case] expected: Option<Resume>,
+        #[case] remaining: u64,
+        #[case] expected_resume: bool,
     ) {
         let budget = budget_of_10_events_resuming_under_8();
         budget.charged(&p0(), events(10));
 
-        assert_eq!(budget.handed_out(&p0(), events(uncommitted)), expected);
+        assert_eq!(
+            hand_out_leaving(&budget, remaining).contains(&p0()),
+            expected_resume
+        );
     }
 
     #[test]
     fn a_hand_out_never_resumes_a_partition_that_is_not_paused() {
         let budget = budget_of_10_events_resuming_under_8();
 
-        assert_eq!(budget.handed_out(&p0(), events(0)), None);
+        assert!(hand_out_leaving(&budget, 0).is_empty());
     }
 
     #[test]
     fn a_resumed_partition_pauses_again_at_its_limit() {
         let budget = budget_of_10_events_resuming_under_8();
         budget.charged(&p0(), events(10));
-        budget.handed_out(&p0(), events(0));
+        hand_out_leaving(&budget, 0);
 
         assert_eq!(budget.charged(&p0(), events(10)), Some(Pause));
     }

@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicPartition};
 
-use super::{Accounting, Admission, HandedOut, Pause, Resume};
+use super::{Accounting, Admission, HandedOut, Pause};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Settled {
@@ -105,9 +105,9 @@ impl Accounting for FakeAccounting {
 #[derive(Default)]
 pub(super) struct FakeAdmission {
     pauses: Script<Option<Pause>>,
-    resumes: Mutex<HashMap<TopicPartition, Resume>>,
+    resumes: Script<Vec<TopicPartition>>,
     charged: Mutex<Vec<(TopicPartition, Charge)>>,
-    handed_out: Mutex<Vec<(TopicPartition, Charge)>>,
+    handed_out: Mutex<Vec<HashMap<TopicPartition, HandedOut>>>,
     forgotten: Mutex<Vec<TopicPartition>>,
 }
 
@@ -116,18 +116,15 @@ impl FakeAdmission {
         self.pauses.push(decision);
     }
 
-    pub(super) fn handed_out_returns(&self, topic_partition: &TopicPartition, decision: Resume) {
-        self.resumes
-            .lock()
-            .unwrap()
-            .insert(topic_partition.clone(), decision);
+    pub(super) fn handed_out_returns(&self, resume: Vec<TopicPartition>) {
+        self.resumes.push(resume);
     }
 
     pub(super) fn charged(&self) -> Vec<(TopicPartition, Charge)> {
         self.charged.lock().unwrap().clone()
     }
 
-    pub(super) fn handed_out(&self) -> Vec<(TopicPartition, Charge)> {
+    pub(super) fn handed_out(&self) -> Vec<HashMap<TopicPartition, HandedOut>> {
         self.handed_out.lock().unwrap().clone()
     }
 
@@ -145,12 +142,9 @@ impl Admission for FakeAdmission {
         self.pauses.next().flatten()
     }
 
-    fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume> {
-        self.handed_out
-            .lock()
-            .unwrap()
-            .push((topic_partition.clone(), uncommitted));
-        self.resumes.lock().unwrap().remove(topic_partition)
+    fn handed_out(&self, handed_out: &HashMap<TopicPartition, HandedOut>) -> Vec<TopicPartition> {
+        self.handed_out.lock().unwrap().push(handed_out.clone());
+        self.resumes.next().unwrap_or_default()
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {

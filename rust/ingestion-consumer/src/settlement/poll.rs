@@ -5,7 +5,7 @@ use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicP
 use metrics::counter;
 use tracing::warn;
 
-use super::{Accounting, ChargedSlice, Commit, Pause, Settlement, Uncommitted};
+use super::{offsets, Accounting, ChargedSlice, Commit, Pause, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 
@@ -60,11 +60,19 @@ impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
     }
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
-        self.uncommitted.take_due(now).map(Commit::without_resumes)
+        let handed_out = self.uncommitted.take_due(now)?;
+        Some(Commit {
+            offsets: offsets(handed_out),
+            resume: Vec::new(),
+        })
     }
 
     fn take_all(&self) -> Option<Commit> {
-        self.uncommitted.take_all().map(Commit::without_resumes)
+        let handed_out = self.uncommitted.take_all()?;
+        Some(Commit {
+            offsets: offsets(handed_out),
+            resume: Vec::new(),
+        })
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
