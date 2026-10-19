@@ -14210,6 +14210,10 @@ snapshots:
         hash: v1.k794b7964.156b681d8c3026279523eae78298898334fecd340a168a93c2b1f27e8b87c477.2RIkQGbqyk33Exg6GczARiEZpZowlwCUPXbukhOSki0
     scenes-app-replay-vision-watchfeedemptystate--quota-exhausted--light:
         hash: v1.k794b7964.955908541d73f6f32bd758cdd758724f10e201e3fea481b91294b284a489fe96.3buIiPKIIBer22g58o_OW3nkOAcV0uHmNfUFXn8ldnI
+    scenes-app-replay-vision-watchfeedemptystate--replay-off--dark:
+        hash: v1.k794b7964.85d022621481f3fe1d39c24d8a7824a8ca12b56c42ee31102503adc208703017.GbsFd7BpHYFabY_3FA9jlkXGcLZTb0F61QOixAxP5I0
+    scenes-app-replay-vision-watchfeedemptystate--replay-off--light:
+        hash: v1.k794b7964.6e08b92304d735fbe60604a35b69fea00cd4ecda91e35e887dd38993ad29c5f9.qzj65-nCM-6OsSpeeX0Af1U1cS4AuTeVeXnsxUze0ss
     scenes-app-saved-insights--empty-state--dark:
         hash: v1.k794b7964.8186a1849accab762928456f98db977a9b097cf28199d7e1eb6c1e841500852c.SXNRf2LgiH3DkvhwUukZcGqDXngv1kGiEhGYUAhlKC8
     scenes-app-saved-insights--empty-state--light:
