@@ -7257,10 +7257,11 @@ class TestCohortTypeIntegration(APIBaseTest):
             ("active_trigger", "trigger", "active", 400),
             ("active_branch", "branch", "active", 400),
             ("active_branch_precalculated", "branch_precalculated", "active", 400),
+            ("waiting_trigger", "trigger", "waiting_for_domain", 400),
             ("draft_trigger", "trigger", "draft", 200),
         ]
     )
-    def test_delete_cohort_is_blocked_by_active_workflows_using_it(self, _name, usage, workflow_status, expected):
+    def test_delete_cohort_is_blocked_by_enabled_workflows_using_it(self, _name, usage, workflow_status, expected):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, usage, workflow_status)
 
@@ -7268,7 +7269,7 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         if expected == 400:
-            assert f"used in 1 active workflow(s): Workflow {usage}" in response.json()["detail"]
+            assert f"used in 1 enabled workflow(s): Workflow {usage}" in response.json()["detail"]
             assert response.json()["code"] == "cohort_used_by_workflows"
 
     @parameterized.expand(
@@ -7288,7 +7289,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
 
         assert response.status_code == 400, response.json()
-        assert "used in 1 active workflow(s)" in response.json()["detail"]
+        assert "used in 1 enabled workflow(s)" in response.json()["detail"]
         assert ("Workflow trigger" in response.json()["detail"]) == names_shown
 
     def test_blocked_delete_hides_names_of_workflows_the_member_cannot_view(self):
@@ -7310,7 +7311,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
 
         assert response.status_code == 400, response.json()
-        assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
+        assert "used in 2 enabled workflow(s): Workflow branch and 1 more." in response.json()["detail"]
         assert "Workflow trigger" not in response.json()["detail"]
 
     @parameterized.expand([("used_in", "workflows"), ("blocking_workflows", None)])
@@ -7400,7 +7401,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
 
         assert response.status_code == 400, response.json()
-        assert "1 active workflow(s) rely on that: Workflow trigger." in response.json()["detail"]
+        assert "1 enabled workflow(s) rely on that: Workflow trigger." in response.json()["detail"]
 
     def test_cohort_type_not_set_when_not_provided(self):
         """cohort_type should remain None when not provided"""

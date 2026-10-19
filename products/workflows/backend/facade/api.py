@@ -25,6 +25,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowTaskDailyLimits,
     WorkflowVisionScanDailyLimits,
 )
+from products.workflows.backend.facade.enums import ENABLED_HOG_FLOW_STATES
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
@@ -90,7 +91,7 @@ def search_workflows(
     ``with_access_levels`` adds ``user_access_level``, the user's resolved level for each workflow.
     ``include_count=False`` skips the count query and reports a total of 0.
     """
-    statuses = [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]
+    statuses = [HogFlow.State.DRAFT, *ENABLED_HOG_FLOW_STATES]
     if include_archived:
         statuses.append(HogFlow.State.ARCHIVED)
     queryset = access_control.filter_queryset_by_access_level(
@@ -251,17 +252,17 @@ def enable_waiting_workflows(*, team_id: int, sender_ids: Iterable[int]) -> None
         transaction.on_commit(lambda: enable_waiting_workflows_task.delay(team_id=team_id, sender_ids=ids))
 
 
-def get_active_workflows_using_realtime_cohort(
+def get_enabled_workflows_using_realtime_cohort(
     *, team_id: int, cohort_ids: Collection[int]
 ) -> list[CohortDependentWorkflow]:
     # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
     from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
-        get_active_hog_flows_using_realtime_cohort,
+        get_enabled_hog_flows_using_realtime_cohort,
     )
 
     return [
         CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
-        for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
+        for flow in get_enabled_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
 
 

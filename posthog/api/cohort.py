@@ -131,7 +131,7 @@ from products.feature_flags.backend.realtime_targeting import is_realtime_cohort
 from products.product_analytics.backend.facade.models import Insight
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
-    get_active_workflows_using_realtime_cohort,
+    get_enabled_workflows_using_realtime_cohort,
 )
 from products.workflows.backend.facade.contracts import CohortDependentWorkflow, HogFlowReference
 
@@ -151,7 +151,7 @@ def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow
         for dependent_id in dependents[pending.pop()] - cohort_ids:
             cohort_ids.add(dependent_id)
             pending.append(dependent_id)
-    return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
+    return get_enabled_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
 
 
 def _visible_workflows(
@@ -612,7 +612,7 @@ class CohortUsedInWorkflowSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Workflow ID (UUID)")
     name = serializers.CharField(allow_blank=True, help_text="Workflow display name")
     status = serializers.CharField(
-        help_text="Workflow status. Always 'active', because only active workflows rely on the cohort"
+        help_text="Workflow status: 'active', or 'waiting_for_domain' for an enabled workflow that goes live once its email domain is verified"
     )
 
 
@@ -647,11 +647,11 @@ class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
     results = CohortUsedInWorkflowSerializer(
         many=True,
         help_text=(
-            f"Active workflows relying on this cohort that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+            f"Enabled workflows relying on this cohort that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results"
         ),
     )
     total = serializers.IntegerField(
-        help_text="Total number of active workflows relying on this cohort, including ones the caller cannot view"
+        help_text="Total number of enabled workflows relying on this cohort, including ones the caller cannot view"
     )
     hidden = serializers.IntegerField(
         help_text="Number of relying workflows the caller cannot view. They count toward total but are never listed"
@@ -1714,7 +1714,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 )
                 raise ValidationError(
                     f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
-                    f"active workflow(s) rely on that{names}. "
+                    f"enabled workflow(s) rely on that{names}. "
                     "Please remove the cohort from these workflows before making this change.",
                     code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
@@ -1744,7 +1744,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         request, self._user_access_control(), cohort.team_id, workflows_with_cohort
                     )
                     raise ValidationError(
-                        f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "
+                        f"This cohort is used in {len(workflows_with_cohort)} enabled workflow(s){names}. "
                         "Please remove the cohort from these workflows before deleting it.",
                         code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                     )

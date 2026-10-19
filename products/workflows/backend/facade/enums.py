@@ -75,6 +75,10 @@ class HogFlowState(LabeledStrEnum):
     ARCHIVED = "archived"
 
 
+# Turned on by a person: live now, or going live by itself once its email domain is verified.
+ENABLED_HOG_FLOW_STATES = (HogFlowState.ACTIVE, HogFlowState.WAITING_FOR_DOMAIN)
+
+
 class HogFlowOriginProduct(LabeledStrEnum):
     """The product surface that owns a workflow. Null for workflows built in the workflows UI or the API."""
 

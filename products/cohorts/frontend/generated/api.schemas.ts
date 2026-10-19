@@ -530,14 +530,14 @@ export interface CohortUsedInWorkflowApi {
     id: string
     /** Workflow display name */
     name: string
-    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+    /** Workflow status: 'active', or 'waiting_for_domain' for an enabled workflow that goes live once its email domain is verified */
     status: string
 }
 
 export interface CohortUsedInWorkflowsBlockApi {
-    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+    /** Enabled workflows relying on this cohort that the caller can view, capped at 100 results */
     results: CohortUsedInWorkflowApi[]
-    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+    /** Total number of enabled workflows relying on this cohort, including ones the caller cannot view */
     total: number
     /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
     hidden: number
