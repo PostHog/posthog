@@ -98,10 +98,9 @@ CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
 SLOT_KEY_PREFIX = "slot:"
 
-# Real-time is the most expensive cadence and the one production holds to a tighter budget, so the
-# parallel run leaves it out until it agrees with production elsewhere.
 EVALUATED_INTERVALS = frozenset(
     {
+        AlertCalculationInterval.REAL_TIME,
         AlertCalculationInterval.EVERY_15_MINUTES,
         AlertCalculationInterval.HOURLY,
         AlertCalculationInterval.DAILY,
@@ -126,8 +125,8 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
-    """Threshold and statistical detector alerts on a 15-minute or slower cadence. The AI detector
-    makes a charged model call, so evaluating it in parallel costs twice."""
+    """Threshold and statistical detector alerts on every cadence. The AI detector makes a charged
+    model call, so evaluating it in parallel costs twice."""
     return not is_llm_detector_config(alert.detector_config) and alert.calculation_interval in EVALUATED_INTERVALS
 
 
@@ -172,6 +171,25 @@ def plan_insight_batch(
         )
         safe_record(increment_checks_deferred, SourceKind.INSIGHT.value, len(candidates) - len(admitted))
     return tuple(admitted)
+
+
+def legacy_alerts_of(
+    team_id: int, slot: str, cutoff: datetime, configuration_ids: Collection[str]
+) -> dict[str, AlertConfiguration]:
+    """The production alert behind each due copy that still has one, keyed by the copy's id."""
+    if not configuration_ids:
+        return {}
+    legacy_ids = {
+        check.legacy_configuration_id: str(check.id)
+        for check in due_checks(
+            team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=list(configuration_ids)
+        )
+        if check.legacy_configuration_id is not None
+    }
+    alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
+        "id", "calculation_interval"
+    )
+    return {legacy_ids[alert.id]: alert for alert in alerts}
 
 
 def evaluate_insight_check(

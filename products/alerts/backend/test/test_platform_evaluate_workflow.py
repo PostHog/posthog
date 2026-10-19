@@ -15,6 +15,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.alerts.backend.temporal.platform_evaluate import (
     EVALUATION_BUDGET,
+    AdmittedInsightCheck,
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
     InsightCheckInputs,
@@ -46,14 +47,19 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(environment: WorkflowEnvironment) -> None:
     recorded: list[SourceOutcomeInputs] = []
 
-    @activity.defn(name="plan_platform_insight_round_activity")
-    async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
-        return list(ADMITTED)
+    # Only the real-time check has a retry, so the same first failure loses the other one.
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        admitted = [
+            AdmittedInsightCheck(configuration_id=ADMITTED[0]),
+            AdmittedInsightCheck(configuration_id=ADMITTED[1], real_time=True),
+        ]
+        return [check for check in admitted if check.configuration_id not in inputs.exclude]
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
-        if inputs.configuration_id == ADMITTED[0]:
-            raise ApplicationError("query failed", non_retryable=True)
+        if activity.info().attempt == 1:
+            raise ApplicationError("worker lost")
         outcome = PlatformAlertOutcome(
             configuration_id=uuid.UUID(inputs.configuration_id),
             evaluation_key="slot:2026-09-16T10:00:00+00:00",
@@ -115,9 +121,13 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_
 ) -> None:
     recorded: list[SourceOutcomeInputs] = []
 
-    @activity.defn(name="plan_platform_insight_round_activity")
-    async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
-        return list(ADMITTED)
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [
+            AdmittedInsightCheck(configuration_id=configuration_id)
+            for configuration_id in ADMITTED
+            if configuration_id not in inputs.exclude
+        ]
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
@@ -209,14 +219,18 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
     recorded: list[SourceOutcomeInputs] = []
 
     # A pool of one slot: each round admits the first due check that this batch did not start.
-    @activity.defn(name="plan_platform_insight_round_activity")
-    async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
         plans.append(inputs.exclude)
         if fail_second_plan and len(plans) == 2:
             raise ApplicationError("redis unavailable", non_retryable=True)
         if set(inputs.exclude) - set(evaluated):
             return []
-        return [configuration_id for configuration_id in due if configuration_id not in inputs.exclude][:1]
+        return [
+            AdmittedInsightCheck(configuration_id=configuration_id)
+            for configuration_id in due
+            if configuration_id not in inputs.exclude
+        ][:1]
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
