@@ -12,7 +12,6 @@ const chip = (value: string, label: string, overrides: Partial<QueryChip> = {}):
 const resolved = (filters: QueryChip[], freeText = ''): ResolvedQuery => ({ filters, freeText, backendSearch: '' })
 
 const createdByMe = chip('me', 'Me', { key: 'createdBy' })
-const notInGrowthTeam = chip('Growth team', 'Growth team', { key: 'in', negated: true })
 
 describe('viewAllFor', () => {
     test.each([
@@ -72,13 +71,6 @@ describe('viewAllFor', () => {
             'revenue',
             'View all dashboards',
             '/dashboard?search=revenue',
-        ],
-        [
-            'a list that reads the whole query',
-            [chip('workflows', 'Workflow'), createdByMe, notInGrowthTeam],
-            'welcome',
-            'View all workflows',
-            '/workflows?q=createdBy%3Ame%20-in%3A%22Growth%20team%22%20welcome',
         ],
         [
             'a list that reads no query',

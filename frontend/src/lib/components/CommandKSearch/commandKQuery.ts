@@ -363,6 +363,17 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
     }
 }
 
+const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.startsWith('!')
+
+// List pages match one phrase, which cannot exclude, so excluded words and names stay out.
+export function listSearchText({ filters, freeText }: ResolvedQuery): string {
+    const names = filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
+    const words = tokenize(freeText)
+        .map((token) => unquote(token.raw))
+        .filter((word) => word && !isExcludedWord(word))
+    return [...names, ...words].join(' ')
+}
+
 /** The raw query as a person would type it, chips included. Used when copying the input. */
 export function queryAsText(text: string, chips: QueryChip[]): string {
     return [...chips.map(chipToText), text.trim()].filter(Boolean).join(' ')

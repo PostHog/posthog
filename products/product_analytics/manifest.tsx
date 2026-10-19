@@ -27,7 +27,6 @@ import { AlertType } from 'products/alerts/frontend/types'
 import {
     ActivityScope,
     DashboardType,
-    FileSystemListQuery,
     InsightSceneSource,
     InsightShortId,
     InsightType,
@@ -118,8 +117,8 @@ export const manifest: ProductManifest = {
             name: 'Insight',
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
-            listHref: (query?: FileSystemListQuery) =>
-                combineUrl(urls.savedInsights(), { search: query?.searchText }).url,
+            listHref: () => urls.savedInsights(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },
