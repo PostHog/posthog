@@ -94,12 +94,15 @@ describe('Inbox activation progress', () => {
         expect(stateReads).toBe(settledReads)
     })
 
-    it('stops polling a failed recommendation generation without showing the previous batch', async () => {
+    it.each([
+        ['a failed recommendation generation', 'test-github', { scout: 'started', recommendations: 'failed' }],
+        ['guided setup without background jobs', 'test-ui', undefined],
+    ] as const)('stops polling %s without showing the previous batch', async (_name, variant, jobs) => {
         await settle()
-        state = { ...state, jobs: { scout: 'started', recommendations: 'failed' } }
+        state = { ...state, variant, jobs }
         await jest.advanceTimersByTimeAsync(10_000)
         await settle()
-        expect(logic.values.savedState?.jobs?.recommendations).toBe('failed')
+        expect(logic.values.savedState?.jobs?.recommendations).toBe(jobs?.recommendations)
         expect(logic.values.suggestions).toEqual([])
         const readsAfterFailure = stateReads
         await jest.advanceTimersByTimeAsync(20_000)

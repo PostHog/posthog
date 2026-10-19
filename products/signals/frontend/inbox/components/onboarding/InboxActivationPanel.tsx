@@ -59,7 +59,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                         explore your code and all your data to uncover issues and connect patterns. Reports arrive with
                         evidence and next steps.
                     </p>
-                    {!hasReports && (
+                    {!hasReports && generalScout?.enabled && (
                         <p className="m-0 text-sm" aria-live="polite">
                             {jobs?.scout === 'pending'
                                 ? 'Preparing your first general scout run.'

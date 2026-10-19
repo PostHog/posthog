@@ -163,6 +163,7 @@ export const inboxActivationLogic = kea<inboxActivationLogicType>([
                 const jobs = values.savedState?.jobs
                 const recommendationsSettled =
                     values.recommendationsReady ||
+                    (!!completedAt && !jobs?.recommendations) ||
                     jobs?.recommendations === 'failed' ||
                     jobs?.recommendations === 'skipped'
                 if (jobs?.scout !== 'pending' && recommendationsSettled) {
