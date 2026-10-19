@@ -212,7 +212,7 @@ class FieldAliasType(Type):
         raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class ArrayJoinAliasType(FieldAliasType):
     """An ARRAY JOIN alias holds one item of its array expression, not the whole array."""
 
