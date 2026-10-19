@@ -195,6 +195,7 @@ describe('metricsLogic', () => {
 
         expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[1][1]).toMatchObject({
             name: 'weekly_active_users',
+            created_source: 'user',
             overwrite: true,
         })
         expect(logic.values[modalOpenKey]).toEqual(false)

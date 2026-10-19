@@ -461,6 +461,7 @@ export const metricsLogic = kea<metricsLogicType>([
                     display_name: request.display_name,
                     description: request.description,
                     source_insight_short_id: request.source_insight_short_id,
+                    created_source: 'user',
                     overwrite,
                 })
                 actions.loadMetricsSuccess(withCreatedMetric(values.allMetrics, created))
