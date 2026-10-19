@@ -36,6 +36,7 @@ import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashb
 import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboard/SourceSetupPanel'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
+import { ConversionGoalSetupIntegration } from 'products/marketing_analytics/frontend/setup/ConversionGoalSetupIntegration'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -572,7 +573,16 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     }
 
     return (
-        <LemonTabs activeKey={selectedTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
+        <>
+            {setupEnabled && featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI] && (
+                <ConversionGoalSetupIntegration />
+            )}
+            <LemonTabs
+                activeKey={selectedTab}
+                onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
+                tabs={tabs}
+            />
+        </>
     )
 }
 

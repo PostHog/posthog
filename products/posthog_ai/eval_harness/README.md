@@ -37,7 +37,9 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Which variables are required depends on the eval engine and the selected suites' kinds: the Braintrust engine requires `BRAINTRUST_API_KEY` unless `--no-send-logs` is set; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Use `--no-send-logs` to keep evaluation results local for every selected suite, including public suites, without a Braintrust account.
+Model calls still use the configured providers and need their credentials; LLM judges may also need `OPENAI_API_KEY`.
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -82,6 +84,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
+| `--no-send-logs`                  | Keep results local for every suite, without a Braintrust key. Model calls still run.                     |
 | `--list`                          | Print the discovered suite ids (with their kinds) and exit.                                              |
 
 Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
@@ -270,6 +273,7 @@ When a setup completes, its slot becomes available to the next case while the pr
 A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
 Log parsing, Braintrust span building, trace emission, and scoring all happen after the slot is released.
 The per-case timeout starts after team setup, so neither sandbox nor setup queueing consumes the agent's budget.
+Only expiry of that budget is graded as a case timeout. A dependency's own `TimeoutError` remains an infrastructure error, including failures during setup.
 
 ## Suite kinds
 

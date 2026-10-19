@@ -130,13 +130,19 @@ def test_validate_eval_env_by_kind(
         assert name not in message
 
 
-def test_validate_eval_env_reports_missing_engine_env(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("no_send_logs", [False, True])
+def test_validate_eval_env_reports_missing_engine_env(monkeypatch: pytest.MonkeyPatch, no_send_logs: bool) -> None:
     for name in ALL_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "x")
 
+    engine_env = resolve_engine().required_env(no_send_logs=no_send_logs)
+    if no_send_logs:
+        validate_eval_env("claude", kinds={SuiteKind.ONE_SHOT}, engine_env=engine_env)
+        return
+
     with pytest.raises(PreflightError) as exc_info:
-        validate_eval_env("claude", kinds={SuiteKind.ONE_SHOT}, engine_env=resolve_engine().required_env())
+        validate_eval_env("claude", kinds={SuiteKind.ONE_SHOT}, engine_env=engine_env)
 
     # The Braintrust engine's requirement is reported with the same line the core
     # env model used to emit, so a missing key reads identically to before.

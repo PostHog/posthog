@@ -90,6 +90,8 @@ class EvalContext:
     git_dirty: bool | None
     """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
 
+    no_send_logs: bool = False
+
     offline_delivery: OfflineEvalDelivery | None = None
     """Run-owned delivery worker, drained after infrastructure teardown."""
 

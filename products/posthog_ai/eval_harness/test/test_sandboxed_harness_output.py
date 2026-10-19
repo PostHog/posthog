@@ -462,6 +462,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         engine=engine,
         reporter=reporter,
         offline_delivery=delivery if delivery_state != "unavailable" else None,
+        no_send_logs=False,
     )
 
     run_eval = base.SandboxedEval if suite_kind == "sandboxed" else partial(OneShotEval, task=AsyncMock())

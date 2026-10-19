@@ -14,6 +14,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    HogQLQuery,
     MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
@@ -21,15 +22,19 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.parser import parse_select
 
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
 from .constants import MARKETING_SPILL_AFTER_BYTES
 from .conversion_goal_conditions import conversion_goal_condition
+from .conversion_goal_value import conversion_goal_value_in_base_currency
 from .marketing_analytics_base_query_runner import ResponseType
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
+from .warehouse_conversion_source import WarehouseConversionSource
 
 ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
 
@@ -82,23 +87,13 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
 
     @cached_property
     def goal(self) -> ConversionGoal:
-        """The requested goal, found among the team's configured goals.
-
-        Data warehouse goals are rejected rather than silently mis-attributed: their conversions live in
-        a warehouse table keyed by distinct_id, but these queries collect conversions from one `events`
-        scan grouped by person_id, so there is nothing to join them on here.
-        """
+        """The requested goal, found among the team's configured goals."""
         all_goals = self._get_team_conversion_goals()
-        goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals)
+        goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals, require_utm_columns=False)
         self._valid_conversion_goals_count = len(goals)
 
         for goal in goals:
             if goal.conversion_goal_id == self.query.conversionGoalId:
-                if goal.kind == "DataWarehouseNode":
-                    raise ValueError(
-                        f"Conversion goal '{goal.conversion_goal_name}' is backed by a data warehouse table, "
-                        "which attribution doesn't support yet. Pick an event or action goal."
-                    )
                 return goal
 
         # Only one goal is queried at a time, so another goal being unusable is not this query's problem.
@@ -111,6 +106,24 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
 
         raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
+
+    def get_cache_payload(self) -> dict[str, object]:
+        payload = super().get_cache_payload()
+        payload["conversion_goal"] = self.goal.model_dump(mode="json", exclude_none=True)
+        return payload
+
+    def get_access_controlled_resources(self) -> set[str] | None:
+        if not isinstance(self.goal, ConversionGoalFilter3):
+            return super().get_access_controlled_resources()
+        # The public query carries a goal ID, so discover permissions from its resolved source,
+        # including tables and system resources referenced through saved views.
+        source = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[*self.goal.table_name.split(".")])),
+        )
+        return queried_access_controlled_resources(
+            HogQLQuery(query=source.to_hogql()), self.team, bypassed_scopes=self._bypassed_access_scopes
+        )
 
     @cached_property
     def conversion_condition(self) -> ast.Expr:
@@ -146,7 +159,12 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 return ast.Call(
                     name="coalesce",
                     args=[
-                        ast.Call(name="toFloat", args=[ast.Field(chain=["events", "properties", goal.math_property])]),
+                        conversion_goal_value_in_base_currency(
+                            goal,
+                            self.team,
+                            ast.Field(chain=["events", "properties", goal.math_property]),
+                            ast.Field(chain=["events", "timestamp"]),
+                        ),
                         ast.Constant(value=0.0),
                     ],
                 )
@@ -262,6 +280,102 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             group_by=[ast.Field(chain=["events", "person_id"])],
         )
 
+    def _build_warehouse_person_arrays_select(
+        self, date_range: QueryDateRange, goal: ConversionGoalFilter3
+    ) -> ast.SelectQuery:
+        if self._test_account_conditions():
+            raise ValueError(
+                "Warehouse attribution cannot apply event or person test-account filters yet. "
+                "Filter test accounts in the conversion source and turn off test-account filtering for this query."
+            )
+        if self.query.properties:
+            raise ValueError(
+                "Warehouse attribution does not support query property filters yet. Add filters to the goal."
+            )
+        source = WarehouseConversionSource(goal=goal, team=self.team, database=self._shared_hogql_database)
+        people = parse_select(
+            """
+            SELECT
+                if(notEmpty(coalesce(identity.distinct_id, '')), toString(identity.person_id),
+                    if(empty(conversions.distinct_id), concat('unmatched_conversion:', conversions.conversion_id),
+                        concat('unmatched_person:', conversions.distinct_id))) AS person_id,
+                arraySlice(arraySort(groupArray((conversions.timestamp, conversions.value))),
+                    {conversion_offset}, {conversion_limit}) AS conversions,
+                {conversion_count} AS conversion_count,
+                min(conversions.timestamp) AS first_conversion,
+                max(conversions.timestamp) AS last_conversion
+            FROM warehouse_conversions AS conversions
+            LEFT JOIN (
+                SELECT distinct_id, person_id FROM person_distinct_ids
+                WHERE distinct_id IN (SELECT distinct_id FROM warehouse_conversions)
+            ) AS identity ON conversions.distinct_id = identity.distinct_id
+            GROUP BY person_id
+            """,
+            placeholders={
+                "conversion_offset": ast.Constant(
+                    value=-MAX_CONVERSIONS_PER_PERSON if self.allows_multiple_conversions_per_visitor else 1
+                ),
+                "conversion_limit": ast.Constant(
+                    value=MAX_CONVERSIONS_PER_PERSON if self.allows_multiple_conversions_per_visitor else 1
+                ),
+                "conversion_count": ast.Call(name="count", args=[])
+                if self.allows_multiple_conversions_per_visitor
+                else ast.Constant(value=1),
+            },
+        )
+        touchpoints = parse_select(
+            """
+            SELECT toString(events.person_id) AS person_id,
+                arraySlice(arraySort(groupUniqArray(({session_start}, {breakdown}))), {touchpoint_offset}) AS touchpoints
+            FROM events
+            INNER JOIN warehouse_people AS bounds ON toString(events.person_id) = bounds.person_id
+            WHERE {touchpoint_condition} AND {lookback_conditions}
+                AND {session_start} >= bounds.first_conversion - {window}
+                AND {session_start} <= {last_conversion}
+            GROUP BY events.person_id
+            """,
+            placeholders={
+                "session_start": ast.Call(
+                    name="toUnixTimestamp", args=[ast.Field(chain=["events", "session", "$start_timestamp"])]
+                ),
+                "breakdown": self._breakdown_expr(),
+                "touchpoint_offset": ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
+                "touchpoint_condition": self._touchpoint_condition(),
+                "lookback_conditions": ast.And(exprs=self._lookback_date_conditions(date_range)),
+                "window": ast.Constant(value=self.attribution_window_seconds),
+                "last_conversion": ast.Field(
+                    chain=[
+                        "bounds",
+                        "last_conversion" if self.allows_multiple_conversions_per_visitor else "first_conversion",
+                    ]
+                ),
+            },
+        )
+        assert isinstance(touchpoints, ast.SelectQuery)
+        assert touchpoints.select_from and touchpoints.select_from.next_join
+        # Broadcast the materialized converter set to each events shard.
+        touchpoints.select_from.next_join.join_type = "GLOBAL INNER JOIN"
+        query = parse_select(
+            """
+            SELECT people.person_id, people.conversions, people.conversion_count,
+                coalesce(touches.touchpoints, []) AS touchpoints
+            FROM warehouse_people AS people
+            LEFT JOIN {touchpoints} AS touches ON people.person_id = touches.person_id
+            """,
+            placeholders={"touchpoints": touchpoints},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        query.ctes = {
+            "warehouse_conversions": ast.CTE(
+                name="warehouse_conversions",
+                expr=source.build_query(date_range),
+                cte_type="subquery",
+                materialized=True,
+            ),
+            "warehouse_people": ast.CTE(name="warehouse_people", expr=people, cte_type="subquery", materialized=True),
+        }
+        return query
+
     def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """The credit side, using shared session resolution when eligible."""
         if self.config.live_session_resolution_enabled:
@@ -285,6 +399,9 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         person's unrelated events. `groupUniqArray` additionally collapses every pageview in a session to
         one touchpoint during aggregation.
         """
+        if isinstance(self.goal, ConversionGoalFilter3):
+            return self._build_warehouse_person_arrays_select(date_range, self.goal)
+
         # Bounded to the display range, not the lookback-extended range the outer WHERE allows. The
         # pageview branch of that WHERE reaches back a further lookback window to collect touchpoints, and
         # without this bound every conversion in that older stretch would be credited too: the table would

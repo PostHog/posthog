@@ -192,7 +192,11 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                validate_eval_env(
+                    self.options.agent_runtime,
+                    kinds=kinds,
+                    engine_env=self._engine.required_env(no_send_logs=self.options.no_send_logs),
+                )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,
@@ -337,7 +341,7 @@ class SandboxedEvalHarness:
             # publicly reachable before any settings pointing at them are computed.
             self.provider.start(self._stack)
 
-        self._posthog_client = get_client("US")
+        self._posthog_client = get_client("US", disabled=True) if self.options.no_send_logs else get_client("US")
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
 
@@ -462,6 +466,7 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
+            no_send_logs=self.options.no_send_logs,
             git_sha=self._git_sha,
             git_dirty=self._git_dirty,
             offline_delivery=self._offline_delivery,

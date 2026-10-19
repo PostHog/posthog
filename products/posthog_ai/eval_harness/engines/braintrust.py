@@ -71,7 +71,7 @@ class BraintrustEngine:
     - **Never pass a ``timeout``.** ``EvalAsync``'s timeout wraps the whole task
       invocation, including time a case spends queued on the harness's own
       concurrency semaphores, so it would kill cases that never started. The
-      per-case budget belongs in the ``asyncio.wait_for`` inside the run's
+      per-case budget belongs in the ``asyncio.timeout`` inside the run's
       ``_execute_case``, which starts only after slot acquisition.
     - **Never let ``max_concurrency`` bind.** It is set to the total case count
       (cases × trials) so the harness's semaphores are the only limiters.
@@ -89,7 +89,9 @@ class BraintrustEngine:
     supports_public_experiments: ClassVar[bool] = True
 
     @classmethod
-    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
+        if no_send_logs:
+            return ()
         return (EnvVarSpec("BRAINTRUST_API_KEY", "records experiments and scores to Braintrust"),)
 
     @staticmethod
@@ -132,7 +134,7 @@ class BraintrustEngine:
             # Braintrust's timeout wraps the whole task invocation, including any
             # time a case spends queued on our concurrency semaphores — so a queued
             # case would be killed before it ever started. The real budget is the
-            # ``asyncio.wait_for`` inside ``_execute_case``.
+            # timeout context inside ``_execute_case``.
             timeout=None,
             # Suites share one stdout; the quiet reporter stops each experiment
             # from dumping its own score table into the interleaved stream.

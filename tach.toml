@@ -1028,6 +1028,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.event_definitions",
     "products.analytics_platform", "products.warehouse_sources",
     "products.feature_flags",
 ]

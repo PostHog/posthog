@@ -58,7 +58,8 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
-import { SetupEntryPoint, marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import type { SetupEntryPoint } from './marketingAnalyticsSettingsLogic'
 import { DASHBOARD_BREAKDOWNS, DEFAULT_DASHBOARD_BREAKDOWN } from './marketingBreakdown'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
@@ -111,6 +112,7 @@ export enum SetupSection {
     UTM_MAPPING = 'utm-mapping',
     INTEGRATION_HEALTH = 'integration-health',
     ATTRIBUTION = 'attribution',
+    OVERVIEW_METRICS = 'overview-metrics',
     GENERAL = 'general',
 }
 

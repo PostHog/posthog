@@ -172,6 +172,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         include_bounce_rate: bool = False,
         include_avg_time_on_page: bool = False,
         include_scroll_depth: bool = False,
+        include_session_duration: bool = False,
         opt_in_precompute: bool = True,
     ) -> WebStatsTableQuery:
         return WebStatsTableQuery(
@@ -184,6 +185,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             includeBounceRate=include_bounce_rate,
             includeAvgTimeOnPage=include_avg_time_on_page,
             includeScrollDepth=include_scroll_depth,
+            includeSessionDuration=include_session_duration,
             useWebAnalyticsPrecompute=opt_in_precompute,
         )
 
@@ -456,6 +458,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("bounce_rate", {"include_bounce_rate": True}),
             ("avg_time_on_page", {"include_avg_time_on_page": True}),
             ("scroll_depth", {"include_scroll_depth": True}),
+            ("session_duration", {"include_session_duration": True}),
         ]
     )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)

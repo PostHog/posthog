@@ -85,7 +85,7 @@ class _StubEngine:
         self.calls: list[ExperimentSpec] = []
 
     @classmethod
-    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
         return ()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
@@ -117,7 +117,13 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
 
 
 def _build_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: EvalContext, task_fn: Any, case_name: str = "c1"
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ctx: EvalContext,
+    task_fn: Any,
+    case_name: str = "c1",
+    *,
+    no_send_logs: bool = True,
 ) -> _OneShotEvalRun:
     monkeypatch.setattr("products.posthog_ai.eval_harness.base.build_case_dir", lambda *_: tmp_path)
     return _OneShotEvalRun(
@@ -126,7 +132,7 @@ def _build_run(
         scorers=[],
         ctx=ctx,
         is_public=False,
-        no_send_logs=True,
+        no_send_logs=no_send_logs,
         task_fn=task_fn,
     )
 
@@ -160,7 +166,7 @@ def test_task_scores_timeout_as_output_not_error(
             )
             if poll_timeout == "cleanup_cancelled":
                 hooks.metadata["poll_timeout"] = error.diagnostics()
-                raise TimeoutError
+                await asyncio.Event().wait()
             raise error
         await asyncio.Event().wait()
         return {}
@@ -182,7 +188,7 @@ def test_task_scores_timeout_as_output_not_error(
     assert ctx.reporter.done == [("c1", "timeout")]  # type: ignore[attr-defined]
 
 
-@pytest.mark.parametrize("error_type", [ValueError, asyncio.CancelledError])
+@pytest.mark.parametrize("error_type", [ValueError, TimeoutError, asyncio.CancelledError])
 def test_task_reraises_infra_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[BaseException]
 ) -> None:
@@ -231,8 +237,9 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
 
 @pytest.mark.parametrize("opt_out_capture", ["", "1"])
 @pytest.mark.parametrize("no_send_logs", [False, True])
+@pytest.mark.parametrize("force_no_send_logs", [False, True])
 def test_run_routes_through_the_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str, no_send_logs: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str, no_send_logs: bool, force_no_send_logs: bool
 ) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
@@ -277,14 +284,15 @@ def test_run_routes_through_the_engine(
             side_effect=lambda *args: "abc123" if args[0] == "rev-parse" else "",
         ),
     ):
-        harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
+        harness = SandboxedEvalHarness(
+            parse_args(["--agent-model", "claude-test", *(["--no-send-logs"] if force_no_send_logs else [])])
+        )
         with harness._stack:
             harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
-            runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
+            runs = [_build_run(tmp_path, monkeypatch, ctx, task, no_send_logs=no_send_logs) for _ in range(2)]
             for run in runs:
                 run.engine = engine
-                run.no_send_logs = no_send_logs
                 run.is_public = not no_send_logs
                 run.agent_trace_id_lookup["c1"] = "trace-1"
                 run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
@@ -308,7 +316,7 @@ def test_run_routes_through_the_engine(
             "git_sha": "abc123",
             "git_dirty": False,
         }
-        assert experiment.no_send_logs == no_send_logs
+        assert experiment.no_send_logs == (no_send_logs or force_no_send_logs)
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
 

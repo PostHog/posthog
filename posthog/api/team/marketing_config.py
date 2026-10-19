@@ -2,7 +2,8 @@
 
 from typing import Literal
 
-from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import models, transaction
 
 from drf_spectacular.utils import extend_schema_field
 from pydantic import RootModel as PydanticRootModel
@@ -20,11 +21,15 @@ from posthog.schema import (
     ElementPropertyFilter,
     EventPropertyFilter,
     HogQLPropertyFilter,
+    MarketingAnalyticsOverviewMetric as OverviewMetric,
     PersonPropertyFilter,
     SourceMap,
 )
 
 from posthog.models import TeamMarketingAnalyticsConfig
+from posthog.models.team.team_marketing_analytics_config import (
+    validate_overview_metrics as validate_overview_metrics_list,
+)
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
@@ -40,6 +45,28 @@ MarketingAnalyticsConversionGoalPropertyFilter = (
     | HogQLPropertyFilter
     | DataWarehousePropertyFilter
 )
+
+
+class MarketingAnalyticsOverviewMetricChoices(models.TextChoices):
+    VISITORS = OverviewMetric.VISITORS.value, OverviewMetric.VISITORS.value
+    NEW_VISITORS = OverviewMetric.NEW_VISITORS.value, OverviewMetric.NEW_VISITORS.value
+    NEW_VISITOR_SHARE = OverviewMetric.NEW_VISITOR_SHARE.value, OverviewMetric.NEW_VISITOR_SHARE.value
+    SESSIONS = OverviewMetric.SESSIONS.value, OverviewMetric.SESSIONS.value
+    PAGEVIEWS = OverviewMetric.PAGEVIEWS.value, OverviewMetric.PAGEVIEWS.value
+    SESSION_DURATION = OverviewMetric.SESSION_DURATION.value, OverviewMetric.SESSION_DURATION.value
+    PAGES_PER_SESSION = OverviewMetric.PAGES_PER_SESSION.value, OverviewMetric.PAGES_PER_SESSION.value
+    PAGES_PER_VISITOR = OverviewMetric.PAGES_PER_VISITOR.value, OverviewMetric.PAGES_PER_VISITOR.value
+    SESSIONS_PER_VISITOR = OverviewMetric.SESSIONS_PER_VISITOR.value, OverviewMetric.SESSIONS_PER_VISITOR.value
+    BOUNCE_RATE = OverviewMetric.BOUNCE_RATE.value, OverviewMetric.BOUNCE_RATE.value
+    RETURNING_VISITORS = OverviewMetric.RETURNING_VISITORS.value, OverviewMetric.RETURNING_VISITORS.value
+    RETURN_RATE_7D = OverviewMetric.RETURN_RATE_7D.value, OverviewMetric.RETURN_RATE_7D.value
+    RETURN_RATE_30D = OverviewMetric.RETURN_RATE_30D.value, OverviewMetric.RETURN_RATE_30D.value
+    MEDIAN_RETURN_DAYS = OverviewMetric.MEDIAN_RETURN_DAYS.value, OverviewMetric.MEDIAN_RETURN_DAYS.value
+    CONVERSIONS = OverviewMetric.CONVERSIONS.value, OverviewMetric.CONVERSIONS.value
+    CONVERSION_RATE = OverviewMetric.CONVERSION_RATE.value, OverviewMetric.CONVERSION_RATE.value
+    CONVERSION_VALUE = OverviewMetric.CONVERSION_VALUE.value, OverviewMetric.CONVERSION_VALUE.value
+    AVG_CONVERSION_VALUE = OverviewMetric.AVG_CONVERSION_VALUE.value, OverviewMetric.AVG_CONVERSION_VALUE.value
+    REVENUE = OverviewMetric.REVENUE.value, OverviewMetric.REVENUE.value
 
 
 # Subclassing the canonical goal schemas rather than redeclaring their ~25 fields keeps this write
@@ -193,6 +220,17 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "in campaign_name_mappings still take precedence."
         ),
     )
+    overview_metrics = serializers.ListField(
+        child=serializers.ChoiceField(choices=MarketingAnalyticsOverviewMetricChoices.choices),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Metric cards the marketing analytics Overview shows: exactly five, one per slot, in the order "
+            "acquisition, engagement, retention, conversion, other. A metric may repeat, because the other slot can "
+            "hold one another slot already shows. Send an empty list to restore the default. Reads always return the "
+            "effective list."
+        ),
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -205,6 +243,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "campaign_name_mappings",
             "custom_source_mappings",
             "campaign_field_preferences",
+            "overview_metrics",
         ]
 
     def to_internal_value(self, data):
@@ -219,7 +258,18 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             internal_value["_custom_source_mappings"] = internal_value["custom_source_mappings"]
         if "campaign_field_preferences" in internal_value:
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
+        if "overview_metrics" in internal_value:
+            internal_value["_overview_metrics"] = internal_value["overview_metrics"]
         return internal_value
+
+    def validate_overview_metrics(self, value: list[str]) -> list[str]:
+        # ChoiceField already rejects unknown keys; this adds the duplicate check as a 400 rather
+        # than a 500 from the model setter.
+        try:
+            validate_overview_metrics_list(value)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return value
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -258,6 +308,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         if "campaign_field_preferences" in validated_data:
             instance.campaign_field_preferences = validated_data["campaign_field_preferences"]
+
+        if "overview_metrics" in validated_data:
+            instance.overview_metrics = validated_data["overview_metrics"]
 
         instance.save()
         return instance

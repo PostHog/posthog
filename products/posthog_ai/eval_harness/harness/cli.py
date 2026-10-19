@@ -61,6 +61,7 @@ class HarnessOptions:
     """Sandbox-only flags the user passed explicitly, so a run without sandboxed
     suites can reject them instead of silently ignoring them."""
 
+    no_send_logs: bool = False
     verbose: bool = False
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
     interactive: bool | None = None
@@ -190,6 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Exit nonzero when the mean score across all experiments falls below this fraction (0-1).",
     )
+    parser.add_argument(
+        "--no-send-logs",
+        action="store_true",
+        help="Keep evaluation results local for every suite. No Braintrust key is required; model API calls still run.",
+    )
     return parser
 
 
@@ -265,6 +271,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         trials=args.trials,
         fail_under=args.fail_under,
         sandbox_flags_set=sandbox_flags_set,
+        no_send_logs=args.no_send_logs,
         infrastructure_retries=args.infra_retries,
         verbose=args.verbose,
         interactive=args.interactive,

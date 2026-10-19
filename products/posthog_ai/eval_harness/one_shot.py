@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from .base import _BaseEvalRun
+from .base import CaseBudgetExceeded, _BaseEvalRun
 from .config import BaseEvalCase
 from .engines.types import CaseHooks, ExperimentResult
 from .log_sink import write_case_logs
@@ -73,10 +73,14 @@ class _OneShotEvalRun(_BaseEvalRun):
             await self._set_case_phase(hooks, "agent")
             # Budget the task from slot acquisition, so time spent queued on the
             # semaphore can never eat into a case's timeout.
-            output = await asyncio.wait_for(
-                self._task_fn(case, self.ctx),
-                timeout=self.ctx.per_case_timeout_seconds,
-            )
+            budget = asyncio.timeout(self.ctx.per_case_timeout_seconds)
+            try:
+                async with budget:
+                    output = await self._task_fn(case, self.ctx)
+            except TimeoutError as error:
+                if budget.expired():
+                    raise CaseBudgetExceeded from error
+                raise
         await self._set_case_phase(hooks, "logs")
         output.setdefault("prompt", case.prompt)
         await self._write_local_logs(

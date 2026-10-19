@@ -155,6 +155,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         tail = rows["other-source" if limit == 20 else BREAKDOWN_OTHER_STRING_LABEL]
         self.assertEqual((tail.returned7d, tail.returned30d, tail.medianReturnDays), (0, 1, 30))
         self.assertEqual(response.totalCohortSize, 4)
+        self.assertEqual(response.overallMedianReturnDays, 20)
+        self.assertIsNone(response.previousOverallMedianReturnDays)
 
     @time_machine.travel("2023-02-05T12:00:00Z", tick=False)
     def test_summary_eligibility_and_previous_period(self) -> None:
@@ -184,6 +186,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(current.returners, 2)
         self.assertEqual((previous.acquired, previous.returned7d, previous.returned30d), (1, 1, 1))
         self.assertEqual(previous.medianReturnDays, 1)
+        self.assertEqual(response.overallMedianReturnDays, 4)
+        self.assertEqual(response.previousOverallMedianReturnDays, 1)
         no_return = next(row for row in response.summary or [] if row.breakdownValue == "new-source")
         self.assertEqual((no_return.eligible7d, no_return.eligible30d, no_return.returners), (0, 0, 0))
         self.assertIsNone(no_return.medianReturnDays)
