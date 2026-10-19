@@ -66,7 +66,7 @@ describe("DesktopAccessScreen", () => {
   it.each([
     ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
-    [null, "paused new sign-ups"],
+    [null, "We'll contact you with next steps"],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
     track.mockClear();
     renderScreen({ projectId: 1, status: "blocked", reason });

@@ -67,7 +67,7 @@ const SIGNUPS_PAUSED_CONTENT = {
   icon: <HourglassMedium />,
   title: "Desktop sign-ups are paused",
   description:
-    "We paused new sign-ups for PostHog Desktop for now. To ask about access, contact support.",
+    "Sorry, we aren't accepting new sign-ups for PostHog Desktop right now. We'll contact you with next steps when we're ready.",
 };
 
 interface DesktopAccessScreenProps {
