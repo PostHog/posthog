@@ -49,7 +49,7 @@ const GRACE_MS = 20;
 const pastGrace = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, GRACE_MS * 2));
 
-function setup(sessionLogs: SessionLogs = logOf(0)) {
+function setup(sessionLogs: SessionLogs = logOf(0), idleTail?: number) {
   const engine = Object.assign(new EventEmitter(), {
     watch: vi.fn(),
     unwatch: vi.fn(),
@@ -63,6 +63,7 @@ function setup(sessionLogs: SessionLogs = logOf(0)) {
     undefined,
     undefined,
     GRACE_MS,
+    idleTail,
   );
   return { engine, runs };
 }
@@ -579,6 +580,26 @@ describe("CloudRuns", () => {
     second.stop();
     await pastGrace();
     expect(engine.unwatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps only a run's tail once nobody holds it, so chats read earlier do not keep their whole history", async () => {
+    const { engine, runs } = setup(logOf(60), 10);
+    const watch = runs.watch("t1", "r1", () => {}, { olderPageSize: 20 });
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "snapshot",
+      newEntries: Array.from({ length: 10 }, (_, i) => entry(`e${50 + i}`)),
+      totalEntryCount: 60,
+      windowStart: 50,
+    });
+    await watch.loadOlder();
+    expect(runs.preview("t1", "r1")?.entries).toHaveLength(30);
+    watch.stop();
+    await pastGrace();
+    // The tail the next opening starts from, with its place in the log kept.
+    expect(runs.preview("t1", "r1")).toMatchObject({ windowStart: 50 });
+    expect(ids(runs.preview("t1", "r1") ?? emptyRunView)).toHaveLength(10);
   });
 
   it("shows a prefetched tail as soon as a run is opened", async () => {

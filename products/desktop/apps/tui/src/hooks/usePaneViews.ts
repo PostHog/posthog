@@ -1,8 +1,8 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChatView } from "../chatView";
 import { Composer } from "../composer";
-import { findPane, type LayoutState } from "../layout";
+import { allPanes, findPane, type LayoutState } from "../layout";
 import type { TranscriptLine } from "../transcript";
 
 export interface PaneViews {
@@ -44,6 +44,19 @@ export function usePaneViews({
   };
   const chatIn = (paneId: string): ChatView =>
     chatFor(paneId, findPane(layout, paneId)?.taskId ?? null);
+  // A chat view holds every drawn line of its chat; one a pane has left goes, except the one a double Esc brings back.
+  useEffect(() => {
+    const kept = new Set(
+      allPanes(layout).flatMap((pane) => [
+        `${pane.id}:${pane.taskId}`,
+        ...(pane.previous ? [`${pane.id}:${pane.previous.taskId}`] : []),
+      ]),
+    );
+    for (const key of chatViews.current.keys())
+      if (!kept.has(key)) chatViews.current.delete(key);
+    for (const paneId of composers.current.keys())
+      if (!findPane(layout, paneId)) composers.current.delete(paneId);
+  }, [layout]);
   return {
     chatFor,
     chatIn,

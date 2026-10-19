@@ -95,6 +95,8 @@ const AGENT_RESTART_TIMEOUT_MS = 10 * 60_000;
 const CLOCK_SKEW_MS = 5_000;
 // How long a hold waits before watching a run again that still read as finished after its resume.
 const REOPEN_MS = 3_000;
+// The entries a run keeps once nobody holds it: the preview the work list fetched, not the history paged in.
+const IDLE_TAIL = 300;
 
 // The sandbox's agent has reported in: pi writes its own entry, Claude Code and Codex the run_started notification.
 export function runStarted(entry: StoredLogEntry): boolean {
@@ -531,6 +533,8 @@ export class CloudRuns {
       runId: string,
     ) => Promise<string[]>,
     private readonly unwatchGraceMs = UNWATCH_GRACE_MS,
+    // How many entries a run keeps once nobody holds it; the rest pages back in on the next scroll up.
+    private readonly idleTail = IDLE_TAIL,
   ) {}
 
   // What a cloud run waits on the user for, by task: a Claude Code or Codex permission request, or the engine's
@@ -708,8 +712,22 @@ export class CloudRuns {
       entry.listening = false;
       if (entry.opened) this.engine.unwatch(entry.taskId, entry.runId);
       entry.opened = false;
+      this.trim(entry);
     }, this.unwatchGraceMs);
     entry.release.unref?.();
+  }
+
+  // Drops the history a run paged in while it was read, keeping its tail; earlier runs are probed again when needed.
+  private trim(entry: RunEntry): void {
+    const dropped = Math.max(0, entry.view.entries.length - this.idleTail);
+    entry.view = {
+      ...entry.view,
+      entries: entry.view.entries.slice(dropped),
+      windowStart: entry.view.windowStart + dropped,
+    };
+    entry.earlierEntries = [];
+    entry.earlier = [];
+    entry.earlierProbed = false;
   }
 
   private ensureWatching(entry: RunEntry): void {

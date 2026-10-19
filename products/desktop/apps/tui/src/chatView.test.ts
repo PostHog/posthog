@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
+  Markdown,
   resetCapabilitiesCache,
   setCapabilities,
   stripTerminalSequences,
@@ -61,6 +62,24 @@ describe("ChatView", () => {
 
     chat.scrollToEnd();
     expect(plain(chat.render(40, 5)).join("\n")).toContain("Reply 30");
+  });
+
+  // A scroll frame once rebuilt every message's lines; on a long chat that was a pegged core under a fast wheel.
+  it("draws a scroll frame from the lines it already has, rendering only the status again", () => {
+    const chat = new ChatView();
+    chat.setTranscript(replies(300), {
+      notice: { text: "Thinking", detail: "3s", tone: "working" },
+    });
+    chat.render(40, 5);
+    const rendered = vi.spyOn(Markdown.prototype, "render");
+    chat.scrollBy(-20);
+    chat.render(40, 5);
+    chat.scrollBy(-20);
+    chat.render(40, 5);
+    expect(rendered).not.toHaveBeenCalled();
+    rendered.mockRestore();
+    // The lines still come from every message: a wider pane re-renders them all.
+    expect(plain(chat.render(60, 5)).join("\n")).toContain("Reply");
   });
 
   it("offers a way back to the latest message only while scrolled up", () => {

@@ -358,7 +358,16 @@ const JUMP_LABEL = " Jump to bottom (click) ↓ ";
 
 // One pane's chat: pi's message components inside pi's ScrollView, clipped to the pane by us.
 export class ChatView {
-  private items: { id: string; component: Component }[] = [];
+  // `live` items draw differently from frame to frame (the status line's shimmer), so they are never cached.
+  private items: { id: string; component: Component; live?: boolean }[] = [];
+  // The lines of every item before the first live one, at one width, so a scroll frame does not render them again.
+  private cached: {
+    width: number;
+    lines: string[];
+    starts: Map<string, number>;
+    rows: { id: string; start: number; end: number }[];
+    upTo: number;
+  } | null = null;
   private readonly scroll = new ScrollView(new Container(), { follow: "end" });
   // The message at the top of the screen, so new history above it does not move the reader.
   private anchor: { id: string; within: number } | null = null;
@@ -385,6 +394,7 @@ export class ChatView {
   invalidate(): void {
     for (const { component } of this.items) component.invalidate();
     this.transcriptChanged = true;
+    this.cached = null;
   }
 
   setTranscript(
@@ -418,16 +428,25 @@ export class ChatView {
         ? notice
         : null;
     this.items = shown.flatMap((block, index) => {
+      const status = index === shown.length - 1 ? folded : null;
+      // A running call's mark pulses, so its group draws every frame too.
+      const live =
+        status !== null ||
+        (block.kind === "tools" &&
+          block.tools.some(
+            (tool) =>
+              tool.status === "in_progress" || tool.status === "pending",
+          ));
       const component =
         block.kind === "tools"
           ? new ToolGroup(
               block.tools,
               () => this.expanded.has(block.id),
               () => this.hovered === block.id,
-              index === shown.length - 1 ? folded : null,
+              status,
             )
           : new Trimmed(componentFor(block));
-      const item = { id: block.id, component };
+      const item = { id: block.id, component, ...(live && { live: true }) };
       const withGap = needsGap(shown[index - 1], block)
         ? [{ id: `${block.id}:gap`, component: new Spacer(1) }, item]
         : [item];
@@ -450,7 +469,7 @@ export class ChatView {
     if (notice && !folded) {
       this.items.push(
         { id: "notice:gap", component: new Spacer(1) },
-        { id: "notice", component: new NoticeRow(notice) },
+        { id: "notice", component: new NoticeRow(notice), live: true },
       );
     }
     if (waiting) {
@@ -470,19 +489,46 @@ export class ChatView {
       });
     }
     this.transcriptChanged = true;
+    this.cached = null;
+  }
+
+  // Every item's lines up to the first live one, rendered once per width.
+  private head(contentWidth: number): NonNullable<typeof this.cached> {
+    if (this.cached?.width === contentWidth) return this.cached;
+    const upTo = this.items.findIndex((item) => item.live);
+    const head = this.items.slice(0, upTo === -1 ? undefined : upTo);
+    const starts = new Map<string, number>();
+    const lines: string[] = [];
+    const rows: { id: string; start: number; end: number }[] = [];
+    for (const { id, component } of head) {
+      starts.set(id, lines.length);
+      for (const line of component.render(contentWidth))
+        lines.push(line.replace(PROMPT_MARKS, ""));
+      rows.push({ id, start: starts.get(id) ?? 0, end: lines.length });
+    }
+    this.cached = {
+      width: contentWidth,
+      lines,
+      starts,
+      rows,
+      upTo: upTo === -1 ? this.items.length : upTo,
+    };
+    return this.cached;
   }
 
   render(width: number, height: number): string[] {
     const contentWidth = this.scroll.getContentWidth(width);
-    const starts = new Map<string, number>();
-    const content: string[] = [];
-    this.rows = [];
-    for (const { id, component } of this.items) {
+    const head = this.head(contentWidth);
+    const starts = new Map(head.starts);
+    const content = head.lines.slice();
+    this.rows = head.rows.slice();
+    for (const { id, component } of this.items.slice(head.upTo)) {
       starts.set(id, content.length);
-      content.push(...component.render(contentWidth));
+      for (const line of component.render(contentWidth))
+        content.push(line.replace(PROMPT_MARKS, ""));
       this.rows.push({ id, start: starts.get(id) ?? 0, end: content.length });
     }
-    this.content = content.map((line) => line.replace(PROMPT_MARKS, ""));
+    this.content = content;
     this.size = { width: contentWidth, height };
     this.scroll.updateLayout(content.length, height, () => {});
     const start = this.anchor ? starts.get(this.anchor.id) : undefined;
@@ -675,6 +721,7 @@ export class ChatView {
     const id = this.groupAt(row);
     if (!id) return false;
     if (!this.expanded.delete(id)) this.expanded.add(id);
+    this.cached = null;
     return true;
   }
 
@@ -683,6 +730,7 @@ export class ChatView {
     const id = this.groupAt(row);
     if (id === this.hovered) return false;
     this.hovered = id;
+    this.cached = null;
     return true;
   }
 
