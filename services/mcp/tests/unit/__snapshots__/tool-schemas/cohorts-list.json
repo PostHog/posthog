@@ -20,6 +20,11 @@
         "search": {
             "description": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
             "type": "string"
+        },
+        "type": {
+            "description": "Filter cohorts by whether their membership is static or dynamic.",
+            "enum": ["dynamic", "static"],
+            "type": "string"
         }
     },
     "type": "object"
