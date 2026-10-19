@@ -450,7 +450,9 @@ class TestResolver(BaseTest):
         )
         with self.assertRaises(QueryError) as e:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(str(e.exception), "Unable to resolve field: e")
+        message = str(e.exception)
+        self.assertTrue(message.startswith("Unable to resolve field: e. Available fields: "), message)
+        self.assertNotIn("custom property", message)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
@@ -526,6 +528,45 @@ class TestResolver(BaseTest):
             "distinct_id" in message or "person_id" in message,
             f"expected a plausible suggestion in: {message}",
         )
+
+    @parameterized.expand(
+        [
+            (
+                "table_columns",
+                "SELECT group_type_index FROM groups",
+                {"index", "key", "properties"},
+                {"team_id", "revenue_analytics"},
+                " If group_type_index is a custom property, read it as properties.group_type_index.",
+            ),
+            (
+                "quoted_property_name",
+                "SELECT `checkout plan` FROM events",
+                {"event", "timestamp", "properties"},
+                {"team_id", "pdi", "poe", "goe_0", "override"},
+                " If checkout plan is a custom property, read it as properties.`checkout plan`.",
+            ),
+            ("aliased_subquery", "SELECT x FROM (SELECT 1 AS a, 2 AS b) AS t", {"a", "b"}, set(), None),
+            (
+                "column_aliased_table",
+                "SELECT zz FROM events AS e(a, b)",
+                {"a", "b", "properties"},
+                {"uuid", "event"},
+                " If zz is a custom property, read it as properties.zz.",
+            ),
+        ]
+    )
+    def test_unresolved_field_without_close_match_lists_available_fields(
+        self, _name: str, query: str, listed: set[str], not_listed: set[str], property_hint: str | None
+    ) -> None:
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+        message = str(ctx.exception)
+        fields_part, _, hint = message.partition("Available fields: ")[2].partition(".")
+        fields = set(fields_part.split(", "))
+        self.assertLessEqual(listed, fields, message)
+        self.assertFalse(not_listed & fields, message)
+        self.assertEqual(hint, property_hint or "", message)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
