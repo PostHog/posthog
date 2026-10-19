@@ -32,14 +32,20 @@ describe('metricVariables', () => {
             'y',
         ])
         expect(orderVariables([promql('job', 'label_values(up{job="$job"}, job)')]).cycle).toEqual(['job'])
+        const sqlWithComments: MetricsDashboardVariable = {
+            name: 'env',
+            source: 'sql',
+            query: "SELECT 'prod' -- $env\n/* $env */ // $env\n# $env",
+        }
+        expect(orderVariables([sqlWithComments]).cycle).toEqual([])
     })
 
     it.each([
-        ['a SQL query gets the loaded options of All', 'sql', ['a', 'b']],
-        ['a PromQL query matches everything without them', 'promql', []],
-    ])('%s, and only of the variables it refers to', (_name, source, values) => {
+        ['a SQL query gets the loaded options of All', 'sql', 'SELECT a WHERE zone IN $zone', ['a', 'b']],
+        ['a PromQL query matches everything without them', 'promql', 'label_values(up{zone=~"$zone"}, a)', []],
+    ])('%s, and only of the variables it refers to', (_name, source, text, values) => {
         const zone = { ...custom('zone', []), includeAll: true, current: { values: [], all: true } }
-        const query = { name: 'q', source, query: 'label_values(up{zone=~"$zone"}, a)' } as MetricsDashboardVariable
+        const query = { name: 'q', source, query: text } as MetricsDashboardVariable
         expect(selectionsForRequest(query, [zone, cluster, query], { zone: ['a', 'b'] })).toEqual([
             { name: 'zone', values, all: true, allValue: null },
         ])
@@ -99,6 +105,7 @@ describe('metricVariables', () => {
         ['(', ['a'], ['a']],
         ['/API-(.*)/i', ['api-1', 'web-1'], ['1']],
         ['^(a+)+$', ['a'.repeat(40) + 'b', 'aa'], ['aa']],
+        ['^(api-)?web$', ['web', 'api-web'], ['api-']],
     ])('applies the regex %s', (regex, options, expected) => {
         expect(applyVariableRegex(options, regex)).toEqual(expected)
     })

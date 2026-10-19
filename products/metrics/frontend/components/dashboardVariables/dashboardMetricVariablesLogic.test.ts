@@ -18,10 +18,112 @@ const variables: MetricsDashboardVariable[] = [
     { name: 'route', source: 'sql', query: 'SELECT route WHERE service = $service', current: { values: ['/a'] } },
 ]
 
+const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+function deferred(): { promise: Promise<{ results: string[] }>; resolve: (results: string[]) => void } {
+    let resolve: (results: string[]) => void = () => {}
+    const promise = new Promise<{ results: string[] }>((done) => {
+        resolve = (results) => done({ results })
+    })
+    return { promise, resolve }
+}
+
 describe('dashboardMetricVariablesLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
+    })
+
+    it('keeps a selection the user makes while a background query finishes', async () => {
+        const zone = deferred()
+        mockOptions.mockImplementation(async (_team, body) => {
+            if (body.query === 'SELECT zone') {
+                return zone.promise
+            }
+            return { results: ['/a', '/b', '/c'] }
+        })
+        const withZone: MetricsDashboardVariable[] = [
+            ...variables,
+            { name: 'zone', source: 'sql', query: 'SELECT zone', current: { values: ['eu'] } },
+        ]
+        // The dashboard passes each published selection back in as props, as `DashboardMetricVariables` does.
+        const onSelectionsChange = jest.fn((next: MetricsDashboardVariable[]) => {
+            dashboardMetricVariablesLogic({ dashboardId: 1, variables: next, onSelectionsChange })
+        })
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables: withZone, onSelectionsChange })
+        logic.mount()
+        await flush()
+        logic.actions.select('service', { values: ['worker'] })
+        await flush()
+        logic.actions.select('route', { values: ['/c'] })
+        await flush()
+
+        zone.resolve(['us'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const last = onSelectionsChange.mock.calls.at(-1)?.[0] as MetricsDashboardVariable[]
+        expect(last.map((variable) => variable.current)).toEqual([
+            { values: ['worker'] },
+            { values: ['/c'] },
+            { values: ['us'] },
+        ])
+    })
+
+    it('waits for a dependent that is still loading before it publishes another change', async () => {
+        mockOptions.mockResolvedValue({ results: ['/a'] })
+        const onSelectionsChange = jest.fn()
+        const withText: MetricsDashboardVariable[] = [
+            ...variables,
+            { name: 'env', source: 'textbox', current: { values: ['prod'] } },
+        ]
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables: withText, onSelectionsChange })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const routes = deferred()
+        mockOptions.mockReturnValue(routes.promise)
+        logic.actions.select('service', { values: ['worker'] })
+        await flush()
+        logic.actions.select('env', { values: ['dev'] })
+        await flush()
+        expect(onSelectionsChange).not.toHaveBeenCalled()
+
+        routes.resolve(['/b'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(onSelectionsChange).toHaveBeenCalledTimes(1)
+        expect(
+            onSelectionsChange.mock.calls[0][0].map((variable: MetricsDashboardVariable) => variable.current)
+        ).toEqual([{ values: ['worker'] }, { values: ['/b'] }, { values: ['dev'] }])
+    })
+
+    it('loads a changed definition before it publishes it', async () => {
+        mockOptions.mockResolvedValue({ results: ['/a'] })
+        const onSelectionsChange = jest.fn()
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables, onSelectionsChange })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        mockOptions.mockResolvedValue({ results: ['/z'] })
+        const redefined = [variables[0], { ...variables[1], query: 'SELECT other_route WHERE service = $service' }]
+        logic.actions.stage(redefined, ['route'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(onSelectionsChange).toHaveBeenCalledTimes(1)
+        expect(onSelectionsChange.mock.calls[0][0][1]).toEqual({ ...redefined[1], current: { values: ['/z'] } })
+    })
+
+    it('runs at most four option requests at once', async () => {
+        const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
+            name: `v${index}`,
+            source: 'sql',
+            query: `SELECT ${index}`,
+        }))
+        mockOptions.mockReturnValue(new Promise(() => {}))
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables: many, onSelectionsChange: jest.fn() })
+        logic.mount()
+        await flush()
+
+        expect(mockOptions).toHaveBeenCalledTimes(4)
     })
 
     it('publishes a parent selection once, with the selections of its dependents reconciled', async () => {

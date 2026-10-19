@@ -281,6 +281,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             {
                 selectVariable: () => null,
                 addVariable: () => null,
+                removeVariable: () => null,
             },
         ],
         showAllErrors: [false, { apply: () => true }],
@@ -301,6 +302,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                 loadPreviewSuccess: () => null,
                 loadPreviewFailure: (_, { error }) => error,
                 selectVariable: () => null,
+                removeVariable: () => null,
             },
         ],
     })),
@@ -337,6 +339,9 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             actions.selectVariable(values.draft.length - 1)
         },
         selectVariable: () => {
+            actions.loadPreview()
+        },
+        removeVariable: () => {
             actions.loadPreview()
         },
         apply: ({ onSave }) => {
