@@ -179,6 +179,7 @@ class TestDataForSEOSource:
             ("body_low_balance", "DataForSEO API error [40210]"),
             ("body_blocked", "DataForSEO API error [40201]"),
             ("body_daily_limit", "DataForSEO API error [40203]"),
+            ("body_invalid_language", "Invalid Field: 'language_name'"),
         ]
     )
     def test_non_retryable_errors_cover_permanent_failures(self, _name: str, expected_key: str) -> None:

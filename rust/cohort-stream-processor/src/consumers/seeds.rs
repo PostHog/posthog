@@ -25,7 +25,7 @@ use rdkafka::{Offset, TopicPartitionList};
 use tracing::{debug, info, warn};
 
 use crate::consumers::events::{fsync_then_commit, run_pauser_loop, EventDispatcher};
-use crate::consumers::merges::owned_committable_offsets;
+use crate::consumers::merges::{committable_after_drain, owned_committable_offsets};
 use crate::observability::disk::{DiskUtilization, SharedDiskUtilization};
 use crate::observability::metrics::{
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_SEEDS_CONSUMED,
@@ -527,12 +527,12 @@ impl SeedFollowerConsumer {
         let mut prev_paused_target: HashSet<i32> = HashSet::new();
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
 
-        loop {
+        let owned_at_shutdown = loop {
             tokio::select! {
                 biased;
                 _ = self.handle.shutdown_recv() => {
                     info!(topic = %self.topic, "shutdown signal received, stopping seed consume loop");
-                    break;
+                    break self.dispatcher.owned_set();
                 }
                 outcome = self.consume_batch() => {
                     self.cycle(outcome, &mut holdover, &mut pacing, &mut prev_paused_target, &pause_tx).await;
@@ -541,7 +541,6 @@ impl SeedFollowerConsumer {
                         fsync_then_commit(
                             self.dispatcher.handle(),
                             &self.consumer,
-                            &self.dispatcher.merge_deps().seed_tracker,
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
@@ -551,7 +550,7 @@ impl SeedFollowerConsumer {
                     }
                 }
             }
-        }
+        };
 
         drop(pause_tx);
         if let Err(err) = pauser_task.await {
@@ -561,11 +560,17 @@ impl SeedFollowerConsumer {
             warn!(error = %err, "seed idle-probe task did not exit cleanly");
         }
 
+        let offsets = committable_after_drain(
+            &self.dispatcher.merge_deps().seed_tracker,
+            &self.dispatcher,
+            owned_at_shutdown,
+            &self.topic,
+        )
+        .await;
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
-            &self.dispatcher.merge_deps().seed_tracker,
-            self.owned_committable_offsets(),
+            offsets,
             &self.topic,
             CommitMode::Sync,
         )
@@ -846,7 +851,7 @@ mod tests {
 
     use cohort_core::seed::{
         BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileScope, ReconcileTile,
-        RunId, SChunkMs, ScannedAtMs,
+        RunBoundaryMs, RunId, SChunkMs, ScannedAtMs,
     };
     use uuid::Uuid;
 
@@ -1254,6 +1259,7 @@ mod tests {
                 .unwrap(),
             ),
             RunId(Uuid::nil()),
+            RunBoundaryMs(0),
         );
         let bytes = serde_json::to_vec(&reconcile).unwrap();
         assert!(matches!(
@@ -1295,6 +1301,7 @@ mod tests {
             CohortId(42),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
+            RunBoundaryMs(0),
         );
         let reconcile_seed = |offset| ConsumedSeed {
             work: SeedWork::Reconcile(reconcile.clone()),

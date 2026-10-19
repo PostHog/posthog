@@ -209,7 +209,7 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
             "launchdarkly_api",
         ),
         swiftpm=("github.com/launchdarkly/ios-client-sdk", "github.com/launchdarkly/swift-launchdarkly-observability"),
-        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 
     supported_versions = ("v2",)

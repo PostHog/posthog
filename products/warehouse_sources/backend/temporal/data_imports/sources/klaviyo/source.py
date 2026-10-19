@@ -79,7 +79,7 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
         pub=("klaviyo_flutter_sdk", "klaviyo_flutter"),
         rubygems=("klaviyo-api-sdk", "klaviyo", "klaviyo_sdk"),
         swiftpm=("github.com/klaviyo/klaviyo-swift-sdk",),
-        competes_with=(ProductKey.WORKFLOWS,),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     supported_versions = (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2026_07_15)

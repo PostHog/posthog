@@ -72,7 +72,7 @@ class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConf
             "com.langchain.smith:langsmith-java-wrappers",
         ),
         rubygems=("langsmith-sdk",),
-        competes_with=(ProductKey.LLM_ANALYTICS,),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

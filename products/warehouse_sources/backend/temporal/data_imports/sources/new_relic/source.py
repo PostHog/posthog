@@ -162,7 +162,7 @@ class NewRelicSource(ResumableSource[NewRelicSourceConfig, NewRelicResumeConfig]
             "github.com/newrelic/newrelic-ios-agent",
             "github.com/newrelic/video-agent-ios",
         ),
-        competes_with=(ProductKey.LOGS, ProductKey.TRACING),
+        alternative_to=(ProductKey.LOGS, ProductKey.TRACING),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
