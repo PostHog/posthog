@@ -26,12 +26,14 @@ logger = structlog.get_logger(__name__)
 
 
 # GitHub rejects a refresh token with one of these error codes when it's no longer valid and the user can remediate this
-# We then force the user to re-authorize through the install flow, by deleting the bad integration
+# We then force the user to re-authorize through the install flow, by flagging the bad integration
 _GITHUB_UNRECOVERABLE_REFRESH_ERRORS = {
     "bad_refresh_token",
     "refresh_token_expired",
     "unauthorized_client",
 }
+
+NEEDS_REAUTHORIZATION_AT_CONFIG_KEY = "needs_reauthorization_at"
 
 
 def user_integration_kind_choices() -> list[tuple[str, str | Promise]]:
@@ -300,7 +302,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
     @property
     def needs_reauthorization(self) -> bool:
         """Whether the stored user tokens were stripped and the person has to reconnect."""
-        return bool((self.integration.config or {}).get("needs_reauthorization_at"))
+        return bool((self.integration.config or {}).get(NEEDS_REAUTHORIZATION_AT_CONFIG_KEY))
 
     def refresh_user_access_token(self) -> None:
         """Exchange the refresh token for a fresh user-to-server access token.
@@ -314,7 +316,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         if not client_id or not client_secret:
             raise Exception("GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET not configured, cannot refresh user token")
         if not refresh_token:
-            self._discard("no user refresh token stored")
+            self._mark_needs_reauthorization("no user refresh token stored")
             raise ReauthorizationRequired("No refresh token stored for this GitHub integration.")
 
         response = requests.post(
@@ -336,7 +338,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         if not access_token:
             error = payload.get("error")
             if error in _GITHUB_UNRECOVERABLE_REFRESH_ERRORS:
-                self._discard(f"refresh rejected by GitHub: {error}")
+                self._mark_needs_reauthorization(f"refresh rejected by GitHub: {error}")
                 raise ReauthorizationRequired(f"GitHub refused the stored refresh token ({error}).")
             raise Exception(f"Unexpected refresh failure from GitHub: {error or response.status_code}")
 
@@ -346,14 +348,13 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         """Return a non-expired user-to-server access token, refreshing on demand.
 
         Raises :class:`ReauthorizationRequired` if the row lacks tokens, the refresh token is
-        expired, or GitHub rejects a refresh attempt. The row is kept and flagged in those cases,
-        so the person still has a connection to reconnect rather than a vanished one.
+        expired, or GitHub rejects a refresh attempt. The row is kept and flagged in those cases.
         """
         if not self.user_access_token:
-            self._discard("no user access token stored")
+            self._mark_needs_reauthorization("no user access token stored")
             raise ReauthorizationRequired("No user access token stored for this GitHub integration.")
         if self.user_refresh_token_expired():
-            self._discard("user refresh token expired")
+            self._mark_needs_reauthorization("user refresh token expired")
             raise ReauthorizationRequired("The stored GitHub user refresh token has expired.")
         if self.user_access_token_expired():
             self.refresh_user_access_token()
@@ -570,14 +571,12 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             return None
         return int(time.time()) - int(refreshed_at)
 
-    def _discard(self, reason: str) -> None:
+    def _mark_needs_reauthorization(self, reason: str) -> None:
         """Strip the unusable tokens and flag the row for reconnection, keeping the row itself.
 
-        Every caller reaches this because the stored tokens cannot produce an access token, and
-        each one raises :class:`ReauthorizationRequired` straight after. Deleting the row as well
-        left the person with nothing to repair and no record of why their connection went, which
-        reads to them as never having connected. A real disconnection is a different path: the
-        views delete the row themselves.
+        Every caller raises :class:`ReauthorizationRequired` straight after. The kept row gives the
+        person a connection to repair and records why it stopped working. A real disconnection is
+        a different path: the views delete the row themselves.
         """
         token_age_seconds = self._user_token_age_seconds()
         logger.info(
@@ -592,7 +591,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         self.integration.config = {
             **(self.integration.config or {}),
             "needs_reauthorization_reason": reason,
-            "needs_reauthorization_at": int(time.time()),
+            NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: int(time.time()),
         }
         audit = GitHubAudit.personal(self.integration)
         try:

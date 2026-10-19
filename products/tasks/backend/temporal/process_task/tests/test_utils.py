@@ -980,7 +980,7 @@ class TestGetUserGithubIntegration(TestCase):
             config={"installation_id": "222"},
             sensitive_config={"user_access_token": "gho_b", "user_refresh_token": "ghr_b"},
         )
-        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._discard(
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._mark_needs_reauthorization(
             "refresh rejected by GitHub: bad_refresh_token"
         )
 

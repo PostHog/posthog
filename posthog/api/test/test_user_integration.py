@@ -1300,7 +1300,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
 
     def test_reconnecting_clears_a_reauthorization_flag(self):
         flagged = _create_user_integration(self.user)
-        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._discard(
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._mark_needs_reauthorization(
             "refresh rejected by GitHub: bad_refresh_token"
         )
 

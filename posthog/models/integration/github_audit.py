@@ -63,7 +63,6 @@ class GitHubAuditPayload:
         "credential_refreshed": {"reason", "refresh_token_rotated"},
         "credential_deleted": {"reason"},
         "credential_reauthorization_required": {"reason", "token_age_seconds"},
-        "credential_delete_failed": {"failure_type"},
         "credential_mark_failed": {"failure_type"},
         "discovery_credential_selected": {"discovery_id", *PERSONAL_FIELDS},
         "discovery_github_response": {"discovery_id", "github_status", "github_request_id"},
