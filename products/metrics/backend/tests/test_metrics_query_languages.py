@@ -193,8 +193,9 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
             NOW - dt.timedelta(hours=2),
             NOW,
             1000,
+            max_length=3,
         )
-        assert sorted(options) == ["api", "worker"]
+        assert sorted(options) == ["api"]
 
     def test_generated_sql_matches_the_builder_engine(self) -> None:
         self._seed()
