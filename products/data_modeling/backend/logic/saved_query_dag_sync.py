@@ -802,9 +802,5 @@ def promote_view_nodes_to_matview(saved_query: "DataWarehouseSavedQuery") -> int
 
 
 def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
-    """Repair a whole DAG's nodes, for the tier conversion that is about to sweep its v1 schedules.
-
-    v1 materializes a saved query whatever its node type, so a stranded node keeps running right up
-    until that sweep and only goes dark afterwards.
-    """
+    """Repair a whole DAG's nodes, for the tier conversion."""
     return _promote_view_nodes(Node.objects.filter(dag=dag))

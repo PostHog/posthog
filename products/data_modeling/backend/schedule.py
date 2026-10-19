@@ -59,10 +59,6 @@ async def get_v2_scheduled_dag_ids(
 ) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
 
-    A DAG appearing here has been migrated off the frozen v1 backend. Callers performing v1
-    schedule operations must skip these DAGs' saved queries so they never re-create or revive a
-    v1 schedule for a DAG already running on v2.
-
     `tiered_only` counts only cadence-tier schedules (`{dag_id}:{seconds}`), ignoring the bare
     whole-DAG `{dag_id}` schedule the legacy migration left behind. A bare schedule fires the DAG
     but honours no frequency target, so a caller about to apply one must treat such a DAG as not
@@ -107,19 +103,7 @@ def get_v2_saved_query_ids(
 
     `tiered_only` narrows "on v2" to DAGs with a cadence tier, as on `get_v2_scheduled_dag_ids`.
 
-    A saved query counts as on v2 when any DAG it belongs to has a v2 schedule, because it can sit
-    in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
-
-    `team_id` extends that to saved queries with no node, answering from the team's DAGs instead.
-    A node can be absent because `sync_saved_query_to_dag` rolls its creation back when dependency
-    resolution raises, and reading "no node" as "not on v2" mints a v1 per-query schedule beside the team's
-    live tier, which then materializes the query twice on every cycle. Only a caller that is about
-    to create a v1 schedule needs this, so it stays opt-in: it answers about the team rather than
-    about a placement, and such a caller must still check for a node before scheduling. Pass the
-    team the candidates belong to, never one derived from the ids themselves.
-
-    Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
-    queries must be skipped by v1 schedule commands so we never undo migration progress.
+    Optionally restrict the lookup to `candidate_ids` to keep the query bounded.
     """
     if candidate_ids is not None:
         if not candidate_ids:

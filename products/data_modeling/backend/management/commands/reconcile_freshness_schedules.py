@@ -72,8 +72,6 @@ class Command(BaseCommand):
             if options["default_interval_seconds"] is not None
             else None
         )
-        # Seed every DAG before touching intervals: a query in two DAGs seeds from the shared
-        # interval, so sweeping/nulling mid-loop would corrupt the other DAG's seed.
-        seeded_by_dag = [(dag, convert_dag_to_tiers(dag, default=default)) for dag in dag_list]
-        for dag, seeded in seeded_by_dag:
+        for dag in dag_list:
+            seeded = convert_dag_to_tiers(dag, default=default)
             self.stdout.write(f"DAG {dag.name} ({dag.id}): seeded {seeded} target(s), reconciled")

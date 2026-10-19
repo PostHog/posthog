@@ -292,11 +292,8 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
     """Seed per-node targets from the DAG's current cadence, then reconcile it to per-cadence tier
-    schedules. The shared conversion step both entry points (the v1 migrate command and
-    reconcile_freshness_schedules) run before clearing the now-redundant saved-query intervals.
-    Also repairs nodes a table backs but the graph still calls ephemeral views: v1 runs them
-    whatever their type, so they only go dark once the conversion's sweep removes their v1
-    schedule.
+    schedules. The shared conversion step of batch_reconcile_teams and reconcile_freshness_schedules.
+    Also repairs nodes a table backs but the graph still calls ephemeral views.
 
     Returns how many targets were seeded.
     """
@@ -408,9 +405,7 @@ class TeamScheduleTeardownError(Exception):
 
 def delete_team_data_modeling_schedules(team_id: int) -> None:
     """Tear down every Temporal schedule data modeling owns for a team, before CASCADE removes the
-    rows that name them. A team runs per-saved-query schedules or per-DAG ones, and converting
-    between the two nulls `sync_frequency_interval`, so no field can decide which half to sweep —
-    both are swept unconditionally.
+    rows that name them.
 
     Raises `TeamScheduleTeardownError` if any delete failed, so the caller can retry. What outlives
     the retries is left to the orphan sweeps, which start from Temporal and so can still find a

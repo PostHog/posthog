@@ -542,8 +542,6 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
         assert has_run.type == NodeType.MAT_VIEW
 
     def test_conversion_to_tiers_repairs_stranded_nodes(self):
-        # The v1 sweep that follows conversion is what makes a view-typed node go dark, so the
-        # repair has to happen as part of converting, not on some later pass.
         dag = DAG.get_or_create_default(self.team)
         stranded = self._backed(dag, "stranded", NodeType.VIEW)
         set_declared_target(stranded, M15)

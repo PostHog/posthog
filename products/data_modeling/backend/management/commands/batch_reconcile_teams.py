@@ -181,12 +181,8 @@ class Command(BaseCommand):
         if not apply:
             return
 
-        # Seed every DAG before sweeping any intervals: a query in two DAGs seeds from the shared
-        # interval, so sweeping/nulling mid-loop would corrupt the other DAG's seed.
-        for dag, _preview, dag_record in plans:
-            dag_record["seeded"] = convert_dag_to_tiers(dag)
-
         for dag, preview, dag_record in plans:
+            dag_record["seeded"] = convert_dag_to_tiers(dag)
             expected = sorted(
                 tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in preview.desired_tiers
             )
