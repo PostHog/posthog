@@ -26,7 +26,8 @@ class TestBigCommerceSource:
 
     @staticmethod
     def _empty_page(endpoint: str) -> ScriptedResponse:
-        if endpoint == "orders":
+        # Order transactions fan out over the V2 orders listing.
+        if endpoint in ("orders", "order_transactions"):
             return ScriptedResponse(json=[])
         return ScriptedResponse(json={"data": [], "meta": {"pagination": {"current_page": 1, "total_pages": 1}}})
 

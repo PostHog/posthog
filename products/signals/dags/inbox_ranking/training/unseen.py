@@ -22,11 +22,7 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import (
-    REPORT_EMBEDDINGS_FEATURE_SET,
-    TITLE_EMBEDDINGS_FEATURE_SET,
-    FeatureSet,
-)
+from products.signals.backend.ranking.features import REPORT_EMBEDDINGS_FEATURE_SET, FeatureSet
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.training.calibration import (
     CalibrationBucket,
@@ -59,9 +55,10 @@ CANDIDATE_ROLE = "candidate"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
-REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
-TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
-NN_MODEL_NAME = "nn"
+# A recipe change takes a new name (`training/recipe.py`). The versions of an earlier name stay
+# servable by key, and their online grades keep their own series.
+REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings_v2"
+NN_MODEL_NAME = "nn_v2"
 # The Dagster code locations that train a family: `signals` on the main image, and `signals_ml` on
 # the image that carries torch.
 MAIN_LOCATION = "signals"
@@ -69,7 +66,7 @@ ML_LOCATION = "signals_ml"
 # Families this build no longer trains. Saved scores objects still hold their rows, so every reader
 # drops them through `with_model_names`: the grades stop with the family, and the rewrite guard does
 # not require rows that no re-run can produce.
-RETIRED_MODEL_NAMES = frozenset({"tabular_xgb"})
+RETIRED_MODEL_NAMES = frozenset({"tabular_xgb", "title_embeddings"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -116,16 +113,11 @@ class ModelFamily:
 # The families the training jobs train, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
 # writes its first candidate, and a family that fails costs its own series rather than every one.
-# The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
-# same module-level `XGB_PARAMS`, so their width, grain, row budget, sampling, split and booster
-# settings match by construction. Keep it that way: the pair is a measurement of the text choice,
-# and a recipe that differed between them would answer a question nobody asked.
 # `nn` is one multi-head network over the report vector and the team's project vectors. It needs
 # torch, so the `signals_ml` location trains it and the main location never fits it. It declares
 # the report embeddings set, because that set builds its report input in training and at serving.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
-    ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
     ModelFamily(
         name=NN_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET, learner=ONNX_MODEL_KIND, location=ML_LOCATION
     ),

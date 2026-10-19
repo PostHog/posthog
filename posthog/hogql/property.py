@@ -688,6 +688,7 @@ _NEGATIVE_OPERATOR_COMPLEMENTS = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
 }
 
 
@@ -753,6 +754,21 @@ def validate_regex(value: ValueT) -> None:
         re2.compile(value, options=_RE2_QUIET)
     except re2.error as err:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
+
+
+# EXACT and IS_NOT stay out because their _expr_to_compare_op arms compare against one scalar.
+_WHOLE_LIST_OPERATORS = frozenset(
+    {
+        PropertyOperator.IN_,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+    }
+)
 
 
 def _expr_to_compare_op(
@@ -939,6 +955,18 @@ def _expr_to_compare_op(
             op=ast.CompareOperationOp.Eq,
             left=apply_path_cleaning(expr, team),
             right=apply_path_cleaning(ast.Constant(value=value), team),
+        )
+    elif operator == PropertyOperator.IS_CLEANED_PATH_NOT_EXACT:
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=apply_path_cleaning(expr, team),
+                    right=apply_path_cleaning(ast.Constant(value=value), team),
+                ),
+                # Keep rows where the property is missing, matching every other negative operator.
+                ast.Call(name="isNull", args=[expr]),
+            ]
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
         values: list
@@ -1436,7 +1464,10 @@ def property_to_expr(
                 chain = split[:-1]
                 property.key = split[-1]
 
-            if isinstance(value, list) and len(value) > 1:
+            # The shared list handling below rebuilds the Property from property.key to split a list
+            # per value. That key no longer holds the table chain, so this branch splits the list itself.
+            # It falls through for the whole-list operators, which the shared handling never splits.
+            if isinstance(value, list) and len(value) > 1 and operator not in _WHOLE_LIST_OPERATORS:
                 field = ast.Field(chain=[*chain, property.key])
                 exprs = [
                     _expr_to_compare_op(
@@ -1449,13 +1480,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
@@ -1533,14 +1558,6 @@ def property_to_expr(
                 ],
             )
 
-        # _expr_to_compare_op combines every value of these into one multiSearchAnyCaseInsensitive
-        # call, so they must reach it with the list intact. Expanding them per value would OR
-        # separate negations together and keep a row that matches only one needle.
-        combines_values_itself = operator in (
-            PropertyOperator.ICONTAINS_MULTI,
-            PropertyOperator.NOT_ICONTAINS_MULTI,
-        )
-
         if isinstance(value, list) and operator not in (
             PropertyOperator.BETWEEN,
             PropertyOperator.NOT_BETWEEN,
@@ -1557,30 +1574,27 @@ def property_to_expr(
                 # _expr_to_compare_op's ICONTAINS_MULTI/NOT_ICONTAINS_MULTI arms re-wrap a scalar
                 # into a single-element list, so collapsing here is a no-op round trip for them too.
                 value = value[0]
-            elif not combines_values_itself:
-                if operator in (
-                    PropertyOperator.EXACT,
-                    PropertyOperator.IS_NOT,
-                    PropertyOperator.IN_,
-                    PropertyOperator.NOT_IN,
-                ):
-                    coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
-                    values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
-                    negate = operator_is_negative(operator)
-                    if array_field is not None:
-                        return _array_property_filter(
-                            array_field,
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values
-                            ),
-                            negate=negate,
-                        )
-                    return ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
-                        left=expr,
-                        right=values,
+            elif operator in (
+                PropertyOperator.EXACT,
+                PropertyOperator.IS_NOT,
+                PropertyOperator.IN_,
+                PropertyOperator.NOT_IN,
+            ):
+                coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+                values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
+                negate = operator_is_negative(operator)
+                if array_field is not None:
+                    return _array_property_filter(
+                        array_field,
+                        ast.CompareOperation(op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values),
+                        negate=negate,
                     )
-
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
+                    left=expr,
+                    right=values,
+                )
+            elif operator not in _WHOLE_LIST_OPERATORS:
                 exprs = [
                     property_to_expr(
                         Property(
@@ -1596,13 +1610,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
@@ -1658,13 +1666,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
@@ -1790,7 +1792,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
                 left=clone_expr(expr),
                 right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
             )
-        else:
+        elif operator not in _WHOLE_LIST_OPERATORS:
             exprs = [
                 bound_property_to_expr(
                     Property(
@@ -1805,13 +1807,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
                 )
                 for v in value
             ]
-            if (
-                operator == PropertyOperator.IS_NOT
-                or operator == PropertyOperator.NOT_ICONTAINS
-                or operator == PropertyOperator.NOT_REGEX
-                or operator == PropertyOperator.NOT_STARTS_WITH
-                or operator == PropertyOperator.NOT_ENDS_WITH
-            ):
+            if operator_is_negative(operator):
                 return ast.And(exprs=exprs)
             return ast.Or(exprs=exprs)
 

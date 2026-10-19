@@ -504,6 +504,7 @@ def simulate_detector_on_insight(
     # module's extractor classes — importing the registry at module load would cycle.
     from products.alerts.backend.evaluation.dispatcher import (  # noqa: PLC0415 — breaks dispatcher↔detector import cycle
         DETECTOR_EXTRACTORS,
+        owner_sql_errors,
     )
 
     extractor = DETECTOR_EXTRACTORS.get(kind)
@@ -520,7 +521,8 @@ def simulate_detector_on_insight(
         config=config,
         evaluation_delay_intervals=evaluation_delay_intervals,
     )
-    result, interval_value = extractor.simulate(insight, query, ctx)
+    with owner_sql_errors(query):
+        result, interval_value = extractor.simulate(insight, query, ctx)
     interval_metadata = (
         {
             "evaluation_delay_intervals": result.evaluated_interval.delay,

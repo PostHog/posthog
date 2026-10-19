@@ -254,6 +254,14 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta was too busy to return this table's data, so this sync run did not finish. "
                 "This usually clears on its own and the next sync runs on schedule."
             ),
+            # Graph API code 100, subcode 2446211: Meta refuses to serve an Advantage+ creative
+            # ("degrees of freedom") ad whose asset feed disagrees with its object story spec. The
+            # raw 400 body lands in the stored error otherwise. Keyed on the subcode because Meta
+            # localizes the title and message to the connected user's language.
+            '"error_subcode":2446211': (
+                "Meta refused to return an Advantage+ creative ad whose asset variations don't match "
+                "its main creative. Fix that ad in Ads Manager; the next sync runs on schedule."
+            ),
         }
 
     def get_schemas(

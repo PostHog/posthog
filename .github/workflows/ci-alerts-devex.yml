@@ -108,6 +108,7 @@ jobs:
               timeout-minutes: 2
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  GH_TOKEN: ${{ github.token }}
                   RUNS_DIR: ${{ runner.temp }}/depot-runs
               run: |
                   mkdir -p "$RUNS_DIR"

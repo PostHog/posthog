@@ -1107,6 +1107,88 @@ export interface SignalReportDeletionStatusApi {
     report_id: string
 }
 
+/**
+ * * `get_it_merged` - Get it merged
+ * * `suggested_prompt` - Suggested prompt
+ */
+export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[keyof typeof ReportTaskActionKindEnumApi]
+
+export const ReportTaskActionKindEnumApi = {
+    GetItMerged: 'get_it_merged',
+    SuggestedPrompt: 'suggested_prompt',
+} as const
+
+/**
+ * One report action that starts an agent run, with whether the report offers it now.
+ */
+export interface SignalReportTaskActionApi {
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /** Whether a run of this action can start now. */
+    available: boolean
+    /**
+     * Why the action cannot start now. Null when `available` is true.
+     * @nullable
+     */
+    disabled_reason: string | null
+    /**
+     * Position of the prompt in the report's suggested prompts. Null for other actions.
+     * @nullable
+     */
+    suggested_prompt_index: number | null
+    /** The message the run gets as its first request. */
+    text: string
+}
+
+export interface SignalReportTaskActionListResponseApi {
+    /** Every action the report has, available or not, in a stable order. */
+    results: SignalReportTaskActionApi[]
+}
+
+export interface SignalReportTaskActionRunRequestApi {
+    /** The action to run. Use a value from the actions list.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /**
+     * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
+     * @minimum 0
+     */
+    suggested_prompt_index?: number
+}
+
+export interface SignalReportTaskActionRunResponseApi {
+    /** The task the action created. It is linked to the report. */
+    task_id: string
+    /**
+     * The background run that started, if one did.
+     * @nullable
+     */
+    run_id: string | null
+    /** Link to the task in PostHog. */
+    task_url: string
+    /**
+     * Why the run did not start. Null when it started. The task exists either way.
+     * @nullable
+     */
+    run_error: string | null
+}
+
+export interface SignalReportTaskActionErrorApi {
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error message. */
+    detail: string
+    /** For `report_action_run_active`: the task of the run that is still working. */
+    task_id?: string
+    /** For `report_action_run_active`: the run that is still working. */
+    run_id?: string
+}
+
 export interface SignalReportClaimApi {
     /** Active claim ID returned by an earlier call. Stale claims are rejected. */
     claim_id?: string
@@ -2943,6 +3025,26 @@ export const SignalReportCheckStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
+
+export const ThresholdScalingEnumApi = {
+    Linear: 'linear',
+    Fixed: 'fixed',
+} as const
+
+export interface MonitoringMetricConfigApi {
+    /**
+     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+     * @maximum 527040
+     * @exclusiveMinimum 0
+     */
+    reference_period_minutes: number
+    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+    threshold_scaling: ThresholdScalingEnumApi
+    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+    baseline_period_minutes?: number | null
+}
+
 export type CheckComparisonOperatorEnumApi =
     (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
 
@@ -3031,6 +3133,8 @@ export interface MetricThresholdConfigApi {
     metric_id?: string | null
     /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
     query?: MetricThresholdConfigApiQuery
+    /** Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks. */
+    monitoring?: MonitoringMetricConfigApi | null
     /** What the measured value must satisfy to pass. */
     comparison: CheckComparisonApi
     /** The value observed when the check was written, recorded on each result for context. */
@@ -3766,6 +3870,20 @@ export const ScoutPrecheckQuerySourceEnumApi = {
 } as const
 
 /**
+ * * `run` - Run
+ * * `skip` - Skip
+ * * `error` - Error
+ */
+export type SignalScoutConfigPrecheckOutcomeEnumApi =
+    (typeof SignalScoutConfigPrecheckOutcomeEnumApi)[keyof typeof SignalScoutConfigPrecheckOutcomeEnumApi]
+
+export const SignalScoutConfigPrecheckOutcomeEnumApi = {
+    Run: 'run',
+    Skip: 'skip',
+    Error: 'error',
+} as const
+
+/**
  * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
@@ -3890,6 +4008,22 @@ export interface SignalScoutConfigApi {
     readonly effective_precheck_query: string | null
     /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
     readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
+    /**
+     * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_at: string | null
+    /** The outcome of the latest scheduled pre-check: `run` (the query found something new), `skip` (nothing new, so the run did not start), or `error` (the query failed and the run started). Null if no pre-check has run.
+     *
+     * * `run` - Run
+     * * `skip` - Skip
+     * * `error` - Error */
+    readonly last_precheck_outcome: SignalScoutConfigPrecheckOutcomeEnumApi | null
+    /**
+     * How many rows the latest scheduled pre-check returned, at most 50. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_row_count: number | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -8291,6 +8425,12 @@ export type SignalsScoutRunsRecentPerScoutParams = {
      * @maximum 100
      */
     per_scout_limit?: number
+    /**
+     * Return only this scout's runs. Omit to cover every configured scout. A single-scout page passes it so it does not wait on the probes of the rest of the fleet.
+     * @minLength 1
+     * @maxLength 255
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutReportCheckListParams = {

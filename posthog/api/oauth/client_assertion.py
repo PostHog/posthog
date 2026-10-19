@@ -42,6 +42,15 @@ class ResolvedClientAssertion:
 
 CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
+PRIVATE_KEY_REQUIRED_MESSAGE = (
+    "Set token_endpoint_auth_method to private_key_jwt and publish a jwks_uri in your client metadata, "
+    "call client_registration, then sign a client_assertion."
+)
+UNREADABLE_CLIENT_ASSERTION_MESSAGE = (
+    f"Send client_assertion_type {CLIENT_ASSERTION_TYPE_JWT_BEARER} with the client_assertion, "
+    "and name the client in client_id or the assertion's sub claim."
+)
+
 
 # An assertion is a single-use credential presented immediately, so it needs no real
 # lifetime. Capping it bounds how long a captured assertion is replayable if the jti cache
@@ -76,6 +85,10 @@ def _request_field(request: Any, name: str) -> str:
     """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
     return str(from_body or "")
+
+
+def presents_client_assertion(request: Any) -> bool:
+    return bool(_request_field(request, "client_assertion"))
 
 
 def extract_client_assertion(request: Any) -> ResolvedClientAssertion | None:
