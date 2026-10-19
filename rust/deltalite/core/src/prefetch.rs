@@ -1,4 +1,5 @@
-//! Whole-object prefetch for Delta checkpoint Parquet files.
+//! Whole-object prefetch for Delta checkpoint Parquet files, and a per-load memory of
+//! commit JSON files.
 //!
 //! A snapshot load reads the latest checkpoint through the kernel's Parquet reader, which
 //! issues one ranged GET for the footer, one for the metadata and one per column chunk it
@@ -15,9 +16,22 @@
 //! limit also bounds the aggregate cache for one load, while the process-wide byte budget
 //! bounds concurrent loads. [`crate::handle::TableHandle`] clears the cache after every
 //! open and refresh so a long-lived handle does not pin checkpoint bytes between upserts.
+//!
+//! The same cache holds the commit JSON files of one load. The kernel reads each commit
+//! after the checkpoint two times, and the update after a commit reads the commit that
+//! this process wrote a moment before; both second reads are served from memory. A commit
+//! file is written with a create-only put by every writer and is never written again, so
+//! the copy is exact for as long as the table at this path is the same table. The cache
+//! therefore lives for one operation of one handle: the handle clears it when the
+//! operation ends, a table that is opened again gets a new cache, and a table opened
+//! without a handle stops caching commits when its load ends. The commit entries are
+//! bounded by [`MAX_CACHED_COMMITS`], [`MAX_CACHED_COMMIT_BYTES`] and
+//! [`MAX_CACHED_COMMIT_FILE_BYTES`], and their bytes count against the same two budgets
+//! as the checkpoint bytes. A commit that does not fit is read as before.
 
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -36,7 +50,8 @@ use tokio::sync::{OnceCell, OwnedSemaphorePermit, Semaphore};
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::limits::ProcessLimits;
+use crate::limits::{env_switch, ProcessLimits};
+use crate::logprobe::{commit_path, commit_version, LogAnchor};
 
 /// Largest checkpoint object fetched whole by default. A checkpoint this size describes
 /// a table with hundreds of thousands of live files, whose snapshot the kernel holds in
@@ -55,6 +70,19 @@ pub fn is_checkpoint_file(location: &Path) -> bool {
     let name = location.filename().unwrap_or_default();
     in_log && name.ends_with(".parquet") && name.contains(".checkpoint.")
 }
+
+/// Kill switch for the commit JSON memory; `0` restores one GET for each read of a
+/// commit file.
+pub const COMMIT_JSON_CACHE_ENV: &str = "DELTALITE_COMMIT_JSON_CACHE";
+
+/// Most commit files held at one time. A log tail is as long as the table's checkpoint
+/// interval at most, so only a table without a checkpoint has more.
+pub const MAX_CACHED_COMMITS: usize = 256;
+/// Most commit bytes held at one time.
+pub const MAX_CACHED_COMMIT_BYTES: u64 = 8 * 1024 * 1024;
+/// Largest commit file held. A larger commit keeps its stream, so it is never in memory
+/// as one buffer.
+pub const MAX_CACHED_COMMIT_FILE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 enum Fetched {
@@ -75,11 +103,22 @@ enum Fetched {
 /// an occupied budget falls back to range reads so multipart loads cannot deadlock.
 #[derive(Debug)]
 pub struct CheckpointCache {
+    cache_commits: AtomicBool,
     max_bytes: u64,
     budget: Arc<Semaphore>,
     budget_kb: u32,
     process_limits: Arc<ProcessLimits>,
-    entries: Mutex<HashMap<Path, Arc<OnceCell<Fetched>>>>,
+    entries: Mutex<Entries>,
+    /// The newest commit file that a read through this cache returned.
+    anchor: Mutex<Option<LogAnchor>>,
+}
+
+#[derive(Debug, Default)]
+struct Entries {
+    cells: HashMap<Path, Arc<OnceCell<Fetched>>>,
+    /// Commit files with a cell, and the bytes admitted for them.
+    commits: usize,
+    commit_bytes: u64,
 }
 
 impl CheckpointCache {
@@ -92,11 +131,13 @@ impl CheckpointCache {
     fn with_process_limits(max_bytes: u64, process_limits: Arc<ProcessLimits>) -> Self {
         let budget_kb = max_bytes.div_ceil(1024).clamp(1, u32::MAX as u64) as u32;
         Self {
+            cache_commits: AtomicBool::new(max_bytes > 0 && env_switch(COMMIT_JSON_CACHE_ENV)),
             max_bytes,
             budget: Arc::new(Semaphore::new(budget_kb as usize)),
             budget_kb,
             process_limits,
-            entries: Mutex::new(HashMap::new()),
+            entries: Mutex::new(Entries::default()),
+            anchor: Mutex::new(None),
         }
     }
 
@@ -124,12 +165,13 @@ impl CheckpointCache {
 
     /// Drop every cached object.
     pub fn clear(&self) {
-        self.lock().clear();
+        *self.lock() = Entries::default();
     }
 
     /// Bytes currently held (for observability and tests).
     pub fn cached_bytes(&self) -> u64 {
         self.lock()
+            .cells
             .values()
             .filter_map(|cell| match cell.get() {
                 Some(Fetched::Cached { bytes, .. }) => Some(bytes.len() as u64),
@@ -138,7 +180,103 @@ impl CheckpointCache {
             .sum()
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Path, Arc<OnceCell<Fetched>>>> {
+    /// Number of commit files with an entry (for observability and tests).
+    pub fn cached_commits(&self) -> usize {
+        self.lock().commits
+    }
+
+    /// Whether commit JSON files are served from this cache.
+    pub fn caches_commits(&self) -> bool {
+        self.cache_commits.load(Ordering::Relaxed)
+    }
+
+    /// Stop holding commit files, for a table that no handle clears after each
+    /// operation. Entries already held stay until [`CheckpointCache::clear`].
+    pub fn stop_caching_commits(&self) {
+        self.cache_commits.store(false, Ordering::Relaxed);
+    }
+
+    /// Take the identity of the newest commit file read through this cache since the
+    /// last call.
+    pub(crate) fn take_anchor(&self) -> Option<LogAnchor> {
+        self.anchor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+
+    fn note_commit(&self, meta: &ObjectMeta) {
+        let Some(seen) = LogAnchor::from_meta(meta) else {
+            return;
+        };
+        let mut anchor = self
+            .anchor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if anchor.as_ref().is_none_or(|a| a.version <= seen.version) {
+            *anchor = Some(seen);
+        }
+    }
+
+    /// Store the bytes of a commit this process wrote, so the update after the commit
+    /// reads them from memory. The create-only put succeeded, so the object holds
+    /// exactly these bytes.
+    pub(crate) fn seed(&self, location: Path, bytes: Bytes) {
+        if !self.caches_commits() {
+            return;
+        }
+        let Some(cell) = self.commit_cell(&location) else {
+            return;
+        };
+        let Some((_cache_permit, _process_permit)) = self.admit_commit(bytes.len() as u64) else {
+            return;
+        };
+        let meta = ObjectMeta {
+            location,
+            last_modified: chrono::Utc::now(),
+            size: bytes.len() as u64,
+            e_tag: None,
+            version: None,
+        };
+        drop(cell.set(Fetched::Cached {
+            meta,
+            bytes,
+            _cache_permit,
+            _process_permit,
+        }));
+    }
+
+    /// The cell for a commit file, or `None` when [`MAX_CACHED_COMMITS`] files have one.
+    fn commit_cell(&self, location: &Path) -> Option<Arc<OnceCell<Fetched>>> {
+        let mut entries = self.lock();
+        if let Some(cell) = entries.cells.get(location) {
+            return Some(cell.clone());
+        }
+        if entries.commits >= MAX_CACHED_COMMITS {
+            return None;
+        }
+        entries.commits += 1;
+        Some(entries.cells.entry(location.clone()).or_default().clone())
+    }
+
+    /// Reserve room for `bytes` of one commit file under every bound, without waiting.
+    fn admit_commit(
+        &self,
+        bytes: u64,
+    ) -> Option<(Arc<OwnedSemaphorePermit>, Arc<OwnedSemaphorePermit>)> {
+        if bytes > MAX_CACHED_COMMIT_FILE_BYTES {
+            return None;
+        }
+        let permits = self.try_reserve(bytes)?;
+        let mut entries = self.lock();
+        if entries.commit_bytes + bytes > MAX_CACHED_COMMIT_BYTES {
+            return None;
+        }
+        entries.commit_bytes += bytes;
+        Some(permits)
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Entries> {
         // A poisoned map only means another reader panicked mid-insert; the entries are
         // plain values, so continuing is safe.
         self.entries
@@ -147,7 +285,11 @@ impl CheckpointCache {
     }
 
     fn cell(&self, location: &Path) -> Arc<OnceCell<Fetched>> {
-        self.lock().entry(location.clone()).or_default().clone()
+        self.lock()
+            .cells
+            .entry(location.clone())
+            .or_default()
+            .clone()
     }
 
     /// Record that `location` is too large without touching the store. A ranged read
@@ -239,14 +381,72 @@ impl CheckpointPrefetchStore {
 
     /// Only plain reads are served from memory; HEAD and preconditioned or versioned
     /// reads carry semantics the cached copy cannot honour.
-    fn serves(&self, location: &Path, options: &GetOptions) -> bool {
-        is_checkpoint_file(location)
-            && !options.head
+    fn plain(options: &GetOptions) -> bool {
+        !options.head
             && options.if_match.is_none()
             && options.if_none_match.is_none()
             && options.if_modified_since.is_none()
             && options.if_unmodified_since.is_none()
             && options.version.is_none()
+    }
+
+    fn serves(&self, location: &Path, options: &GetOptions) -> bool {
+        is_checkpoint_file(location) && Self::plain(options)
+    }
+
+    fn whole(meta: ObjectMeta, bytes: Bytes) -> GetResult {
+        let range = 0..bytes.len() as u64;
+        GetResult {
+            payload: GetResultPayload::Stream(
+                futures::stream::once(async move { Ok(bytes) }).boxed(),
+            ),
+            meta,
+            range,
+            attributes: Attributes::default(),
+        }
+    }
+
+    /// A whole read of a commit file: from memory when this load read or wrote it
+    /// before, else one GET whose bytes are kept when they fit the bounds.
+    async fn get_commit(&self, location: &Path) -> object_store::Result<GetResult> {
+        let Some(cell) = self.cache.commit_cell(location) else {
+            return self.get_commit_uncached(location).await;
+        };
+        // The GET of the caller that found the cell empty. When its bytes are not kept,
+        // that caller still gets the response, so no request is made twice.
+        let mut unkept: Option<GetResult> = None;
+        let fetched = cell
+            .get_or_try_init(|| async {
+                let result = self.inner.get_opts(location, GetOptions::default()).await?;
+                self.cache.note_commit(&result.meta);
+                let Some((_cache_permit, _process_permit)) =
+                    self.cache.admit_commit(result.meta.size)
+                else {
+                    unkept = Some(result);
+                    return Ok::<_, object_store::Error>(Fetched::TooLarge);
+                };
+                let meta = result.meta.clone();
+                let bytes = result.bytes().await?;
+                Ok(Fetched::Cached {
+                    meta,
+                    bytes,
+                    _cache_permit,
+                    _process_permit,
+                })
+            })
+            .await?
+            .clone();
+        match (fetched, unkept) {
+            (Fetched::Cached { meta, bytes, .. }, _) => Ok(Self::whole(meta, bytes)),
+            (Fetched::TooLarge, Some(result)) => Ok(result),
+            (Fetched::TooLarge, None) => self.get_commit_uncached(location).await,
+        }
+    }
+
+    async fn get_commit_uncached(&self, location: &Path) -> object_store::Result<GetResult> {
+        let result = self.inner.get_opts(location, GetOptions::default()).await?;
+        self.cache.note_commit(&result.meta);
+        Ok(result)
     }
 
     fn resolve(range: Option<&GetRange>, len: u64) -> Range<u64> {
@@ -298,6 +498,13 @@ impl ObjectStore for CheckpointPrefetchStore {
         location: &Path,
         options: GetOptions,
     ) -> object_store::Result<GetResult> {
+        if commit_version(location).is_some() && Self::plain(&options) && options.range.is_none() {
+            return if self.cache.caches_commits() {
+                self.get_commit(location).await
+            } else {
+                self.get_commit_uncached(location).await
+            };
+        }
         if !self.serves(location, &options) {
             return self.inner.get_opts(location, options).await;
         }
@@ -437,9 +644,18 @@ impl LogStore for CheckpointPrefetchLogStore {
         commit_or_bytes: CommitOrBytes,
         operation_id: Uuid,
     ) -> Result<(), TransactionError> {
+        // `Bytes` is reference counted: this is the buffer that is put, not a copy.
+        let written = match &commit_or_bytes {
+            CommitOrBytes::LogBytes(bytes) if self.cache.caches_commits() => Some(bytes.clone()),
+            _ => None,
+        };
         self.inner
             .write_commit_entry(version, commit_or_bytes, operation_id)
-            .await
+            .await?;
+        if let (Some(bytes), Some(path)) = (written, commit_path(self.inner.as_ref(), version)) {
+            self.cache.seed(path, bytes);
+        }
+        Ok(())
     }
 
     async fn abort_commit_entry(
@@ -817,5 +1033,144 @@ mod tests {
         store.get_range(&path, 10..20).await.unwrap();
         assert_eq!(gets(&counting), 2, "every range passes straight through");
         assert_eq!(store.cache.cached_bytes(), 0);
+    }
+
+    fn commit(version: u64) -> Path {
+        Path::from(format!("bucket/table/_delta_log/{version:020}.json"))
+    }
+
+    async fn commit_fixture(sizes: &[usize]) -> (Arc<Counting>, CheckpointPrefetchStore) {
+        let counting = Arc::new(Counting {
+            inner: InMemory::new(),
+            gets: AtomicUsize::new(0),
+        });
+        for (version, size) in sizes.iter().enumerate() {
+            counting
+                .put(&commit(version as u64), PutPayload::from_bytes(body(*size)))
+                .await
+                .unwrap();
+        }
+        let store = CheckpointPrefetchStore::new(
+            counting.clone(),
+            Arc::new(CheckpointCache::new(u64::MAX)),
+        );
+        (counting, store)
+    }
+
+    async fn read_all(store: &CheckpointPrefetchStore, sizes: &[usize]) {
+        for (version, size) in sizes.iter().enumerate() {
+            let got = store.get(&commit(version as u64)).await.unwrap();
+            assert_eq!(got.bytes().await.unwrap(), body(*size), "commit {version}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_second_read_of_a_commit_is_from_memory_until_the_cache_is_cleared() {
+        let (counting, store) = commit_fixture(&[100, 200]).await;
+
+        read_all(&store, &[100, 200]).await;
+        read_all(&store, &[100, 200]).await;
+        assert_eq!(gets(&counting), 2);
+        assert_eq!(store.cache.cached_commits(), 2);
+        assert_eq!(store.cache.cached_bytes(), 300);
+
+        store.cache.clear();
+        assert_eq!(store.cache.cached_commits(), 0);
+        read_all(&store, &[100, 200]).await;
+        assert_eq!(gets(&counting), 4);
+
+        store.cache.stop_caching_commits();
+        store.cache.clear();
+        read_all(&store, &[100, 200]).await;
+        read_all(&store, &[100, 200]).await;
+        assert_eq!(
+            gets(&counting),
+            8,
+            "one GET for each read when the cache is off"
+        );
+        assert_eq!(store.cache.cached_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_commit_cache_holds_a_bounded_number_of_files() {
+        let sizes = vec![10usize; MAX_CACHED_COMMITS + 5];
+        let (counting, store) = commit_fixture(&sizes).await;
+
+        read_all(&store, &sizes).await;
+        read_all(&store, &sizes).await;
+
+        assert_eq!(store.cache.cached_commits(), MAX_CACHED_COMMITS);
+        assert_eq!(
+            gets(&counting),
+            sizes.len() + 5,
+            "a file past the bound is read as before, and never more than two times"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_commit_cache_holds_a_bounded_number_of_bytes() {
+        let file = MAX_CACHED_COMMIT_FILE_BYTES as usize;
+        let fit = (MAX_CACHED_COMMIT_BYTES / MAX_CACHED_COMMIT_FILE_BYTES) as usize;
+        let mut sizes = vec![file; fit + 2];
+        sizes.push(file + 1);
+        let (counting, store) = commit_fixture(&sizes).await;
+
+        read_all(&store, &sizes).await;
+        assert_eq!(
+            gets(&counting),
+            sizes.len(),
+            "a file that is not kept costs one GET"
+        );
+        assert_eq!(store.cache.cached_bytes(), MAX_CACHED_COMMIT_BYTES);
+
+        read_all(&store, &sizes).await;
+        assert_eq!(gets(&counting), sizes.len() + 3);
+        assert_eq!(store.cache.cached_bytes(), MAX_CACHED_COMMIT_BYTES);
+    }
+
+    #[tokio::test]
+    async fn a_missing_commit_is_not_remembered() {
+        let (counting, store) = commit_fixture(&[10]).await;
+        let next = commit(1);
+
+        let missing = store.get(&next).await;
+        assert!(matches!(missing, Err(object_store::Error::NotFound { .. })));
+        counting
+            .put(&next, PutPayload::from_bytes(body(20)))
+            .await
+            .unwrap();
+
+        let got = store.get(&next).await.unwrap().bytes().await.unwrap();
+        assert_eq!(got, body(20));
+    }
+
+    #[tokio::test]
+    async fn a_written_commit_is_read_from_memory_and_gives_no_anchor() {
+        let (counting, store) = commit_fixture(&[10]).await;
+        store.cache.seed(commit(1), body(30));
+
+        let got = store.get(&commit(1)).await.unwrap().bytes().await.unwrap();
+        assert_eq!(got, body(30));
+        assert_eq!(gets(&counting), 0);
+        assert_eq!(store.cache.take_anchor(), None);
+    }
+
+    #[tokio::test]
+    async fn the_anchor_is_the_newest_commit_read_with_or_without_the_cache() {
+        for cached in [true, false] {
+            let (counting, store) = commit_fixture(&[10, 20, 30]).await;
+            if !cached {
+                store.cache.stop_caching_commits();
+            }
+            for version in [2, 0, 1] {
+                store.get(&commit(version)).await.unwrap();
+            }
+            let head = counting.head(&commit(2)).await.unwrap();
+
+            let anchor = store.cache.take_anchor().expect("anchor");
+            assert_eq!(anchor.version, 2, "cached={cached}");
+            assert_eq!(Some(anchor.e_tag), head.e_tag);
+            assert_eq!(store.cache.take_anchor(), None, "taken once");
+        }
     }
 }

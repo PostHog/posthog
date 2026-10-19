@@ -25,7 +25,6 @@ export function QuillTaskHeaderActions({
             {desktopUrl && (
                 <Button
                     variant="outline"
-                    size="sm"
                     nativeButton={false}
                     render={<LinkPrimitive to={desktopUrl} target="_blank" />}
                     className="hidden lg:inline-flex"
@@ -35,13 +34,13 @@ export function QuillTaskHeaderActions({
                 </Button>
             )}
             {prUrl && (
-                <Button variant="outline" size="sm" onClick={() => window.open(prUrl, '_blank')}>
+                <Button variant="outline" onClick={() => window.open(prUrl, '_blank')}>
                     <IconGithub />
                     View PR
                 </Button>
             )}
             {runLabel && (
-                <Button variant="primary" size="sm" onClick={onRun} loading={running}>
+                <Button variant="primary" onClick={onRun} loading={running}>
                     <IconPlay />
                     {runLabel}
                 </Button>

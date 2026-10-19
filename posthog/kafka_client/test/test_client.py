@@ -5,7 +5,7 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -261,7 +261,7 @@ _ROUNDTRIP = os.environ.get("KAFKA_ROUNDTRIP_TESTS") == "1"
 
 @pytest.mark.skipif(not _ROUNDTRIP, reason="KAFKA_ROUNDTRIP_TESTS=1 required to hit a real broker")
 @override_settings(TEST=False)
-class KafkaClientRoundtripTestCase(TestCase):
+class KafkaClientRoundtripTestCase(SimpleTestCase):
     """Exercises `_KafkaProducer` against a real broker. Gated behind KAFKA_ROUNDTRIP_TESTS."""
 
     def _make_topic(self) -> str:

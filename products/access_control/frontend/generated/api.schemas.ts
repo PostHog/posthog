@@ -62,6 +62,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
+ * * `cross_project_dashboard` - cross_project_dashboard
  * * `customer_analytics` - customer_analytics
  * * `customer_task` - customer_task
  * * `customer_journey` - customer_journey
@@ -94,6 +95,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
  * * `hog_function` - hog_function
+ * * `inbox` - inbox
  * * `ingestion_warning` - ingestion_warning
  * * `insight` - insight
  * * `insight_variable` - insight_variable
@@ -181,6 +183,7 @@ export const ScopeObjectEnumApi = {
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
+    CrossProjectDashboard: 'cross_project_dashboard',
     CustomerAnalytics: 'customer_analytics',
     CustomerTask: 'customer_task',
     CustomerJourney: 'customer_journey',
@@ -213,6 +216,7 @@ export const ScopeObjectEnumApi = {
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
     HogFunction: 'hog_function',
+    Inbox: 'inbox',
     IngestionWarning: 'ingestion_warning',
     Insight: 'insight',
     InsightVariable: 'insight_variable',
@@ -323,6 +327,7 @@ export interface ProjectAccessSourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -355,6 +360,7 @@ export interface ProjectAccessSourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -485,6 +491,7 @@ export interface AccessControlObjectRuleApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -517,6 +524,7 @@ export interface AccessControlObjectRuleApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -872,6 +880,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -904,6 +913,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -987,12 +997,31 @@ export interface AccessControlDefaultsResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Whether the access rules of this project are locked to Terraform. */
+    is_managed_by_terraform: boolean
     /** The default project access level for members. */
     project_access_level: string
     /** The default level per resource type, keyed by resource name. */
     resource_access_levels: AccessControlDefaultsResponseApiResourceAccessLevels
     /** The resource types that accept rules on single objects, with the levels each accepts. */
     object_rule_resources: AccessControlObjectRuleResourceApi[]
+}
+
+export interface AccessControlManagementApi {
+    /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+    managed: boolean
+    /**
+     * When Terraform last wrote an access rule in this project, or null.
+     * @nullable
+     */
+    terraform_last_applied_at: string | null
+    /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+    has_terraform_account: boolean
+}
+
+export interface AccessControlManagementRequestApi {
+    /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+    managed: boolean
 }
 
 /**
@@ -1137,6 +1166,7 @@ export interface ResolvedAccessApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -1169,6 +1199,7 @@ export interface ResolvedAccessApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable

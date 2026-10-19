@@ -11,7 +11,10 @@ from parameterized import parameterized
 from posthog.schema import (
     DashboardFilter,
     DateRange,
+    EventPropertyFilter,
     GoalLine,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
     MetricsDisplaySettings,
     MetricsQuery,
     MetricsQueryClause,
@@ -70,6 +73,28 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
     @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
+    def test_dashboard_label_filters_can_use_dashboard_variables(self) -> None:
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")]),
+            team=self.team,
+        )
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricFilters=[MetricsQueryFilter(key="job", op="eq", value="$job")],
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job",
+                        source="custom",
+                        customValues=["api"],
+                        current=MetricsDashboardVariableSelection(values=["api"]),
+                    )
+                ],
+            )
+        )
+
+        assert runner.query.variables is not None and runner.query.variables["job"].values == ["api"]
+
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -124,21 +149,27 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200, response.json()
         assert "results" in response.json()
 
-    def test_generic_query_endpoint_rejects_unknown_formula_alias_with_400(self) -> None:
-        # The facade reports a bad formula as ValueError; without the runner's
-        # translation to an exposed error, /query would surface it as a 500.
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/query/",
-            {
-                "query": {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
-                    "formula": "a / b",
-                }
-            },
-        )
+    @parameterized.expand([("unknown_alias", "a / b", None), ("non_finite_literal", "9" * 400, "Use a smaller number")])
+    def test_generic_query_endpoint_rejects_invalid_formula_before_querying(
+        self, _name: str, formula: str, expected_message: str | None
+    ) -> None:
+        with patch("products.metrics.backend.facade.api.build_metric_query_runner") as build_runner:
+            build_runner.return_value.run.return_value = []
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/query/",
+                {
+                    "query": {
+                        "kind": "MetricsQuery",
+                        "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                        "formula": formula,
+                    }
+                },
+            )
 
-        assert response.status_code == 400, response.json()
+            assert response.status_code == 400, response.json()
+            if expected_message is not None:
+                assert expected_message in response.json()["detail"]
+            build_runner.assert_not_called()
 
     def test_insight_saves_with_metrics_query(self) -> None:
         response = self.client.post(
@@ -234,6 +265,32 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange is not None
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
+
+    def test_dashboard_metric_filters_apply_to_every_clause(self) -> None:
+        own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
+        query = MetricsQuery(
+            clauses=[
+                MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum", filters=[own_filter]),
+                MetricsQueryClause(name="b", metricName="requests_total", aggregation="rate"),
+            ],
+        )
+        runner = self._runner(query)
+        dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
+
+        runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
+
+        assert runner.query.clauses[0].filters == [own_filter, dashboard_filter]
+        assert runner.query.clauses[1].filters == [dashboard_filter]
+
+    def test_dashboard_property_filters_do_not_apply(self) -> None:
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+        runner = self._runner(query)
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="$browser", operator="exact", value="Chrome")])
+        )
+
+        assert runner.query.clauses[0].filters is None
 
     def _cache_key_for(self, **kwargs) -> str:
         return self._runner(

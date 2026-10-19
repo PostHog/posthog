@@ -1,25 +1,15 @@
-import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogConfig, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
+import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
-
-// The same hash as posthog-js's own `sampleOnProperty`, so existing sessions keep their side of the
-// split. Inlined because the deep import of that extension ships a second copy of @posthog/core.
-export function isInDeferredInitSample(sessionId: string): boolean {
-    let hash = 0
-    for (let i = 0; i < sessionId.length; i++) {
-        hash = (hash << 5) - hash + sessionId.charCodeAt(i)
-        hash |= 0
-    }
-    return Math.abs(hash) % 100 < 50
-}
 
 const LAST_SEEN_FEATURE_FLAGS_KEY = 'posthog-app-last-seen-feature-flags'
 
@@ -76,34 +66,33 @@ function writeLastSeenFeatureFlags(lastSeen: LastSeenFeatureFlags): void {
     }
 }
 
-export interface LoadPostHogJSOptions {
-    /**
-     * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
-     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
-     * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
-     */
-    beforeSend?: BeforeSendFn | BeforeSendFn[]
-    /**
-     * Extra `session_recording` config merged on top of the defaults — useful for overriding URL
-     * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
-     */
-    sessionRecording?: Partial<SessionRecordingOptions>
-    /**
-     * Extra `metrics` config merged on top of the defaults. `before_send` and
-     * `maskCapturedNetworkRequestFn` do not cover the network metrics channel, so the exporter
-     * app uses this to override `network.attributes` and keep the SharingConfiguration access
-     * token out of the captured `path`. See `frontend/src/exporter/index.tsx`.
-     */
-    metrics?: Partial<BrowserMetricsConfig>
+/**
+ * The server bootstrap evaluates flags locally with only a few properties, so it can be wrong for a flag
+ * that uses a cohort or a group. This sends every flag input the page knows, then loads flags once.
+ * userLogic and preflightLogic send the same identities again, and they reload flags only when one changed.
+ */
+function loadFeatureFlagsForPage(): void {
+    const appContext = getAppContext()
+    if (appContext?.current_user) {
+        identifyUserInPostHog(posthog, appContext.current_user)
+    }
+    if (appContext?.preflight?.site_url) {
+        identifyInstanceInPostHog(posthog, appContext.preflight.site_url)
+    }
+    posthog.reloadFeatureFlags()
 }
 
-export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
+export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
+            // Hobby static files use /static/<asset>.js, without a version directory.
+            ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
+                ? { strict_script_versioning: false as const }
+                : {}),
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
@@ -115,20 +104,21 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                       getAppContext()?.current_user?.distinct_id
                   )
                 : {},
+            // The first flags request must wait until the user and groups from the page are set.
+            advanced_disable_feature_flags_on_first_load: true,
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
+            capture_webmcp: true,
             opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
-            __preview_deferred_init_extensions: isInDeferredInitSample(posthog.get_session_id()),
+            __preview_deferred_init_extensions: true,
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
+            metrics: { network: true, serviceName: 'posthog-app' },
             // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
             // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: isEmbeddedPageFrame()
-                ? [stampEmbeddedPageFrame, ...(options.beforeSend ? [options.beforeSend].flat() : [])]
-                : options.beforeSend,
+            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -227,7 +217,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
-                ...options.sessionRecording,
             },
             person_profiles: 'always',
             // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth
@@ -235,6 +224,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             // allowlist rejects those headers — so disable the feature then.
             tracing_headers: isOAuthMode() ? [] : ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
+            __preview_replay_sync_fetch: true,
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,
@@ -258,6 +248,8 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             window.POSTHOG_GLOBAL_ERRORS ||= {}
             window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
+
+        loadFeatureFlagsForPage()
     } else {
         posthog.init('fake_token', {
             autocapture: false,

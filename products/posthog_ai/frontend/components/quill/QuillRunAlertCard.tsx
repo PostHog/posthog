@@ -29,8 +29,9 @@ export function QuillRunAlertCard({
 }: QuillRunAlertCardProps): JSX.Element {
     const canRetry = kind === 'connection_failed' && retryable && onRetry
     return (
-        <Card size="sm" className="max-w-4/5" data-attr="run-alert-card">
-            <CardHeader className="flex-row items-center gap-2">
+        <Card size="sm" className="max-w-4/5 @max-lg/thread:max-w-full" data-attr="run-alert-card">
+            {/* `flex` replaces the quill header grid, which would stack the icon, title, and copy button. */}
+            <CardHeader className="flex flex-row items-center gap-2">
                 <IconWarning className="size-4 shrink-0 text-destructive-foreground" />
                 <CardTitle className="grow">{RUN_ALERT_TITLES[kind]}</CardTitle>
                 {copyDetails && (

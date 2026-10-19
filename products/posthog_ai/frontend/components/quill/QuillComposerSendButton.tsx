@@ -25,10 +25,10 @@ export const QuillComposerSendButton = forwardRef<HTMLSpanElement, { 'data-attr'
                 type="submit"
                 variant="primary"
                 size="icon"
+                className="rounded-xs"
                 aria-label="Send message"
                 loading={loading}
                 disabled={!!sendDisabledReason}
-                className="rounded-xs"
                 data-attr={dataAttr}
             >
                 <IconArrowRight className="-rotate-90" />

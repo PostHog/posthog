@@ -25,6 +25,7 @@ interface FeatureFlagEvaluationContextsProps {
     onChange?: (tags: string[], evaluationContexts: string[]) => void
     /** Sidebar mode: component handles persistence. Mutually exclusive with onChange. */
     onSave?: (tags: string[], evaluationContexts: string[]) => void
+    evaluationContextsDisabledReason?: string | null
 }
 
 export function FeatureFlagEvaluationContexts({
@@ -36,6 +37,7 @@ export function FeatureFlagEvaluationContexts({
     context,
     onChange,
     onSave,
+    evaluationContextsDisabledReason,
 }: FeatureFlagEvaluationContextsProps): JSX.Element {
     const staticOnly = context === 'static'
     const logic = featureFlagEvaluationContextsLogic({ flagId, context, tags, evaluationContexts })
@@ -240,7 +242,10 @@ export function FeatureFlagEvaluationContexts({
                         {!staticOnly && (
                             <LemonTag
                                 type="none"
-                                onClick={() => setIsEditingContexts(true)}
+                                onClick={
+                                    evaluationContextsDisabledReason ? undefined : () => setIsEditingContexts(true)
+                                }
+                                disabledReason={evaluationContextsDisabledReason}
                                 data-attr="button-edit-evaluation-contexts"
                                 icon={evaluationContexts.length > 0 ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed cursor-pointer"

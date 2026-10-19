@@ -28,12 +28,21 @@ export const AI_OBSERVABILITY_CLUSTER_URL_PATTERN = '/ai-observability/clusters/
 export const AI_OBSERVABILITY_CLUSTERS_SCENE_TAG = 'AIObservabilityClusters'
 export const AI_OBSERVABILITY_CLUSTER_SCENE_TAG = 'AIObservabilityCluster'
 
-// Cluster items are keyed by UUIDs from precomputed clustering events. Restrict to
-// hex / dashes before interpolating into a HogQL `IN` literal so a malformed key
-// can't break out of the string. UUIDs already match this character set.
+// Characters a UUID can contain. This is a character check, not a full UUID check.
 export const SAFE_ID_RE = /^[a-f0-9-]+$/i
 
-// Mirrors `MAX_SELECT_RETURNED_ROWS` in `posthog/hogql/constants.py`. EventsQuery rows above
+// Mirrors `MAX_SELECT_RETURNED_ROWS` in `posthog/hogql/constants.py`. Query rows above
 // this are silently truncated server-side, so post-hoc property-filter queries against the
 // full set of cluster items must either fit under the cap or fall back to "no filtering".
 export const FILTER_QUERY_MAX_ROWS = 50000
+
+// Events that belong to a trace. Keep in sync with `traces_query_runner.py`, so a filter keeps
+// the same traces on the clusters page and the traces list.
+export const TRACE_MEMBER_EVENTS = [
+    '$ai_span',
+    '$ai_generation',
+    '$ai_embedding',
+    '$ai_metric',
+    '$ai_feedback',
+    '$ai_trace',
+]

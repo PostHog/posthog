@@ -311,6 +311,8 @@ def _paginate(
         # dedupes on the primary key.
         resumable_source_manager.save_state(OctopusDeployResumeConfig(skip=skip, space_id=space_id))
     else:
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         raise OctopusDeployPaginationLimitError(
             f"{PAGINATION_LIMIT_ERROR}: {url} exceeded {MAX_PAGES_PER_LISTING} pages"
         )

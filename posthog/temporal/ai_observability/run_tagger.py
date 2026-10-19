@@ -13,17 +13,29 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    GENERATION_NOT_FOUND_MAX_ATTEMPTS,
+    extract_event_io,
+    hydrate_event_reference,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+    capture_ai_internal_for_team,
+    raise_emit_failure,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
@@ -35,6 +47,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +65,7 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
 TAGGER_DISABLED_ERROR_TYPE = "tagger_disabled"
 TAGGER_PARSE_ERROR_TYPE = "tagger_parse_error"
 TAGGER_REQUEST_REJECTED_ERROR_TYPE = "tagger_request_rejected"
+TAGGER_CONTEXT_WINDOW_ERROR_TYPE = "tagger_context_window_exceeded"
 # model_resolution is shared with evaluations, so the tagger types its skip reasons on the way out.
 MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
     "provider_key_required": "tagger_provider_key_required",
@@ -64,6 +78,7 @@ SKIPPED_RESULT_ERROR_TYPES = frozenset(
         TAGGER_DISABLED_ERROR_TYPE,
         TAGGER_PARSE_ERROR_TYPE,
         TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+        TAGGER_CONTEXT_WINDOW_ERROR_TYPE,
         *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values(),
     }
 )
@@ -101,6 +116,18 @@ def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: i
     DynamicTagResult.__name__ = "TagResult"
     DynamicTagResult.__qualname__ = "TagResult"
     return DynamicTagResult
+
+
+def _render_tagger_user_prompt(input_data: str, output_data: str) -> str:
+    return f"Input: {input_data}\n\nOutput: {output_data}"
+
+
+def build_tagger_user_prompt(input_data: str, output_data: str) -> str:
+    budget = EVENT_TEXT_MAX_CHARS - len(_render_tagger_user_prompt("", ""))
+    # Budget each side separately, because sampling the joined text can drop a short output at its end.
+    output_data = truncate_by_line_sampling(output_data, max(budget // 2, budget - len(input_data)))
+    input_data = truncate_by_line_sampling(input_data, budget - len(output_data))
+    return _render_tagger_user_prompt(input_data, output_data)
 
 
 def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:
@@ -236,7 +263,7 @@ def _resolve_model(model_configuration: dict[str, Any] | None, team_id: int) -> 
 def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     tagger = inputs.tagger
-    event_data = inputs.event_data
+    event_data = hydrate_event_reference(inputs.event_data)
 
     tagger_config = tagger.get("tagger_config", {})
     prompt = tagger_config.get("prompt")
@@ -275,9 +302,7 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     tag_names = [tag["name"] for tag in tags]
     response_format = build_tag_result_schema(tag_names, min_tags, max_tags)
 
-    user_prompt = f"""Input: {input_data}
-
-Output: {output_data}"""
+    user_prompt = build_tagger_user_prompt(input_data, output_data)
 
     config = None
 
@@ -347,9 +372,17 @@ Output: {output_data}"""
             type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
             non_retryable=True,
         ) from e
-    except (OutputTokenLimitError, StructuredOutputParseError) as e:
-        # A reply cut off at the output limit reaches the tagger as unusable output, same as a
-        # malformed one, so both take the parse path.
+    except ContextWindowExceededError as e:
+        # Skip rather than retry: retrying can't fix an over-window prompt and just spams error tracking.
+        raise ApplicationError(
+            str(e),
+            {"error_type": "context_window_exceeded"},
+            type=TAGGER_CONTEXT_WINDOW_ERROR_TYPE,
+            non_retryable=True,
+        ) from e
+    except (OutputTokenLimitError, StructuredOutputParseError, ContentFilteredError) as e:
+        # A reply cut off at the output limit or refused by the content filter reaches the tagger
+        # as unusable output, same as a malformed one, so all take the parse path.
         logger.warning("LLM tagger returned unusable output", tagger_id=tagger["id"], model=model, error=str(e))
         raise ApplicationError(
             str(e),
@@ -490,6 +523,7 @@ async def execute_hog_tagger_activity(tagger: dict[str, Any], event_data: dict[s
 
     tags_def = tagger_config.get("tags", [])
     valid_tag_names = {tag["name"] for tag in tags_def}
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(event_data)
 
     def _execute():
         return run_hog_tagger(bytecode, event_data, valid_tag_names)
@@ -528,7 +562,7 @@ class EmitTaggerEventInputs:
 async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     """Emit $ai_tag event via capture_internal."""
     tagger = inputs.tagger
-    event_data = inputs.event_data
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -584,7 +618,9 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
             return
-        raise
+        raise_emit_failure(e)
+    except Exception as e:
+        raise_emit_failure(e)
 
 
 @temporalio.activity.defn
@@ -650,12 +686,13 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
         # Activity 2: Execute tagger based on type
         if tagger_type == "hog":
-            # Hog taggers are deterministic — don't retry
+            # Hog errors are non-retryable; the attempts only cover a referenced event that is not
+            # in ai_events yet.
             result = await temporalio.workflow.execute_activity(
                 execute_hog_tagger_activity,
                 args=[tagger, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                schedule_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=GENERATION_NOT_FOUND_MAX_ATTEMPTS),
             )
         else:
             # LLM tagger
@@ -677,6 +714,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         "parse_error",
                         "no_default_model",
                         "request_rejected",
+                        "context_window_exceeded",
                     ):
                         if error_type in (
                             "provider_key_required",
@@ -719,8 +757,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result=result,
                 start_time=start_time,
             ),
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            retry_policy=EMIT_EVENT_RETRY_POLICY,
         )
 
         return {

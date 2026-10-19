@@ -1,4 +1,5 @@
 import base64
+import socket
 import typing
 import dataclasses
 from io import StringIO
@@ -6,8 +7,12 @@ from typing import IO, Literal
 
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
-from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
-from sshtunnel import SSHTunnelForwarder
+from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey, Transport
+from sshtunnel import (
+    SSH_TIMEOUT,
+    BaseSSHTunnelForwarderError,
+    SSHTunnelForwarder as _UnboundedSSHTunnelForwarder,
+)
 
 from posthog.dataclasses import frozen
 
@@ -33,6 +38,44 @@ _HOST_KEY_FORMAT_HELP = (
     "Paste the server's public host key as `<type> <base64>`, for example one line of "
     "`ssh-keyscan -p <port> <host>` output, or leave it blank to connect without verifying the server."
 )
+
+
+# Limits on each step of the connection to the SSH server. paramiko opens the socket with no
+# timeout when it gets an address, so a server that drops packets holds the caller for as long as
+# the kernel keeps retrying. The other three are the paramiko defaults, set here so that a paramiko
+# upgrade cannot remove a limit without a change in this file.
+SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS = 15
+SSH_TUNNEL_BANNER_TIMEOUT_SECONDS = 15
+SSH_TUNNEL_HANDSHAKE_TIMEOUT_SECONDS = 15
+SSH_TUNNEL_AUTH_TIMEOUT_SECONDS = 30
+
+# Starts with the wording sshtunnel uses for every other failure to reach the gateway. The sources
+# match that prefix to classify the error and to show the user how to fix the tunnel.
+SSH_TUNNEL_CONNECT_TIMEOUT_ERROR = (
+    "Could not establish session to SSH gateway: the SSH server did not accept a connection within "
+    f"{SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS} seconds"
+)
+
+
+class SSHTunnelForwarder(_UnboundedSSHTunnelForwarder):
+    """An `sshtunnel` forwarder with a limit on every step of the connection to the SSH server."""
+
+    def _get_transport(self) -> Transport:
+        # The parent method also handles a proxy. Nothing here configures one, so this keeps only
+        # its direct path and its transport settings.
+        try:
+            sock = socket.create_connection((self.ssh_host, self.ssh_port), timeout=SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS)
+        except TimeoutError as e:
+            raise BaseSSHTunnelForwarderError(SSH_TUNNEL_CONNECT_TIMEOUT_ERROR) from e
+        sock.settimeout(SSH_TIMEOUT)
+        transport = Transport(sock)
+        transport.banner_timeout = SSH_TUNNEL_BANNER_TIMEOUT_SECONDS
+        transport.handshake_timeout = SSH_TUNNEL_HANDSHAKE_TIMEOUT_SECONDS
+        transport.auth_timeout = SSH_TUNNEL_AUTH_TIMEOUT_SECONDS
+        transport.set_keepalive(self.set_keepalive)
+        transport.use_compression(compress=self.compression)
+        transport.daemon = self.daemon_transport
+        return transport
 
 
 class HostKeyParseError(ValueError):

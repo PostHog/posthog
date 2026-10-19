@@ -32,12 +32,14 @@ import {
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
 import type { ThreadSkin } from '../quill/quillThreadContext'
+import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -86,6 +88,8 @@ export interface ComposerModelEffortPickersProps {
     onOpenDefaultSettings?: () => void
     /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
     codexBilling?: ComposerCodexBilling
+    phoneSheet?: boolean
+    taskRuntime?: TaskRuntimeEnumApi
 }
 
 interface PickerSectionProps {
@@ -148,6 +152,8 @@ export function ComposerModelEffortPickers({
     onResetToDefault,
     onOpenDefaultSettings,
     codexBilling,
+    phoneSheet = false,
+    taskRuntime,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
@@ -162,18 +168,18 @@ export function ComposerModelEffortPickers({
     const { selectedAdapter, modelLabel, effortOptions, adapters, adapterModels, ladder, showsAnyCost } =
         useMemo(() => {
             const adapter = getRuntimeAdapterForModel(models, selectedModel)
-            const offered = modelsForRuntimeAdapter(models, adapter)
+            const offered = modelsForRuntimeAdapter(models, adapter, taskRuntime)
             return {
                 selectedAdapter: adapter,
                 modelLabel: getModelLabel(models, selectedModel),
                 effortOptions: getEffortsForModel(models, selectedModel),
-                adapters: listRuntimeAdapters(models),
+                adapters: listRuntimeAdapters(models, taskRuntime),
                 adapterModels: offered,
                 ladder: getCapabilityLadder(models, adapter),
                 // The legend explains a symbol, so it only belongs where a row carries one.
                 showsAnyCost: offered.some((option) => !!getModelCost(option.model)),
             }
-        }, [models, selectedModel])
+        }, [models, selectedModel, taskRuntime])
 
     const selectAdapter = (adapter: string): void => {
         const runtimeAdapter = adapter as RuntimeAdapterEnumApi
@@ -222,6 +228,36 @@ export function ComposerModelEffortPickers({
         setOpen(false)
     }
 
+    if (phoneSheet) {
+        return (
+            <ComposerModelEffortSheet
+                modelLabel={modelLabel}
+                selectedModel={selectedModel}
+                selectedEffort={selectedEffort}
+                selectedAdapter={selectedAdapter}
+                adapters={adapters}
+                adapterModels={adapterModels}
+                effortOptions={effortOptions}
+                showsAnyCost={showsAnyCost}
+                harnessDisabled={(adapter) =>
+                    isDefaultModelLoading || (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
+                }
+                billing={billing}
+                billingLabels={BILLING_LABELS}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                onAdapterChange={selectAdapter}
+                resetDisabled={Boolean(onResetToDefault) && isDefaultSelection}
+                onReset={
+                    showReset
+                        ? (onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)])))
+                        : undefined
+                }
+                onOpenDefaultSettings={onOpenDefaultSettings}
+            />
+        )
+    }
+
     return (
         <DropdownMenu
             open={open}
@@ -248,7 +284,9 @@ export function ComposerModelEffortPickers({
                     <Button variant={chrome.triggerVariant} size="sm">
                         {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
-                            <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
+                            <span className="text-muted @max-[400px]/composer:hidden">
+                                {getEffortLabel(selectedEffort)}
+                            </span>
                         )}
                         {billing?.value === ModelAccessEnumApi.OwnSubscription && (
                             <span className="text-muted">ChatGPT plan</span>

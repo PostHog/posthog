@@ -228,6 +228,61 @@ export interface PatchedAnnotationApi {
     hidden_in_user_interface?: boolean | null
 }
 
+/**
+ * * `feature_flag` - Feature flag
+ * * `experiment` - Experiment
+ * * `release` - Release
+ * * `annotation` - Annotation
+ */
+export type ChangeKindEnumApi = (typeof ChangeKindEnumApi)[keyof typeof ChangeKindEnumApi]
+
+export const ChangeKindEnumApi = {
+    FeatureFlag: 'feature_flag',
+    Experiment: 'experiment',
+    Release: 'release',
+    Annotation: 'annotation',
+} as const
+
+export interface ChangeFeedItemApi {
+    /** The source of the change.
+     *
+     * * `feature_flag` - Feature flag
+     * * `experiment` - Experiment
+     * * `release` - Release
+     * * `annotation` - Annotation */
+    kind: ChangeKindEnumApi
+    /** When the change happened. For annotations, this is the time the annotation marks. */
+    timestamp: string
+    /** ID of the changed object: the feature flag, experiment, release, or annotation ID. */
+    item_id: string
+    /**
+     * Display name: the flag key, experiment name, release version, or annotation text.
+     * @nullable
+     */
+    name: string | null
+    /** What happened, for example `created`, `updated`, `deleted`, `released`, or `annotated`. */
+    activity: string
+    /** For flag and experiment updates, the names of the fields that changed. Empty for other kinds. */
+    changed_fields: string[]
+    /**
+     * For releases, the project or service the release belongs to. Null for other kinds.
+     * @nullable
+     */
+    service: string | null
+    /**
+     * Name or email of the person who made the change. Null for automated changes.
+     * @nullable
+     */
+    actor_name: string | null
+}
+
+export interface ChangeFeedApi {
+    /** Changes in the time window, newest first. */
+    results: ChangeFeedItemApi[]
+    /** True when the window holds more changes than `limit`. Narrow the window to see the rest. */
+    has_more: boolean
+}
+
 export type AnnotationsListParams = {
     /**
      * Number of results to return per page.
@@ -241,4 +296,21 @@ export type AnnotationsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ChangeFeedListParams = {
+    /**
+     * Start of the time window (inclusive), ISO 8601. Defaults to 24 hours before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the time window (inclusive), ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
 }

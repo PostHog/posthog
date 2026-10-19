@@ -3,7 +3,8 @@
 A System One model such as Jev answers typed questions about a ``state`` and returns judgments
 rather than text. A noul question returns the probability that a yes/no statement holds. A choice
 question picks one option from the criteria the caller supplies, with a probability for every
-option. A score question returns a fractional index into an ordered list of rubric levels.
+option. A score question returns a fractional index into an ordered list of rubric levels. A model
+can refuse any question, which answers it with a refusal instead.
 
 Keep user text in ``state`` and refer to it from the instructions by name. Never interpolate it
 into ``instructions``, so user text cannot become an instruction.
@@ -113,7 +114,12 @@ class ScoreAnswer:
     probabilities: Mapping[str, float]
 
 
-type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer
+@frozen
+class RefusalAnswer:
+    """The model declined to answer this question. Other answers in the same result stay usable."""
+
+
+type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer
 
 
 @frozen
@@ -150,6 +156,8 @@ def _parse_answer(question_id: str, question: Question, raw: object) -> Answer:
     answer = _as_mapping(raw)
     if answer is None:
         raise SystemOneRequestFailed(f"The System One server returned no answer for {question_id!r}")
+    if answer.get("type") == "refusal":
+        return RefusalAnswer()
 
     if isinstance(question, NoulQuestion):
         probability = _as_probability(answer.get("noul"))

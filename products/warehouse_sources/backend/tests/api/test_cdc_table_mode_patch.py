@@ -88,7 +88,6 @@ def _make_cdc_source_and_schema(
     team,
     cdc_table_mode: str,
     cdc_last_log_position: str | None = "0/12345",
-    cdc_deferred_runs: list[dict] | None = None,
     initial_sync_complete: bool = True,
 ) -> tuple[ExternalDataSource, ExternalDataSchema]:
     job_inputs = {
@@ -110,8 +109,6 @@ def _make_cdc_source_and_schema(
     }
     if cdc_last_log_position is not None:
         sync_type_config["cdc_last_log_position"] = cdc_last_log_position
-    if cdc_deferred_runs is not None:
-        sync_type_config["cdc_deferred_runs"] = cdc_deferred_runs
 
     schema = ExternalDataSchema.objects.create(
         team=team,
@@ -134,11 +131,8 @@ def _make_cdc_source_and_schema(
         ("cdc_only", "both"),
     ],
 )
-@pytest.mark.parametrize("deferred_runs", [None, [{"job_id": "stale", "run_uuid": "stale", "batch_results": []}]])
-def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
-    team, user, client: HttpClient, old_mode, new_mode, deferred_runs
-):
-    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode, cdc_deferred_runs=deferred_runs)
+def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
     running_job = ExternalDataJob.objects.create(
         team=team,
         pipeline=source,
@@ -175,7 +169,6 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
     assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     assert schema.sync_type_config.get("cdc_last_log_position") is None
-    assert schema.sync_type_config.get("cdc_deferred_runs") is None
     assert schema.initial_sync_complete is False
     assert schema.sync_type_config.get("reset_pipeline") is True
     mock_cancel.assert_called_once_with(running_job.workflow_id)
@@ -219,11 +212,7 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
 
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
-    assert schema.sync_type_config["cdc_reset_pending"] == {
-        "clear_deferred_runs": True,
-        "trigger": True,
-        "generation": 1,
-    }
+    assert schema.sync_type_config["cdc_reset_pending"] == {"trigger": True, "generation": 1}
     assert "reset_pipeline" not in schema.sync_type_config
     assert schema.sync_type_config["cdc_mode"] == "streaming"
     assert schema.initial_sync_complete is True
@@ -241,7 +230,7 @@ def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, c
     ExternalDataSchema.objects.filter(id=schema.id).update(
         sync_type_config={
             **schema.sync_type_config,
-            "cdc_reset_pending": {"clear_deferred_runs": False, "awaiting_slot": True},
+            "cdc_reset_pending": {"awaiting_slot": True},
         }
     )
     ExternalDataJob.objects.create(
@@ -265,7 +254,6 @@ def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, c
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_reset_pending"] == {
-        "clear_deferred_runs": True,
         "trigger": True,
         "awaiting_slot": True,
         "generation": 1,

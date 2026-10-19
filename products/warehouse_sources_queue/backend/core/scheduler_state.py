@@ -51,9 +51,15 @@ _UPSERT_STATE_SQL = f"""
     INSERT INTO {SCHEDULER_STATE_TABLE} (
         kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at, refreshed_at, updated_at
     )
-    VALUES (
-        %(kind)s, %(schedule_key)s, %(team_id)s, %(interval_seconds)s, %(offset_seconds)s, %(next_due_at)s, now(), now()
-    )
+    SELECT kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at, now(), now()
+    FROM unnest(
+        %(kinds)s::text[],
+        %(schedule_keys)s::text[],
+        %(team_ids)s::bigint[],
+        %(intervals)s::bigint[],
+        %(offsets)s::integer[],
+        %(due_times)s::timestamptz[]
+    ) AS rows(kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at)
     ON CONFLICT (kind, schedule_key) DO UPDATE SET
         team_id = excluded.team_id,
         -- A cadence change re-anchors the schedule; an unchanged cadence keeps
@@ -114,24 +120,25 @@ class SchedulerStateTable:
         conn: psycopg.AsyncConnection[Any],
         rows: list[DueSchedule],
     ) -> None:
-        """Refresh the fleet's cadence rows. ``next_due_at`` only lands for new
-        rows and for rows whose (interval, offset) changed."""
+        """Refresh the fleet's cadence rows in one statement. ``next_due_at``
+        only lands for new rows and for rows whose (interval, offset) changed.
+
+        Each (kind, schedule_key) must appear at most once in ``rows``: Postgres
+        refuses an upsert that touches the same row twice.
+        """
         if not rows:
             return
         async with conn.cursor() as cur:
-            await cur.executemany(
+            await cur.execute(
                 _UPSERT_STATE_SQL,
-                [
-                    {
-                        "kind": row.kind,
-                        "schedule_key": row.schedule_key,
-                        "team_id": row.team_id,
-                        "interval_seconds": row.interval_seconds,
-                        "offset_seconds": row.offset_seconds,
-                        "next_due_at": row.next_due_at,
-                    }
-                    for row in rows
-                ],
+                {
+                    "kinds": [row.kind for row in rows],
+                    "schedule_keys": [row.schedule_key for row in rows],
+                    "team_ids": [row.team_id for row in rows],
+                    "intervals": [row.interval_seconds for row in rows],
+                    "offsets": [row.offset_seconds for row in rows],
+                    "due_times": [row.next_due_at for row in rows],
+                },
             )
 
     @staticmethod

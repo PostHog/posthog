@@ -9,6 +9,7 @@ export function QuillActivity({
     id,
     title,
     subtitle,
+    wrapTitle = false,
     status,
     icon,
     animate = true,
@@ -45,9 +46,13 @@ export function QuillActivity({
                 body={body}
                 open={open}
                 onOpenChange={setOpen}
-                className={cn(status === 'pending' && 'opacity-40')}
+                className={cn(
+                    status === 'pending' && 'opacity-40',
+                    // A wrapped title keeps its icon on the first line.
+                    wrapTitle && 'items-start [&>[data-slot=marker-icon]]:mt-[3px]'
+                )}
             >
-                <span className="min-w-0 truncate font-medium">{title}</span>
+                <span className={cn('min-w-0 font-medium', wrapTitle ? 'whitespace-normal' : 'truncate')}>{title}</span>
                 {subtitle && <span className="min-w-0 truncate">{subtitle}</span>}
             </ThreadMarker>
             {/* Product widgets (charts, tables, diffs) keep PostHog's own colours inside the quill thread. */}

@@ -14,8 +14,8 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, Insight
 from posthog.constants import AvailableFeature
 from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time
 
-from products.alerts.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 
 
 class TestAlert15MinuteInterval(APIBaseTest):

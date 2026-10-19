@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
@@ -18,7 +19,7 @@ from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 from posthog.redis import get_client, redis
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 if TYPE_CHECKING:
@@ -275,10 +276,13 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
         try:
             flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag_key)
             if not flag.has_enriched_analytics:
-                flag.has_enriched_analytics = True
-                flag.save()
-                if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
-                    add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
+                # A failed enrichment rolls back the flag update, so the next run retries this
+                # flag instead of skipping it as already enriched.
+                with transaction.atomic():
+                    flag.has_enriched_analytics = True
+                    flag.save()
+                    if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
+                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
         except FeatureFlag.DoesNotExist:
             pass
         except Exception as e:
@@ -357,18 +361,13 @@ def get_cached_evaluations_7d_by_team(
     """Cached variant of get_evaluations_7d_by_team with a 5-minute TTL.
 
     Every team in `team_ids` must belong to the organization `organization_id`.
-    Only an organization on FLAG_EVALUATIONS_ONLY reads flag_evaluations. Unlike
-    the Usage tab, READ_FLAG_EVALUATIONS stays on events, because ingestion keeps
-    writing every flag call to events in that mode.
     Failure results (None) are not cached, so recovery is immediate once
     ClickHouse is reachable again.
     """
     if not team_ids:
         return {}
 
-    from_flag_evaluations = (
-        get_organization_flag_evaluations_mode(organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    )
+    from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
     # The key names the source table, so a mode change cannot serve a count read from the other table.
     source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"
     cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))

@@ -7,7 +7,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DatabaseSchemaTable, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -18,6 +17,7 @@ import {
     warehouseExpressionsPartialUpdate,
 } from 'products/data_warehouse/frontend/generated/api'
 import type { DataWarehouseExpressionApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 
 export interface ExpressionFormValues {
     field_name: string

@@ -160,12 +160,14 @@ def sync_external_data_job_workflow(
     create: bool = False,
     should_sync: bool = True,
     trigger_immediately: bool = True,
+    keep_paused: bool = False,
 ) -> ExternalDataSchema:
     """Create or update the schema's Temporal schedule.
 
     Runs fired through the schedule use its stored action, whose `billable` is always True,
     so callers that must not bill (e.g. admin recovery) pass trigger_immediately=False and
-    start their own ad-hoc run if one is needed.
+    start their own ad-hoc run if one is needed. `keep_paused` makes an update leave an existing
+    pause in place, whatever `should_sync` says.
     """
     temporal = sync_connect()
 
@@ -181,7 +183,7 @@ def sync_external_data_job_workflow(
             if trigger_immediately:
                 trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
-        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, keep_paused=keep_paused)
 
     return external_data_schema
 

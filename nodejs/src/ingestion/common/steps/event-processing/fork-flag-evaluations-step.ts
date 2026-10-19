@@ -1,6 +1,12 @@
 import { Counter, Gauge } from 'prom-client'
 
-import { FLAG_EVALUATIONS_OUTPUT, FlagEvaluationsOutput, IngestionWarningsOutput } from '~/common/outputs'
+import {
+    FLAG_EVALUATIONS_OUTPUT,
+    FlagEvaluationsOutput,
+    IngestionWarningsOutput,
+    REALTIME_ONLY_EVENTS_OUTPUT,
+    RealtimeOnlyEventsOutput,
+} from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
@@ -51,6 +57,21 @@ const hasFlagKey = ({ event }: EventToEmit<string>): boolean => {
     return typeof flagKey === 'string' && flagKey !== ''
 }
 
+// Mirrors FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py. Change both together.
+const FLAG_EVALUATIONS_TTL_DAYS = 90
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// The table's TTL expires a row dated D at the start of day D + FLAG_EVALUATIONS_TTL_DAYS.
+// The day FLAG_EVALUATIONS_TTL_DAYS back has already expired when today starts.
+// This function returns the start of the UTC day FLAG_EVALUATIONS_TTL_DAYS - 1 days back, the oldest day the
+// table keeps. ClickHouse can drop an older row at any merge. For a FLAG_EVALUATIONS_ONLY team the row is the
+// only copy of the call. The fork skips a call this old and leaves it in the events table.
+const retentionStartMs = (nowMs: number): number =>
+    Math.floor(nowMs / DAY_MS) * DAY_MS - (FLAG_EVALUATIONS_TTL_DAYS - 1) * DAY_MS
+
+const isPastRetention = ({ event }: EventToEmit<string>, retentionStart: number): boolean =>
+    Date.parse(event.timestamp) < retentionStart
+
 export interface ForkFlagEvaluationsStepInput {
     eventsToEmit: EventToEmit<string>[]
     teamId: number
@@ -62,8 +83,9 @@ export interface ForkFlagEvaluationsStepInput {
  * narrows the assembled events row to the flag_evaluations column set and
  * produces it to the clickhouse_flag_evaluations topic. The event continues to
  * the events table unchanged, except for a team whose organization is on
- * FLAG_EVALUATIONS_ONLY: this step removes each event it queued for that team
- * from eventsToEmit.
+ * FLAG_EVALUATIONS_ONLY: this step moves each event it queued for that team
+ * to the realtime-only output, which only the CDP consumers read. Without a
+ * topic for that output, the step removes the event from eventsToEmit.
  *
  * Sits between create-event and emit-event, where the fully assembled
  * ProcessedEvent exists: person_id and person_properties from person
@@ -74,13 +96,15 @@ export interface ForkFlagEvaluationsStepInput {
  *
  * Every failure path before the produce is queued continues toward the events
  * table. A produce that fails permanently is counted and dropped, never
- * retried, so for a FLAG_EVALUATIONS_ONLY team the call is lost. The ack
+ * retried, so for a FLAG_EVALUATIONS_ONLY team the stored row is lost. The ack
  * rides as a side effect, so the batch does not commit its offsets until the
  * broker answers. Pipe this step without a retry envelope, because a retry
  * would queue the produce again.
  */
 export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepInput>(
-    outputs: IngestionOutputs<FlagEvaluationsOutput | IngestionWarningsOutput>,
+    // This step never produces to the realtime-only output. It requires it because emit-event produces
+    // every entry this step retargets, so a pipeline without that output fails to compile.
+    outputs: IngestionOutputs<FlagEvaluationsOutput | IngestionWarningsOutput | RealtimeOnlyEventsOutput>,
     flagEvaluationsService: FlagEvaluationsService
 ): ProcessingStep<T, T> {
     return function forkFlagEvaluationsStep(input) {
@@ -97,12 +121,19 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
         if (invalidFlagKeys > 0) {
             flagEvaluationsEventsTotal.labels('continued_invalid_flag_key').inc(invalidFlagKeys)
         }
-        if (mappableEvents.length === 0) {
+        const retentionStart = retentionStartMs(Date.now())
+        const eventsToFork = mappableEvents.filter((toEmit) => !isPastRetention(toEmit, retentionStart))
+        const pastRetention = mappableEvents.length - eventsToFork.length
+        if (pastRetention > 0) {
+            flagEvaluationsEventsTotal.labels('continued_past_retention').inc(pastRetention)
+        }
+        if (eventsToFork.length === 0) {
             return Promise.resolve(ok(input))
         }
         const stopsEventsWrites = flagEvaluationsService.stopsEventsWritesFor(input.team)
+        const removesFromEmission = stopsEventsWrites && !flagEvaluationsService.routesToRealtimeOnlyEvents
         try {
-            const messages: IngestionOutputMessage[] = mappableEvents.map(({ event }) => {
+            const messages: IngestionOutputMessage[] = eventsToFork.map(({ event }) => {
                 if (event.properties['$set'] || event.properties['$set_once']) {
                     // Sizes the person-property loss a dedicated flag lane that
                     // bypasses person processing would cause.
@@ -141,7 +172,7 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
                         flagEvaluationsEventsTotal
                             .labels(stopsEventsWrites ? 'lost_message_too_large' : 'continued_message_too_large')
                             .inc(messages.length)
-                        if (!stopsEventsWrites) {
+                        if (!removesFromEmission) {
                             return
                         }
                         // The row carries the event's full properties, so the events row
@@ -149,7 +180,7 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
                         // warning for an oversized event. No events row exists here, so this
                         // step sends that warning.
                         return Promise.all(
-                            mappableEvents.map(({ event }) =>
+                            eventsToFork.map(({ event }) =>
                                 emitIngestionWarning(
                                     outputs,
                                     event.team_id,
@@ -164,20 +195,24 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             if (!stopsEventsWrites) {
                 return Promise.resolve(ok(input, [settled]))
             }
-            // The queued produce is the only copy of these calls. A produce that fails
-            // after this step returns loses the call. produce_failed and
+            // The queued produce is the only stored copy of these calls. A produce that
+            // fails after this step returns loses the stored copy. produce_failed and
             // lost_message_too_large count those losses. The
             // FlagEvaluationsForkProduceFailing alert fires on produce_failed.
             // Matching by object identity keeps the $experiment_exposure copy and any
-            // call without a flag key in eventsToEmit.
-            const eventsToEmit = input.eventsToEmit.filter((toEmit) => !mappableEvents.includes(toEmit))
+            // call without a flag key or past the retention window in eventsToEmit.
+            const eventsToEmit = removesFromEmission
+                ? input.eventsToEmit.filter((toEmit) => !eventsToFork.includes(toEmit))
+                : input.eventsToEmit.map((toEmit) =>
+                      eventsToFork.includes(toEmit) ? { ...toEmit, output: REALTIME_ONLY_EVENTS_OUTPUT } : toEmit
+                  )
             return Promise.resolve(ok({ ...input, eventsToEmit }, [settled]))
         } catch (error) {
             logger.warn('Failed to fork $feature_flag_called event to flag_evaluations, continuing', {
                 teamId: input.teamId,
                 error,
             })
-            flagEvaluationsEventsTotal.labels('continued_fork_error').inc(mappableEvents.length)
+            flagEvaluationsEventsTotal.labels('continued_fork_error').inc(eventsToFork.length)
             return Promise.resolve(ok(input))
         }
     }

@@ -1,16 +1,38 @@
 import { expectLogic } from 'kea-test-utils'
 
 import * as libUtils from 'lib/utils/dom'
-import {
-    entityFilterLogic,
-    singleFilterToGroupFilter,
-    splitGroupFilterToLocalFilters,
-    toLocalFilters,
-} from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { entityFilterLogic, seriesNodeToGroupNode } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { EntityTypes, FilterLogicalOperator, FilterType } from '~/types'
+
+import { legacyFiltersToSeries } from '../legacyFilters'
+import { SeriesNode } from '../seriesNode'
+import { actionFilterGroupLogic } from './actionFilterGroupLogic'
+
+const eventNode = (event: string, extra: Record<string, any> = {}): AnyEntityNode =>
+    ({ kind: NodeKind.EventsNode, event, name: event, ...extra }) as AnyEntityNode
+
+const groupNode = (nodes: AnyEntityNode[], extra: Record<string, any> = {}): GroupNode =>
+    ({
+        kind: NodeKind.GroupNode,
+        name: nodes.map((n) => n.name).join(', '),
+        operator: FilterLogicalOperator.Or,
+        nodes,
+        ...extra,
+    }) as GroupNode
+
+/** Mounts the editor on a fixed series, with deterministic row uuids. */
+const mountLogic = (series: SeriesNode[], typeKey: string): ReturnType<typeof entityFilterLogic.build> => {
+    let uuidCounter = 0
+    ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
+
+    const logic = entityFilterLogic({ onChange: jest.fn(), series, typeKey })
+    logic.mount()
+    return logic
+}
 
 describe('ActionFilterGroup - Combining and Splitting Events', () => {
     beforeEach(() => {
@@ -28,528 +50,243 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
         initKeaTests()
     })
 
-    describe('singleFilterToGroupFilter', () => {
-        it('converts a single event filter to a group filter', () => {
-            const eventFilter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
+    describe('seriesNodeToGroupNode', () => {
+        it('converts a single event node to a group node', () => {
+            const node = eventNode('$pageview')
 
-            const groupFilter = singleFilterToGroupFilter(eventFilter)
+            const group = seriesNodeToGroupNode(node)
 
-            expect(groupFilter).toMatchObject({
-                id: null,
-                type: EntityTypes.GROUPS,
+            expect(group).toMatchObject({
+                kind: NodeKind.GroupNode,
                 operator: FilterLogicalOperator.Or,
-                order: 0,
-                uuid: 'test-uuid',
             })
-            expect(groupFilter.nestedFilters).not.toBeUndefined()
-            expect(groupFilter.nestedFilters!).toHaveLength(1)
-            expect(groupFilter.nestedFilters![0]).toEqual(eventFilter)
+            expect(group.nodes).toHaveLength(1)
+            expect(group.nodes[0]).toEqual(node)
         })
 
         it('preserves math properties at group level', () => {
-            const eventFilter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                math: 'dau',
-                math_property: 'some_prop',
-                uuid: 'uuid-1',
-            }
+            const group = seriesNodeToGroupNode(eventNode('$pageview', { math: 'dau', math_property: 'some_prop' }))
 
-            const groupFilter = singleFilterToGroupFilter(eventFilter)
-
-            expect(groupFilter).toMatchObject({
+            expect(group).toMatchObject({
                 math: 'dau',
                 math_property: 'some_prop',
             })
         })
 
-        it('handles action filters', () => {
-            const actionFilter = {
-                id: '123',
-                type: EntityTypes.ACTIONS,
-                name: 'User Signup',
-                order: 0,
-                uuid: 'uuid-1',
-            }
+        it('handles action nodes', () => {
+            const node = { kind: NodeKind.ActionsNode, id: 123, name: 'User Signup' } as AnyEntityNode
 
-            const groupFilter = singleFilterToGroupFilter(actionFilter)
+            const group = seriesNodeToGroupNode(node)
 
-            expect(groupFilter.type).toBe(EntityTypes.GROUPS)
-            expect(groupFilter.nestedFilters).toContainEqual(actionFilter)
+            expect(group.kind).toBe(NodeKind.GroupNode)
+            expect(group.nodes).toContainEqual(node)
+        })
+
+        it('defaults to OR operator when creating group', () => {
+            expect(seriesNodeToGroupNode(eventNode('$pageview')).operator).toBe(FilterLogicalOperator.Or)
+        })
+
+        it('does not carry custom_name from the child', () => {
+            const group = seriesNodeToGroupNode(eventNode('$pageview', { custom_name: 'My renamed event' }))
+
+            expect(group.custom_name).toBeUndefined()
+            expect(group.kind).toBe(NodeKind.GroupNode)
+            // the child retains its custom_name
+            expect(group.nodes[0].custom_name).toBe('My renamed event')
         })
     })
 
-    describe('splitGroupFilterToLocalFilters', () => {
-        it('expands a group filter with two events back to individual filters', () => {
-            const pageviewFilter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
+    describe('splitGroup', () => {
+        it('expands a group with two events back to individual series', () => {
+            const logic = mountLogic([groupNode([eventNode('$pageview'), eventNode('$exception')])], 'split_two')
 
-            const exceptionFilter = {
-                id: '$exception',
-                type: EntityTypes.EVENTS,
-                name: '$exception',
-                order: 1,
-                uuid: 'uuid-2',
-            }
+            logic.actions.splitGroup(0)
 
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'group',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [pageviewFilter, exceptionFilter],
-            }
-
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split).toHaveLength(2)
-            expect(split[0]).toEqual(
-                expect.objectContaining({
-                    id: '$pageview',
-                    order: 0,
-                })
-            )
-            expect(split[1]).toEqual(
-                expect.objectContaining({
-                    id: '$exception',
-                    order: 1,
-                })
-            )
+            expect(logic.values.series).toEqual([eventNode('$pageview'), eventNode('$exception')])
+            logic.unmount()
         })
 
-        it('maintains correct ordering when splitting', () => {
-            const filter1 = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
+        it('maintains correct ordering when splitting into the middle of the list', () => {
+            const logic = mountLogic(
+                [
+                    eventNode('$before'),
+                    groupNode([eventNode('$pageview'), eventNode('$exception'), eventNode('$pageleave')]),
+                    eventNode('$after'),
+                ],
+                'split_ordering'
+            )
 
-            const filter2 = {
-                id: '$exception',
-                type: EntityTypes.EVENTS,
-                name: '$exception',
-                order: 1,
-                uuid: 'uuid-2',
-            }
+            logic.actions.splitGroup(1)
 
-            const filter3 = {
-                id: '$pageleave',
-                type: EntityTypes.EVENTS,
-                name: '$pageleave',
-                order: 2,
-                uuid: 'uuid-3',
-            }
-
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'group',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [filter1, filter2, filter3],
-            }
-
-            const split = splitGroupFilterToLocalFilters(groupFilter, 5)
-
-            expect(split).toHaveLength(3)
-            expect(split[0].order).toBe(5)
-            expect(split[1].order).toBe(6)
-            expect(split[2].order).toBe(7)
+            expect(logic.values.series.map((node: any) => node.event)).toEqual([
+                '$before',
+                '$pageview',
+                '$exception',
+                '$pageleave',
+                '$after',
+            ])
+            logic.unmount()
         })
 
-        it('handles groups with mix of events and actions', () => {
-            const eventFilter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
+        it('handles groups with a mix of events and actions', () => {
+            const logic = mountLogic(
+                [
+                    groupNode([
+                        eventNode('$pageview'),
+                        { kind: NodeKind.ActionsNode, id: 123, name: 'User Signup' } as AnyEntityNode,
+                    ]),
+                ],
+                'split_mixed'
+            )
 
-            const actionFilter = {
-                id: '123',
-                type: EntityTypes.ACTIONS,
-                name: 'User Signup',
-                order: 1,
-                uuid: 'uuid-2',
-            }
+            logic.actions.splitGroup(0)
 
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'group',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [eventFilter, actionFilter],
-            }
-
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split).toHaveLength(2)
-            expect(split[0].type).toBe(EntityTypes.EVENTS)
-            expect(split[1].type).toBe(EntityTypes.ACTIONS)
+            expect(logic.values.series.map((node) => node.kind)).toEqual([NodeKind.EventsNode, NodeKind.ActionsNode])
+            logic.unmount()
         })
 
         it('preserves properties when splitting', () => {
-            const filter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-                properties: [
-                    {
-                        type: 'event',
-                        key: 'page_location',
-                        value: '/product',
-                        operator: 'exact',
-                    },
+            const properties = [{ type: 'event', key: 'page_location', value: '/product', operator: 'exact' }]
+            const logic = mountLogic([groupNode([eventNode('$pageview', { properties })])], 'split_properties')
+
+            logic.actions.splitGroup(0)
+
+            expect(logic.values.series[0].properties).toEqual(properties)
+            logic.unmount()
+        })
+
+        it('does not leak the group custom_name to its children', () => {
+            const logic = mountLogic(
+                [
+                    groupNode([eventNode('$pageview'), eventNode('$exception')], {
+                        custom_name: 'My conversion events',
+                    }),
                 ],
-            }
-
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'group',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [filter],
-            }
-
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split[0].properties).toEqual(filter.properties)
-        })
-    })
-
-    describe('single and group filters conversion', () => {
-        it('converts single filter to group and back to get same structure', () => {
-            const originalFilter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
-
-            // Convert to group
-            const groupFilter = singleFilterToGroupFilter(originalFilter)
-
-            // Split back
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split).toHaveLength(1)
-            expect(split[0]).toEqual(
-                expect.objectContaining({
-                    id: originalFilter.id,
-                    type: originalFilter.type,
-                    name: originalFilter.name,
-                })
+                'split_custom_name'
             )
+
+            logic.actions.splitGroup(0)
+
+            expect(logic.values.series).toHaveLength(2)
+            expect(logic.values.series[0].custom_name).toBeUndefined()
+            expect(logic.values.series[1].custom_name).toBeUndefined()
+            logic.unmount()
         })
 
-        it('handles multiple filters round-trip', () => {
-            const filters = [
-                {
-                    id: '$pageview',
-                    type: EntityTypes.EVENTS,
-                    name: '$pageview',
-                    order: 0,
-                    uuid: 'uuid-1',
-                },
-                {
-                    id: 'signup-action',
-                    type: EntityTypes.ACTIONS,
-                    name: 'User Signup',
-                    order: 1,
-                    uuid: 'uuid-2',
-                },
-            ]
+        it('combining and splitting round-trips to the same series', () => {
+            const original = eventNode('$pageview')
+            const logic = mountLogic([original], 'round_trip')
 
-            // Combine first filter to group
-            const groupFilter = singleFilterToGroupFilter(filters[0])
+            logic.actions.convertToGroup(0)
+            expect(logic.values.series[0].kind).toBe(NodeKind.GroupNode)
 
-            // Split back
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
+            logic.actions.splitGroup(0)
 
-            expect(split).toHaveLength(1)
-            expect(split[0].id).toBe('$pageview')
-        })
-    })
-
-    describe('OR vs AND operators', () => {
-        it('defaults to OR operator when creating group', () => {
-            const filter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
-
-            const groupFilter = singleFilterToGroupFilter(filter)
-
-            expect(groupFilter.operator).toBe(FilterLogicalOperator.Or)
-        })
-    })
-
-    describe('edge cases', () => {
-        it('handles empty group filter', () => {
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'empty_group',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [],
-            }
-
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split).toHaveLength(0)
+            expect(logic.values.series).toHaveLength(1)
+            expect(logic.values.series[0]).toEqual(original)
+            logic.unmount()
         })
 
-        it('handles single-item group filter', () => {
-            const filter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                order: 0,
-                uuid: 'uuid-1',
-            }
+        it('handles an empty group', () => {
+            const logic = mountLogic([groupNode([])], 'split_empty')
 
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'single',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [filter],
-            }
+            logic.actions.splitGroup(0)
 
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
+            expect(logic.values.series).toHaveLength(0)
+            logic.unmount()
+        })
 
-            expect(split).toHaveLength(1)
-            expect(split[0]).toEqual(
-                expect.objectContaining({
-                    id: '$pageview',
-                })
+        it('handles a single-item group', () => {
+            const logic = mountLogic([groupNode([eventNode('$pageview')])], 'split_single')
+
+            logic.actions.splitGroup(0)
+
+            expect(logic.values.series).toEqual([eventNode('$pageview')])
+            logic.unmount()
+        })
+
+        it('handles a large group with many events', () => {
+            const nodes = Array.from({ length: 10 }, (_, i) => eventNode(`event-${i}`))
+            const logic = mountLogic([groupNode(nodes)], 'split_large')
+
+            logic.actions.splitGroup(0)
+
+            expect(logic.values.series).toHaveLength(10)
+            expect(logic.values.series.map((node: any) => node.event)).toEqual(
+                Array.from({ length: 10 }, (_, i) => `event-${i}`)
             )
+            logic.unmount()
         })
 
-        it('handles large group with many events', () => {
-            const filters = Array.from({ length: 10 }, (_, i) => ({
-                id: `event-${i}`,
-                type: EntityTypes.EVENTS,
-                name: `Event ${i}`,
-                order: i,
-                uuid: `uuid-${i}`,
-            }))
+        it('leaves a non-group series alone', () => {
+            const logic = mountLogic([eventNode('$pageview')], 'split_non_group')
 
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: 'large_group',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: filters,
-            }
+            logic.actions.splitGroup(0)
 
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split).toHaveLength(10)
-            expect(split.map((f) => f.id)).toEqual(Array.from({ length: 10 }, (_, i) => `event-${i}`))
+            expect(logic.values.series).toEqual([eventNode('$pageview')])
+            logic.unmount()
         })
     })
 
-    describe('duplicating a group filter', () => {
-        const groupFilter = {
-            id: null,
-            type: EntityTypes.GROUPS,
-            name: 'group',
-            order: 0,
-            operator: FilterLogicalOperator.Or,
-            nestedFilters: [
-                { id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 },
-                { id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 1 },
-            ],
-        }
-
-        const mountLogic = (
-            filters: Partial<FilterType>,
-            typeKey: string
-        ): ReturnType<typeof entityFilterLogic.build> => {
-            let uuidCounter = 0
-            ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
-
-            const logic = entityFilterLogic({
-                setFilters: jest.fn(),
-                filters: filters as FilterType,
-                typeKey,
-            })
-            logic.mount()
-            return logic
-        }
+    describe('duplicating a group', () => {
+        const group = (): GroupNode => groupNode([eventNode('$pageview'), eventNode('$exception')])
 
         it('duplicates a lone group into two identical groups', async () => {
-            const logic = mountLogic({ groups: [groupFilter] }, 'duplicate_single_group')
-            const original = logic.values.localFilters[0]
+            const logic = mountLogic([group()], 'duplicate_single_group')
+            const original = logic.values.localSeries[0]
 
             await expectLogic(logic, () => {
-                logic.actions.duplicateFilter(original)
-            }).toDispatchActions(['duplicateFilter', 'setFilters'])
+                logic.actions.duplicateSeries(0)
+            }).toDispatchActions(['duplicateSeries', 'setLocalSeries'])
 
-            const local = logic.values.localFilters
+            const local = logic.values.localSeries
             expect(local).toHaveLength(2)
-            expect(local.map((f) => ({ type: f.type, order: f.order }))).toEqual([
-                { type: EntityTypes.GROUPS, order: 0 },
-                { type: EntityTypes.GROUPS, order: 1 },
-            ])
+            expect(local.map((l) => l.node.kind)).toEqual([NodeKind.GroupNode, NodeKind.GroupNode])
             expect(local[1].uuid).not.toBe(original.uuid)
-            expect(local[1].nestedFilters).toEqual(original.nestedFilters)
+            expect((local[1].node as GroupNode).nodes).toEqual((original.node as GroupNode).nodes)
 
             logic.unmount()
         })
 
         it('inserts the duplicate directly after the group and shifts trailing events', async () => {
-            const logic = mountLogic(
-                {
-                    groups: [groupFilter],
-                    events: [{ id: '$pageleave', type: EntityTypes.EVENTS, name: '$pageleave', order: 1 }],
-                },
-                'duplicate_group_with_event'
-            )
-            const original = logic.values.localFilters[0]
+            const logic = mountLogic([group(), eventNode('$pageleave')], 'duplicate_group_with_event')
+            const original = logic.values.localSeries[0]
 
             await expectLogic(logic, () => {
-                logic.actions.duplicateFilter(original)
-            }).toDispatchActions(['duplicateFilter', 'setFilters'])
+                logic.actions.duplicateSeries(0)
+            }).toDispatchActions(['duplicateSeries', 'setLocalSeries'])
 
-            const local = logic.values.localFilters
+            const local = logic.values.localSeries
             expect(local).toHaveLength(3)
-            expect(local.map((f) => ({ type: f.type, order: f.order }))).toEqual([
-                { type: EntityTypes.GROUPS, order: 0 },
-                { type: EntityTypes.GROUPS, order: 1 },
-                { type: EntityTypes.EVENTS, order: 2 },
-            ])
+            expect(local.map((l) => l.node.kind)).toEqual([NodeKind.GroupNode, NodeKind.GroupNode, NodeKind.EventsNode])
             expect(local[1].uuid).not.toBe(original.uuid)
-            expect(local[1].nestedFilters).toEqual(original.nestedFilters)
+            expect((local[1].node as GroupNode).nodes).toEqual((original.node as GroupNode).nodes)
 
             logic.unmount()
         })
     })
 
     describe('group custom_name handling', () => {
-        it('splitting a group with custom_name does not leak custom_name to children', () => {
-            const groupFilter = {
-                id: null,
-                type: EntityTypes.GROUPS,
-                name: '$pageview, $exception',
-                custom_name: 'My conversion events',
-                order: 0,
-                operator: FilterLogicalOperator.Or,
-                uuid: 'group-uuid',
-                nestedFilters: [
-                    { id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0, uuid: 'uuid-1' },
-                    { id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 1, uuid: 'uuid-2' },
-                ],
-            }
-
-            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
-
-            expect(split).toHaveLength(2)
-            expect(split[0].custom_name).toBeUndefined()
-            expect(split[1].custom_name).toBeUndefined()
-        })
-
-        it('combining a filter into a group does not carry custom_name from the child', () => {
-            const eventFilter = {
-                id: '$pageview',
-                type: EntityTypes.EVENTS,
-                name: '$pageview',
-                custom_name: 'My renamed event',
-                order: 0,
-                uuid: 'uuid-1',
-            }
-
-            const groupFilter = singleFilterToGroupFilter(eventFilter)
-
-            expect(groupFilter.custom_name).toBeUndefined()
-            expect(groupFilter.type).toBe(EntityTypes.GROUPS)
-            // the child retains its custom_name
-            expect(groupFilter.nestedFilters![0].custom_name).toBe('My renamed event')
-        })
-
         it('preserves custom_name through rename via entityFilterLogic', async () => {
-            let uuidCounter = 0
-            ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
+            const logic = mountLogic([groupNode([eventNode('$pageview')])], 'rename_group_test')
 
-            const logic = entityFilterLogic({
-                setFilters: jest.fn(),
-                filters: {
-                    groups: [
-                        {
-                            id: null,
-                            type: EntityTypes.GROUPS,
-                            name: '$pageview',
-                            order: 0,
-                            operator: FilterLogicalOperator.Or,
-                            nestedFilters: [{ id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 }],
-                        },
-                    ],
-                } as FilterType,
-                typeKey: 'rename_group_test',
-            })
-            logic.mount()
-
-            const groupFilter = logic.values.localFilters[0]
-            logic.actions.selectFilter(groupFilter)
+            logic.actions.selectSeries(0, logic.values.series[0], logic.values.localSeries[0].uuid)
 
             await expectLogic(logic, () => {
-                logic.actions.renameFilter('Revenue events')
-            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+                logic.actions.renameSeries('Revenue events')
+            }).toDispatchActions(['renameSeries', 'setLocalSeries'])
 
-            expect(logic.values.localFilters[0].custom_name).toBe('Revenue events')
-            expect(logic.values.localFilters[0].type).toBe(EntityTypes.GROUPS)
+            expect(logic.values.series[0].custom_name).toBe('Revenue events')
+            expect(logic.values.series[0].kind).toBe(NodeKind.GroupNode)
 
             logic.unmount()
         })
     })
 
-    describe('toLocalFilters with groups', () => {
-        it('includes group filters in local filters', () => {
-            const filterType = {
-                events: [
-                    {
-                        id: '$pageview',
-                        type: EntityTypes.EVENTS,
-                        name: '$pageview',
-                        order: 0,
-                    },
-                ],
+    describe('legacyFiltersToSeries with groups', () => {
+        it('includes group filters in the series', () => {
+            const series = legacyFiltersToSeries({
+                events: [{ id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 }],
                 groups: [
                     {
                         id: null,
@@ -557,48 +294,26 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                         name: 'group',
                         order: 1,
                         operator: FilterLogicalOperator.Or,
-                        nestedFilters: [
-                            {
-                                id: '$exception',
-                                type: EntityTypes.EVENTS,
-                                name: '$exception',
-                                order: 0,
-                            },
-                        ],
+                        nestedFilters: [{ id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 0 }],
                     },
                 ],
-            }
+            } as FilterType)
 
-            const localFilters = toLocalFilters(filterType)
-
-            expect(localFilters).toHaveLength(2)
-            expect(localFilters[0]).toEqual(
+            expect(series).toHaveLength(2)
+            expect(series[0]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
+            expect(series[1]).toEqual(
                 expect.objectContaining({
-                    id: '$pageview',
-                })
-            )
-            expect(localFilters[1]).toEqual(
-                expect.objectContaining({
-                    type: EntityTypes.GROUPS,
+                    kind: NodeKind.GroupNode,
+                    nodes: [expect.objectContaining({ kind: NodeKind.EventsNode, event: '$exception' })],
                 })
             )
         })
 
         it('maintains order across mixed filters and groups', () => {
-            const filterType = {
+            const series = legacyFiltersToSeries({
                 events: [
-                    {
-                        id: '$pageview',
-                        type: EntityTypes.EVENTS,
-                        name: '$pageview',
-                        order: 0,
-                    },
-                    {
-                        id: '$pageleave',
-                        type: EntityTypes.EVENTS,
-                        name: '$pageleave',
-                        order: 2,
-                    },
+                    { id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 },
+                    { id: '$pageleave', type: EntityTypes.EVENTS, name: '$pageleave', order: 2 },
                 ],
                 groups: [
                     {
@@ -607,21 +322,56 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                         name: 'group',
                         order: 1,
                         operator: FilterLogicalOperator.Or,
-                        nestedFilters: [
-                            {
-                                id: '$exception',
-                                type: EntityTypes.EVENTS,
-                                name: '$exception',
-                                order: 0,
-                            },
-                        ],
+                        nestedFilters: [{ id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 0 }],
                     },
                 ],
-            }
+            } as FilterType)
 
-            const localFilters = toLocalFilters(filterType)
+            expect(series.map((node) => node.kind)).toEqual([
+                NodeKind.EventsNode,
+                NodeKind.GroupNode,
+                NodeKind.EventsNode,
+            ])
+        })
+    })
 
-            expect(localFilters.map((f) => f.order)).toEqual([0, 1, 2])
+    describe('nested row identity', () => {
+        const mountGroupLogic = (
+            nodes: AnyEntityNode[],
+            typeKey: string
+        ): ReturnType<typeof actionFilterGroupLogic.build> => {
+            const parent = mountLogic([groupNode(nodes)], typeKey)
+            const logic = actionFilterGroupLogic({
+                filterUuid: parent.values.localSeries[0].uuid,
+                typeKey,
+                groupIndex: 0,
+            })
+            logic.mount()
+            return logic
+        }
+
+        it('keeps each surviving nested row on its own uuid when one is removed', () => {
+            const logic = mountGroupLogic(
+                [eventNode('$pageview'), eventNode('$autocapture'), eventNode('$rageclick')],
+                'nested_removal'
+            )
+            const originalUuids = logic.values.nestedRows.map(({ uuid }) => uuid)
+            expect(originalUuids).toHaveLength(3)
+
+            logic.actions.removeNestedSeries(0)
+
+            // Keying by index would move each surviving row's open property panel onto the next event.
+            expect(logic.values.nestedRows.map(({ uuid }) => uuid)).toEqual(originalUuids.slice(1))
+        })
+
+        it('keeps every nested row on its uuid when one of them switches event', () => {
+            const logic = mountGroupLogic([eventNode('$pageview'), eventNode('$autocapture')], 'nested_update')
+            const originalUuids = logic.values.nestedRows.map(({ uuid }) => uuid)
+
+            logic.actions.updateNestedSeries(1, { event: '$rageclick', name: '$rageclick' } as Partial<AnyEntityNode>)
+
+            expect(logic.values.nestedRows.map(({ uuid }) => uuid)).toEqual(originalUuids)
+            expect(logic.values.nestedNodes[1]).toEqual(expect.objectContaining({ event: '$rageclick' }))
         })
     })
 })

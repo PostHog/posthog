@@ -18,6 +18,9 @@ export interface MetricsPanelDefinition {
     needsGroupBy?: boolean
     /** The panel needs a histogram metric; the picker disables it otherwise. */
     needsHistogram?: boolean
+    /** The panel collapses each series to one number with `resolveReducer`, so the chart
+     * settings offer the reducer picker. */
+    reducesSeries?: boolean
 }
 
 /** Static metadata per panel type. The render components register themselves in
@@ -28,10 +31,10 @@ export const METRICS_PANELS: Record<MetricsDisplayType, MetricsPanelDefinition> 
     line: { label: 'Line' },
     area: { label: 'Area' },
     bar: { label: 'Bar' },
-    stat: { label: 'Stat' },
-    gauge: { label: 'Gauge' },
-    bargauge: { label: 'Bar gauge', needsGroupBy: true },
-    table: { label: 'Table' },
+    stat: { label: 'Stat', reducesSeries: true },
+    gauge: { label: 'Gauge', reducesSeries: true },
+    bargauge: { label: 'Bar gauge', needsGroupBy: true, reducesSeries: true },
+    table: { label: 'Table', reducesSeries: true },
     heatmap: { label: 'Heatmap', needsHistogram: true },
 }
 

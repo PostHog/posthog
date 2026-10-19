@@ -30,7 +30,7 @@ export type SurfacePrompts = {
 }
 
 const AI_OBSERVABILITY_EVALUATION_PROMPT =
-    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."
+    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, with an example trace for each. Recommend one evaluation per failure mode, and say whether it should return pass/fail, a score, or categories. Ask which ones I want before creating anything. Create them disabled, test each on a few recent generations, and show me the results before enabling."
 
 export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     'feature_flags.create': {
@@ -563,4 +563,12 @@ export function getSurfacePrompts(surfaceKey: SurfaceKey, options: ResolveOption
 export function formatDerivedToastPrompt(prompt: string): string {
     const trimmed = prompt.trim().replace(/^["']|["']$/g, '')
     return `"${trimmed}"`
+}
+
+/**
+ * Turns a displayed example into the prompt an external agent receives. The agent may not have the
+ * PostHog MCP server yet, so the prompt tells it to ask for the install instead of guessing.
+ */
+export function stripDisplayQuotes(example: string): string {
+    return example.trim().replace(/^["']|["']$/g, '')
 }

@@ -12,6 +12,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -479,6 +482,7 @@ def _get_fan_out_rows(
         resume_url = resume.next_url
         logger.debug(f"Klaviyo: resuming {config.name} from parent={resume.list_id}, url={resume_url}")
 
+    parent_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for index, (ancestors, parent_id) in enumerate(remaining):
         child_path = config.path.format(**{fan_out.parent_id_column: parent_id})
         url = resume_url or _build_url(f"{KLAVIYO_BASE_URL}{child_path}", params)
@@ -514,9 +518,10 @@ def _get_fan_out_rows(
                 raise
 
         # Advance the bookmark to the next parent so a crash between parents resumes correctly. Its
-        # first page URL is built fresh when the loop reaches it.
+        # first page URL is built fresh when the loop reaches it. The batcher can hold rows of this
+        # parent, and a bookmark at the next parent skips them.
         if index + 1 < len(remaining):
-            resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=None, list_id=remaining[index + 1][1]))
+            yield from parent_checkpoint.save(KlaviyoResumeConfig(next_url=None, list_id=remaining[index + 1][1]))
 
 
 def _resolve_conversion_metric_id(

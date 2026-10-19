@@ -6,6 +6,10 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 
 ## Skills
 
+- **analyzing-offline-evaluations** — compare stored offline experiments, interpret
+  pinned scorer versions and incomplete coverage, inspect case payloads, and publish
+  externally computed results.
+
 - **exploring-llm-traces** — how to query, inspect, and debug LLM traces via MCP tools.
   Covers the `$ai_*` event schema, where message content lives (`events` vs the `ai_events`
   table), content detail levels, and step-by-step debugging workflows.

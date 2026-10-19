@@ -749,7 +749,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
         # enough — a notebook editor whose query access is denied must not read data through it.
-        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # Mirrors products/subscriptions/backend/presentation/views.py: the query:read scope gates tokens, this gates sessions
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
@@ -2272,7 +2272,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
         # The node short-polls this durable read to learn when its run finishes. One indexed
-        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
+        # query, no held connection — resilient to reloads/remounts.
         user = self._current_user()
         if run_id is None:
             raise Http404()
@@ -2326,7 +2326,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         required_scopes=["notebook:read", "query:read"],
     )
     def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
-        # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
+        # A page fetch is not a run: a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
         user = self._current_user()
         if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:

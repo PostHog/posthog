@@ -167,8 +167,8 @@ export interface DataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
-     * @maxLength 1000
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 300
      */
     description: string
     /**
@@ -267,8 +267,8 @@ export interface PatchedDataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
-     * @maxLength 1000
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 300
      */
     description?: string
     /**
@@ -560,9 +560,21 @@ export type DataCatalogCertificationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Only certifications with this review status.
+     */
+    status?: string
 }
 
 export type DataCatalogMetricsListParams = {
+    /**
+     * Only metrics with this query node kind.
+     */
+    definition_kind?: string
     /**
      * Number of results to return per page.
      */
@@ -571,6 +583,14 @@ export type DataCatalogMetricsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Only metrics with this review status.
+     */
+    status?: string
 }
 
 export type DataCatalogMetricsRunCreateParams = {
@@ -610,7 +630,15 @@ export type DataCatalogRelationshipProposalsListParams = {
      */
     offset?: number
     /**
+     * A search term.
+     */
+    search?: string
+    /**
      * Filter by proposed/accepted/rejected.
      */
     status?: string
+    /**
+     * Only relationships involving this table on either side.
+     */
+    table_name?: string
 }

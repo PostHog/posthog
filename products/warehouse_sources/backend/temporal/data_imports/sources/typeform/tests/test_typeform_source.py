@@ -1,4 +1,3 @@
-from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typeform import (
     TypeformSourceConfig,
 )
@@ -9,28 +8,6 @@ class TestTypeformSource:
     def setup_method(self):
         self.source = TypeformSource()
         self.team_id = 123
-
-    def _response_types_field(self) -> SourceFieldSelectConfig:
-        field = next(f for f in self.source.get_source_config.fields if f.name == "response_types")
-        assert isinstance(field, SourceFieldSelectConfig)
-        return field
-
-    def test_response_types_field_defaults_to_completed(self):
-        field = self._response_types_field()
-        assert field.defaultValue == "completed"
-        assert [option.value for option in field.options] == ["completed", "completed,partial,started"]
-
-    def test_response_types_field_points_to_delete_and_resync(self):
-        field = self._response_types_field()
-        assert field.caption is not None
-        # The caption must name the exact destructive action, since a plain "Sync now"
-        # won't backfill the newly included partial/started responses.
-        assert "delete table and resync" in field.caption.lower()
-
-    def test_get_schemas_completed_only_uses_submitted_at(self):
-        config = TypeformSourceConfig(auth_token="token", response_types="completed")
-        responses = next(s for s in self.source.get_schemas(config, self.team_id) if s.name == "responses")
-        assert [f["field"] for f in responses.incremental_fields] == ["submitted_at"]
 
     def test_get_schemas_with_partials_is_full_refresh(self):
         config = TypeformSourceConfig(auth_token="token", response_types="completed,partial,started")

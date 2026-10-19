@@ -814,6 +814,23 @@ class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("naive", "2025-01-08 08:12:00", ("2025-01-08", "08:12:00")),
+            ("iso_utc", "2025-01-08T08:12:00Z", ("2025-01-08", "08:12:00")),
+            ("other_offset", "2025-01-08T10:12:00+02:00", ("2025-01-08", "08:12:00")),
+            ("unparseable", "next tuesday", ("", "")),
+            ("invalid_date", "2025-13-45 08:12:00", ("", "")),
+        ]
+    )
+    def test_add_view_prefills_datetimes_from_query_string(self, _name, value, expected):
+        response = self.client.get("/admin/posthog/datadeletionrequest/add/", {"start_time": value})
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        rendered = tuple(soup.select_one(f"input[name=start_time_{i}]").get("value", "") for i in (0, 1))
+        self.assertEqual(rendered, expected)
+
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):

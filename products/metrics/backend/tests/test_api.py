@@ -4,8 +4,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.apps import apps
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,22 +15,9 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.facade.user_access_control import (
-    ACCESS_CONTROL_RESOURCES,
-    AccessControlLevelResource,
-)
+from products.access_control.backend.facade.user_access_control import AccessControlLevelResource
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
-from products.metrics.backend.facade.contracts import METRICS_FUNDAMENTALS_FEATURE_FLAG
-
-
-def test_metrics_app_is_installed():
-    assert apps.is_installed("products.metrics.backend")
-
-
-class TestMetricsResourceRegistration(SimpleTestCase):
-    def test_metrics_is_a_controllable_resource(self) -> None:
-        assert "metrics" in ACCESS_CONTROL_RESOURCES
 
 
 class TestMetricsValuesApi(APIBaseTest):
@@ -123,23 +108,6 @@ class TestMetricsFeatureFlagGate(APIBaseTest):
 
         assert response.status_code == expected_status
 
-    @parameterized.expand(
-        [
-            ("enabled", True, status.HTTP_400_BAD_REQUEST),
-            ("disabled", False, status.HTTP_403_FORBIDDEN),
-        ]
-    )
-    def test_fundamentals_flag_gates_the_explain_action(
-        self, _name: str, fundamentals_enabled: bool, expected_status: int
-    ) -> None:
-        def feature_enabled(flag: str, *args: object, **kwargs: object) -> bool:
-            return fundamentals_enabled if flag == METRICS_FUNDAMENTALS_FEATURE_FLAG else True
-
-        with patch("posthoganalytics.feature_enabled", side_effect=feature_enabled):
-            response = self.client.post(f"/api/projects/{self.team.id}/metrics/explain/", {}, format="json")
-
-        assert response.status_code == expected_status
-
 
 @pytest.mark.ee
 class TestMetricsAccessControl(APIBaseTest):
@@ -196,7 +164,6 @@ class TestMetricsAccessControl(APIBaseTest):
             ("query", "POST", {}),
             ("samples", "POST", {}),
             ("error_spikes", "GET", {}),
-            ("explain", "POST", {}),
             ("characterize", "POST", {}),
         ]
     )

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.integration import Integration, JiraIntegration
+from posthog.models.integration import Assignee, Integration, JiraIntegration, ReconnectRequired
 
 
 class TestJiraIntegrationModel:
@@ -146,3 +146,43 @@ class TestJiraIntegrationModel:
             "version": 1,
             "content": expected_content,
         }
+
+    @parameterized.expand(
+        [
+            ("with_assignee", {"assignee": "account-id"}, {"accountId": "account-id"}),
+            ("without_assignee", {}, None),
+        ]
+    )
+    @patch("posthog.models.integration.jira.requests.post")
+    def test_create_issue_sets_assignee_by_account_id(self, _name, extra_config, expected_assignee, mock_post):
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = {"key": "ENG-1", "id": "10001"}
+
+        JiraIntegration(self.integration()).create_issue(
+            {"project_key": "ENG", "title": "Checkout failed", "description": "Details", **extra_config}
+        )
+
+        assert mock_post.call_args.kwargs["json"]["fields"].get("assignee") == expected_assignee
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @patch("posthog.models.integration.jira.requests.get")
+    def test_list_assignees_requires_reconnect(self, _name, status_code, mock_get):
+        integration = self.integration()
+        integration.config = {"cloud_id": "cloud-id", "refreshed_at": 9999999999}
+        mock_get.return_value.status_code = status_code
+
+        with pytest.raises(ReconnectRequired):
+            JiraIntegration(integration).list_assignees("ENG")
+
+    @patch("posthog.models.integration.jira.requests.get")
+    def test_list_assignees_searches_and_skips_inactive_users(self, mock_get):
+        integration = self.integration()
+        integration.config = {"cloud_id": "cloud-id", "scope": "read:jira-work read:jira-user"}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"accountId": "a1", "displayName": "Ada", "active": True},
+            {"accountId": "a2", "displayName": "Gone", "active": False},
+        ]
+
+        assert JiraIntegration(integration).list_assignees("ENG", " ad ") == [Assignee(id="a1", name="Ada")]
+        assert mock_get.call_args.kwargs["params"] == {"project": "ENG", "maxResults": "100", "query": "ad"}

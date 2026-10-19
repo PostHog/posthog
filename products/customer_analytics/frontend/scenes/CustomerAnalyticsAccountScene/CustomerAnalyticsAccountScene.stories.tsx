@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -6,7 +8,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
+import type {
+    CustomPropertyValueWriteApi,
+    AccountRelationshipWriteApi,
+    PaginatedMeetingListApi,
+} from '../../generated/api.schemas'
 import { createAccountViewContent } from './accountViewDocument'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
@@ -15,6 +21,7 @@ const URL_UNSAFE_EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_BY_EXTERNAL_ID_ENDPOINT = 'api/projects/:team_id/accounts/by_external_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const ACCOUNT_MEETINGS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/meetings/'
 const ACCOUNT_PRESENCE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/presence/'
 const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
@@ -87,6 +94,24 @@ const notebooks = {
             last_modified_by: null,
         },
     ],
+}
+
+const meetings: PaginatedMeetingListApi = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [
+        { id: 'meeting-next', title: 'Weekly review', start_time: '2026-05-23T12:00:00Z', is_recurring: true },
+        { id: 'meeting-one-off', title: 'Planning call', start_time: '2026-05-25T12:00:00Z', is_recurring: false },
+        { id: 'meeting-past', title: 'Previous weekly review', start_time: '2026-05-18T12:00:00Z', is_recurring: true },
+    ].map((meeting) => ({
+        ...meeting,
+        gong_url: null,
+        end_time: null,
+        organizer_email: 'host@example.com',
+        status: 'confirmed',
+        participants: [],
+    })),
 }
 
 const meta: Meta = {
@@ -206,11 +231,66 @@ export const ExternalId: Story = {
     },
 }
 
+export const ChurnedAndIgnored: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: {
+                    ...account,
+                    churned_at: '2026-05-01T10:00:00Z',
+                    ignored_at: '2026-05-15T10:00:00Z',
+                },
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="account-churned-tag"]', '[data-attr="account-ignored-tag"]'],
+            viewport: { width: 1280, height: 900 },
+            // The scene's tab panel is its own <main>, so the default snapshot crops out the title tags.
+            includeNavigationInSnapshot: true,
+        },
+    },
+}
+
+export const EditStatusDates: Story = {
+    ...ChurnedAndIgnored,
+    play: async ({ canvasElement }) => {
+        const tag = await within(canvasElement).findByText('Churned', {}, { timeout: 15000 })
+        await userEvent.click(tag)
+        await within(document.body).findByText('Edit account')
+    },
+}
+
 export const Narrow: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
             waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
+            viewport: { width: 800, height: 900 },
+        },
+    },
+}
+
+export const Meetings: Story = {
+    render: () => <App />,
+    decorators: [mswDecorator({ get: { [ACCOUNT_MEETINGS_ENDPOINT]: meetings } })],
+    parameters: {
+        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, 'meetings'),
+        testOptions: {
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.LemonTable'],
+            viewport: { width: 1280, height: 900 },
+        },
+    },
+}
+
+export const MeetingsNarrow: Story = {
+    ...Meetings,
+    parameters: {
+        ...Meetings.parameters,
+        testOptions: {
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.LemonTable'],
             viewport: { width: 800, height: 900 },
         },
     },
@@ -374,5 +454,96 @@ export const PinnedPropertiesNarrow: Story = {
     ...PinnedProperties,
     parameters: {
         testOptions: { waitForSelector: '[data-attr="account-property-row"]', viewport: { width: 800, height: 900 } },
+    },
+}
+
+const widgetCustomId = '33333333-3333-4333-8333-333333333333'
+const widgetRelationshipId = '44444444-4444-4444-8444-444444444444'
+const widgetCanonicalId = '55555555-5555-4555-8555-555555555555'
+const widgetDefinitions = [
+    { ...pinnedDefinitions[0].definition, id: widgetCustomId },
+    { ...pinnedDefinitions[9].definition, id: widgetCanonicalId },
+]
+const widgetRelationship = { ...pinnedRelationships[0], id: widgetRelationshipId }
+const propertiesView = {
+    ...accountView,
+    content: createAccountViewContent([
+        {
+            nodeId: 'properties-first',
+            kind: 'properties',
+            span: 6,
+            title: 'Account information',
+            config: {
+                properties: [
+                    { kind: 'account', key: 'website_domain' },
+                    { kind: 'custom_property', id: widgetCustomId },
+                    { kind: 'relationship', id: widgetRelationshipId },
+                    { kind: 'account', key: 'billing_id' },
+                ],
+            },
+        },
+        {
+            nodeId: 'properties-second',
+            kind: 'properties',
+            span: 6,
+            title: 'Contact properties',
+            config: {
+                properties: [
+                    { kind: 'account', key: 'known_emails' },
+                    { kind: 'relationship', id: widgetRelationshipId },
+                    { kind: 'custom_property', id: widgetCanonicalId },
+                    { kind: 'custom_property', id: '66666666-6666-4666-8666-666666666666' },
+                ],
+            },
+        },
+    ]),
+}
+const propertiesWidgetDecorator = mswDecorator({
+    get: {
+        [ACCOUNT_VIEWS_ENDPOINT]: [propertiesView],
+        [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: { count: widgetDefinitions.length, results: widgetDefinitions },
+        [RELATIONSHIP_DEFINITIONS_ENDPOINT]: { count: 1, results: [widgetRelationship] },
+        [VALUES_ENDPOINT]: widgetDefinitions.map((definition, index) => ({
+            ...pinnedDefinitions[index === 0 ? 0 : 9].value,
+            definition_id: definition.id,
+        })),
+        [ASSIGNMENTS_ENDPOINT]: [
+            {
+                id: 'widget-assignment',
+                definition: widgetRelationship,
+                user: pinnedMembers[0],
+                started_at: '2026-05-10T10:00:00Z',
+                ended_at: null,
+            },
+        ],
+        [ACCOUNT_RETRIEVE_ENDPOINT]: {
+            ...account,
+            properties: {
+                ...account.properties,
+                website_domain: 'a-long-company-website-domain.example.com',
+                known_emails: ['a-long-contact-address@example.com', 'another-contact@example.com'],
+            },
+        },
+    },
+})
+
+export const PropertiesWidgets: Story = {
+    render: () => <App />,
+    decorators: [propertiesWidgetDecorator],
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-properties-widget"]',
+            viewport: { width: 1800, height: 900 },
+        },
+    },
+}
+
+export const PropertiesWidgetsNarrow: Story = {
+    ...PropertiesWidgets,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-properties-widget"]',
+            viewport: { width: 1000, height: 900 },
+        },
     },
 }

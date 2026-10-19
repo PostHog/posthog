@@ -351,6 +351,23 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
             expect(getTabLabels()).toEqual(['General', 'Axes', 'Lines'])
         })
+
+        it.each([
+            ['a proportion bar the user left alone', ChartDisplayType.ActionsProportionBar, {}, 0],
+            [
+                'a proportion bar with its legend turned off',
+                ChartDisplayType.ActionsProportionBar,
+                { showLegend: false },
+                1,
+            ],
+            ['a line chart with its legend turned on', ChartDisplayType.ActionsLineGraph, { showLegend: true }, 1],
+        ])('counts the legend as changed only for %s', (_name, display, trendsFilter, expected) => {
+            setupAndRender(makeTrendsQuery(display, trendsFilter))
+
+            expect(screen.getAllByLabelText('Options')[0].textContent ?? '').toMatch(
+                expected ? new RegExp(`\\(${expected}\\)`) : /^[^(]*$/
+            )
+        })
     })
 
     describe('overlays tab', () => {

@@ -23,12 +23,13 @@ import openai
 from temporalio.exceptions import CancelledError
 
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
 from products.ai_observability.backend.llm.errors import (
     RESPONSE_LIMIT_MESSAGE,
     LLMError,
     ProviderConfigurationError,
+    ProviderHostUnresolvedError,
     ProviderRequestRejectedError,
     ProviderTimeoutError,
     RateLimitError,
@@ -82,18 +83,29 @@ def error_field_for_validation_message(error_message: str | None) -> str | None:
     return error_field_for_message(_ERROR_FIELD_BY_PREFIX, error_message)
 
 
-def is_allowed_custom_base_url(base_url: str) -> bool:
-    """Return True if the base URL is https:// and passes the shared SSRF validator."""
+def _custom_base_url_block_reason(base_url: str) -> str | None:
+    """Return why the base URL fails the https:// and shared SSRF checks, or None when it passes."""
     if not base_url:
-        return False
+        return DISALLOWED_BASE_URL_MESSAGE
     try:
         parsed = urlparse(base_url)
     except ValueError:
-        return False
+        return DISALLOWED_BASE_URL_MESSAGE
     if parsed.scheme != "https" or not parsed.hostname:
-        return False
-    allowed, _reason = is_url_allowed(base_url)
-    return allowed
+        return DISALLOWED_BASE_URL_MESSAGE
+    allowed, reason = is_url_allowed(base_url)
+    return None if allowed else reason or DISALLOWED_BASE_URL_MESSAGE
+
+
+def is_allowed_custom_base_url(base_url: str) -> bool:
+    """Return True if the base URL is https:// and passes the shared SSRF validator."""
+    return _custom_base_url_block_reason(base_url) is None
+
+
+def _blocked_base_url_error(reason: str) -> LLMError:
+    if reason == UNRESOLVED_HOST_REASON:
+        return ProviderHostUnresolvedError()
+    return ProviderConfigurationError(DISALLOWED_BASE_URL_MESSAGE)
 
 
 def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
@@ -138,13 +150,17 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
         ``settings.OPENAI_BASE_URL`` in ``OpenAIAdapter.complete`` and send the
         user's key to the wrong host.
         """
-        if not is_allowed_custom_base_url(self.base_url):
-            raise ProviderConfigurationError(DISALLOWED_BASE_URL_MESSAGE)
+        reason = _custom_base_url_block_reason(self.base_url)
+        if reason is not None:
+            raise _blocked_base_url_error(reason)
         return self.base_url
 
     def _build_http_client(self) -> httpx.Client:
         """Pin the connection to the configured endpoint's validated address."""
-        return _pinned_http_client(self._require_allowed_base_url(), self.request_timeout)
+        try:
+            return _pinned_http_client(self._require_allowed_base_url(), self.request_timeout)
+        except SSRFBlockedError as error:
+            raise _blocked_base_url_error(str(error)) from error
 
     def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
         cause = error.__cause__ if isinstance(error, openai.APIConnectionError) else error

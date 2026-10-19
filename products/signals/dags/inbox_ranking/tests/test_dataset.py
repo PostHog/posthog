@@ -8,11 +8,17 @@ from unittest.mock import patch
 import dagster
 import pyarrow as pa
 from parameterized import parameterized
+from social_django.models import UserSocialAuth
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalReportSuggestedReviewer,
+)
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
@@ -21,7 +27,10 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_SCHEMA,
     LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
+    REVIEWERS_SCHEMA,
+    USER_INTERACTIONS_SCHEMA,
     assemble_model_rows,
+    assemble_user_interaction_rows,
     label_provenance_ok,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
@@ -33,6 +42,15 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     SERVER_ACTIONS_COLUMNS,
     STATUS_COLUMNS,
     STATUS_SQL,
+    USER_KEY_COLUMNS,
+    USER_LABEL_DEFAULTS,
+    USER_LABEL_STREAM_COLUMNS,
+    USER_LABEL_STREAMS,
+    USER_OUTCOME_FIRST_EVENT_COLUMNS,
+    USER_SERVER_ACTIONS_COLUMNS,
+    USER_STATUS_COLUMNS,
+    USER_STATUS_SQL,
+    USER_STATUS_STREAM,
     hogql_rows,
     merge_label_streams,
     region_app_host,
@@ -49,6 +67,7 @@ AFTER_SNAPSHOT_END = datetime.datetime(2026, 7, 30, 1, 0, tzinfo=datetime.UTC)
 BEFORE_CUTOFF = datetime.datetime(2026, 7, 28, 9, 0, tzinfo=datetime.UTC)
 UUID_A = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
 UUID_B = "0198c0e8-93c8-0000-38f5-a934eeb1b93f"
+UUID_C = "0198c0e8-93c8-0000-38f5-a934eeb1b940"
 
 
 def test_s3_key_layout_is_stable():
@@ -105,6 +124,37 @@ def test_region_app_host_comes_from_the_region_not_the_site_url(monkeypatch, clo
 )
 def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, partition_key, expected):
     assert common.latest_is_stale(existing, partition_key) is expected
+
+
+@pytest.mark.parametrize(
+    "stamps,requested,limit,expected",
+    [
+        ({"2026-07-01": None, "2026-07-02": 8, "2026-07-03": 9}, (), 6, ["2026-07-02", "2026-07-01"]),
+        ({"2026-07-01": 10}, (), 6, []),
+        ({f"2026-07-{day:02d}": None for day in range(1, 11)}, (), 3, ["2026-07-10", "2026-07-09", "2026-07-08"]),
+        ({"2026-07-01": 8, "2026-07-02": 8, "2026-07-03": 8}, ("2026-07-03",), 1, ["2026-07-02"]),
+    ],
+)
+def test_stale_label_partitions_newest_first_capped_and_skips_requested(stamps, requested, limit, expected):
+    assert dag.stale_label_partitions(stamps, 9, limit, requested) == expected
+
+
+class _MetadataS3:
+    def __init__(self) -> None:
+        self.metadata: dict[str, dict[str, str]] = {}
+
+    def upload_fileobj(self, fileobj, bucket, key, ExtraArgs):
+        self.metadata[key] = ExtraArgs["Metadata"]
+
+    def head_object(self, Bucket, Key):
+        return {"Metadata": self.metadata[Key]}
+
+
+@pytest.mark.parametrize("schema_version", [9, None])
+def test_schema_version_stamp_round_trips(schema_version):
+    client = _MetadataS3()
+    common.write_parquet(client, "b", "k", pa.table({"x": [1]}), schema_version=schema_version)
+    assert common.object_schema_version(client, "b", "k") == schema_version
 
 
 @pytest.mark.parametrize(
@@ -274,20 +324,28 @@ def test_label_stream_columns_all_exist_in_defaults():
         assert set(columns) <= set(LABEL_DEFAULTS)
 
 
-def test_every_outcome_count_is_paired_with_a_first_event_timestamp():
+@pytest.mark.parametrize(
+    "defaults,pairs,schema,uniq_counts",
+    [
+        # The user counts are uniq aggregates over an outcome the map already pairs, not outcomes of
+        # their own.
+        (LABEL_DEFAULTS, OUTCOME_FIRST_EVENT_COLUMNS, LABELS_SCHEMA, {"impressed_user_count", "opened_user_count"}),
+        (USER_LABEL_DEFAULTS, USER_OUTCOME_FIRST_EVENT_COLUMNS, USER_INTERACTIONS_SCHEMA, set()),
+    ],
+    ids=["report_grain", "user_grain"],
+)
+def test_every_outcome_count_is_paired_with_a_first_event_timestamp(defaults, pairs, schema, uniq_counts):
     # A horizon label ("did the outcome happen within N days of this moment?") and a time-to-outcome
     # read both need the moment the outcome first arrived. The cumulative count only says it
     # happened somewhere in the partition's whole window, so a new count column has to arrive with
     # its paired timestamp or be named as a uniq over an outcome that already has one.
-    count_columns = {name for name in LABEL_DEFAULTS if name.endswith("_count")}
-    # The user counts are uniq aggregates over an outcome the map already pairs, not outcomes of
-    # their own.
-    assert count_columns == set(OUTCOME_FIRST_EVENT_COLUMNS) | {"impressed_user_count", "opened_user_count"}
+    count_columns = {name for name in defaults if name.endswith("_count")}
+    assert count_columns == set(pairs) | uniq_counts
 
-    for count_column, first_event_column in OUTCOME_FIRST_EVENT_COLUMNS.items():
-        assert first_event_column in LABEL_DEFAULTS, count_column
-        assert LABEL_DEFAULTS[first_event_column] is None, count_column
-        assert LABELS_SCHEMA.field(first_event_column).type == pa.timestamp("us", tz="UTC")
+    for count_column, first_event_column in pairs.items():
+        assert first_event_column in defaults, count_column
+        assert defaults[first_event_column] is None, count_column
+        assert schema.field(first_event_column).type == pa.timestamp("us", tz="UTC")
 
 
 @pytest.mark.parametrize(
@@ -400,6 +458,78 @@ def test_assembled_rows_match_the_parquet_schema_exactly():
     assert set(rows[0]) == set(MODEL_DATA_SCHEMA.names)
 
 
+def test_user_grain_rows_match_the_parquet_schema_exactly():
+    merged = merge_label_streams(
+        {"user_opens": [(UUID_A, "person-1", 1, T1, T1, "click")]},
+        SNAPSHOT_DATE,
+        key_columns=USER_KEY_COLUMNS,
+        stream_columns=USER_LABEL_STREAM_COLUMNS,
+        defaults=USER_LABEL_DEFAULTS,
+    )
+    assembled = assemble_user_interaction_rows(merged, {UUID_A: 2}, {2}, {2: {"person-1"}}, {"person-1": "uuid-1"})
+    assert set(assembled.rows[0]) == set(USER_INTERACTIONS_SCHEMA.names)
+
+
+def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
+    report_teams = {UUID_A: 2, UUID_B: 7, UUID_C: 2}
+    status = dag.scoped_user_status_rows(
+        [
+            (UUID_A, "person-1", 0, None, 1, T2, 0, None, "analysis_wrong", "agent", 2),
+            # The latest transition of UUID_C names another team, or no team.
+            (UUID_C, "person-1", 1, T2, 0, None, 0, None, None, None, 999),
+            (UUID_C, "person-2", 1, T2, 0, None, 0, None, None, None, None),
+        ],
+        report_teams,
+    )
+    assert status.dropped == 2
+    stream_rows: dict[str, list[tuple[Any, ...]]] = {
+        "user_opens": [
+            (UUID_A, "person-1", 2, T1, T2, "click"),
+            # A forged alias of the same report and person must not overwrite the canonical row.
+            (UUID_A.upper(), "person-1", 99, T2, T2, "deeplink"),
+            (UUID_A, "person-2", 1, T2, T2, "deeplink"),
+            (UUID_A, "", 1, T2, T2, "click"),
+            (UUID_A, "outsider", 3, T1, T1, "click"),
+            (UUID_B, "person-1", 1, T1, T1, "click"),
+            (UUID_C, "person-1", 1, T1, T1, "click"),
+        ],
+        "user_status_changes": status.rows,
+    }
+    merged = merge_label_streams(
+        stream_rows,
+        SNAPSHOT_DATE,
+        key_columns=USER_KEY_COLUMNS,
+        stream_columns=USER_LABEL_STREAM_COLUMNS,
+        defaults=USER_LABEL_DEFAULTS,
+    )
+
+    # UUID_B belongs to a team that has not opted in to AI training, so its person gets no row.
+    assembled = assemble_user_interaction_rows(
+        merged, report_teams, {2}, {2: {"person-1", "person-2"}, 7: {"person-1"}}, {"person-1": "uuid-1"}
+    )
+    rows = assembled.rows
+
+    assert [(row["report_id"], row["user_distinct_id"]) for row in rows] == [
+        (UUID_A, "person-1"),
+        (UUID_A, "person-2"),
+        (UUID_C, "person-1"),
+    ]
+    assert assembled.non_member_pairs == 1
+    person_1, person_2, mismatched = rows
+    assert person_1["open_count"] == 2
+    assert person_1["first_open_method"] == "click"
+    assert person_1["status_dismissed_count"] == 1
+    assert person_1["first_dismissal_actor_kind"] == "agent"
+    assert person_1["user_uuid"] == "uuid-1"
+    assert person_1["report_team_id"] == 2
+    assert person_2["status_dismissed_count"] == 0
+    assert person_2["user_uuid"] is None
+    assert mismatched["open_count"] == 1
+    assert {column: mismatched[column] for column in USER_STATUS_COLUMNS} == {
+        column: USER_LABEL_DEFAULTS[column] for column in USER_STATUS_COLUMNS
+    }
+
+
 class TestSpineInclusion(BaseTest):
     def _report(self, status, *, promoted_at=None, created_at=BEFORE_CUTOFF):
         report = SignalReport.objects.create(team=self.team, status=status, title="t", summary="s")
@@ -409,6 +539,7 @@ class TestSpineInclusion(BaseTest):
     def test_spine_covers_authored_and_promoted_reports_as_of_the_cutoff(self):
         promoted = self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF)
         born_visible = self._report(SignalReport.Status.READY)
+        monitoring = self._report(SignalReport.Status.MONITORING)
         promoted_after_cutoff = self._report(SignalReport.Status.READY, promoted_at=AFTER_SNAPSHOT_END)
         self._report(SignalReport.Status.POTENTIAL)
         self._report(SignalReport.Status.SUPPRESSED)
@@ -419,7 +550,7 @@ class TestSpineInclusion(BaseTest):
             for report_id in SignalReport.objects.filter(spine_report_filter(SNAPSHOT_END)).values_list("id", flat=True)
         }
 
-        assert in_spine == {promoted, born_visible}
+        assert in_spine == {promoted, born_visible, monitoring}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
 
@@ -452,6 +583,88 @@ class TestSpineInclusion(BaseTest):
         assert written["table"].column("report_id").to_pylist() == [consenting]
         assert metadata["excluded_no_training_consent_reports"].value == 2
         assert metadata["excluded_no_training_consent_teams"].value == 2
+
+
+class TestReviewerSnapshot(BaseTest):
+    def _report_with_reviewers(self, team: Team, entries: list[tuple[str | None, str | None]]) -> str:
+        report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+        SignalReport.objects.filter(id=report.id).update(created_at=BEFORE_CUTOFF)
+        artefact = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content="[]",
+            actor_kind="task",
+        )
+        for user_uuid, github_login in entries:
+            SignalReportSuggestedReviewer.all_teams.create(
+                team=team, report=report, artefact=artefact, user_uuid=user_uuid, github_login=github_login
+            )
+        return str(report.id)
+
+    def test_rows_resolve_members_by_uuid_or_login_and_keep_unresolved_reviewers(self):
+        by_login = User.objects.create_and_join(self.organization, "login@example.com", None)
+        UserSocialAuth.objects.create(user=by_login, provider="github", uid="gh-1", extra_data={"login": "Octo-Member"})
+        outsider = User.objects.create(email="outsider@example.com", distinct_id="outsider-distinct-id")
+        report_id = self._report_with_reviewers(
+            self.team,
+            [
+                (str(self.user.uuid), None),
+                (None, "octo-member"),
+                (None, "nobody-here"),
+                # A uuid outside the organization is claimed, not proven, so it must not resolve.
+                (str(outsider.uuid), None),
+            ],
+        )
+        self._report_with_reviewers(self.team, [(None, "not-in-the-snapshot")])
+
+        rows = dag.reviewer_rows(
+            {report_id: self.team.id}, snapshot_date=SNAPSHOT_DATE, features_observed_at=AFTER_SNAPSHOT_END
+        )
+
+        assert all(set(row) == set(REVIEWERS_SCHEMA.names) for row in rows)
+        resolved = {(row["user_uuid"] or row["github_login"]): row for row in rows}
+        assert set(resolved) == {str(self.user.uuid), "octo-member", "nobody-here", str(outsider.uuid)}
+        assert (
+            resolved[str(self.user.uuid)]["user_distinct_id"],
+            resolved[str(self.user.uuid)]["identity_resolution"],
+        ) == (
+            self.user.distinct_id,
+            "user_uuid",
+        )
+        assert (resolved["octo-member"]["user_distinct_id"], resolved["octo-member"]["identity_resolution"]) == (
+            by_login.distinct_id,
+            "github_login",
+        )
+        for unresolved in ("nobody-here", str(outsider.uuid)):
+            assert resolved[unresolved]["user_distinct_id"] is None
+            assert resolved[unresolved]["identity_resolution"] == "unresolved"
+        assert {row["artefact_actor_kind"] for row in rows} == {"task"}
+        assert {row["report_team_id"] for row in rows} == {self.team.id}
+
+    def test_snapshot_keeps_only_teams_opted_in_to_ai_training_and_stamps_the_run_time(self):
+        self.organization.is_ai_training_opted_in = True
+        self.organization.save()
+        consenting = self._report_with_reviewers(self.team, [(None, "someone")])
+        organization = Organization.objects.create(name="no-consent", is_ai_training_opted_in=False)
+        self._report_with_reviewers(Team.objects.create(organization=organization), [(None, "someone")])
+        written: dict[str, Any] = {}
+
+        with (
+            patch.object(dag, "skip_unconfigured", lambda context: False),
+            patch.object(dag, "s3_client", lambda: None),
+            patch.object(
+                dag, "write_parquet", lambda client, bucket, key, table, **kwargs: written.update(table=table, **kwargs)
+            ),
+            dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
+        ):
+            dag.inbox_report_reviewers(context)
+
+        table = written["table"]
+        assert table.column("report_id").to_pylist() == [consenting]
+        # A re-run of a past day carries the run time, which is how a reader tells a backfill apart.
+        assert table.column("features_observed_at").to_pylist()[0] > SNAPSHOT_END
+        assert written["schema_version"] == dag.REVIEWERS_SCHEMA_VERSION
 
 
 class TestServerActions(BaseTest):
@@ -503,6 +716,47 @@ class TestServerActions(BaseTest):
         assert row["first_pr_linked_at"] is None
         assert row["slack_discussion_count"] == 1
 
+    def test_user_actions_count_for_the_person_who_wrote_or_saw_them(self):
+        snapshot_end = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="t", summary="s")
+        for kind in ("user", "agent", "task"):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                content="{}",
+                actor_kind=kind,
+                created_by=self.user,
+            )
+        view = SignalReportAction.all_teams.create(
+            team=self.team,
+            report=report,
+            user=self.user,
+            type=SignalReportAction.ActionType.VIEW,
+            count=5,
+            last_at=snapshot_end + datetime.timedelta(hours=1),
+        )
+
+        rows = dag.user_server_action_rows([str(report.id)], snapshot_end)
+
+        assert len(rows) == 1
+        row = dict(zip(("report_id", "user_distinct_id", *USER_SERVER_ACTIONS_COLUMNS), rows[0], strict=True))
+        assert row["user_distinct_id"] == self.user.distinct_id
+        assert row["note_count"] == 2
+        assert row["first_viewed_at"] == view.first_at
+        assert row["first_read_at"] is None
+
+    def test_org_members_resolve_only_within_each_teams_organization(self):
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        outsider = User.objects.create_and_join(other_org, "outsider@example.com", "password")
+
+        member_id, outsider_id = str(self.user.distinct_id), str(outsider.distinct_id)
+
+        members = dag.org_member_distinct_ids({self.team.id, other_team.id}, [member_id, outsider_id, "unknown"])
+
+        assert members == {self.team.id: {member_id}, other_team.id: {outsider_id}}
+
 
 class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
@@ -534,23 +788,30 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         reason: str | None = None,
         *,
         team_id: int | None = None,
+        actor_kind: str | None = None,
+        reason_added: bool = False,
     ) -> None:
+        properties: dict[str, Any] = {
+            "report_id": UUID_A,
+            "previous_status": previous,
+            "status": status,
+            "dismissal_reason": reason,
+            "team_id": str(team_id or self.team.id),
+        }
+        if actor_kind is not None:
+            properties["actor_kind"] = actor_kind
+        if reason_added:
+            properties["reason_added"] = True
         _create_event(
             team=self.team,
             event="signal_report_status_changed",
             distinct_id="team-2",
             timestamp=when,
-            properties={
-                "report_id": UUID_A,
-                "previous_status": previous,
-                "status": status,
-                "dismissal_reason": reason,
-                "team_id": str(team_id or self.team.id),
-            },
+            properties=properties,
         )
 
-    def _status_row(self) -> dict[str, Any]:
-        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+    def _status_row(self, snapshot_end: datetime.datetime = SNAPSHOT_END) -> dict[str, Any]:
+        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=snapshot_end)
         assert len(rows) == 1
         return dict(zip(STATUS_COLUMNS, rows[0][1:], strict=True))
 
@@ -569,6 +830,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["wrong_dismissal_count"] == 1
         assert row["first_dismissed_server_at"] == T1
         assert row["first_wrong_dismissed_at"] == T1
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_lowvalue_dismissal_count_survives_a_restore_and_ignores_wrong_reasons(self, gap):
+        # A wrong dismissal is not a low-value one. The later wontfix_irrelevant dismissal counts, and
+        # the restore after it must not take the cumulative label back to 0.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "wontfix_irrelevant")
+        self._transition(T1 + 3 * gap, "suppressed", "ready")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_wrong_dismissed_at"] == T1
+        assert row["lowvalue_dismissal_count"] == 1
+        assert row["first_lowvalue_dismissed_at"] == T1 + 2 * gap
 
     @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
     def test_a_reasonless_first_dismissal_carries_no_reason_forward(self, gap):
@@ -615,6 +891,104 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["fixed_count"] == expected
         assert row["first_fixed_at"] == (T1 if expected else None)
 
+    @parameterized.expand(
+        [
+            ("window_closed", T1, [], 1),
+            ("window_open_at_snapshot", SNAPSHOT_END - datetime.timedelta(hours=1), [], 0),
+            ("not_fixed_reason_inside_window", T1, [(datetime.timedelta(minutes=2), "wontfix_irrelevant", None)], 0),
+            ("fixed_reason_inside_window", T1, [(datetime.timedelta(minutes=2), "fixed_outside_posthog", None)], 2),
+            ("not_fixed_reason_after_window", T1, [(datetime.timedelta(hours=25), "analysis_wrong", None)], 1),
+            ("not_fixed_reason_from_another_tenant", T1, [(datetime.timedelta(hours=1), "analysis_wrong", 999)], 1),
+        ]
+    )
+    def test_human_reasonless_resolve_is_fixed_after_its_grace_window(self, _name, resolved_at, reasons, expected):
+        # The one-click Today resolve carries no reason and names its actor. The reason it can get
+        # later decides fixed, so it counts only when its window closed without a not-fixed reason.
+        self._transition(resolved_at, "ready", "resolved", actor_kind="user")
+        for offset, reason, team_id in reasons:
+            self._transition(resolved_at + offset, "resolved", "resolved", reason, team_id=team_id, reason_added=True)
+        # A later genuine transition keeps the report's own tenant the latest one.
+        self._transition(BEFORE_CUTOFF + datetime.timedelta(hours=12), "resolved", "ready")
+
+        row = self._status_row()
+        assert row["reasoned_resolution_count"] >= 1
+        assert row["first_reasoned_resolved_at"] == resolved_at
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (resolved_at if expected else None)
+
+    @parameterized.expand(
+        [
+            (
+                "note_only_update_is_not_a_fixed_resolve",
+                [(2, "resolved", "resolved", None, True), (30, "resolved", "resolved", "analysis_wrong", True)],
+                0,
+                None,
+            ),
+            (
+                "dismissal_reason_does_not_block_a_resolve",
+                [
+                    (3, "resolved", "ready", None, False),
+                    (4, "ready", "suppressed", None, False),
+                    (5, "suppressed", "suppressed", "analysis_wrong", True),
+                ],
+                1,
+                0,
+            ),
+            (
+                "second_resolve_in_the_bucket_is_fixed",
+                [
+                    (1, "resolved", "resolved", "analysis_wrong", True),
+                    (2, "resolved", "ready", None, False),
+                    (4, "ready", "resolved", None, False),
+                ],
+                1,
+                4,
+            ),
+            (
+                "second_reason_in_the_bucket_blocks_it",
+                [
+                    (1, "resolved", "resolved", "analysis_wrong", True),
+                    (2, "resolved", "ready", None, False),
+                    (4, "ready", "resolved", None, False),
+                    (5, "resolved", "resolved", "wrong_repo", True),
+                ],
+                0,
+                None,
+            ),
+        ]
+    )
+    def test_human_resolve_grace_window_reads_every_event_in_a_bucket(self, _name, events, expected, fixed_minute):
+        # The resolves and reasons share ten-minute buckets, so a rule that keeps only a bucket's first
+        # resolve or first reason, or counts a note-only update as a resolve, gets these wrong.
+        resolved_at = SNAPSHOT_END - datetime.timedelta(hours=1)
+        self._transition(resolved_at, "ready", "resolved", actor_kind="user")
+        for minute, previous, status, reason, reason_added in events:
+            self._transition(
+                resolved_at + datetime.timedelta(minutes=minute),
+                previous,
+                status,
+                reason,
+                actor_kind=None if reason_added else "user",
+                reason_added=reason_added,
+            )
+
+        row = self._status_row(SNAPSHOT_END + datetime.timedelta(days=2))
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (
+            None if fixed_minute is None else resolved_at + datetime.timedelta(minutes=fixed_minute)
+        )
+
+    def test_human_reasonless_resolve_fixed_label_only_grows_across_partitions(self):
+        resolved_at = SNAPSHOT_END - datetime.timedelta(hours=6)
+        self._transition(resolved_at, "ready", "resolved", actor_kind="agent")
+        self._transition(
+            resolved_at + datetime.timedelta(days=2), "resolved", "resolved", "analysis_wrong", reason_added=True
+        )
+
+        rows = [self._status_row(SNAPSHOT_END + datetime.timedelta(days=offset)) for offset in range(4)]
+        assert [row["fixed_count"] for row in rows] == [0, 1, 1, 1]
+        assert [row["first_fixed_at"] for row in rows] == [None, resolved_at, resolved_at, resolved_at]
+
     @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
     def test_fixed_count_survives_a_reopen(self, gap):
         self._transition(T1, "ready", "resolved", None)
@@ -650,11 +1024,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         # a dismissal the report's tenant never made.
         assert row["first_dismissed_server_at"] != T1
 
-    @parameterized.expand([("reasoned", "fixed_outside_posthog", 1), ("reasonless", None, 0), ("empty", "", 0)])
-    def test_only_a_reasoned_resolve_counts_as_a_reasoned_resolution(self, _name, reason, expected_count):
-        # A reason-less resolve is the automatic resolve after a tracked PR merges, not a person
-        # acting on the report.
-        self._transition(T1, "ready", "resolved", reason)
+    @parameterized.expand(
+        [
+            ("reasoned", "fixed_outside_posthog", None, 1),
+            ("reasonless", None, None, 0),
+            ("empty", "", None, 0),
+            ("reasonless_system", None, "system", 0),
+            ("reasonless_task", None, "task", 0),
+            ("reasonless_user", None, "user", 1),
+            ("reasonless_agent", "", "agent", 1),
+        ]
+    )
+    def test_a_resolve_counts_as_intent_when_reasoned_or_human(self, _name, reason, actor_kind, expected_count):
+        # A reason-less resolve with no human actor is the automatic resolve after a tracked PR
+        # merges. The one-click Today resolve has no reason but names a person.
+        self._transition(T1, "ready", "resolved", reason, actor_kind=actor_kind)
 
         row = self._status_row()
         assert row["first_resolved_at"] == T1
@@ -669,11 +1053,13 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         # timestamps so the latest-wins columns have one unambiguous winner.
         statuses = ("resolved", "suppressed", "failed", "potential")
         for offset, status in enumerate(statuses):
-            self._transition(T2 + datetime.timedelta(hours=offset), "ready", status)
+            self._transition(T2 + datetime.timedelta(hours=offset), "ready", status, actor_kind="user")
         genuine_only = self._status_row()
 
         for status in statuses:
-            self._transition(T1, "ready", status, "analysis_wrong", team_id=999)
+            for reason in ("analysis_wrong", "wontfix_irrelevant"):
+                self._transition(T1, "ready", status, reason, team_id=999, actor_kind="user")
+                self._transition(T1, status, status, reason, team_id=999, reason_added=True)
 
         assert self._status_row() == genuine_only
 
@@ -686,6 +1072,115 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
         row = self._status_row()
         assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)
+
+
+class TestUserGrainStreams(ClickhouseTestMixin, BaseTest):
+    def _transition(
+        self,
+        when: datetime.datetime,
+        status: str,
+        actor_distinct_id: str | None,
+        actor_kind: str | None,
+        *,
+        reason: str | None = None,
+        team_id: int | None = None,
+    ) -> None:
+        properties: dict[str, Any] = {
+            "report_id": UUID_A,
+            "previous_status": "ready",
+            "status": status,
+            "dismissal_reason": reason,
+            "team_id": str(team_id or self.team.id),
+        }
+        if actor_kind is not None:
+            properties |= {"actor_kind": actor_kind, "actor_distinct_id": actor_distinct_id}
+        _create_event(
+            team=self.team,
+            event="signal_report_status_changed",
+            distinct_id="team",
+            timestamp=when,
+            properties=properties,
+        )
+
+    def _status_rows(self) -> dict[str, dict[str, Any]]:
+        rows = hogql_rows(USER_STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        return {row[1]: dict(zip((*USER_STATUS_COLUMNS, "status_event_team_id"), row[2:], strict=True)) for row in rows}
+
+    def test_every_user_stream_reads_its_person_from_its_source(self):
+        events: list[tuple[str, str, dict[str, Any]]] = [
+            (
+                "Inbox reports impressed",
+                "person-1",
+                {"impressions": [{"report_id": UUID_A, "rank": 2, "is_suggested_reviewer": True}]},
+            ),
+            ("Inbox report opened", "person-1", {"report_id": UUID_A, "open_method": "click"}),
+            ("Inbox report closed", "person-1", {"report_id": UUID_A, "time_spent_ms": 1500}),
+            ("Inbox report action", "person-1", {"report_id": UUID_A, "action_type": "dismiss"}),
+            ("Inbox report feedback", "person-1", {"report_id": UUID_A, "sentiment": "positive"}),
+            ("signals_pr_refund_created", "person-1", {"report_id": UUID_A, "refund_id": "refund-1"}),
+            (
+                "signals_pr_refund_created",
+                "person-2",
+                {"report_id": UUID_A, "refund_id": "r2", "was_impersonated": True},
+            ),
+            (
+                "signal_report_status_changed",
+                "team",
+                {
+                    "report_id": UUID_A,
+                    "previous_status": "ready",
+                    "status": "suppressed",
+                    "team_id": str(self.team.id),
+                    "actor_kind": "user",
+                    "actor_distinct_id": "person-1",
+                },
+            ),
+            ("pr_closed", "team", {"signal_report_id": UUID_A, "pr_closed_by_distinct_id": "person-1"}),
+            ("pr_merged", "team", {"signal_report_id": UUID_A}),
+        ]
+        for event, distinct_id, properties in events:
+            _create_event(team=self.team, event=event, distinct_id=distinct_id, timestamp=T1, properties=properties)
+
+        for stream_name, sql, columns in USER_LABEL_STREAMS:
+            rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+            # The impersonated refund and the merge with no mapped merger name nobody.
+            assert [row[:2] for row in rows] == [(UUID_A, "person-1")], stream_name
+            # The status stream carries its tenant as one more column, which the asset strips.
+            assert len(rows[0]) == 2 + len(columns) + (stream_name == USER_STATUS_STREAM), stream_name
+
+    def test_a_person_gets_their_own_dismissal_and_an_agent_acting_for_them_is_named(self):
+        self._transition(T1, "suppressed", "person-1", "user", reason="analysis_wrong")
+        self._transition(T2, "suppressed", "person-2", "agent", reason="already_fixed")
+        self._transition(T2 + datetime.timedelta(hours=1), "resolved", None, "system")
+        # An event from before the actor keys shipped names nobody.
+        self._transition(T2 + datetime.timedelta(hours=2), "resolved", None, None)
+
+        rows = self._status_rows()
+
+        assert set(rows) == {"person-1", "person-2"}
+        assert rows["person-1"]["status_dismissed_count"] == 1
+        assert rows["person-1"]["first_status_dismissed_at"] == T1
+        assert rows["person-1"]["first_status_dismissal_reason"] == "analysis_wrong"
+        assert rows["person-1"]["first_dismissal_actor_kind"] == "user"
+        assert rows["person-1"]["status_resolved_count"] == 0
+        assert rows["person-2"]["first_dismissal_actor_kind"] == "agent"
+
+    def test_no_user_status_column_reads_an_event_from_another_tenant(self):
+        statuses = ("resolved", "suppressed", "potential")
+        for offset, status in enumerate(statuses):
+            self._transition(T2 + datetime.timedelta(hours=offset), status, "person-1", "user")
+        genuine_only = self._status_rows()
+
+        for status in statuses:
+            for actor in ("person-1", "person-2"):
+                self._transition(T1, status, actor, "user", reason="analysis_wrong", team_id=999)
+
+        assert self._status_rows() == genuine_only
+        assert genuine_only["person-1"]["status_event_team_id"] == self.team.id
+
+        self._transition(T2 + datetime.timedelta(days=1), "resolved", "person-1", "user", team_id=999)
+
+        assert self._status_rows()["person-1"]["status_event_team_id"] == 999
 
 
 def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({2})):
@@ -756,7 +1251,7 @@ def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch,
     assert written["table"].num_rows == 0
 
 
-def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
+def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
     selection = dag.inbox_ranking_dataset_job.selection.resolve(
         [
             dag.inbox_report_state,
@@ -765,12 +1260,20 @@ def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
             dag.inbox_report_labels,
             dag.inbox_report_model_data,
             dag.inbox_report_title_embeddings,
+            dag.inbox_report_reviewers,
+            dag.inbox_user_report_interactions,
+            dag.inbox_project_vectors,
         ]
     )
-    assert dagster.AssetKey(dag.TITLE_EMBEDDINGS_TABLE) in selection
-
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
-    assert dag.TITLE_EMBEDDINGS_TABLE not in model_data_deps
+    for leaf in (
+        dag.TITLE_EMBEDDINGS_TABLE,
+        dag.REVIEWERS_TABLE,
+        dag.USER_INTERACTIONS_TABLE,
+        dag.PROJECT_VECTORS_TABLE,
+    ):
+        assert dagster.AssetKey(leaf) in selection
+        assert leaf not in model_data_deps
 
     title_deps = {key.path[-1] for key in dag.inbox_report_title_embeddings.keys_by_input_name.values()}
     assert title_deps == {dag.MODEL_DATA_TABLE}

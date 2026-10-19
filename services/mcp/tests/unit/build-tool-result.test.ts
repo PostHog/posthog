@@ -228,7 +228,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
     })
 })
 
-// Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork) go through the exec
+// Inline-exec UI-app hosts (PostHog Desktop, Claude Code) go through the exec
 // wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta`. The app payload
 // should only move onto `_meta` when a compact formatted table takes structuredContent's
 // place for the model — otherwise it stays in the standard structuredContent field so it

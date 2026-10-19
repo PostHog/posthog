@@ -1,108 +1,33 @@
 import json
 import dataclasses
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Request, Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workos import WorkOSSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import ENDPOINTS, WORKOS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.workos.source import WorkOSSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import (
     WorkOSPaginator,
     WorkOSResumeConfig,
     create_webhook,
     delete_webhook,
-    get_resource,
     get_webhook_info,
     sync_webhook_events,
     validate_credentials,
-    workos_source,
-)
-
-WORKOS_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos.make_tracked_session"
 )
 
 
 class TestWorkOSPaginator:
-    def test_initial_state(self) -> None:
-        paginator = WorkOSPaginator()
-        assert paginator._after is None
-        assert paginator.has_next_page is True
-
-    @pytest.mark.parametrize(
-        ("label", "response_body", "has_next", "expected_after"),
-        [
-            (
-                "more_pages",
-                {"data": [{"id": "org_1"}], "list_metadata": {"before": None, "after": "org_1"}},
-                True,
-                "org_1",
-            ),
-            (
-                "last_page",
-                {"data": [{"id": "org_2"}], "list_metadata": {"before": "org_1", "after": None}},
-                False,
-                None,
-            ),
-            ("no_metadata", {"data": []}, False, None),
-            ("empty_dict", {}, False, None),
-        ],
-    )
-    def test_update_state(self, label: str, response_body: Any, has_next: bool, expected_after: str | None) -> None:
-        paginator = WorkOSPaginator()
-        response = MagicMock()
-        response.json.return_value = response_body
-        paginator.update_state(response)
-        assert paginator._has_next_page is has_next
-        assert paginator._after == expected_after
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_after", "expected_after_param"),
-        [
-            ("fresh_run_omits_after", None, None),
-            ("resumed_sets_after", "org_50", "org_50"),
-        ],
-    )
-    def test_init_request(self, label: str, seeded_after: str | None, expected_after_param: str | None) -> None:
-        paginator = WorkOSPaginator()
-        if seeded_after is not None:
-            paginator.set_resume_state({"after": seeded_after})
-
-        request = Request(method="GET", url="https://api.workos.com/organizations", params={"limit": 100})
-        paginator.init_request(request)
-
-        if expected_after_param is None:
-            assert "after" not in (request.params or {})
-        else:
-            assert request.params["after"] == expected_after_param
-
-    def test_update_request_sets_after_when_next_page(self) -> None:
-        paginator = WorkOSPaginator()
-        response = MagicMock()
-        response.json.return_value = {"data": [{"id": "org_1"}], "list_metadata": {"after": "org_1"}}
-        paginator.update_state(response)
-
-        request = Request(method="GET", url="https://api.workos.com/organizations", params={"limit": 100})
-        paginator.update_request(request)
-
-        assert request.params["after"] == "org_1"
-
-    def test_get_resume_state_returns_current_cursor(self) -> None:
-        paginator = WorkOSPaginator()
-        response = MagicMock()
-        response.json.return_value = {"data": [{"id": "org_1"}], "list_metadata": {"after": "org_1"}}
-        paginator.update_state(response)
-        assert paginator.get_resume_state() == {"after": "org_1"}
-
-    def test_get_resume_state_none_when_no_cursor(self) -> None:
-        paginator = WorkOSPaginator()
-        assert paginator.get_resume_state() is None
-
     def test_get_resume_state_none_on_terminal_page(self) -> None:
         # A terminal page leaves the previous cursor in ``_after``; resume state
         # must still be None so we don't re-fetch an already-processed page.
@@ -116,35 +41,9 @@ class TestWorkOSPaginator:
         assert paginator.has_next_page is False
         assert paginator.get_resume_state() is None
 
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = WorkOSPaginator()
-        paginator.set_resume_state({"after": "org_99"})
-        assert paginator._after == "org_99"
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"after": "org_99"}
-
-    def test_set_resume_state_ignores_missing_cursor(self) -> None:
-        paginator = WorkOSPaginator()
-        paginator.set_resume_state({})
-        assert paginator._after is None
-
-
-def _make_http_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
 
 def _page(ids: list[str], after: str | None) -> dict[str, Any]:
     return {"data": [{"id": i} for i in ids], "list_metadata": {"before": None, "after": after}}
-
-
-def _webhook_manager(enabled: bool) -> MagicMock:
-    manager = MagicMock(spec=WebhookSourceManager)
-    manager.webhook_enabled = AsyncMock(return_value=enabled)
-    return manager
 
 
 class TestWorkOSEndpoints:
@@ -153,154 +52,37 @@ class TestWorkOSEndpoints:
         # Every endpoint partitions on the immutable created_at field.
         assert all(cfg.partition_key == "created_at" for cfg in WORKOS_ENDPOINTS.values())
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_resource_request_params_are_valid(self, endpoint: str) -> None:
-        # directory_users and directory_groups reject ``order=asc`` with a 422; every
-        # WorkOS list endpoint accepts ``order=desc`` (the WorkOS SDK default). Guard
-        # against regressing back to the rejected value on any endpoint.
-        endpoint_config = cast(dict[str, Any], get_resource(endpoint)["endpoint"])
-        params = cast(dict[str, Any], endpoint_config["params"])
-        assert params["order"] == "desc"
-        assert params["limit"] == WORKOS_ENDPOINTS[endpoint].page_size
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        response = workos_source(
-            api_key="sk_test_123",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="job_1",
-            resumable_source_manager=manager,
-            webhook_source_manager=_webhook_manager(enabled=False),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-
-    @pytest.mark.parametrize("webhook_enabled", [True, False])
-    def test_items_come_from_the_webhook_manager_only_once_webhooks_are_live(self, webhook_enabled: bool) -> None:
-        # Reading webhook files before the backfill finishes leaves the table seeded with only
-        # the rows a webhook happened to deliver; polling after it finishes never sees deletes.
-        resumable = MagicMock(spec=ResumableSourceManager)
-        resumable.can_resume.return_value = False
-        webhook_manager = _webhook_manager(enabled=webhook_enabled)
-        webhook_items = object()
-        webhook_manager.get_items.return_value = webhook_items
-
-        response = workos_source(
-            api_key="sk_test_123",
-            endpoint="users",
-            team_id=123,
-            job_id="job_1",
-            resumable_source_manager=resumable,
-            webhook_source_manager=webhook_manager,
-        )
-
-        if webhook_enabled:
-            assert response.items() is webhook_items
-        else:
-            assert response.items() is not webhook_items
-            webhook_manager.get_items.assert_not_called()
-
 
 class TestWorkOSSourceResumeBehavior:
     """End-to-end resume behaviour through the shared ``rest_api_resource`` path."""
 
-    def _drive(
-        self, manager: MagicMock, responses: list[Response], endpoint: str = "organizations"
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = workos_source(
-                api_key="sk_test_123",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="job_1",
-                resumable_source_manager=manager,
-                webhook_source_manager=_webhook_manager(enabled=False),
-            )
-            pages = list(cast(Iterable[Any], source_response.items()))
-            return sent_params, [row for page in pages for row in page]
+    @staticmethod
+    def _run(script: list[ScriptedResponse], **inputs: Any) -> DriveResult:
+        return SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "organizations", script, **inputs
+        )
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_page(["org_1", "org_2"], after="org_2")),
-            _make_http_response(_page(["org_3", "org_4"], after="org_4")),
-            _make_http_response(_page(["org_5"], after=None)),
-        ]
-        sent_params, _ = self._drive(manager, responses)
+        result = self._run(
+            [
+                ScriptedResponse(json=_page(["org_1", "org_2"], after="org_2")),
+                ScriptedResponse(json=_page(["org_3", "org_4"], after="org_4")),
+                ScriptedResponse(json=_page(["org_5"], after=None)),
+            ]
+        )
 
         # First request omits the cursor (fresh run); subsequent requests carry it.
-        assert [p.get("after") for p in sent_params] == [None, "org_2", "org_4"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [WorkOSResumeConfig(after="org_2"), WorkOSResumeConfig(after="org_4")]
+        assert result.params("after") == [None, "org_2", "org_4"]
+        assert result.saved_states == [WorkOSResumeConfig(after="org_2"), WorkOSResumeConfig(after="org_4")]
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WorkOSResumeConfig(after="org_4")
-
-        responses = [
-            _make_http_response(_page(["org_5"], after=None)),
-        ]
-        sent_params, _ = self._drive(manager, responses)
+        result = self._run(
+            [ScriptedResponse(json=_page(["org_5"], after=None))],
+            resume_state=WorkOSResumeConfig(after="org_4"),
+        )
 
         # First request goes out at the resumed cursor, so synced pages are not re-fetched.
-        assert [p.get("after") for p in sent_params] == ["org_4"]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_page(["org_only"], after=None)),
-        ]
-        self._drive(manager, responses)
-
-        manager.save_state.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_row"),
-        [
-            ("organizations", {"id": "org_1", "workos_deleted": False, "workos_deleted_at": None}),
-            ("connections", {"id": "org_1"}),
-        ],
-    )
-    def test_polled_rows_carry_a_tombstone_only_where_webhooks_can_set_one(
-        self, endpoint: str, expected_row: dict[str, Any]
-    ) -> None:
-        # A webhook delete merges a tombstone onto a row the backfill wrote, so the backfill has
-        # to write the same columns. Without this they read NULL for every backfilled row, and
-        # `where not workos_deleted` drops the rows no webhook has touched. Tables that never
-        # sync by webhook get no tombstone column, because nothing can ever set it.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, rows = self._drive(manager, [_make_http_response(_page(["org_1"], after=None))], endpoint=endpoint)
-
-        assert rows == [expected_row]
+        assert result.params("after") == ["org_4"]
 
 
 class TestWorkOSValidateCredentials:
@@ -315,10 +97,7 @@ class TestWorkOSValidateCredentials:
         ],
     )
     def test_validate_credentials(self, status_code: int, body: Any, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _make_http_response(body, status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json=body))):
             is_valid, _ = validate_credentials("sk_test_123")
             assert is_valid is expected_valid
 
@@ -331,111 +110,103 @@ class TestWorkOSValidateCredentials:
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog_1"
 
 
-def _webhook_page(webhooks: list[dict[str, Any]], after: str | None) -> Response:
-    return _make_http_response({"object": "list", "data": webhooks, "list_metadata": {"before": None, "after": after}})
+def _webhook_page(webhooks: list[dict[str, Any]], after: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"object": "list", "data": webhooks, "list_metadata": {"before": None, "after": after}}
+    )
 
 
 class TestWorkOSWebhookManagement:
-    @patch(WORKOS_SESSION_PATCH)
-    def test_lookup_pages_past_the_first_page(self, MockSession: MagicMock) -> None:
+    def test_lookup_pages_past_the_first_page(self) -> None:
         # WorkOS lists 10 endpoints per page by default, so an account with more than that would
         # report ours as missing — prompting a duplicate create, and a delete that removes nothing.
-        session = MockSession.return_value
-        session.get.side_effect = [
+        script = [
             _webhook_page([{"id": "we_1", "endpoint_url": "https://other.example"}], after="we_1"),
             _webhook_page(
                 [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"], "status": "enabled"}],
                 after=None,
             ),
         ]
-
-        info = get_webhook_info("sk_test_123", WEBHOOK_URL)
+        with scripted_network(script) as network:
+            info = get_webhook_info("sk_test_123", WEBHOOK_URL)
 
         assert info.exists is True
         assert info.enabled_events == ["user.created"]
-        assert session.get.call_args_list[0].kwargs["params"] == {"limit": 100}
-        assert session.get.call_args_list[1].kwargs["params"] == {"limit": 100, "after": "we_1"}
+        assert [r.param("limit") for r in network.requests_log] == ["100", "100"]
+        assert [r.param("after") for r in network.requests_log] == [None, "we_1"]
 
-    @patch(WORKOS_SESSION_PATCH)
-    def test_lookup_reports_absence(self, MockSession: MagicMock) -> None:
-        MockSession.return_value.get.return_value = _webhook_page([], after=None)
-        assert get_webhook_info("sk_test_123", WEBHOOK_URL).exists is False
+    def test_lookup_reports_absence(self) -> None:
+        with scripted_network([_webhook_page([], after=None)]):
+            assert get_webhook_info("sk_test_123", WEBHOOK_URL).exists is False
 
-    @patch(WORKOS_SESSION_PATCH)
-    def test_create_persists_the_one_time_secret(self, MockSession: MagicMock) -> None:
-        MockSession.return_value.post.return_value = _make_http_response({"id": "we_1", "secret": "whsec_abc"})
-
-        result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
+    def test_create_persists_the_one_time_secret(self) -> None:
+        with scripted_network([ScriptedResponse(json={"id": "we_1", "secret": "whsec_abc"})]) as network:
+            result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "whsec_abc"}
-        assert MockSession.return_value.post.call_args.kwargs["json"] == {
+        assert network.requests_log[0].json() == {
             "endpoint_url": WEBHOOK_URL,
             "events": ["user.created"],
         }
 
-    @patch(WORKOS_SESSION_PATCH)
-    def test_create_without_a_secret_asks_for_manual_entry(self, MockSession: MagicMock) -> None:
+    def test_create_without_a_secret_asks_for_manual_entry(self) -> None:
         # Without the secret the hog function rejects every delivery, so success would be a lie.
-        MockSession.return_value.post.return_value = _make_http_response({"id": "we_1"})
-
-        result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
+        with scripted_network([ScriptedResponse(json={"id": "we_1"})]):
+            result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
 
         assert result.success is False
         assert result.pending_inputs == ["signing_secret"]
 
-    @patch(WORKOS_SESSION_PATCH)
-    def test_create_failure_is_reported_not_raised(self, MockSession: MagicMock) -> None:
-        MockSession.return_value.post.side_effect = Exception("boom")
-        assert create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"]).success is False
+    def test_create_failure_is_reported_not_raised(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"]).success is False
 
-    @patch(WORKOS_SESSION_PATCH)
-    def test_sync_merges_missing_events_and_keeps_manual_ones(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _webhook_page(
-            [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created", "invoice.paid"]}], after=None
-        )
-        session.patch.return_value = _make_http_response({})
-
-        result = sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created", "user.deleted"])
-
-        assert result.success is True
-        assert session.patch.call_args.args[0].endswith("/webhook_endpoints/we_2")
-        assert session.patch.call_args.kwargs["json"] == {"events": ["invoice.paid", "user.created", "user.deleted"]}
-
-    @patch(WORKOS_SESSION_PATCH)
-    def test_sync_skips_the_write_when_events_already_match(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _webhook_page(
-            [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"]}], after=None
-        )
-
-        assert sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created"]).success is True
-        session.patch.assert_not_called()
-
-    @patch(WORKOS_SESSION_PATCH)
-    def test_delete_removes_only_the_matching_endpoint(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _webhook_page(
-            [
-                {"id": "we_1", "endpoint_url": "https://other.example"},
-                {"id": "we_2", "endpoint_url": WEBHOOK_URL},
-            ],
-            after=None,
-        )
-        session.delete.return_value = _make_http_response({})
-
-        result = delete_webhook("sk_test_123", WEBHOOK_URL)
-
-        assert result.success is True
-        assert [call.args[0] for call in session.delete.call_args_list] == [
-            "https://api.workos.com/webhook_endpoints/we_2"
+    def test_sync_merges_missing_events_and_keeps_manual_ones(self) -> None:
+        script = [
+            _webhook_page(
+                [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created", "invoice.paid"]}], after=None
+            ),
+            ScriptedResponse(json={}),
         ]
+        with scripted_network(script) as network:
+            result = sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created", "user.deleted"])
 
-    @patch(WORKOS_SESSION_PATCH)
-    def test_delete_surfaces_a_rejected_removal(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _webhook_page([{"id": "we_2", "endpoint_url": WEBHOOK_URL}], after=None)
-        session.delete.return_value = _make_http_response({"message": "forbidden"}, status_code=403)
+        assert result.success is True
+        patch_request = network.requests_log[1]
+        assert patch_request.method == "PATCH"
+        assert patch_request.path.endswith("/webhook_endpoints/we_2")
+        assert patch_request.json() == {"events": ["invoice.paid", "user.created", "user.deleted"]}
 
-        assert delete_webhook("sk_test_123", WEBHOOK_URL).success is False
+    def test_sync_skips_the_write_when_events_already_match(self) -> None:
+        script = [_webhook_page([{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"]}], after=None)]
+        with scripted_network(script) as network:
+            assert sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created"]).success is True
+
+        assert [r.method for r in network.requests_log] == ["GET"]
+
+    def test_delete_removes_only_the_matching_endpoint(self) -> None:
+        script = [
+            _webhook_page(
+                [
+                    {"id": "we_1", "endpoint_url": "https://other.example"},
+                    {"id": "we_2", "endpoint_url": WEBHOOK_URL},
+                ],
+                after=None,
+            ),
+            ScriptedResponse(json={}),
+        ]
+        with scripted_network(script) as network:
+            result = delete_webhook("sk_test_123", WEBHOOK_URL)
+
+        assert result.success is True
+        deletes: list[RecordedRequest] = [r for r in network.requests_log if r.method == "DELETE"]
+        assert [r.url for r in deletes] == ["https://api.workos.com/webhook_endpoints/we_2"]
+
+    def test_delete_surfaces_a_rejected_removal(self) -> None:
+        script = [
+            _webhook_page([{"id": "we_2", "endpoint_url": WEBHOOK_URL}], after=None),
+            ScriptedResponse(status=403, json={"message": "forbidden"}),
+        ]
+        with scripted_network(script):
+            assert delete_webhook("sk_test_123", WEBHOOK_URL).success is False

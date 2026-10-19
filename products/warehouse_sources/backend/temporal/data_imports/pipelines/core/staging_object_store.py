@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, TypeVar
 
 from structlog.types import FilteringBoundLogger
 
@@ -16,10 +16,13 @@ from posthog.temporal.common.errors import NonReportableError
 # of the store.
 PERMANENT_OBJECT_STORE_ERRORS = ("ACCESS_DENIED", "PermanentRedirect")
 
-# Initiating the upload is a single network call, so one blip on it costs the whole chunk. Three
-# attempts spend at most 6s of backoff, which is short against a sync that runs for minutes, and
-# enough for the object store to serve a request that its own SDK-level retries could not.
-_STAGED_WRITE_MAX_ATTEMPTS = 3
+# Initiating an upload or opening a file for read is a single network call, so one blip on it costs
+# the whole chunk. Three attempts spend at most 6s of backoff, which is short against a sync that
+# runs for minutes, and enough for the object store to serve a request that its own SDK-level
+# retries could not.
+_STAGED_OPERATION_MAX_ATTEMPTS = 3
+
+T = TypeVar("T")
 
 
 class ObjectStoreConfigurationError(NonReportableError):
@@ -45,18 +48,18 @@ def is_object_store_configuration_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and any(needle in str(error) for needle in PERMANENT_OBJECT_STORE_ERRORS)
 
 
-async def aretry_staged_write(
-    operation: Callable[[], Coroutine[Any, Any, None]], *, path: str, logger: FilteringBoundLogger
-) -> None:
-    """Run one staged parquet write, retrying a transient object-store failure with backoff.
+async def _aretry_staged_operation(
+    operation: Callable[[], Coroutine[Any, Any, T]], *, verb: str, path: str, logger: FilteringBoundLogger
+) -> T:
+    """Run one staged read or write, retrying a transient object-store failure with backoff.
 
     Pass a zero-arg callable that produces the awaitable, not the awaitable itself, so a retry can
-    reissue the write.
+    reissue the operation.
 
-    A refused write raises ``ObjectStoreConfigurationError`` on the first attempt, because retrying
-    a grant or an endpoint that the deployment got wrong only delays the same failure. An error the
-    shared classifier does not recognize is not retried either, so a defect in the pipeline still
-    fails as fast as it did before.
+    A refused operation raises ``ObjectStoreConfigurationError`` on the first attempt, because
+    retrying a grant or an endpoint that the deployment got wrong only delays the same failure. An
+    error the shared classifier does not recognize is not retried either, so a defect in the
+    pipeline still fails as fast as it did before.
     """
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         is_transient_object_store_error,
@@ -66,15 +69,37 @@ async def aretry_staged_write(
     while True:
         attempt += 1
         try:
-            await operation()
-            return
+            return await operation()
         except Exception as e:
             if is_object_store_configuration_error(e):
-                raise ObjectStoreConfigurationError(f"Object store refused the staged write to {path}") from e
-            if attempt >= _STAGED_WRITE_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+                raise ObjectStoreConfigurationError(f"Object store refused the staged {verb} of {path}") from e
+            if attempt >= _STAGED_OPERATION_MAX_ATTEMPTS or not is_transient_object_store_error(e):
                 raise
             await logger.awarning(
-                f"Transient object-store error staging {path} "
-                f"(attempt {attempt}/{_STAGED_WRITE_MAX_ATTEMPTS}), retrying: {e}"
+                f"Transient object-store error on the staged {verb} of {path} "
+                f"(attempt {attempt}/{_STAGED_OPERATION_MAX_ATTEMPTS}), retrying: {e}"
             )
             await asyncio.sleep(2**attempt)
+
+
+async def aretry_staged_write(
+    operation: Callable[[], Coroutine[Any, Any, None]], *, path: str, logger: FilteringBoundLogger
+) -> None:
+    """Run one staged parquet write, retrying a transient object-store failure with backoff.
+
+    Pass a zero-arg callable that produces the awaitable, not the awaitable itself, so a retry can
+    reissue the write.
+    """
+    await _aretry_staged_operation(operation, verb="write", path=path, logger=logger)
+
+
+async def aretry_staged_read(
+    operation: Callable[[], Coroutine[Any, Any, T]], *, path: str, logger: FilteringBoundLogger
+) -> T:
+    """Open one staged file for read, retrying a transient object-store failure with backoff.
+
+    Pass a zero-arg callable that produces the awaitable, not the awaitable itself, so a retry can
+    reissue the open. Safe to retry: opening a staged file is a HeadObject call that reads nothing
+    and produces no rows, so a retried open can't duplicate anything a prior attempt already sent.
+    """
+    return await _aretry_staged_operation(operation, verb="open", path=path, logger=logger)

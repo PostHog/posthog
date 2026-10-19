@@ -4,6 +4,8 @@ export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline'
 
+export type TraceViewChoice = 'new' | 'legacy'
+
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'

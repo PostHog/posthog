@@ -640,9 +640,7 @@ class TestReplayFilter:
         # `superseded` is the series the loader raised while the position lived there. Reporting
         # the identity drop under the same name would flatten a dashboard onto one number.
         counter = MagicMock()
-        replay = ReplayFilter(
-            LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN)), team_id=7
-        )
+        replay = ReplayFilter(LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN)))
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager."

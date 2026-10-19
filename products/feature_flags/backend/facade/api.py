@@ -3,8 +3,6 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
-``deactivate_trashed_flag`` and ``reactivate_restored_flag`` bypass the serializer, because
-file-system trash and restore flip ``active`` without the gate or validation.
 ``clear_feature_enrollment`` falls back to a raw model write when the serializer rejects
 a flag's stored config version 1 filters, because enrollment cleanup must never fail.
 The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
@@ -184,38 +182,6 @@ def set_flag_active(
     the flip is passed straight through — no synthetic PATCH request is needed.
     """
     return update_flag(flag, {"active": active}, team=team, user=user, request=request)
-
-
-def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> None:
-    """Flip ``active`` on a flag the file system trashes or restores. UNGATED on purpose.
-
-    A queryset update fires no signals. The file system then saves the flag inside
-    ``mute_selected_signals()``. That silences only the activity-log receiver, because the file
-    system writes its own trash and restore entries. The post_save receivers, such as flags cache
-    invalidation, still fire on that save. A serializer write here would log a second activity
-    entry and add the dependents check, filter validation and the approval gate. Trash never had
-    any of those.
-
-    The caller reads the row back, because the file system saves the whole instance after
-    this and would otherwise write the stale value over it.
-
-    Restore runs while the row still carries ``deleted``, which the default manager excludes,
-    so this reaches the row through ``objects_including_soft_deleted``.
-    """
-    FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).update(active=active)
-
-
-def deactivate_trashed_flag(flag_id: int, *, team_id: int) -> None:
-    """Disable a flag that the file system moves to trash. See ``_set_trashed_flag_active``."""
-    # TODO: trash disables a flag without passing a feature_flag.disable policy.
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=False)
-
-
-def reactivate_restored_flag(flag_id: int, *, team_id: int) -> None:
-    """Enable a flag that the file system restores from trash. See ``_set_trashed_flag_active``."""
-    # TODO: restore enables a flag without passing a feature_flag.enable policy. It does so even
-    # when the flag was off before trash, because trash does not record the prior state.
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=True)
 
 
 def archive_flag(

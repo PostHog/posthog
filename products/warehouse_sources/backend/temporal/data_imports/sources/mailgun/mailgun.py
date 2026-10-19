@@ -1,8 +1,9 @@
 import time
 import dataclasses
+from collections import Counter
 from collections.abc import AsyncIterable, Iterable, Iterator
-from datetime import UTC, date, datetime
-from email.utils import parsedate_to_datetime
+from datetime import UTC, date, datetime, timedelta
+from email.utils import format_datetime, parsedate_to_datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
@@ -26,10 +27,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
+    LOGS_ENDPOINT,
+    LOGS_PATH,
     MAILGUN_ENDPOINTS,
+    MAILGUN_METRICS_ENDPOINTS,
+    METRICS,
+    METRICS_PATH,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
     MailgunEndpointConfig,
+    MailgunMetricsEndpointConfig,
 )
 
 REGION_BASE_URLS = {
@@ -52,10 +59,28 @@ MAX_RETRY_AFTER_SECONDS = 120
 # ~30 minutes as incomplete. Bounding `end` keeps the incremental watermark behind the
 # consistency horizon so late-arriving events aren't skipped on the next sync.
 EVENTS_CONSISTENCY_LAG_SECONDS = 30 * 60
+# Mailgun keeps events for its plan's retention, at most 30 days on standard plans. A sync with no
+# watermark starts there, because the Events API needs an explicit `begin` for an ascending range.
+EVENTS_LOOKBACK_DAYS = 30
 # Backstop for a `paging.next` chain that never terminates and never repeats a URL, which the
 # seen-URL guard below can't catch. Sized far above any real page count (the largest paging
 # endpoint fetches 1000 rows a page) so it only trips on a runaway.
 MAX_PAGES_PER_CHAIN = 100_000
+# The Metrics API caps `limit` at 1000 for any dimension other than `time`.
+METRICS_PAGE_SIZE = 1000
+# Mailgun keeps daily metrics for one year.
+METRICS_LOOKBACK_DAYS = 365
+# A day's counts keep moving until Mailgun's event store settles, so incremental syncs re-read
+# the days just before the watermark and merge over them.
+METRICS_REFRESH_DAYS = 2
+# Backstop for a Metrics API that ignores `skip` and keeps serving full pages for one day. Sized
+# far above the distinct values any breakdown dimension reaches in a day.
+MAX_METRICS_ROWS_PER_DAY = 1_000_000
+# The Logs API caps `limit` at 100.
+LOGS_PAGE_SIZE = 100
+# Mailgun keeps logs for its plan's event retention, at most 30 days on standard plans, so a
+# full refresh asks for the longest window any account can still hold.
+LOGS_LOOKBACK_DAYS = 30
 
 
 class MailgunRetryableError(Exception):
@@ -64,14 +89,24 @@ class MailgunRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MailgunResumeConfig:
-    # URL of the next page to fetch for the in-flight chain (None = start the next domain).
+    # URL of the next page to fetch for the in-flight chain (None = start the next parent).
     next_url: Optional[str] = None
-    # Domain the in-flight chain belongs to, injected into each row of the resumed pages.
+    # Domain (or mailing list address, for list-scoped endpoints) the in-flight chain belongs to,
+    # injected into each row of the resumed pages.
     current_domain: Optional[str] = None
-    # Domains not yet started, in fan-out order.
+    # Domains (or mailing list addresses) not yet started, in fan-out order.
     pending_domains: list[str] = dataclasses.field(default_factory=list)
+    # Metrics tables: ISO date of the next daily window to query, and the offset within it.
+    metrics_day: Optional[str] = None
+    metrics_skip: int = 0
+    # Logs table: the ISO window the run reads and the token of its next page. The window is
+    # fixed per run because a page token only belongs to the query that issued it. An exhausted
+    # window is saved with start equal to end.
+    logs_start: Optional[str] = None
+    logs_end: Optional[str] = None
+    logs_token: Optional[str] = None
 
 
 def base_url_for_region(region: str) -> str:
@@ -138,12 +173,14 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     return f"{base_url}{path}?{urlencode(clean_params)}"
 
 
-def _endpoint_path(config: MailgunEndpointConfig, domain: Optional[str]) -> str:
-    if not config.domain_scoped:
+def _endpoint_path(config: MailgunEndpointConfig, parent: Optional[str]) -> str:
+    if not config.domain_scoped and not config.list_scoped:
         return config.path
-    if domain is None:
-        raise ValueError(f"Mailgun endpoint {config.name} requires a domain")
-    return config.path.format(domain=quote(domain, safe=""))
+    if parent is None:
+        raise ValueError(f"Mailgun endpoint {config.name} requires a {'domain' if config.domain_scoped else 'list'}")
+    if config.list_scoped:
+        return config.path.format(list_address=quote(parent, safe=""))
+    return config.path.format(domain=quote(parent, safe=""))
 
 
 def _initial_url(
@@ -161,8 +198,11 @@ def _initial_url(
         # Ascending creation order keeps fetched pages stable and lets the incremental
         # watermark advance monotonically.
         params["ascending"] = "yes"
-        end = int(time.time()) - EVENTS_CONSISTENCY_LAG_SECONDS
-        if begin is not None and begin >= end:
+        now = int(time.time())
+        end = now - EVENTS_CONSISTENCY_LAG_SECONDS
+        if begin is None:
+            begin = now - EVENTS_LOOKBACK_DAYS * 24 * 60 * 60
+        elif begin >= end:
             # Watermark is already inside the consistency lag window; nothing safe to fetch.
             return None
         params["begin"] = begin
@@ -209,6 +249,9 @@ def _normalize_row(config: MailgunEndpointConfig, domain: Optional[str], item: d
         # Rows from different sending domains can collide on their natural key (e.g. the
         # same suppressed address), so the fan-out domain is part of every primary key.
         row["domain"] = domain
+    if config.list_scoped:
+        # Members are only unique within their list, and the list isn't on the member row.
+        row["list_address"] = domain
     if config.name == "events":
         row["timestamp"] = _epoch_to_datetime(row.get("timestamp"))
     return row
@@ -220,15 +263,27 @@ def _normalize_row(config: MailgunEndpointConfig, domain: Optional[str], item: d
     wait=_retry_wait,
     reraise=True,
 )
-def _fetch_page(url: str, api_key: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+def _fetch_page(
+    url: str, api_key: str, logger: FilteringBoundLogger, json_body: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     # Mailgun auth is HTTP basic with the literal username "api" and the private API key
     # as the password. Rate limits are plan-dependent; 429s honor Retry-After when present.
-    response = make_tracked_session().get(
-        url,
-        auth=("api", api_key),
-        headers={"Accept": "application/json"},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    session = make_tracked_session()
+    if json_body is None:
+        response = session.get(
+            url,
+            auth=("api", api_key),
+            headers={"Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    else:
+        response = session.post(
+            url,
+            auth=("api", api_key),
+            headers={"Accept": "application/json"},
+            json=json_body,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
 
     if response.status_code == 429 or response.status_code >= 500:
         raise MailgunRetryableError(
@@ -249,6 +304,17 @@ def _fetch_page(url: str, api_key: str, logger: FilteringBoundLogger) -> dict[st
 # specific domain (e.g. a subaccount domain, or a restricted key). A global credential failure
 # 401s the `/v4/domains` listing itself, which never reaches this fan-out and stays non-retryable.
 SKIPPABLE_DOMAIN_STATUS_CODES = frozenset({400, 401, 403})
+
+
+class MailgunAllDomainsSkippedError(Exception):
+    pass
+
+
+def _status_summary(status_counts: Counter[int]) -> str:
+    return ", ".join(
+        f"{status} on {count} {'domain' if count == 1 else 'domains'}"
+        for status, count in sorted(status_counts.items())
+    )
 
 
 def _is_skippable_domain_error(config: MailgunEndpointConfig, domain: Optional[str], error: requests.HTTPError) -> bool:
@@ -280,6 +346,22 @@ def get_domain_names(api_key: str, base_url: str, logger: FilteringBoundLogger) 
             return names
 
         skip += config.page_size
+
+
+def get_mailing_list_addresses(api_key: str, base_url: str, logger: FilteringBoundLogger) -> list[str]:
+    config = MAILGUN_ENDPOINTS["mailing_lists"]
+    addresses: list[str] = []
+    url = _initial_url(base_url, config, None)
+    seen_urls: set[str] = set()
+
+    while url is not None and url not in seen_urls and len(seen_urls) < MAX_PAGES_PER_CHAIN:
+        seen_urls.add(url)
+        data = _fetch_page(url, api_key, logger)
+        items = data.get("items") or []
+        addresses.extend(item["address"] for item in items if item.get("address"))
+        url = _next_page_url(config, url, data, len(items))
+
+    return addresses
 
 
 # Mailgun keys are scoped to one region, so a good key checked against the wrong region is
@@ -347,6 +429,10 @@ def get_rows(
         pending_domains = get_domain_names(api_key, base_url, logger)
         current_domain = None
         current_url = None
+    elif config.list_scoped:
+        pending_domains = get_mailing_list_addresses(api_key, base_url, logger)
+        current_domain = None
+        current_url = None
     else:
         pending_domains = []
         current_domain = None
@@ -357,6 +443,10 @@ def get_rows(
     # empty one. Without this guard the chain re-yields the same rows until the activity is killed,
     # and every re-yielded row is billed as a synced row even though the merge dedupes them away.
     seen_urls: set[str] = set()
+    # A resumed run can't see the domains an earlier attempt already read, so it doesn't count.
+    count_domains = resume_config is None and config.domain_scoped
+    queried_domains = 0
+    skipped_statuses: Counter[int] = Counter()
 
     while current_url is not None or pending_domains:
         if current_url is None:
@@ -367,6 +457,7 @@ def get_rows(
                 current_domain = None
                 resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
                 continue
+            queried_domains += 1
 
         loop_reason: Optional[str] = None
         if current_url in seen_urls:
@@ -391,17 +482,18 @@ def get_rows(
         except requests.HTTPError as error:
             if not _is_skippable_domain_error(config, current_domain, error):
                 raise
+            assert error.response is not None
             logger.warning(
                 f"Mailgun: skipping domain {current_domain} for {endpoint}; "
-                f"request returned {error.response.status_code if error.response is not None else '?'}. "
-                f"url={current_url}"
+                f"request returned {error.response.status_code}. url={current_url}"
             )
+            skipped_statuses[error.response.status_code] += 1
             current_url = None
             current_domain = None
             resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
             continue
 
-        items = data.get("items") or []
+        items = data.get(config.data_key) or []
 
         if items:
             yield [_normalize_row(config, current_domain, item) for item in items]
@@ -419,6 +511,212 @@ def get_rows(
                 pending_domains=pending_domains,
             )
         )
+        if not items:
+            # A fan-out over many empty lists or domains yields nothing for a long stretch.
+            resumable_source_manager.safe_point()
+
+    if count_domains and queried_domains > 0 and skipped_statuses.total() == queried_domains:
+        # Without this, a request Mailgun rejects for every domain ends as a successful sync of 0 rows.
+        # A 400 points at disabled or unverified domains, a 401/403 at the API key's permissions.
+        raise MailgunAllDomainsSkippedError(
+            f"Mailgun rejected the request for every sending domain on the {endpoint} table ({_status_summary(skipped_statuses)}). "
+            "A 400 means the domains are disabled or unverified. "
+            "A 401 or 403 means the API key can't read them. "
+            "Fix this in Mailgun, then re-enable the table."
+        )
+
+
+def _to_date(value: Any) -> Optional[date]:
+    if isinstance(value, datetime):
+        return (value if value.tzinfo is None else value.astimezone(UTC)).date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return _to_date(datetime.fromisoformat(value))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_rfc2822(value: Any) -> Any:
+    """Parse the Metrics API's RFC 2822 `time` dimension; unparseable values pass through unchanged."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return parsedate_to_datetime(value).astimezone(UTC)
+    except (TypeError, ValueError):
+        return value
+
+
+def _metrics_request_body(config: MailgunMetricsEndpointConfig, day: date, skip: int) -> dict[str, Any]:
+    start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+    dimensions = ["time", config.dimension] if config.dimension else ["time"]
+    return {
+        "start": format_datetime(start),
+        "end": format_datetime(start + timedelta(days=1) - timedelta(seconds=1)),
+        "resolution": "day",
+        "dimensions": dimensions,
+        "metrics": list(METRICS),
+        # Within a single day the breakdown dimension is unique, so sorting on it keeps
+        # skip/limit pages stable.
+        "pagination": {"sort": f"{dimensions[-1]}:asc", "skip": skip, "limit": METRICS_PAGE_SIZE},
+    }
+
+
+def _metrics_row(item: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = dict(item.get("metrics") or {})
+    for dimension in item.get("dimensions") or []:
+        name = dimension.get("dimension")
+        if not name:
+            continue
+        if name == "time":
+            row["time"] = _parse_rfc2822(dimension.get("value"))
+        else:
+            row[name] = dimension.get("value")
+            row[f"{name}_display_value"] = dimension.get("display_value")
+    return row
+
+
+def get_metrics_rows(
+    api_key: str,
+    region: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the Metrics API one UTC day at a time, oldest first.
+
+    One day per request keeps every page deterministic, since `time` and the breakdown dimension
+    together are unique only within a day."""
+    config = MAILGUN_METRICS_ENDPOINTS[endpoint]
+    url = f"{base_url_for_region(region)}{METRICS_PATH}"
+    today = datetime.now(UTC).date()
+
+    day = today - timedelta(days=METRICS_LOOKBACK_DAYS - 1)
+    if should_use_incremental_field:
+        last_day = _to_date(db_incremental_field_last_value)
+        if last_day is not None:
+            day = max(day, last_day - timedelta(days=METRICS_REFRESH_DAYS))
+    skip = 0
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and resume_config.metrics_day is not None:
+        day = date.fromisoformat(resume_config.metrics_day)
+        skip = resume_config.metrics_skip
+        logger.debug(f"Mailgun: resuming {endpoint} at day={day}, skip={skip}")
+
+    while day <= today:
+        data = _fetch_page(url, api_key, logger, json_body=_metrics_request_body(config, day, skip))
+        items = data.get("items") or []
+
+        if len(items) < METRICS_PAGE_SIZE:
+            day, skip = day + timedelta(days=1), 0
+        elif skip + METRICS_PAGE_SIZE >= MAX_METRICS_ROWS_PER_DAY:
+            logger.warning(
+                f"Mailgun: stopping {endpoint} for {day} after {MAX_METRICS_ROWS_PER_DAY} rows; "
+                "the Metrics API kept returning full pages"
+            )
+            day, skip = day + timedelta(days=1), 0
+        else:
+            skip += METRICS_PAGE_SIZE
+
+        resumable_source_manager.save_state(MailgunResumeConfig(metrics_day=day.isoformat(), metrics_skip=skip))
+        if items:
+            yield [_metrics_row(item) for item in items]
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _parse_log_timestamp(value: Any) -> Any:
+    """Parse a Logs API `@timestamp` (ISO 8601, or RFC 2822 as a fallback); unparseable values pass
+    through unchanged."""
+    if not isinstance(value, str):
+        return value
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return _parse_rfc2822(value)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _logs_row(item: dict[str, Any]) -> dict[str, Any]:
+    row = dict(item)
+    # Renamed so the incremental cursor and partition key don't depend on how the pipeline
+    # normalizes the leading `@`.
+    row["timestamp"] = _parse_log_timestamp(row.pop("@timestamp", None))
+    return row
+
+
+def _logs_request_body(start: datetime, end: datetime, token: Optional[str]) -> dict[str, Any]:
+    pagination: dict[str, Any] = {"sort": "timestamp:asc", "limit": LOGS_PAGE_SIZE}
+    if token is not None:
+        pagination["token"] = token
+    # The Logs API's request schema marks `duration` required even though it only has an effect
+    # (recomputing `start` from `end`) when non-empty, so an empty string satisfies the
+    # requirement without overriding the explicit `start` our pagination depends on.
+    return {
+        "start": format_datetime(start),
+        "end": format_datetime(end),
+        "duration": "",
+        "pagination": pagination,
+    }
+
+
+def get_logs_rows(
+    api_key: str,
+    region: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the account-wide Logs API across one time window, oldest first."""
+    url = f"{base_url_for_region(region)}{LOGS_PATH}"
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and resume_config.logs_start is not None and resume_config.logs_end is not None:
+        start = datetime.fromisoformat(resume_config.logs_start)
+        end = datetime.fromisoformat(resume_config.logs_end)
+        token = resume_config.logs_token
+        logger.debug(f"Mailgun: resuming {LOGS_ENDPOINT} at start={start}, end={end}, token={token}")
+    else:
+        now = datetime.now(UTC)
+        # Logs come from the same eventually consistent store as the Events API.
+        end = now - timedelta(seconds=EVENTS_CONSISTENCY_LAG_SECONDS)
+        start = now - timedelta(days=LOGS_LOOKBACK_DAYS)
+        if should_use_incremental_field:
+            begin = _to_epoch(db_incremental_field_last_value)
+            if begin is not None:
+                start = max(start, datetime.fromtimestamp(begin, tz=UTC))
+        token = None
+
+    seen_tokens: set[str] = set()
+
+    while start < end:
+        data = _fetch_page(url, api_key, logger, json_body=_logs_request_body(start, end, token))
+        items = data.get("items") or []
+        next_token = (data.get("pagination") or {}).get("next")
+        if token is not None:
+            seen_tokens.add(token)
+
+        if not items or not next_token or next_token == token or next_token in seen_tokens:
+            start, token = end, None
+        elif len(seen_tokens) >= MAX_PAGES_PER_CHAIN:
+            logger.warning(f"Mailgun: stopping {LOGS_ENDPOINT} because the chain exceeded {MAX_PAGES_PER_CHAIN} pages")
+            start, token = end, None
+        else:
+            token = next_token
+
+        resumable_source_manager.save_state(
+            MailgunResumeConfig(logs_start=start.isoformat(), logs_end=end.isoformat(), logs_token=token)
+        )
+        if items:
+            yield [_logs_row(item) for item in items]
+        else:
+            resumable_source_manager.safe_point()
 
 
 # Mailgun posts `{"signature": {...}, "event-data": {...}}`; `event-data` is the same event
@@ -709,6 +1007,48 @@ def mailgun_source(
 ) -> SourceResponse:
     if endpoint == WEBHOOK_EVENTS_ENDPOINT:
         return mailgun_webhook_source(webhook_source_manager, endpoint)
+
+    if endpoint in MAILGUN_METRICS_ENDPOINTS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_metrics_rows(
+                api_key=api_key,
+                region=region,
+                endpoint=endpoint,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            ),
+            primary_keys=MAILGUN_METRICS_ENDPOINTS[endpoint].primary_keys,
+            sort_mode="asc",
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime",
+            partition_format="month",
+            partition_keys=["time"],
+        )
+
+    if endpoint == LOGS_ENDPOINT:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_logs_rows(
+                api_key=api_key,
+                region=region,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            ),
+            # Log ids come from the same account-wide event store as webhook event ids.
+            primary_keys=["id"],
+            sort_mode="asc",
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime",
+            partition_format="day",
+            partition_keys=["timestamp"],
+        )
 
     config = MAILGUN_ENDPOINTS[endpoint]
 

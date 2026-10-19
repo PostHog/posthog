@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlanhatSource(ResumableSource[PlanhatSourceConfig, PlanhatResumeConfig]):
+    codebase_detection = detect(env=("^PLANHAT_",))
+
     api_docs_url = "https://docs.planhat.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -53,7 +56,7 @@ class PlanhatSource(ResumableSource[PlanhatSourceConfig, PlanhatResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Planhat API access token to pull your customer success data into the PostHog Data warehouse.
 
-You can create an API access token from a Private App under **Settings → Service Accounts** in [Planhat](https://app.planhat.com). The token is shown once, so copy it immediately. It grants read access to your companies, end users, users, licenses, assets, and NPS responses.
+You can create an API access token from a Private App under **Settings → Service Accounts** in [Planhat](https://app.planhat.com). The token is shown once, so copy it immediately. It grants read access to your companies, end users, users, licenses, assets, NPS responses, conversations, tickets, invoices, and sales.
 """,
             iconPath="/static/services/planhat.png",
             docsUrl="https://posthog.com/docs/cdp/sources/planhat",

@@ -8,6 +8,7 @@ export type GatewayProduct =
   | "workflows"
   | "posthog_ai"
   | "conversations"
+  | "account_audit"
   | "onboarding"
   | "review_hog";
 
@@ -23,7 +24,9 @@ export function resolveGatewayProduct({
   // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
+    metrics_import: "posthog_ai",
     onboarding: "onboarding",
+    account_audit: "account_audit",
     posthog_ai: "posthog_ai",
     review_hog: "review_hog",
     scout_suggestions: "signals",
@@ -39,7 +42,10 @@ export function resolveGatewayProduct({
     const mapped = originProductToGatewayProductMap[originProduct];
     // Stored rows may carry a caller-set review_hog origin predating its
     // reservation; only the server-stamped `internal` flag admits the mintable product.
-    if (mapped === "review_hog" && !isInternal) {
+    if (
+      (mapped === "review_hog" || originProduct === "account_audit") &&
+      !isInternal
+    ) {
       return "posthog_code";
     }
     return mapped;
@@ -50,13 +56,13 @@ export function resolveGatewayProduct({
   return "posthog_code";
 }
 
-// The legacy gateway's review_hog product is API-key-only, so sandbox OAuth
-// tokens 403 on that slug; the legacy leg, including the mint-failure
-// fallback, uses background_agents.
+// The legacy gateway accepts sandbox OAuth under background_agents; review_hog
+// is API-key-only there, and account_audit has no legacy product config.
 const LEGACY_PRODUCT_OVERRIDES: Partial<
   Record<GatewayProduct, GatewayProduct>
 > = {
   review_hog: "background_agents",
+  account_audit: "background_agents",
 };
 
 function legacyProduct(product: GatewayProduct): GatewayProduct {

@@ -7,12 +7,14 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
+    INTRO_SCREEN_PAGE_INDEX,
     MAX_ITERATION_COUNT,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
 } from 'scenes/surveys/constants'
+import { getIntroScreenDescriptionContentType } from 'scenes/surveys/surveyIntroScreen'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +47,8 @@ import {
     SurveyStats,
     SurveyType,
 } from '~/types'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -276,6 +280,32 @@ export function sanitizeSurveyDisplayConditions(
     return sanitized
 }
 
+/**
+ * The renderer shows the intro page for INTRO_SCREEN_PAGE_INDEX in preview mode regardless of
+ * `displayIntroScreen` (mirroring how the confirmation page ignores `displayThankYouMessage`),
+ * so a page index left on the intro after the toggle turns off must fall back to question 0.
+ */
+export function clampPreviewPageIndex(
+    pageIndex: number | null | undefined,
+    survey: Pick<Survey | NewSurvey, 'appearance'>
+): number {
+    const index = pageIndex ?? 0
+    if (index === INTRO_SCREEN_PAGE_INDEX && !survey.appearance?.displayIntroScreen) {
+        return 0
+    }
+    return index
+}
+
+export function getFirstPreviewPageIndex(survey: Pick<Survey | NewSurvey, 'appearance'>): number {
+    return survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0
+}
+
+export function getIntroScreenPageOptions(
+    survey: Pick<Survey | NewSurvey, 'appearance'>
+): { label: string; value: number }[] {
+    return survey.appearance?.displayIntroScreen ? [{ label: 'Intro screen', value: INTRO_SCREEN_PAGE_INDEX }] : []
+}
+
 export function sanitizeSurveyAppearance(
     appearance?: SurveyAppearance | null,
     isPartialResponsesEnabled = false,
@@ -296,8 +326,24 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        introScreenHeader: sanitizeHTML(appearance.introScreenHeader ?? ''),
+        introScreenDescription:
+            getIntroScreenDescriptionContentType(appearance) === 'text'
+                ? (appearance.introScreenDescription ?? '')
+                : sanitizeHTML(appearance.introScreenDescription ?? ''),
         surveyPopupDelaySeconds:
             surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
+    }
+}
+
+// An unset content type means HTML to the SDKs, so a new intro is pinned to the editors' text tab.
+// A description that already has content keeps the type it renders with.
+export function withIntroScreenEnabled(appearance?: SurveyAppearance | null): SurveyAppearance {
+    return {
+        ...appearance,
+        displayIntroScreen: true,
+        introScreenDescriptionContentType:
+            appearance?.introScreenDescriptionContentType ?? (appearance?.introScreenDescription ? 'html' : 'text'),
     }
 }
 
@@ -1431,7 +1477,7 @@ export function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Sur
         archived: false,
         start_date: null,
         end_date: null,
-        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        targeting_flag_filters: v1TargetingFlagFilters(survey) ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
 }
@@ -1511,7 +1557,13 @@ export function getSurveyTargetingFilters(survey: Survey | NewSurvey): FeatureFl
         return survey.targeting_flag_filters
     }
 
-    return survey.targeting_flag?.filters || undefined
+    return v1TargetingFlagFilters(survey)
+}
+
+/** A survey's targeting flag is v1 by construction; any other config version has no release conditions to show. */
+export function v1TargetingFlagFilters(survey: Survey | NewSurvey): FeatureFlagFilters | undefined {
+    const filters = survey.targeting_flag?.filters
+    return filters && isV1FeatureFlagConfig(filters) ? filters : undefined
 }
 
 export function getSurveyAudienceRuleCount(filters?: FeatureFlagFilters | null): number {

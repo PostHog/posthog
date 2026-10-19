@@ -1,9 +1,9 @@
 import { instrumentFn, isTracingActive } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
-import { pipelineStepDurationHistogram } from './metrics'
+import { pipelineStepDurationHistogram, recordBudgetCheckpoint } from './metrics'
 import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResult, PipelineResultType, isOkResult } from './results'
+import { PipelineResult, PipelineResultType, isOkResult, timeout } from './results'
 import { eventSpanAttributes } from './span-attributes'
 import { ProcessingStep } from './steps'
 
@@ -38,7 +38,18 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
             }
         }
 
+        // lastStep keeps the step that spent the time; the reason names the step that never started.
+        const budget = previousResultWithContext.context.budget
+        if (budget?.exhausted) {
+            recordBudgetCheckpoint('step', this.stepName)
+            return {
+                result: timeout(`budget exceeded before ${this.stepName}`),
+                context: previousResultWithContext.context,
+            }
+        }
+
         const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'element' })
+        const traceContext = previousResultWithContext.context.traceContext
         let currentResult: PipelineResult<TOutput, RStep>
         try {
             currentResult = await instrumentFn(
@@ -46,7 +57,8 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
                     key: this.stepName,
                     sendException: false,
                     measureTime: false,
-                    attributes: isTracingActive() ? eventSpanAttributes(previousResult.value) : undefined,
+                    attributes: isTracingActive(traceContext) ? eventSpanAttributes(previousResult.value) : undefined,
+                    parentContext: traceContext,
                 },
                 () => this.currentStep(previousResult.value)
             )
