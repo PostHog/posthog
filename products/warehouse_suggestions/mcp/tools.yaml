@@ -54,8 +54,7 @@ tools:
             ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background
             included. `days_with_data` is how many days of the window PostHog has read history for, not how active this
             project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload`
-            to explain to the user why a view or table should be certified, deprecated or materialized before
-            accepting.
+            to explain to the user why a view or table should be certified, deprecated or materialized before accepting.
     warehouse-suggestions-list:
         operation: warehouse_suggestions_list
         enabled: true
