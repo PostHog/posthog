@@ -36,6 +36,7 @@ import type { InboxItem, QueryState } from '@/model/types'
 import { useAppActive } from '../handoff/useTaskRun'
 import { useSnoozeEntries, wakeSnooze } from '../snooze/hooks'
 import { applySnoozes } from '../snooze/snoozeEntries'
+import { applyInboxFilters, DEFAULT_INBOX_FILTERS, type InboxFilters, isDefaultInboxFilters } from './filters'
 
 /** The inbox list, which loads one page of reports at a time. */
 export interface InboxQueryState extends QueryState<InboxItem[]> {
@@ -47,12 +48,17 @@ export interface InboxQueryState extends QueryState<InboxItem[]> {
     /** For the list end coming into view. Does nothing after a failed next page. */
     loadMore: () => void
     retryLoadMore: () => void
+    matchedCount: number
+    totalCount: number
+    /** Loaded items before the filters, so a source filter can still offer the other sources. */
+    unfiltered: readonly InboxItem[] | undefined
 }
 
 type InboxPages = InfiniteData<InboxPageApi, number>
 
 const noop = (): void => undefined
 const noMorePages = { hasMore: false, isLoadingMore: false, loadMoreFailed: false, loadMore: noop, retryLoadMore: noop }
+const noItems = { matchedCount: 0, totalCount: 0, unfiltered: undefined }
 
 let accountGeneration = 0
 const readWrites = new Set<AbortController>()
@@ -110,11 +116,15 @@ function keepFirstPage(queryClient: QueryClient, scope: ProjectScope): void {
     )
 }
 
-function useLiveInboxItems(enabled: boolean, refreshWhileVisible: boolean): InboxQueryState {
+function useLiveInboxItems(
+    enabled: boolean,
+    refreshWhileVisible: boolean,
+    filters: InboxFilters,
+    now: Date
+): InboxQueryState {
     const scope = useProjectScope()
     const appActive = useAppActive()
     const active = enabled && scope !== null
-    const now = useNow()
     const snoozes = useSnoozeEntries()
     const queryClient = useQueryClient()
     const [pulling, setPulling] = useState(false)
@@ -172,10 +182,17 @@ function useLiveInboxItems(enabled: boolean, refreshWhileVisible: boolean): Inbo
             return undefined
         }
         const withRead = baseItems.map((item) => ({ ...item, read: readStates[item.reportId] !== false }))
-        return applySnoozes(withRead, snoozes, scope, now, signalCounts)
-    }, [baseItems, readStates, snoozes, scope, now, signalCounts])
+        return applySnoozes(applyInboxFilters(withRead, filters, now.getTime()), snoozes, scope, now, signalCounts)
+    }, [baseItems, readStates, filters, snoozes, scope, now, signalCounts])
 
-    const { refetch: refetchList, fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = list
+    const {
+        refetch: refetchList,
+        fetchNextPage,
+        hasNextPage,
+        isFetching,
+        isFetchingNextPage,
+        isFetchNextPageError,
+    } = list
     const refetch = useCallback(async (): Promise<void> => {
         if (!scope) {
             return
@@ -200,7 +217,8 @@ function useLiveInboxItems(enabled: boolean, refreshWhileVisible: boolean): Inbo
             return
         }
         track('mobile_inbox_page_requested', { page: pagesLoaded + 1 })
-        void fetchNextPage()
+        // The inbox and an open report can both auto-page; without this the second call cancels and repeats the request.
+        void fetchNextPage({ cancelRefetch: false })
     }, [hasNextPage, isFetchingNextPage, fetchNextPage, pagesLoaded])
     // The error footer that replaces the spinner changes the content size, which makes `FlatList` call `onEndReached`
     // again. Without this guard, a server that keeps failing would get a new request after each failure.
@@ -210,38 +228,73 @@ function useLiveInboxItems(enabled: boolean, refreshWhileVisible: boolean): Inbo
         }
     }, [isFetchNextPageError, retryLoadMore])
 
+    // A sort or filter over part of the ranking would misorder rows or hide matches on unloaded pages, so it loads every
+    // page. It waits for any fetch, because a next-page request would cancel a refresh that is still in flight.
+    const autoPaging = active && !isDefaultInboxFilters(filters) && hasNextPage && !isFetchNextPageError
+    useEffect(() => {
+        if (autoPaging && !isFetching) {
+            retryLoadMore()
+        }
+    }, [autoPaging, isFetching, retryLoadMore])
+
     if (!scope) {
-        return { ...errorQuery(new NotSignedInError()), ...noMorePages }
+        return { ...errorQuery(new NotSignedInError()), ...noMorePages, ...noItems }
     }
     const paging = {
         hasMore: hasNextPage,
-        isLoadingMore: isFetchingNextPage,
+        isLoadingMore: isFetchingNextPage || autoPaging,
         loadMoreFailed: isFetchNextPageError,
         loadMore,
         retryLoadMore,
     }
     if (items) {
-        return { data: items, isLoading: false, isError: false, error: null, isRefetching: pulling, refetch, ...paging }
+        return {
+            data: items,
+            isLoading: false,
+            isError: false,
+            error: null,
+            isRefetching: pulling,
+            refetch,
+            ...paging,
+            matchedCount: items.length,
+            totalCount: baseItems?.length ?? 0,
+            unfiltered: baseItems,
+        }
     }
     if (list.isError) {
-        return { ...errorQuery(toError(list.error), refetch), ...noMorePages }
+        return { ...errorQuery(toError(list.error), refetch), ...noMorePages, ...noItems }
     }
-    return { ...loadingQuery<InboxItem[]>(), refetch, ...noMorePages }
+    return { ...loadingQuery<InboxItem[]>(), refetch, ...noMorePages, ...noItems }
 }
 
+/** `for_you/` has no sort or filter parameters, so `filters` apply on the device to the ranked reports. */
 export function useInboxItems({
     refreshWhileVisible = false,
+    filters = DEFAULT_INBOX_FILTERS,
 }: {
     refreshWhileVisible?: boolean
+    filters?: InboxFilters
 } = {}): InboxQueryState {
     const mode = useDataMode()
+    const now = useNow()
     const demoQuery = useDemoInboxQuery()
-    const liveQuery = useLiveInboxItems(mode === 'live', refreshWhileVisible)
+    const liveQuery = useLiveInboxItems(mode === 'live', refreshWhileVisible, filters, now)
+    const demoItems = useMemo(
+        () => (demoQuery.data ? applyInboxFilters(demoQuery.data, filters, now.getTime()) : undefined),
+        [demoQuery.data, filters, now]
+    )
     if (mode === 'loading') {
-        return { ...loadingQuery(), ...noMorePages }
+        return { ...loadingQuery(), ...noMorePages, ...noItems }
     }
     if (mode === 'demo') {
-        return { ...demoQuery, ...noMorePages }
+        return {
+            ...demoQuery,
+            data: demoItems,
+            ...noMorePages,
+            matchedCount: demoItems?.length ?? 0,
+            totalCount: demoQuery.data?.length ?? 0,
+            unfiltered: demoQuery.data,
+        }
     }
     return liveQuery
 }

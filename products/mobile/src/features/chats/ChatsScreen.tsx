@@ -113,16 +113,11 @@ export function ChatsScreen(): ReactElement {
             toasts.show("Couldn't archive this chat. Try again.")
         })
     }
-    const refresh = (trigger: 'pull' | 'header' | 'retry'): void => {
+    const refresh = (trigger: 'pull' | 'retry'): void => {
         track('mobile_chats_refreshed', { trigger })
         void query.refetch()
     }
-    useTabHeader('chats', {
-        refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: () => refresh('header') },
-        status: null,
-        editing: null,
-        editPins: null,
-    })
+    useTabHeader('chats', { hint: null, status: null, editing: null, editPins: null, filter: null })
 
     const hasItems = (query.data?.length ?? 0) > 0
     const sections = useMemo<ChatSection[]>(

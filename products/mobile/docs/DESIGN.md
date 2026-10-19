@@ -109,10 +109,11 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
 
 - **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
   tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
-  every tab. The pill on the right holds Refresh and More on every tab; Views in Edit pins swaps it for Done.
-  A tab may add a status line under the title (Views does); it and the refresh hint are absolutely
-  positioned, so they never move the title row. Each screen publishes its refresh state, status line and
-  menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
+  every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
+  publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
+  refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
+  and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its
+  refresh hint, status line, filter button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
   pull to refresh, floating nav pill (Home selected,
   Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
@@ -131,7 +132,10 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   place of Hand off, from the first frame: the inbox list payload carries the PR URL, so the menu
   does not wait for report details.
   The other actions work like the report's action pill, without leaving the inbox.
-  Loading, empty and error states are separate screens.
+  The header's filter button opens the Filter and sort sheet (`InboxFilterSheet`). Sort by is one outlined white card of 56pt rows with a leading icon and hairline dividers; the selected row has a gray fill and a check mark.
+  Created is a `SegmentedPill` (Any, 24h, 3d, 7d, 14d), and Sources are wrapping chips with a checkbox, outlined in ink when on. The list fades out at the bottom of the sheet.
+  A choice applies at once, Clear resets them all, and a blue dot on the button shows that a filter or sort is on.
+  Loading, empty, "No reports match these filters" (with Clear filters) and error states are separate screens.
 - **Chats**: the mobile port of the web app's Chats pane. A search field above the list filters titles on the device. Rows are grouped
   under day labels (Today, Yesterday, a weekday, a date, Earlier) and use the inbox row geometry:
   a chat bubble tile for a PostHog AI chat, a branch tile for a report hand-off or another session,

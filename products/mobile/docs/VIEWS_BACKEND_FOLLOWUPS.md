@@ -40,7 +40,7 @@ A check on the server makes that safe: a forced read inside the window returns t
 People open a view on the phone to see the latest number.
 Today, on focus, the phone shows the cached number until the server's staleness window passes.
 For daily data that window is 6 hours.
-People often refresh right after they open a view, so today they must tap the button each time.
+People often refresh right after they open a view, so today they must pull to refresh each time.
 With a server-side check, the app can do that refresh for them.
 
 **What the app does today:**

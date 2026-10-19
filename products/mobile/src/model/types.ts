@@ -53,8 +53,13 @@ export interface InboxItem {
     title: string
     sourceProduct: SourceProduct
     sourceLabel: string
+    /** Raw `source_products` of the report, for the source filter. */
+    sources: readonly string[]
     accent: Accent
+    createdAt: string
     updatedAt: string
+    /** The served ranking model's merge probability, for the model score sort. Null when unscored or hidden. */
+    modelScore: number | null
     reason?: InboxReason
     state: InboxItemState
     needsInput: boolean

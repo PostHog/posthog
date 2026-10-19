@@ -31,15 +31,7 @@ export function WebAnalyticsScreen({ from }: { from: ViewEntry }): ReactElement 
     const [moreOpen, setMoreOpen] = useState(false)
     const allowed = screen.access.state === 'ok'
     return (
-        <ViewScreenFrame
-            chrome={
-                <ViewChrome
-                    onBack={back}
-                    refresh={allowed ? screen.refresh : null}
-                    onMore={allowed ? () => setMoreOpen(true) : undefined}
-                />
-            }
-        >
+        <ViewScreenFrame chrome={<ViewChrome onBack={back} onMore={allowed ? () => setMoreOpen(true) : undefined} />}>
             {allowed ? <WebAnalyticsBody screen={screen} onBack={back} /> : <ViewsReauthState access={screen.access} />}
             <ViewMoreSheet
                 visible={moreOpen}

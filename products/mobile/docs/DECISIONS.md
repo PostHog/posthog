@@ -51,8 +51,8 @@ Choices the build contract left open, with the reason for each.
   (one fewer dependency) and not Reanimated layout animations (custom ones are unreliable on web).
 - **Prev/Next** uses `router.setParams`, so switching reports does not push a screen. It wraps
   through the whole inbox list, like the prototype's `nextAny`.
-- **Refresh in demo mode** resets every demo change and re-anchors fixture times, with a 450ms
-  refreshing state. Pull to refresh does the same.
+- **Pull to refresh in demo mode** resets every demo change and re-anchors fixture times, with a 450ms
+  refreshing state.
 - **Error boundary.** `app/_layout.tsx` exports a branded boundary with Try again.
 
 ## Visual
@@ -101,8 +101,9 @@ Choices the build contract left open, with the reason for each.
   for later.
 - **Hand-off sheet** keeps the selected-row styling for its single PostHog row. Its meta line reads
   "PostHog agent · opens a PR in your repo", which says what handing off does, because the app offers one agent.
-- **Refresh replaces the prototype's Reset.** The inbox header button refetches the inbox. In demo mode it also resets
-  the demo, which is what Reset did, so one button covers both modes.
+- **Pull to refresh replaces the prototype's Reset.** Pull to refresh is the only manual refresh: it refetches the
+  inbox, and in demo mode it also resets the demo, which is what Reset did, so one gesture covers both modes. The
+  headers have no refresh button, because every list already supports pull to refresh.
 - **Decided card meta** comes from the answer: the prototype's text rules in demo mode, the run's
   `stage` from the run.
 - **PR card.** "Review PR" calls `Linking.openURL`, which opens the GitHub app when installed,

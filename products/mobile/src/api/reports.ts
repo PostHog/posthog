@@ -81,6 +81,8 @@ export interface SignalReportApi {
     pull_requests: ReportPullRequestApi[]
     work_state: 'unclaimed' | 'working' | 'in_review' | 'done'
     assignee: ReportAssigneeApi | null
+    /** `ReportRankingSerializer`: outcome head name (such as `pr_merged`) to its probability. Null for non-staff users. */
+    ranking?: { scores: Record<string, number> } | null
 }
 
 export interface PaginatedApi<T> {

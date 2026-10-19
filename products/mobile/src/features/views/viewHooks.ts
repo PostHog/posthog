@@ -300,7 +300,7 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
     useDashboardTilesShownEvent(view, tiles, items)
     return {
         access: context.access,
-        dashboard: viewState(view, error, context.ready, refresh.button === 'busy', refresh.retry),
+        dashboard: viewState(view, error, context.ready, refresh.busy, refresh.retry),
         error,
         tiles,
         range,
@@ -458,7 +458,7 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
             error && shown.value?.snapshot && !shown.value.snapshot.lastRefreshAt ? undefined : shown.value?.snapshot,
             error,
             context.ready,
-            refresh.button === 'busy',
+            refresh.busy,
             refresh.retry
         ),
         error,
@@ -519,7 +519,7 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
             error && shown.value && !shown.value.lastRefreshAt ? undefined : shown.value,
             error,
             context.ready,
-            refresh.button === 'busy',
+            refresh.busy,
             refresh.retry
         ),
         error,

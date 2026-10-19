@@ -6,6 +6,7 @@ import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
+import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
@@ -16,10 +17,13 @@ import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
 import type { RowAnchor } from './contextMenuPlacement'
+import { type CreatedWindow, type InboxSort, isDefaultInboxFilters, type SourceFilterKey } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
+import { InboxFilterSheet } from './InboxFilterSheet'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
+import { useInboxFilters, useInboxFiltersStore } from './inboxFiltersStore'
 import { usePrefetchReports } from './usePrefetchReports'
 
 function keyFor(item: InboxItem): string {
@@ -37,10 +41,18 @@ export function InboxScreen(): ReactElement {
             return () => setFocused(false)
         }, [])
     )
-    const query = useInboxItems({ refreshWhileVisible: focused })
+    const filters = useInboxFilters()
+    const query = useInboxItems({ refreshWhileVisible: focused, filters })
     const prefetch = usePrefetchReports(query.data)
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
+    const [filtersOpen, setFiltersOpen] = useState(false)
     const listRef = useRef<FlatList<InboxItem>>(null)
+    // A new order starts from its first row, as the old list position would land somewhere arbitrary in it.
+    const sort = filters.sort
+    // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per sort change, not on every render.
+    useEffect(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false })
+    }, [sort])
 
     // The native splash waits for this, so release it only after the loaded list has had a frame to paint.
     useEffect(() => {
@@ -64,18 +76,48 @@ export function InboxScreen(): ReactElement {
         },
         [setReportRead]
     )
-    const refresh = (trigger: 'pull' | 'button' | 'retry'): void => {
+    const refresh = (trigger: 'pull' | 'retry'): void => {
         track('mobile_inbox_refreshed', { trigger })
         void query.refetch()
     }
-    // A refresh keeps only the first page, so the header button also brings the list back to the top.
-    const refreshFromHeader = (): void => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true })
-        refresh('button')
+
+    const openFilters = (): void => {
+        track('mobile_inbox_filters_opened')
+        setFiltersOpen(true)
+    }
+    const setSort = (sort: InboxSort): void => {
+        if (sort === filters.sort) {
+            return
+        }
+        track('mobile_inbox_sort_changed', { sort })
+        useInboxFiltersStore.getState().setSort(sort)
+    }
+    const setCreatedWindow = (window: CreatedWindow): void => {
+        if (window === filters.createdWindow) {
+            return
+        }
+        track('mobile_inbox_created_window_changed', { window })
+        useInboxFiltersStore.getState().setCreatedWindow(window)
+    }
+    const toggleSource = (source: SourceFilterKey): void => {
+        const selected = !filters.sources.includes(source)
+        track('mobile_inbox_source_filter_changed', {
+            source,
+            selected,
+            count: filters.sources.length + (selected ? 1 : -1),
+        })
+        useInboxFiltersStore.getState().toggleSource(source)
+    }
+    const clearFilters = (): void => {
+        track('mobile_inbox_filters_cleared')
+        useInboxFiltersStore.getState().clear()
     }
 
     const listFailed = query.isError
-    const isEmpty = !query.isLoading && !query.isError && (query.data?.length ?? 0) === 0
+    const loaded = !query.isLoading && !query.isError
+    const isEmpty = loaded && query.totalCount === 0
+    // While the remaining pages load, a match may still arrive, so the footer spinner shows instead of this screen.
+    const isFilteredEmpty = loaded && query.totalCount > 0 && query.matchedCount === 0 && !query.isLoadingMore
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
     useEffect(() => {
         if (listFailed) {
@@ -94,11 +136,17 @@ export function InboxScreen(): ReactElement {
             track('mobile_inbox_empty_shown')
         }
     }, [isEmpty])
+    useEffect(() => {
+        if (isFilteredEmpty) {
+            track('mobile_inbox_filtered_empty_shown')
+        }
+    }, [isFilteredEmpty])
     useTabHeader('inbox', {
-        refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: refreshFromHeader },
+        hint: null,
         status: null,
         editing: null,
         editPins: null,
+        filter: { active: !isDefaultInboxFilters(filters), onPress: openFilters },
     })
 
     // The header floats over the list, so the content starts below it and the pull-to-refresh spinner shows under it.
@@ -122,7 +170,15 @@ export function InboxScreen(): ReactElement {
             onAction={() => refresh('retry')}
             testID="inbox-error"
         />
-    ) : (
+    ) : isFilteredEmpty ? (
+        <StateView
+            icon={<FilterIcon size={iconSizes.empty} color={colors.tertiary} />}
+            title="No reports match these filters"
+            actionLabel="Clear filters"
+            onAction={clearFilters}
+            testID="inbox-filtered-empty"
+        />
+    ) : query.totalCount > 0 ? null : (
         <StateView
             icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
             title="Nothing needs you right now"
@@ -164,6 +220,16 @@ export function InboxScreen(): ReactElement {
                 }
             />
             <InboxRowActions target={rowMenu} onClose={() => setRowMenu(null)} />
+            <InboxFilterSheet
+                visible={filtersOpen}
+                onClose={() => setFiltersOpen(false)}
+                filters={filters}
+                items={query.unfiltered ?? []}
+                onSortChange={setSort}
+                onCreatedWindowChange={setCreatedWindow}
+                onToggleSource={toggleSource}
+                onClear={clearFilters}
+            />
         </View>
     )
 }

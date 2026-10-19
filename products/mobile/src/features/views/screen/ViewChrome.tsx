@@ -7,12 +7,8 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
-import { RefreshButton } from '@/ui/RefreshButton'
 import { colors, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
-
-import { refreshHintText } from '../freshness'
-import type { ViewRefresh } from '../useViewRefresh'
 
 const CHROME_TOP = 62
 const CHROME_ROW_HEIGHT = 54
@@ -23,14 +19,12 @@ const CHROME_SOLID = (CHROME_TOP + CHROME_ROW_HEIGHT) / (CHROME_TOP + CHROME_ROW
 
 interface ViewChromeProps {
     onBack: () => void
-    /** Null while the view has nothing to refresh, such as the sign-in state: the button shows disabled. */
-    refresh: ViewRefresh | null
     /** "Open on web" and the other view actions. */
     onMore?: () => void
 }
 
-/** The floating top row of a dashboard, insight or web analytics screen: Back, then Refresh and More. */
-export function ViewChrome({ onBack, refresh, onMore }: ViewChromeProps): ReactElement {
+/** The floating top row of a dashboard, insight or web analytics screen: Back, then More. */
+export function ViewChrome({ onBack, onMore }: ViewChromeProps): ReactElement {
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
@@ -38,12 +32,6 @@ export function ViewChrome({ onBack, refresh, onMore }: ViewChromeProps): ReactE
             <FadeEdge direction="down" solid={CHROME_SOLID} opacity={layout.chromeTint} />
             <BackChip onPress={onBack} testID="view-back" />
             <PillControl height={CHROME_ROW_HEIGHT}>
-                <RefreshButton
-                    state={refresh?.button ?? 'idle'}
-                    onPress={() => refresh?.onButton()}
-                    disabled={!refresh}
-                    blockedLabel={refresh ? (refresh.hint ?? refreshHintText(refresh.blocked.until)) : undefined}
-                />
                 <Pressable44
                     onPress={() => onMore?.()}
                     disabled={!onMore}

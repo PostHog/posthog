@@ -426,4 +426,42 @@ describe('inbox hooks', () => {
         expect(offsets).toEqual(['0', String(INBOX_PAGE_SIZE), String(INBOX_PAGE_SIZE)])
         expect(readStateBatches.map((ids) => ids.length)).toEqual([INBOX_PAGE_SIZE, 1])
     })
+
+    test('loads every page by itself for a sort and orders the items across pages', async () => {
+        const offsets: string[] = []
+        const firstPage = Array.from({ length: INBOX_PAGE_SIZE }, (_, index) =>
+            reportFixture({ id: `r${index}`, created_at: new Date(Date.UTC(2026, 9, 1, index)).toISOString() })
+        )
+        globalThis.fetch = jest.fn(async (url: string) => {
+            const { pathname, searchParams } = new URL(url)
+            if (pathname.endsWith('/read_state/')) {
+                return jsonResponse({ states: {} })
+            }
+            const offset = searchParams.get('offset') ?? ''
+            offsets.push(offset)
+            return jsonResponse(
+                offset === '0'
+                    ? { count: INBOX_PAGE_SIZE + 1, next: 'https://app.example.com/next', results: firstPage }
+                    : {
+                          count: INBOX_PAGE_SIZE + 1,
+                          next: null,
+                          results: [reportFixture({ id: 'last', created_at: '2026-10-02T00:00:00Z' })],
+                      }
+            )
+        }) as unknown as typeof fetch
+        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const { result } = renderHook(
+            () => useInboxItems({ filters: { sort: 'newest', createdWindow: 'any', sources: [] } }),
+            { wrapper }
+        )
+
+        await waitFor(() => expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE + 1))
+        expect(offsets).toEqual(['0', String(INBOX_PAGE_SIZE)])
+        expect(result.current.isLoadingMore).toBe(false)
+        expect(result.current.data?.map((item) => item.id).slice(0, 3)).toEqual(['last', 'r19', 'r18'])
+        expect(result.current.data?.at(-1)?.id).toBe('r0')
+    })
 })

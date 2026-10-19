@@ -1,5 +1,5 @@
 import { Fragment, type ReactElement, type ReactNode } from 'react'
-import { type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
+import { type AccessibilityRole, type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
 
 import { Pressable44 } from './Pressable44'
 import { colors, radii, shadows } from './tokens'
@@ -11,6 +11,8 @@ export interface Segment {
     children: ReactNode
     selected?: boolean
     disabled?: boolean
+    /** `radio` when the pill is a single choice among the segments. */
+    accessibilityRole?: AccessibilityRole
     testID?: string
 }
 
@@ -37,6 +39,7 @@ export function SegmentedPill({
                         {index > 0 ? <View style={styles.divider} /> : null}
                         <Pressable44
                             accessibilityLabel={segment.accessibilityLabel}
+                            accessibilityRole={segment.accessibilityRole}
                             accessibilityState={{ selected: segment.selected, disabled: segment.disabled }}
                             disabled={segment.disabled}
                             onPress={segment.onPress}

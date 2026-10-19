@@ -12,14 +12,19 @@ describe('inbox adapters', () => {
         expect(reports.map((report) => report.id)).toEqual(['a', 'b', 'c'])
     })
 
-    test('maps reports: input needed, agent claims and closed reports', () => {
+    test('maps reports: input needed, agent claims, closed reports and model score', () => {
         const items = inboxFromReports([
-            reportFixture({ id: 'a', status: 'pending_input', source_products: ['signals_scout', 'session_replay'] }),
+            reportFixture({
+                id: 'a',
+                status: 'pending_input',
+                source_products: ['signals_scout', 'session_replay'],
+                ranking: { scores: { action: 0.9, pr_merged: 0.42 } },
+            }),
             reportFixture({
                 id: 'b',
                 assignee: { kind: 'task', user: null, task_id: 't1', agent: null, claimed_at: null },
             }),
-            reportFixture({ id: 'c', status: 'resolved', source_products: ['freshdesk'] }),
+            reportFixture({ id: 'c', status: 'resolved', source_products: ['freshdesk'], ranking: null }),
             reportFixture({ id: 'd', implementation_pr_url: 'https://github.com/example/app/pull/9' }),
             reportFixture({
                 id: 'e',
@@ -34,9 +39,23 @@ describe('inbox adapters', () => {
             }),
         ])
         expect(items).toMatchObject([
-            { reportId: 'a', needsInput: true, sourceProduct: 'session_replay', accent: 'alert', state: 'open' },
-            { reportId: 'b', needsInput: false, agent: { name: 'PostHog' } },
-            { reportId: 'c', state: 'done', accent: 'resolved', sourceProduct: 'other', sourceLabel: 'Report' },
+            {
+                reportId: 'a',
+                needsInput: true,
+                sourceProduct: 'session_replay',
+                accent: 'alert',
+                state: 'open',
+                modelScore: 0.42,
+            },
+            { reportId: 'b', needsInput: false, agent: { name: 'PostHog' }, modelScore: null },
+            {
+                reportId: 'c',
+                state: 'done',
+                accent: 'resolved',
+                sourceProduct: 'other',
+                sourceLabel: 'Report',
+                modelScore: null,
+            },
             { reportId: 'd', pullRequestUrl: 'https://github.com/example/app/pull/9' },
             { reportId: 'e', pullRequestState: 'merged' },
         ])

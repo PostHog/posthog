@@ -32,14 +32,15 @@ function ViewsStub(): ReactElement {
 }
 
 const LIST_SLOT: TabHeaderSlot = {
-    refresh: { state: 'idle', onPress: () => undefined },
+    hint: null,
     status: null,
     editing: null,
     editPins: null,
+    filter: null,
 }
 
 function PublishingInboxStub(): ReactElement {
-    useTabHeader('inbox', LIST_SLOT)
+    useTabHeader('inbox', { ...LIST_SLOT, filter: { active: true, onPress: () => undefined } })
     return <View testID="inbox-screen" />
 }
 
@@ -110,7 +111,7 @@ describe('TabsLayout', () => {
         ])
     })
 
-    test('keeps one More button across tabs, and its menu offers Edit pins only on Views', () => {
+    test('keeps one More button across tabs, its menu offers Edit pins only on Views, and the filter shows only on Inbox', () => {
         renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
@@ -135,18 +136,22 @@ describe('TabsLayout', () => {
         }
 
         expect(menuItems()).toEqual({ editPins: false, inbox: false })
+        expect(screen.getByTestId('inbox-filter')).toBeTruthy()
+        expect(screen.getByTestId('inbox-filter-active')).toBeTruthy()
 
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Views')
         expect(screen.getByTestId('tabs-more')).toBe(more)
         expect(menuItems()).toEqual({ editPins: true, inbox: false })
+        expect(screen.queryByTestId('inbox-filter')).toBeNull()
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Chats')
         expect(screen.getByTestId('tabs-more')).toBe(more)
         expect(menuItems()).toEqual({ editPins: false, inbox: false })
+        expect(screen.queryByTestId('inbox-filter')).toBeNull()
     })
 
     test('draws a screen overlay outside the tab scene, so it covers the bar', () => {

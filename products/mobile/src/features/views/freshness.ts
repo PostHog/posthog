@@ -9,7 +9,7 @@ export const RECHECK_MS = 5 * 60_000
 export const READ_FLOOR_MS = 60_000
 /** The server's `Date` header has 1 s resolution and latency adds more, so a force waits this long past the window. */
 export const FORCE_MARGIN_MS = 2_000
-/** One button or pull pass per list or dashboard in this time, like the web dashboard's refresh button. */
+/** One pull pass per list or dashboard in this time, like the web dashboard's refresh button. */
 export const BULK_FLOOR_MS = 5 * 60_000
 export const HINT_MS = 3_000
 /** Keep tap and pull feedback visible even when a refresh sends nothing or finishes immediately. */
@@ -74,7 +74,7 @@ export function readFloorPassed(readAt: number | null | undefined, now: number =
 }
 
 /**
- * True when the button or pull may re-read one item from the cache. On a screen with a bulk floor, which is the list,
+ * True when a pull may re-read one item from the cache. On a screen with a bulk floor, which is the list,
  * each item re-reads at most once per 5 minutes. Otherwise a pull every minute re-reads every pin each minute and
  * empties the insights bucket within the hour, which stops every insight read in the app. A single view re-reads after
  * a minute.
@@ -140,7 +140,7 @@ export function statusLine(
 }
 
 export interface BlockedState {
-    /** Nothing may be forced: the button shows a check and a tap only shows the hint. */
+    /** Nothing may be forced: a pull only shows the hint and re-reads from the cache. */
     blocked: boolean
     /** Server ms when a force is allowed again. */
     until: number | null
@@ -161,8 +161,8 @@ export interface BlockedInput {
 
 /**
  * "Nothing may be forced": a bulk floor is active, or every visible item has a good value and none is past its
- * window. An item without a good value never blocks, because the button reads it with `blocking`. A screen with no
- * data items is never blocked; its button re-reads the lists.
+ * window. An item without a good value never blocks, because a pull reads it with `blocking`. A screen with no data
+ * items is never blocked; its pull re-reads the lists.
  */
 export function blockedState(input: BlockedInput): BlockedState {
     const now = input.now ?? serverNow()

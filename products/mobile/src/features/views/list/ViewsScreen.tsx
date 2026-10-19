@@ -29,7 +29,6 @@ import {
     trackViewsErrorShown,
 } from '../analytics'
 import { useViewsSearch } from '../browseHooks'
-import { refreshHintText } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey, insightItemKey, insightQueryKey, pinTarget } from '../items'
 import { pinModes, usePinActions, usePinData, useViewsList } from '../pinHooks'
 import { ChartSheetsProvider, useChartSheets } from '../pointSheet/ChartSheetsProvider'
@@ -108,7 +107,13 @@ export function ViewsScreen(): ReactElement {
 
 function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     const insets = useScreenInsets()
-    useTabHeader('views', { refresh: null, status: null, editing: null, editPins: { disabled: true, onPress: noop } })
+    useTabHeader('views', {
+        hint: null,
+        status: null,
+        editing: null,
+        editPins: { disabled: true, onPress: noop },
+        filter: null,
+    })
     return (
         <View style={styles.screen} testID="views-screen">
             <View
@@ -483,14 +488,7 @@ function ViewsBody(): ReactElement {
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null
     useTabHeader('views', {
-        refresh: loading
-            ? null
-            : {
-                  state: refresh.button,
-                  onPress: refresh.onButton,
-                  blockedLabel: refresh.hint ?? refreshHintText(refresh.blocked.until),
-                  hint: refresh.hint,
-              },
+        hint: loading ? null : refresh.hint,
         status: editing ? 'Changes save as you go' : status,
         editing: editing ? { title: 'Edit pins', onDone: () => edit.finish('done') } : null,
         editPins: {
@@ -500,6 +498,7 @@ function ViewsBody(): ReactElement {
                 startEditing('menu')
             },
         },
+        filter: null,
     })
     const menuPin = menu?.kind === 'pin' ? pins.find((pin) => pin.shortcutId === menu.shortcutId) : undefined
     const menuPinIndex = menuPin ? pins.indexOf(menuPin) : -1

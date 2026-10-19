@@ -7,7 +7,7 @@ import type { ItemErrorKind } from './viewsCache'
 // Typed wrappers for the Views events, so every screen sends the same property names and values.
 
 export type ViewsScreen = 'list' | 'dashboard' | 'insight' | 'web_analytics'
-export type RefreshTrigger = 'focus' | 'foreground' | 'button' | 'pull' | 'range'
+export type RefreshTrigger = 'focus' | 'foreground' | 'pull' | 'range'
 export type BlockedReason = 'bulk_floor' | 'dashboard_floor' | 'item_window'
 /** `undo` is the toast's Undo, which reverses the pin or unpin just before it. */
 export type PinSource = 'header' | 'row_menu' | 'swipe' | 'search' | 'undo'
@@ -76,7 +76,7 @@ export interface RefreshPassReport {
     durationMs: number
     /** Age in seconds of the oldest good value on screen when the pass started. */
     maxAgeSeconds: number | null
-    /** Seconds until a force is allowed, when the tap or pull could not force anything. */
+    /** Seconds until a force is allowed, when the pull could not force anything. */
     blockedUntil: number | null
     blockedReason: BlockedReason | null
     cappedFamily: BudgetFamily | null

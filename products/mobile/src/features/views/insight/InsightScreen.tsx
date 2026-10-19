@@ -64,13 +64,7 @@ export function InsightScreen({
     const loaded = Boolean(screen.insight.data)
     return (
         <ViewScreenFrame
-            chrome={
-                <ViewChrome
-                    onBack={back}
-                    refresh={allowed ? screen.refresh : null}
-                    onMore={allowed && loaded ? () => setMoreOpen(true) : undefined}
-                />
-            }
+            chrome={<ViewChrome onBack={back} onMore={allowed && loaded ? () => setMoreOpen(true) : undefined} />}
         >
             {allowed ? (
                 <InsightBody screen={screen} shortId={shortId} dashboardRef={fromDashboard} onBack={back} />

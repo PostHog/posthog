@@ -3,11 +3,12 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
+import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
-import { RefreshButton, RefreshHint } from '@/ui/RefreshButton'
+import { RefreshHint } from '@/ui/RefreshHint'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
@@ -30,6 +31,8 @@ const SOLID = HEADER_ROW_BOTTOM / (HEADER_ROW_BOTTOM + HEADER_FADE)
 const STATUS_PADDING = STATUS_BOTTOM - HEADER_ROW_BOTTOM + HEADER_FADE
 const SOLID_WITH_STATUS = STATUS_BOTTOM / (STATUS_BOTTOM + HEADER_FADE)
 
+const FILTER_DOT = 8
+
 const TITLES: Record<TabKey, string> = { inbox: 'Inbox', chats: 'Chats', views: 'Views' }
 
 interface TabsHeaderProps {
@@ -46,10 +49,10 @@ interface TabsHeaderProps {
  */
 export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement {
     const insets = useScreenInsets()
-    const refresh = slot?.refresh ?? null
     const editing = slot?.editing ?? null
     const status = slot?.status ?? null
-    const hint = editing ? null : (refresh?.hint ?? null)
+    const hint = editing ? null : (slot?.hint ?? null)
+    const filter = slot?.filter ?? null
     const withStatus = status !== null
     const solid = withStatus ? SOLID_WITH_STATUS : SOLID
     return (
@@ -91,13 +94,21 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
                 </Pressable44>
             ) : (
                 <PillControl height={HEADER_ROW_HEIGHT}>
-                    <RefreshButton
-                        state={refresh?.state ?? 'idle'}
-                        onPress={refresh?.onPress ?? noop}
-                        blockedLabel={refresh?.blockedLabel}
-                        disabled={refresh === null}
-                        testID={`${tab}-refresh`}
-                    />
+                    {filter ? (
+                        <Pressable44
+                            onPress={filter.onPress}
+                            accessibilityLabel="Filter and sort"
+                            accessibilityValue={filter.active ? { text: 'Filters on' } : undefined}
+                            pressedBackground={colors.background}
+                            style={styles.button}
+                            testID="inbox-filter"
+                        >
+                            <View>
+                                <FilterIcon size={22} />
+                                {filter.active ? <View style={styles.filterDot} testID="inbox-filter-active" /> : null}
+                            </View>
+                        </Pressable44>
+                    ) : null}
                     <Pressable44
                         onPress={onMore}
                         accessibilityLabel="More"
@@ -112,8 +123,6 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
         </View>
     )
 }
-
-const noop = (): void => undefined
 
 const styles = StyleSheet.create({
     header: {
@@ -166,6 +175,15 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    filterDot: {
+        position: 'absolute',
+        top: -1,
+        right: -2,
+        width: FILTER_DOT,
+        height: FILTER_DOT,
+        borderRadius: FILTER_DOT / 2,
+        backgroundColor: colors.blue,
     },
     done: {
         height: 46,

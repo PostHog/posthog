@@ -28,6 +28,7 @@ import { HandoffSheet } from '../handoff/HandoffSheet'
 import { useDecisionAnswer, useHandoffNotice } from '../handoff/hooks'
 import { useReportWithLiveRun } from '../handoff/useReportWithLiveRun'
 import { useInboxItems, useMarkReadOnOpen } from '../inbox/hooks'
+import { useInboxFilters } from '../inbox/inboxFiltersStore'
 import { PrioritySheet } from '../priority/PrioritySheet'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount } from '../reviewers/hooks'
@@ -102,7 +103,8 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const router = useRouter()
     const viewer = useViewer()
     const query = useReportWithLiveRun(reportId)
-    const inbox = useInboxItems()
+    // The same filters as the inbox, so Previous and Next follow the order the inbox shows.
+    const inbox = useInboxItems({ filters: useInboxFilters() })
     const neighbors = useReportNeighbors(inbox, reportId)
     const actions = useReportActions(reportId)
     const answer = useDecisionAnswer(reportId)

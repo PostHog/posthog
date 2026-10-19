@@ -56,16 +56,16 @@ describe('views in demo mode', () => {
         await advance(1000)
         expect(result.current.refresh.status.text).toBe('Updated 42 min ago')
         // The first read was under a minute ago, and each item gets at most one request a minute.
-        expect(result.current.refresh.button).toBe('blocked')
+        expect(result.current.refresh.blocked.blocked).toBe(true)
 
         await advance(60_000)
-        expect(result.current.refresh.button).toBe('idle')
-        act(() => result.current.refresh.onButton())
+        expect(result.current.refresh.blocked.blocked).toBe(false)
+        act(() => result.current.refresh.onPull())
         await advance(1000)
         expect(result.current.refresh.status.text).toBe('Updated just now')
-        expect(result.current.refresh.button).toBe('blocked')
+        expect(result.current.refresh.blocked.blocked).toBe(true)
 
-        act(() => result.current.refresh.onButton())
+        act(() => result.current.refresh.onPull())
         expect(result.current.refresh.hint).toBe('You can refresh again in 5 min.')
         await advance(3000)
         expect(result.current.refresh.hint).toBeNull()

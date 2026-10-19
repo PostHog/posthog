@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { Eyebrow } from '@/ui/Eyebrow'
-import { RefreshHint } from '@/ui/RefreshButton'
+import { RefreshHint } from '@/ui/RefreshHint'
 import { colors, lineHeight, prettyWrap, type } from '@/ui/tokens'
 
 import type { ViewRefresh } from '../useViewRefresh'

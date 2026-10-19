@@ -389,7 +389,7 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 - A row opens the sheet with `{ taskId, entry, origin }`: `entry` is `chats_search` while the search field has text, else `chats_list`.
   `mobile_chat_sheet_opened` carries both; the list sends no event of its own for a row.
 - `mobile_chats_searched` is captured with `query_length` and `result_count` once per query, after typing pauses.
-- `mobile_chats_refreshed` is captured with `trigger` (`pull`, `header` or `retry`).
+- `mobile_chats_refreshed` is captured with `trigger` (`pull` or `retry`).
 - `mobile_chats_load_failed` is captured with `code` (the `ChatError` kind) each time the list shows "Couldn't load your chats".
 - A 403 or 404 from tasks means the user has no sessions and shows the empty state.
 - `chatGroups.ts` labels rows by local calendar day and filters titles on the device.

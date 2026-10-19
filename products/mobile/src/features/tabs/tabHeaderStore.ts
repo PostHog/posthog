@@ -1,25 +1,17 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { create } from 'zustand'
 
-import type { RefreshButtonState } from '@/ui/RefreshButton'
-
 export type TabKey = 'inbox' | 'chats' | 'views'
 
-export interface TabHeaderRefresh {
-    state: RefreshButtonState
-    onPress: () => void
-    blockedLabel?: string
-    /** A short line under the status line, such as why a refresh did nothing. */
-    hint?: string | null
-}
-
 export interface TabHeaderSlot {
-    /** Null draws the refresh button disabled, for example while the screen has nothing loaded. */
-    refresh: TabHeaderRefresh | null
+    /** A short line under the status line, such as why a pull to refresh did nothing. */
+    hint: string | null
     status: string | null
     /** An edit mode replaces the title and swaps the controls for a Done button. */
     editing: { title: string; onDone: () => void } | null
     editPins: { disabled: boolean; onPress: () => void } | null
+    /** The Inbox publishes this; the header then shows a filter button left of More. */
+    filter: { active: boolean; onPress: () => void } | null
 }
 
 interface TabHeaderState {
@@ -52,43 +44,28 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
     latest.current = slot
     const callbacks = useMemo(
         () => ({
-            refresh: (): void => latest.current.refresh?.onPress(),
             done: (): void => latest.current.editing?.onDone(),
             editPins: (): void => latest.current.editPins?.onPress(),
+            filter: (): void => latest.current.filter?.onPress(),
         }),
         []
     )
 
-    const { refresh, status, editing, editPins } = slot
-    const hasRefresh = refresh !== null
-    const refreshState = refresh?.state
-    const blockedLabel = refresh?.blockedLabel
-    const hint = refresh?.hint ?? null
+    const { hint, status, editing, editPins, filter } = slot
     const editingTitle = editing?.title ?? null
     const hasEditPins = editPins !== null
     const editPinsDisabled = editPins?.disabled ?? false
+    const hasFilter = filter !== null
+    const filterActive = filter?.active ?? false
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setSlot(tab, {
-            refresh:
-                hasRefresh && refreshState
-                    ? { state: refreshState, onPress: callbacks.refresh, blockedLabel, hint }
-                    : null,
+            hint,
             status,
             editing: editingTitle === null ? null : { title: editingTitle, onDone: callbacks.done },
             editPins: hasEditPins ? { disabled: editPinsDisabled, onPress: callbacks.editPins } : null,
+            filter: hasFilter ? { active: filterActive, onPress: callbacks.filter } : null,
         })
-    }, [
-        tab,
-        callbacks,
-        hasRefresh,
-        refreshState,
-        blockedLabel,
-        hint,
-        status,
-        editingTitle,
-        hasEditPins,
-        editPinsDisabled,
-    ])
+    }, [tab, callbacks, hint, status, editingTitle, hasEditPins, editPinsDisabled, hasFilter, filterActive])
 
     useLayoutEffect(() => () => useTabHeaderStore.getState().setSlot(tab, null), [tab])
 }

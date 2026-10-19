@@ -57,13 +57,7 @@ export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardSc
     const dashboard = screen.dashboard.data
     return (
         <ViewScreenFrame
-            chrome={
-                <ViewChrome
-                    onBack={back}
-                    refresh={allowed ? screen.refresh : null}
-                    onMore={allowed && dashboard ? () => setMoreOpen(true) : undefined}
-                />
-            }
+            chrome={<ViewChrome onBack={back} onMore={allowed && dashboard ? () => setMoreOpen(true) : undefined} />}
         >
             {allowed ? (
                 <ChartCanvasBudget active={focused}>

@@ -44,12 +44,20 @@ A next page that fails shows "Couldn't load more reports." and "Try again" under
 `mobile_inbox_error_shown` carries `during` (`load` for the full-screen error, `next_page` for the footer) and, for `load`, `kind` (`scope`, `auth`, `forbidden`, `not_found`, `server`, `network`, `unknown`).
 `mobile_inbox_empty_shown` is sent each time the list shows "Nothing needs you right now".
 
+**Filter and sort.**
+`for_you/` takes no sort or filter parameters, and the generic report list cannot reproduce its membership, so `useInboxItems({ filters })` filters and sorts on the device, over the ranked set the server caps at 500.
+`applyInboxFilters()` (`src/features/inbox/filters.ts`) keeps the reports created inside the window and the reports with any source in the selected groups, then sorts.
+Source groups follow the mobile source vocabulary in `src/model/sources.ts`: `error` holds every error source, `support` every feedback source, `session_replay` also holds `replay_vision`, and `report` holds `signals_scout`, `signals_check`, unknown sources and reports with no source.
+`recommended` keeps the server ranking. `model_score` sorts by `ranking.scores.pr_merged`, highest first, with unscored reports last; the server sends `ranking` to staff only, and the option shows only behind the `mobile-inbox-model-score-sort` flag.
+While any filter or sort is not the default, the hook requests the next page until the server sends no `next`, so a sort covers the whole set and a filter does not hide matches on pages not yet loaded. The footer spinner shows until the last page arrives. A failed page stops this until "Try again".
+The choice persists on the device (`inboxFiltersStore.ts`). `matchedCount` and `totalCount` tell "No reports match these filters" from an empty inbox.
+`mobile_inbox_filters_opened` is sent when the sheet opens. `mobile_inbox_sort_changed` carries `sort`, `mobile_inbox_created_window_changed` carries `window`, and `mobile_inbox_source_filter_changed` carries `source`, `selected` and `count` (the selected groups after the change). `mobile_inbox_filters_cleared` is sent for "Clear" and "Clear filters", and `mobile_inbox_filtered_empty_shown` each time the list shows "No reports match these filters".
+
 Read states are fetched once per page, so a new page does not ask again for the pages above it.
 
-Pull to refresh, and the refresh button, keep only the first page and refetch it and the read states.
+Pull to refresh is the only manual refresh. It keeps only the first page and refetches it and the read states.
 Refetching every loaded page would rank the whole list once per page.
-The refresh button also scrolls the list back to the top.
-`mobile_inbox_refreshed` carries `trigger`: `pull`, `button` (the header refresh button) or `retry` (the error screen's "Try again").
+`mobile_inbox_refreshed` carries `trigger`: `pull` or `retry` (the error screen's "Try again").
 A change made on the report screen (resolve, dismiss, reviewers, priority, hand-off) refetches every loaded page in the background.
 
 ## Inbox rows
@@ -58,7 +66,8 @@ A change made on the report screen (resolve, dismiss, reviewers, priority, hand-
 
 - `needsInput` is `status === 'pending_input'`; `agent` is the PostHog badge when `assignee.kind` is `task` or `agent`;
 - `state` is `done` for resolved, `dismissed` for suppressed or deleted, else `open`;
-- `sourceProduct` is the first source that is not `signals_scout` or `signals_check`, else the first.
+- `sourceProduct` is the first source that is not `signals_scout` or `signals_check`, else the first;
+- `sources` and `createdAt` carry `source_products` and `created_at` for the filters, and `modelScore` is `ranking.scores.pr_merged`, or null.
 
 Accent: `resolved` when the report is resolved, suppressed or deleted; `alert` when any source is an error source or any source is not feedback; `opportunity` when every source is feedback (support tickets, feedback boards, app reviews) or the report is scout-only.
 

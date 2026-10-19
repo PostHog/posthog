@@ -48,7 +48,7 @@ export interface RefreshItem {
     /** Sends one read and writes the result to the cache, also on failure (`readAt`, `refreshFailed`). */
     read: (mode: RefreshMode, signal: AbortSignal) => Promise<ReadResult>
     /**
-     * The button's read for an item still inside its window: `force_cache` for insights, `blocking` for `POST query/`,
+     * A pull's read for an item still inside its window: `force_cache` for insights, `blocking` for `POST query/`,
      * which has no cache-only read and returns its cache inside the window.
      */
     windowMode: 'force_cache' | 'blocking'
@@ -71,7 +71,7 @@ export interface RefreshContainer {
     lastRefresh: () => string | null
 }
 
-/** A list read the button and focus also refresh: the pin list and the web-viewed dashboards in Recent. */
+/** A list read that pull and focus also refresh: the pin list and the web-viewed dashboards in Recent. */
 export interface RefreshList {
     key: string
     /** Device ms of the last successful read, 0 when never read. */
@@ -91,7 +91,7 @@ export interface ViewRefreshOptions {
     visibleKeys?: ReadonlySet<string>
     container?: RefreshContainer | null
     lists?: readonly RefreshList[]
-    /** The list and dashboards allow one button or pull pass per 5 minutes. */
+    /** The list and dashboards allow one pull pass per 5 minutes. */
     bulkFloor: boolean
     /** False while signed out, loading, or without the Views scopes: no pass runs. */
     enabled: boolean
@@ -99,16 +99,14 @@ export interface ViewRefreshOptions {
     rangeKey?: string
 }
 
-export type RefreshButtonState = 'idle' | 'busy' | 'blocked'
-
 export interface ViewRefresh {
     status: StatusLine
-    button: RefreshButtonState
-    /** "You can refresh again in 3 min." for 3 s after a tap or pull that could not force. */
+    /** A read of the screen runs, or a pull's feedback still shows. */
+    busy: boolean
+    /** "You can refresh again in 3 min." for 3 s after a pull or a tile's Refresh that could not force. */
     hint: string | null
     blocked: BlockedState
     pulling: boolean
-    onButton: () => void
     onPull: () => void
     /** A tile menu's "Refresh": forces the item when it is eligible, else shows the hint. True when it sent a request. */
     refreshItem: (key: string) => boolean
@@ -174,7 +172,7 @@ function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): Blo
 
 /**
  * Runs the refresh rules of one Views screen. It reads on first paint and when items scroll into view, on screen focus
- * and on app foreground (never forcing), and on the button or pull (forcing only what the server allows). Every
+ * and on app foreground (never forcing), and on pull to refresh (forcing only what the server allows). Every
  * request goes through the app-wide queue. No timer sends requests while the app is open.
  */
 export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
@@ -205,9 +203,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
 
     const queueBusy = useQueueBusy(group)
     const [hintUntil, setHintUntil] = useState<{ text: string; until: number } | null>(null)
-    const [manualRefresh, setManualRefresh] = useState<'button' | 'pull' | null>(null)
+    const [pulling, setPulling] = useState(false)
     const refreshInFlight = useRef(false)
-    const busy = queueBusy || manualRefresh !== null
+    const busy = queueBusy || pulling
     const [, setTick] = useState(0)
     const pendingRangeTrigger = useRef(false)
     const lastRangeKey = useRef(options.rangeKey)
@@ -423,64 +421,59 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         [readContainer, send]
     )
 
-    const tapPass = useCallback(
-        async (trigger: 'button' | 'pull') => {
-            const current = optionsRef.current
-            if (!current.enabled) {
-                return
-            }
-            const counters: PassCounters = { jobs: [] }
-            const startedAt = Date.now()
-            const now = serverNow()
-            const visible = visibleOf(current)
-            const age = maxAgeSeconds(
-                visible.map((item) => item.snapshot()),
-                now
-            )
-            const blocked = blockedFor(current, now)
-            if (blocked.blocked) {
-                showHint(blocked.until)
-                const listReads = trigger === 'pull' ? refetchLists(60_000) : Promise.resolve()
-                if (trigger === 'pull') {
-                    cacheOnlyReads(counters)
-                }
-                await Promise.all([listReads, report(trigger, counters, startedAt, age, blocked)])
-                return
-            }
+    const pullPass = useCallback(async () => {
+        const current = optionsRef.current
+        if (!current.enabled) {
+            return
+        }
+        const counters: PassCounters = { jobs: [] }
+        const startedAt = Date.now()
+        const now = serverNow()
+        const visible = visibleOf(current)
+        const age = maxAgeSeconds(
+            visible.map((item) => item.snapshot()),
+            now
+        )
+        const blocked = blockedFor(current, now)
+        if (blocked.blocked) {
+            showHint(blocked.until)
             const listReads = refetchLists(60_000)
-            let forced = false
-            let rest = false
-            for (const item of visible) {
-                const snapshot = item.snapshot()
-                if (!drawable(item)) {
-                    if (current.container) {
-                        rest = true
-                    } else if (cacheReadAllowed(snapshot?.readAt, current.bulkFloor)) {
-                        send(counters, item.key, item.family, item.windowMode, item.read)
-                    }
-                } else if (isEligible(snapshot, now)) {
-                    forced = true
-                    send(counters, item.key, item.family, 'force_blocking', item.read)
-                } else if (!hasGoodValue(snapshot)) {
-                    send(counters, item.key, item.family, 'blocking', item.read)
-                } else if (current.container) {
+            cacheOnlyReads(counters)
+            await Promise.all([listReads, report('pull', counters, startedAt, age, blocked)])
+            return
+        }
+        const listReads = refetchLists(60_000)
+        let forced = false
+        let rest = false
+        for (const item of visible) {
+            const snapshot = item.snapshot()
+            if (!drawable(item)) {
+                if (current.container) {
                     rest = true
                 } else if (cacheReadAllowed(snapshot?.readAt, current.bulkFloor)) {
                     send(counters, item.key, item.family, item.windowMode, item.read)
                 }
+            } else if (isEligible(snapshot, now)) {
+                forced = true
+                send(counters, item.key, item.family, 'force_blocking', item.read)
+            } else if (!hasGoodValue(snapshot)) {
+                send(counters, item.key, item.family, 'blocking', item.read)
+            } else if (current.container) {
+                rest = true
+            } else if (cacheReadAllowed(snapshot?.readAt, current.bulkFloor)) {
+                send(counters, item.key, item.family, item.windowMode, item.read)
             }
-            // A dashboard that never loaded has no tiles to read, so the button reads the dashboard itself.
-            const neverLoaded = current.container?.readAt() === null
-            if (current.container && (rest || neverLoaded) && readFloorPassed(current.container.readAt())) {
-                void readContainer(counters, current.container)
-            }
-            if (forced && current.bulkFloor) {
-                startBulkFloor(floorKeyOf(current), now)
-            }
-            await Promise.all([listReads, report(trigger, counters, startedAt, age, null)])
-        },
-        [cacheOnlyReads, readContainer, refetchLists, report, send, showHint]
-    )
+        }
+        // A dashboard that never loaded has no tiles to read, so the pull reads the dashboard itself.
+        const neverLoaded = current.container?.readAt() === null
+        if (current.container && (rest || neverLoaded) && readFloorPassed(current.container.readAt())) {
+            void readContainer(counters, current.container)
+        }
+        if (forced && current.bulkFloor) {
+            startBulkFloor(floorKeyOf(current), now)
+        }
+        await Promise.all([listReads, report('pull', counters, startedAt, age, null)])
+    }, [cacheOnlyReads, readContainer, refetchLists, report, send, showHint])
 
     // First paint and items that come into view. A container (dashboard) read goes first when its key is new.
     const seen = useRef(new Set<string>())
@@ -565,7 +558,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     }, [hintUntil])
 
     const blocked = enabled ? blockedFor(options) : blockedState({ snapshots: [], bulkFloorUntil: null })
-    // Re-render when the blocked state ends, so the check turns back into the refresh icon on time.
+    // Re-render when the blocked state ends, so `blocked` turns false on time and not at the next unrelated render.
     useEffect(() => {
         if (!blocked.blocked || blocked.until === null) {
             return
@@ -574,24 +567,17 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         return () => clearTimeout(timer)
     }, [blocked.blocked, blocked.until])
 
-    const startManualRefresh = useCallback(
-        (trigger: 'button' | 'pull'): void => {
-            if (!optionsRef.current.enabled || refreshInFlight.current) {
-                return
-            }
-            refreshInFlight.current = true
-            setManualRefresh(trigger)
-            void Promise.allSettled([tapPass(trigger), sleep(REFRESH_MIN_MS)]).then(() => {
-                refreshInFlight.current = false
-                setManualRefresh(null)
-            })
-        },
-        [tapPass]
-    )
-
-    const onButton = useCallback(() => startManualRefresh('button'), [startManualRefresh])
-
-    const onPull = useCallback(() => startManualRefresh('pull'), [startManualRefresh])
+    const onPull = useCallback((): void => {
+        if (!optionsRef.current.enabled || refreshInFlight.current) {
+            return
+        }
+        refreshInFlight.current = true
+        setPulling(true)
+        void Promise.allSettled([pullPass(), sleep(REFRESH_MIN_MS)]).then(() => {
+            refreshInFlight.current = false
+            setPulling(false)
+        })
+    }, [pullPass])
 
     const refreshItem = useCallback(
         (key: string): boolean => {
@@ -648,15 +634,13 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         visibleOf(options).map((item) => item.snapshot()),
         busy
     )
-    const button: RefreshButtonState = busy ? 'busy' : blocked.blocked ? 'blocked' : 'idle'
 
     return {
         status: enabled ? status : { kind: 'hidden', text: null },
-        button,
+        busy,
         hint: hintUntil?.text ?? null,
         blocked,
-        pulling: manualRefresh === 'pull',
-        onButton,
+        pulling,
         onPull,
         refreshItem,
         retry,
