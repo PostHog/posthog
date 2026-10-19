@@ -129,6 +129,11 @@ def _authored_model_answering_to(
     return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
 
 
+INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
+    "This view's incremental settings changed while you were editing it. Reload the view and try again."
+)
+
+
 class DataWarehouseSavedQuerySerializer(
     view_state.DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -514,6 +519,13 @@ class DataWarehouseSavedQuerySerializer(
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
+
+            if (
+                query_changed
+                and "incremental_config" not in validated_data
+                and locked_instance.incremental_config != instance.incremental_config
+            ):
+                raise serializers.ValidationError(INCREMENTAL_CONFIG_CHANGED_REFUSAL)
 
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
