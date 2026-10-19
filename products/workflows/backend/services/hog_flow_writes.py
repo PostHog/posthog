@@ -8,6 +8,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from structlog import get_logger
+
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
@@ -44,6 +46,8 @@ from products.workflows.backend.services.workflow_proposals import (
     unstage_workflow_proposals,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
+
+logger = get_logger(__name__)
 
 EMAIL_DOMAIN_WIZARD_FLAG = "workflows-email-domain-wizard"
 
@@ -230,9 +234,12 @@ def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> tuple[StatusC
             locked.save()
         changes.append(change)
         went_live.append((before, locked))
-    # After the loop, so a failed enqueue cannot stop the other workflows going live.
+    # The workflows are live already, so a sweep that cannot be queued must not lose their events.
     for before, after in went_live:
-        _reschedule_timing_edits(team_id, before, after)
+        try:
+            _reschedule_timing_edits(team_id, before, after)
+        except Exception:
+            logger.exception("workflows.enable_waiting.sweep_failed", team_id=team_id, hog_flow_id=str(after.id))
     return tuple(changes)
 
 
