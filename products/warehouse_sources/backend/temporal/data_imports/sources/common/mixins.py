@@ -22,6 +22,7 @@ from posthog.psycopg_helpers import (
     prefer_routable_addresses,
     resolve_psycopg_hostaddr_with_timeout,
 )
+from posthog.security.oob_domains import matched_oob_domain
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
@@ -174,6 +175,8 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     addresses in turn, resolves the host itself and passes the answer to
     `check_resolved_addresses` instead, so the set it validates is the set it dials.
     """
+    note_oob_domain(host, team_id)
+
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
         _log_host_check(host, team_id, "block", "malformed_host", guard_error)
         return HostResolution(connect_host=None, error=guard_error)
@@ -233,6 +236,8 @@ def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int |
     exempt caller still dials what it resolved. An empty `addresses` is a failed lookup and is
     refused, because letting the connection library resolve again would reopen the gap.
     """
+    note_oob_domain(host, team_id, stage="oob_domain_resolved")
+
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
         _log_host_check(host, team_id, "block", "malformed_host", guard_error)
         return HostResolution(connect_host=None, error=guard_error)
@@ -263,6 +268,8 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
     lookup is skipped there, as in `_get_sslmode`.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return {"host": host}
 
@@ -381,6 +388,27 @@ def _host_check_exemption(host: str, team_id: int | None) -> str | None:
         return "postwh_managed"
 
     return None
+
+
+def note_oob_domain(host: str, team_id: int | None, stage: str = "oob_domain") -> None:
+    """Record a lookup of an out-of-band interaction domain, without refusing it.
+
+    Runs before the exemptions, so an allowlisted team is recorded too, and before the resolve,
+    because the lookup alone confirms the path to whoever runs the collaborator. `stage` tells a
+    reader which call site produced the line, so a count does not double on the pinned paths.
+    """
+    if not is_cloud():
+        return
+
+    try:
+        oob_domain = matched_oob_domain(unbracket_host(host))
+    except Exception:
+        # Detection never refuses a connection, so a fault here stays invisible to the customer.
+        logger.exception("data_imports.oob_domain_check_failed", host=host, team_id=team_id)
+        return
+
+    if oob_domain is not None:
+        _log_host_check(host, team_id, "allow", stage, oob_domain)
 
 
 def _check_resolved_ips(host: str, team_id: int | None, resolved_ips: list[str]) -> HostResolution:
