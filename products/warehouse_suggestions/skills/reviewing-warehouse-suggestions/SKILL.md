@@ -33,7 +33,7 @@ Do not invent a score or a confidence level.
   - `saves_seconds_per_month` and `saves_bytes_per_month` are what the reads stop costing.
   - Materializing adds a recurring refresh cost, which these numbers already subtract.
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
-  - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `read_rate` (people read the view no more often) or `savings` (a shorter interval costs more than it saves).
+  - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.
 - **certify**: many people read this view or table, from several places. Use the read counts in `evidence`.
 - **deprecate**: nobody reads this materialized view, but it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. Accepting only marks it deprecated in the data catalog. To stop the cost, offer `view-unmaterialize` as well.

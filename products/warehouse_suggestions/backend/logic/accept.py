@@ -16,9 +16,13 @@ from products.data_modeling.backend.facade.api import (
     MaterializationForbiddenError,
     MaterializationRefusedError,
     SavedQueryNotFoundError,
+    definition_database,
     enable_saved_query_materialization,
+    get_saved_query_columns,
+    get_saved_query_sql,
     get_saved_query_summary,
     incremental_enabled,
+    propose_incremental_config,
 )
 from products.warehouse_sources.backend.facade.api import get_queryable_table
 
@@ -135,6 +139,12 @@ class MaterializeAcceptor(Acceptor):
         options = request.options
         interval = timedelta(seconds=options.refresh_interval_seconds or payload.refresh_interval_seconds)
         incremental_config = _incremental_config(payload, options, suggestion.team_id)
+        if (
+            incremental_config is not None
+            and not _chose_keys(options)
+            and not _still_proposed(suggestion, incremental_config, request.user)
+        ):
+            raise SuggestionOutdatedError(VIEW_CHANGED_SINCE_SUGGESTED)
         try:
             enable_saved_query_materialization(
                 suggestion.team_id,
@@ -183,6 +193,19 @@ def _incremental_refusal(error: IncrementalConfigRefusedError, options: AcceptOp
         return SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
     refused_key = error.refused_keys[0] if error.refused_keys else INCREMENTAL_KEY_FIELD
     return AcceptOptionRefusedError(refused_key, str(error))
+
+
+def _still_proposed(suggestion: WarehouseSuggestion, config: IncrementalConfig, user: "User") -> bool:
+    proposed = propose_incremental_config(
+        get_saved_query_sql(suggestion.team_id, suggestion.subject_id) or "",
+        get_saved_query_columns(suggestion.team_id, suggestion.subject_id),
+        database=definition_database(suggestion.team_id, user=user),
+    )
+    return (
+        proposed is not None
+        and proposed.incremental_key == config.incremental_key
+        and set(proposed.unique_key) == set(config.unique_key)
+    )
 
 
 def _chose_keys(options: AcceptOptions) -> bool:
