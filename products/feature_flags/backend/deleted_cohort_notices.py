@@ -101,9 +101,9 @@ class _StoredCohort:
 
 def find_flags_on_deleted_cohorts(team_ids: Collection[int] | None = None) -> dict[int, list[AffectedFlag]]:
     """Active flags whose release conditions target a deleted or missing cohort, keyed by team id."""
-    # The default manager excludes deleted flags. Config version 2 does not support cohort
-    # conditions, so the pre-filter matches only a cohort condition in the version 1 `groups`.
-    flags = FeatureFlag.objects.filter(active=True, filters__groups__contains=[{"properties": [{"type": "cohort"}]}])
+    # The default manager excludes deleted flags. There is no SQL pre-filter on `filters`, because every
+    # read of the stored document goes through the config facade, which checks its format first.
+    flags = FeatureFlag.objects.filter(active=True)
     if team_ids is not None:
         flags = flags.filter(team_id__in=team_ids)
     affected: dict[int, list[AffectedFlag]] = defaultdict(list)
@@ -114,9 +114,9 @@ def find_flags_on_deleted_cohorts(team_ids: Collection[int] | None = None) -> di
 
 
 def _flag_pages(flags: QuerySet[FeatureFlag]) -> Iterator[list[_FlagRow]]:
-    # The JSONB pre-filter has no index, so it runs once, over the whole table, and returns ids only.
-    # Each page then loads its rows by primary key. Production connects through PgBouncer with
-    # server-side cursors disabled, so a single query over `filters` would hold every row in memory.
+    # The first query returns ids only. Each page then loads its rows by primary key. Production
+    # connects through PgBouncer with server-side cursors disabled, so a single query over `filters`
+    # would hold every row in memory.
     flag_ids = list(flags.order_by("id").values_list("id", flat=True))
     for start in range(0, len(flag_ids), PAGE_SIZE):
         rows = (
