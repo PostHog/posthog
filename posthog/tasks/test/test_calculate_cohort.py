@@ -14,6 +14,7 @@ from celery import Task
 from celery.exceptions import Reject, Retry, SoftTimeLimitExceeded
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
@@ -2040,6 +2041,9 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertFalse(cohort_a.is_calculating)
         self.assertFalse(cohort_b.is_calculating)
 
+    def _completed_successes(self) -> float:
+        return REGISTRY.get_sample_value("cohort_calculation_completed_total", {"status": "success"}) or 0.0
+
     @parameterized.expand(
         [
             ("lookup_fails", {"side_effect": ClickHouseAtCapacity()}, False),
@@ -2050,7 +2054,10 @@ class TestCohortCalculationTasks(APIBaseTest):
         self, _name: str, lookup: dict, should_retry: bool
     ) -> None:
         cohort = Cohort.objects.create(team=self.team, name="stats cohort")
-        history = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, finished_at=timezone.now()
+        )
+        completed_before = self._completed_successes()
 
         with (
             patch("products.cohorts.backend.models.util.sync_execute", **lookup),
@@ -2064,6 +2071,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                 pass
 
         self.assertEqual(mock_retry.called, should_retry)
+        self.assertEqual(self._completed_successes() - completed_before, 0 if should_retry else 1)
 
 
 class TestCalculateCohortFromListRetries(APIBaseTest):

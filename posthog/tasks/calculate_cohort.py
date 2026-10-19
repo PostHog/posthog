@@ -1214,6 +1214,7 @@ def collect_cohort_query_stats(
                 history_id=history_id,
                 error=str(e),
             )
+            _collect_cohort_calculation_metrics(history, start_time)
             return
 
         if query_stats:  # Skip if stats already collected (check if queries field is non-empty)
