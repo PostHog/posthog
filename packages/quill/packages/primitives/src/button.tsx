@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const buttonVariants = cva(
     'quill-button group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap',
@@ -66,7 +67,19 @@ export type ButtonProps = ButtonPrimitive.Props &
          * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
          */
         elevated?: boolean
+        /** Text shown on hover and focus. Icon-only buttons need one, matching their `aria-label`. */
+        tooltip?: React.ReactNode
+        /**
+         * Disables the button and says why in its tooltip. The button stays hoverable and focusable,
+         * so the reason is always reachable. Takes the place of `tooltip` while set.
+         */
+        disabledReason?: React.ReactNode
     }
+
+/** A `render` element that is not a `<button>` (a router link, an `<a>`) needs Base UI's non-native button handling. */
+function rendersNonButton(render: ButtonPrimitive.Props['render']): boolean {
+    return React.isValidElement(render) && render.type !== 'button'
+}
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     (
@@ -79,12 +92,16 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             elevated = false,
             loading = false,
             disabled,
+            tooltip,
+            disabledReason,
+            nativeButton,
             children,
             ...props
         },
         ref
     ) => {
-        return (
+        const hasDisabledReason = hasTooltipContent(disabledReason)
+        const button = (
             <ButtonPrimitive
                 ref={ref}
                 data-quill
@@ -92,12 +109,13 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-size={size}
                 data-loading={loading || undefined}
                 aria-busy={loading || undefined}
-                disabled={disabled || loading}
+                disabled={disabled || loading || hasDisabledReason}
+                nativeButton={nativeButton ?? !rendersNonButton(props.render)}
                 // While loading, stay focusable: Base UI then renders aria-disabled instead of
                 // the native disabled attribute, keeping the button in the tab order so screen
-                // readers can reach it and announce busy. Activation stays blocked.
-
-                focusableWhenDisabled={loading ? true : focusableWhenDisabled}
+                // readers can reach it and announce busy. Activation stays blocked. A disabled
+                // reason needs the same, because its tooltip only opens on hover or focus.
+                focusableWhenDisabled={loading || hasDisabledReason ? true : focusableWhenDisabled}
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left, elevated }))}
                 {...props}
             >
@@ -105,6 +123,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 {loading && <Spinner className="quill-button__spinner" />}
             </ButtonPrimitive>
         )
+        return withTooltip(button, hasDisabledReason ? disabledReason : tooltip, {
+            target: 'self',
+            delay: size?.startsWith('icon') ? 0 : undefined,
+        })
     }
 )
 Button.displayName = 'Button'
