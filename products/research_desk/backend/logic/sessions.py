@@ -7,6 +7,8 @@ from ..facade.enums import SessionStatus
 from ..models import ResearchSession
 from .emails import email_domain, normalize_emails
 
+MAX_SESSIONS = 500
+
 
 def list_sessions(
     *, start_after: datetime | None = None, start_before: datetime | None = None
@@ -16,7 +18,7 @@ def list_sessions(
         queryset = queryset.filter(start_time__gte=start_after)
     if start_before is not None:
         queryset = queryset.filter(start_time__lt=start_before)
-    return list(queryset)
+    return list(queryset[:MAX_SESSIONS])
 
 
 def upsert_session(data: contracts.UpsertResearchSessionInput) -> tuple[ResearchSession, bool]:

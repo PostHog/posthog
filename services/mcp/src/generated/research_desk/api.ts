@@ -61,7 +61,7 @@ export const ResearchDeskContactCheckListQueryParams = () => zod.object({
 })
 
 /**
- * List customer research sessions, ordered by start time.
+ * List customer research sessions, ordered by start time, up to 500 per request.
  */
 export const ResearchDeskSessionsListParams = () => zod.object({
     project_id: zod

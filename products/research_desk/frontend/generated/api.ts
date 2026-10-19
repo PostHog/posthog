@@ -68,7 +68,7 @@ export const getResearchDeskSessionsListUrl = (projectId: string, params?: Resea
 }
 
 /**
- * List customer research sessions, ordered by start time.
+ * List customer research sessions, ordered by start time, up to 500 per request.
  */
 export const researchDeskSessionsList = async (
     projectId: string,

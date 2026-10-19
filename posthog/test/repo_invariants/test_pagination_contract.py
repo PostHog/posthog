@@ -190,6 +190,11 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.mcp_analytics.backend.presentation.views.MCPMissingCapabilityViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPSessionViewSet",
     "products.mcp_registry.backend.presentation.views.MCPRegistryServerViewSet",
+    # Research desk: contact check returns one result object, sources are a small registry,
+    # and sessions are capped at MAX_SESSIONS per response.
+    "products.research_desk.backend.presentation.views.ContactCheckViewSet",
+    "products.research_desk.backend.presentation.views.ResearchSessionViewSet",
+    "products.research_desk.backend.presentation.views.ResearchSourceViewSet",
     "products.mcp_store.backend.presentation.agent_views.MCPGatewayAgentViewSet",
     "products.mcp_store.backend.presentation.gateway_views.MCPAuditEventViewSet",
     "products.mcp_store.backend.presentation.gateway_views.MCPGatewayConfigViewSet",

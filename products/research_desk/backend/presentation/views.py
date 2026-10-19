@@ -99,7 +99,7 @@ class ResearchSessionViewSet(_ResearchDeskViewSet):
         responses={200: OpenApiResponse(response=ResearchSessionSerializer(many=True))},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        """List customer research sessions, ordered by start time."""
+        """List customer research sessions, ordered by start time, up to 500 per request."""
         query = request.validated_query_data
         sessions = api.list_sessions(start_after=query.get("start_after"), start_before=query.get("start_before"))
         return Response(ResearchSessionSerializer(sessions, many=True).data)
