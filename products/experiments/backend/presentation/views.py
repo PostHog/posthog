@@ -67,6 +67,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -74,7 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.api import get_experiment_health_findings, get_experiment_health_inputs
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
@@ -102,6 +106,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthInputsSerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -527,7 +532,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action == "health":
+        if self.action in ("health", "health_inputs"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -917,6 +922,19 @@ class EnterpriseExperimentsViewSet(
         `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
         flag and, with an API key, `activity_log:read`) gets that finding for every running
         experiment, because the changes are not read.
+
+        The severity of the `some_conditions_pinned` finding follows the largest share that the
+        users of the pinned release conditions make up among the users who got one variant from
+        the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
+        the flag's calls that name the matched condition, not the experiment's exposure criteria:
+        info up to 5%, warning above, and no finding under 1% when at least half of the calls
+        that returned a variant name a condition. The finding is info when the share is unknown,
+        and `evidence.reason` says why: `not_measured` (for example an API key without
+        `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
+        `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
+        the caller's own assignment). A pin to a variant with 0% in the split adds an info,
+        because that variant's results show only the pinned users, unless the experiment
+        excludes the variant from the analysis.
         """
         experiment: Experiment = self.get_object()
         findings = get_experiment_health_findings(
@@ -925,6 +943,35 @@ class EnterpriseExperimentsViewSet(
             reader_access=self._health_reader_access(request, experiment),
         )
         return Response(ExperimentHealthSerializer({"findings": findings}).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthInputsSerializer,
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["experiment:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def health_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
+        the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
+        about the project from the setup context's providers (the team's experiment defaults and which SDKs call
+        flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
+        background and `exposures.status` says so.
+        """
+        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request)):
+            raise PermissionDenied("Only staff users can read the health check inputs.")
+        experiment: Experiment = self.get_object()
+        inputs = get_experiment_health_inputs(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            reader_access=self._health_reader_access(request, experiment),
+            user=cast(User, request.user),
+        )
+        return Response(ExperimentHealthInputsSerializer(inputs).data)
 
     def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and
@@ -938,9 +985,13 @@ class EnterpriseExperimentsViewSet(
         can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
             experiment.feature_flag, required_level="viewer"
         )
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=cast(User, request.user), team_id=self.team_id
+        )
         return ExperimentHealthReaderAccess(
             can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
             can_query_events="query:read" not in missing_scopes,
+            denied_event_properties=split_restricted_property_names(restrictions).event,
         )
 
     @validated_request(

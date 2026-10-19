@@ -62,6 +62,9 @@ partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
 owner_tags: dict[str, str] = {"owner": JobOwners.TEAM_SELF_DRIVING.value}
 
+# The serving publish runs inside the manifest asset and inside the manual promote job.
+RunContext = dagster.AssetExecutionContext | dagster.OpExecutionContext
+
 
 def is_inbox_ranking_registered() -> bool:
     """EU report rows and embeddings are unreachable from a US dag, and labels from every region

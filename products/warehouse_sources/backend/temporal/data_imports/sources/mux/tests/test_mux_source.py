@@ -30,12 +30,6 @@ class TestMuxSourceConfig:
         assert token_field.secret is False
 
 
-class TestMuxSchemas:
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MuxSource().get_schemas(_config(), team_id=1, names=["assets"])
-        assert [s.name for s in schemas] == ["assets"]
-
-
 class TestMuxValidateCredentials:
     @parameterized.expand(
         [

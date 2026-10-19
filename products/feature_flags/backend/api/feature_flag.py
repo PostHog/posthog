@@ -2014,10 +2014,12 @@ class FeatureFlagSerializer(
         stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
         reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
-            raise serializers.ValidationError(
-                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
-                code="reserved_variant_key",
+            message = (
+                "Variant keys can't be empty. Enter a key for each variant."
+                if reserved_variant_key == ""
+                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
             )
+            raise serializers.ValidationError(message, code="reserved_variant_key")
 
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
@@ -3912,6 +3914,13 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
         self.data = {"version": version}
 
 
+class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
+    cohort = CohortSerializer(
+        read_only=True,
+        help_text="The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response.",
+    )
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -5468,6 +5477,7 @@ class FeatureFlagViewSet(
 
         return Response({"affected": result.affected, "total": result.total})
 
+    @extend_schema(request=None, responses={201: CreateStaticCohortForFlagResponseSerializer})
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
         feature_flag = self.get_object()

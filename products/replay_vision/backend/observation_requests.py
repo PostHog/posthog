@@ -12,12 +12,13 @@ from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.core.cache import cache
-from django.db import IntegrityError, connection, models, transaction
+from django.db import IntegrityError, OperationalError, connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
 
+from posthog.api.statement_timeout import is_query_canceled
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.organization import OrganizationMembership
@@ -33,6 +34,7 @@ from products.cdp.backend.internal_events import (
 )
 from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, cap_value, emit_workflow_step_resume
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
@@ -60,8 +62,8 @@ MAX_STARTS_PER_TICK = 50
 # How many waiting requests one tick checks for ended sessions.
 MAX_CHECKS_PER_TICK = 200
 
-# Each sweep gets its own budget, and together they leave headroom inside the reconciler activity's 45-second
-# start-to-close timeout, so a slow start sweep can't starve the completion sweep or the reverse.
+# Each sweep gets its own budget, and together they leave headroom inside the completion activity's query
+# budget (75% of its timeout), so a slow start sweep can't starve the completion sweep or the reverse.
 START_SWEEP_BUDGET_SECONDS = 15
 COMPLETION_SWEEP_BUDGET_SECONDS = 20
 
@@ -70,6 +72,8 @@ COMPLETION_SWEEP_BUDGET_SECONDS = 20
 WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
+# The completion sweep stops this long before the query budget ends, so its last page can flush and stamp.
+_STAMP_HEADROOM_SECONDS = _DELIVERY_TIMEOUT_SECONDS + 5
 _SWEEP_CURSOR_KEY = "replay_vision:completion_sweep_cursor"
 _WRITER = "default"
 _SWEEP_CURSOR_TTL_SECONDS = 60 * 60
@@ -316,6 +320,8 @@ def start_waiting_requests(*, now: datetime | None = None, budget_seconds: float
                 logger.exception("replay_vision.observation_request.deferred_start_failed", request_id=str(request.id))
                 continue
             started += 1
+    if (overrun := time.monotonic() - deadline) > 0:
+        logger.warning("replay_vision.observation_request.start_sweep_overran", overrun_seconds=round(overrun, 1))
     return started
 
 
@@ -460,7 +466,10 @@ def _session(outcome: dict[str, str], observation: ReplayObservation | None, exp
 
 
 def complete_settled_requests(
-    *, now: datetime | None = None, budget_seconds: float = COMPLETION_SWEEP_BUDGET_SECONDS
+    *,
+    now: datetime | None = None,
+    budget_seconds: float = COMPLETION_SWEEP_BUDGET_SECONDS,
+    query_deadline: float | None = None,
 ) -> int:
     """Mark every open request whose sessions have all settled as completed, announcing each one first.
 
@@ -468,8 +477,13 @@ def complete_settled_requests(
     tick rather than never; a destination can therefore see a request complete twice. Open requests are
     walked oldest first in pages. A tick that runs out of time leaves a cursor, and the next tick starts
     there and wraps around, so requests whose wakes keep failing never hold back the ones behind them.
+
+    `query_deadline` is the wall-clock time at which Postgres starts to cancel statements. The sweep stops early
+    enough before it that a canceled stamp can't re-announce a page whose events already went out.
     """
     now = now or timezone.now()
+    if query_deadline is not None:
+        budget_seconds = min(budget_seconds, query_deadline - time.time() - _STAMP_HEADROOM_SECONDS)
     deadline = time.monotonic() + budget_seconds
     open_requests = (
         ReplayObservationRequest.objects.unscoped()
@@ -481,26 +495,33 @@ def complete_settled_requests(
     cursor = start
     wrapped = start is None
     completed = 0
-    while time.monotonic() < deadline:
-        page_qs = open_requests
-        if cursor is not None:
-            page_qs = page_qs.filter(_after(cursor))
-        if wrapped and start is not None:
-            page_qs = page_qs.exclude(_after(start))
-        page = list(page_qs[:_SWEEP_PAGE_SIZE])
-        if not page:
-            if wrapped:
-                _store_sweep_cursor(None)
-                return completed
-            wrapped, cursor = True, None
-            continue
-        page_completed, stopped_at = _complete_page(page, now, deadline)
-        completed += page_completed
-        if stopped_at is not None:
-            if stopped_at:
-                cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
-            break
-        cursor = (page[-1].created_at, page[-1].id)
+    try:
+        while time.monotonic() < deadline:
+            page_qs = open_requests
+            if cursor is not None:
+                page_qs = page_qs.filter(_after(cursor))
+            if wrapped and start is not None:
+                page_qs = page_qs.exclude(_after(start))
+            page = list(page_qs[:_SWEEP_PAGE_SIZE])
+            if not page:
+                if wrapped:
+                    _store_sweep_cursor(None)
+                    return completed
+                wrapped, cursor = True, None
+                continue
+            page_completed, stopped_at = _complete_page(page, now, deadline)
+            completed += page_completed
+            if stopped_at is not None:
+                if stopped_at:
+                    cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
+                break
+            cursor = (page[-1].created_at, page[-1].id)
+    except OperationalError as err:
+        # The activity's query budget can run out before this sweep's own budget does. The page it cancels
+        # starts the next tick, so stop here instead of failing the activity.
+        if not is_query_canceled(err):
+            raise
+        logger.warning("replay_vision.observation_request.completion_sweep_canceled", completed=completed)
     _store_sweep_cursor(cursor)
     return completed
 
@@ -621,11 +642,87 @@ def step_result(
     if observation is not None and not can_read_observation(access, team.id, observation):
         return _step_answer("failed", None, ["The workflow's owner can't read this scanner's answers."])
     output = (
-        (observation.scanner_result or {}).get("model_output")
+        _step_output((observation.scanner_result or {}).get("model_output"))
         if observation is not None and session.state == RequestSessionState.SUCCEEDED
         else None
     )
-    return _step_answer(session.state.value, output, [])
+    return _step_answer(session.state.value, output, _unanswered_reason(session))
+
+
+_SKIPPED_REASONS: dict[str, str] = {
+    "skipped_quota": "Your organization's Replay Vision credits for this period are used up, so the session wasn't scanned.",
+    "skipped_scanner_limit": "This scanner reached its own credit limit for this period, so the session wasn't scanned.",
+    "skipped_limit": "Too many Replay Vision scans were already running, so the session wasn't scanned.",
+}
+
+# Worded as the scanner UI words them.
+_INELIGIBLE_REASONS: dict[str, str] = {
+    IneligibleSessionKind.NO_RECORDING: "No recording was found for this session.",
+    IneligibleSessionKind.NO_SNAPSHOTS: "This recording has no screen data to play back, so there was no video to watch.",
+    IneligibleSessionKind.TOO_SHORT: "The session was too short to analyze.",
+    IneligibleSessionKind.TOO_INACTIVE: "The session had too little active interaction to analyze.",
+    IneligibleSessionKind.TOO_LONG: "The session was too long to analyze.",
+    IneligibleSessionKind.TOO_LARGE: "This recording is too large to render as a video, so there was nothing to watch.",
+    IneligibleSessionKind.NO_EVENTS: "The session had no events to analyze.",
+}
+
+# These kinds store a measured value worth passing on ("Only 3.2s long; min is 5s"); the others store raw error text.
+_INELIGIBLE_KINDS_WITH_DETAIL = frozenset(
+    {IneligibleSessionKind.TOO_SHORT, IneligibleSessionKind.TOO_INACTIVE, IneligibleSessionKind.TOO_LONG}
+)
+
+_FAILURE_REASONS: dict[str, str] = {
+    FailureKind.PROVIDER_TRANSIENT: "The AI provider stayed unreachable across every automatic retry.",
+    FailureKind.PROVIDER_REJECTED: "The AI provider wouldn't analyze this recording's video.",
+    FailureKind.RASTERIZATION_FAILED: "PostHog could not turn this recording into a video.",
+    FailureKind.VALIDATION_FAILED: "The AI could not answer in the requested format.",
+    FailureKind.INFRA_TRANSIENT: "A PostHog service was slow or unavailable while preparing this recording.",
+    FailureKind.INTERNAL_ERROR: "Something inside PostHog stopped this scan.",
+    FailureKind.ORPHANED: "The scan was interrupted before it finished.",
+    FailureKind.PII_DETECTED: "The AI's answer included personal data the scan didn't ask for, so it wasn't kept.",
+}
+
+
+def _unanswered_reason(session: RequestSession) -> list[str]:
+    """Why the step got no answer, so a workflow can tell a used-up limit from a session that can't be scanned."""
+    state = session.state
+    if state == RequestSessionState.SUCCEEDED:
+        return []
+    if state == RequestSessionState.SKIPPED:
+        return [_SKIPPED_REASONS.get(session.scan_outcome or "", "The session wasn't scanned.")]
+    if state == RequestSessionState.LOST:
+        return ["The scan ran out of time before it finished."]
+    # `error_reason` is `kind:message`.
+    kind, _, detail = (session.observation.error_reason if session.observation is not None else "").partition(":")
+    if state == RequestSessionState.INELIGIBLE:
+        reason = _INELIGIBLE_REASONS.get(kind, "Replay Vision can't scan this session.")
+        detail = detail.strip()
+        return [f"{reason} {detail}." if detail and kind in _INELIGIBLE_KINDS_WITH_DETAIL else reason]
+    if state == RequestSessionState.FAILED:
+        # No observation means the scan never started: it failed to launch, or the process starting it died.
+        if session.observation is None:
+            return ["The scan failed to start."]
+        return [_FAILURE_REASONS.get(kind, "The scan failed.")]
+    return []
+
+
+# The answer a workflow step gets, per scanner type. Internal fields (citation segments, idle periods,
+# notability) would push a long session's answer over the step result budget and cut the chapters.
+# Short fields come first: the size cap fills fields in order, so a long summary can't crowd them out.
+_STEP_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
+    ScannerType.MONITOR: ("confidence", "verdict", "reasoning"),
+    ScannerType.CLASSIFIER: ("confidence", "tags", "reasoning"),
+    ScannerType.SCORER: ("confidence", "score", "reasoning"),
+    ScannerType.SUMMARIZER: ("confidence", "title", "summary", "chapters"),
+}
+
+
+def _step_output(model_output: Any) -> Any:
+    scanner_type = model_output.get("scanner_type") if isinstance(model_output, dict) else None
+    fields = _STEP_OUTPUT_FIELDS.get(scanner_type) if isinstance(scanner_type, str) else None
+    if fields is None:
+        return model_output
+    return {key: model_output[key] for key in fields if key in model_output}
 
 
 def _step_answer(state: str, output: Any, warnings: list[str]) -> dict[str, Any]:

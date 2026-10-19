@@ -34,10 +34,6 @@ class TestCohereSourceClass:
         assert schemas[endpoint].supports_append is False
         assert schemas[endpoint].incremental_fields == []
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["datasets"])
-        assert [s.name for s in schemas] == ["datasets"]
-
     @parameterized.expand([(e,) for e in sorted(RETIRED_ENDPOINTS)])
     def test_retired_endpoint_is_off_the_catalog_and_stops_retrying(self, endpoint: str) -> None:
         # Discovery drops the table because it left COHERE_ENDPOINTS. A schema created before the

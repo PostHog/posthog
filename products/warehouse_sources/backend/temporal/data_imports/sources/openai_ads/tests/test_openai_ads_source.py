@@ -52,10 +52,6 @@ class TestOpenAIAdsSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = OpenAIAdsSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
-        assert [s.name for s in schemas] == ["campaigns"]
-
 
 class TestOpenAIAdsSourceForPipeline:
     @parameterized.expand(

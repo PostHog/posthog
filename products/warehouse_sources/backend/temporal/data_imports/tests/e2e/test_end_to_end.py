@@ -43,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -694,9 +695,8 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
         mock_data_response=stripe_charge["data"],
     )
 
-    # Get team from the DB to remove cached config value
-    team = await sync_to_async(Team.objects.get)(id=team.id)
-    assert team.revenue_analytics_config.notified_first_sync
+    config = await sync_to_async(TeamRevenueAnalyticsConfig.objects.get)(team_id=team.id)
+    assert config.notified_first_sync
 
 
 _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {

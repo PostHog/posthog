@@ -1083,6 +1083,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
+            'inbox-report-actions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
@@ -1136,10 +1137,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
                 'workflows-data-suggestions',
+                'workflows-mcp-onboarding',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
