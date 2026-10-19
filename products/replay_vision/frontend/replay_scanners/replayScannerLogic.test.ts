@@ -469,7 +469,12 @@ describe('replayScannerLogic', () => {
                     logic.actions.draftScannerFromGoal('where do people give up in billing')
                 ).toFinishAllListeners()
 
-                expect(logic.values.scanner).toMatchObject({ name: 'Billing drop-off: Checkout redesign', ...expected })
+                // The mocked experiment stores no test-account setting, which its results read as on.
+                expect(logic.values.scanner).toMatchObject({
+                    name: 'Billing drop-off: Checkout redesign',
+                    query: { kind: 'RecordingsQuery', filter_test_accounts: true },
+                    ...expected,
+                })
             }
         )
 
