@@ -90,6 +90,20 @@ class RepairPlan:
 
 
 @frozen
+class ShardRepairCounts:
+    calls: int
+    distinct_ids: int
+    keys: int
+
+
+@frozen
+class RepairTableCheck:
+    conflicts: int
+    chains: int
+    shards: dict[int, ShardRepairCounts]
+
+
+@frozen
 class PersonIdRepairTable:
     """Maps (team_id, distinct_id, stale_person_id) to the person_id that the row's events copy holds.
 
@@ -351,7 +365,7 @@ def check_repair_table(
     """
     cluster.map_all_hosts(table.sync).result()
 
-    def read(client: Client) -> tuple[int, int, list[tuple[int, int, int, int]]]:
+    def read(client: Client) -> RepairTableCheck:
         [[conflicts]] = client.execute(
             f"""
             SELECT count() FROM (
@@ -374,20 +388,22 @@ def check_repair_table(
             )
             """
         )
-        per_shard = client.execute(
-            f"""
-            SELECT shard_num, sum(calls), uniqExact(team_id, distinct_id), uniqExact(team_id, distinct_id, stale_person_id)
-            FROM {table.qualified_name} FINAL
-            GROUP BY shard_num
-            ORDER BY shard_num
-            """
-        )
-        return conflicts, chains, per_shard
+        shards = {
+            shard: ShardRepairCounts(calls=calls, distinct_ids=distinct_ids, keys=keys)
+            for shard, calls, distinct_ids, keys in client.execute(
+                f"""
+                SELECT shard_num, sum(calls), uniqExact(team_id, distinct_id), uniqExact(team_id, distinct_id, stale_person_id)
+                FROM {table.qualified_name} FINAL
+                GROUP BY shard_num
+                """
+            )
+        }
+        return RepairTableCheck(conflicts=conflicts, chains=chains, shards=shards)
 
-    conflicts, chains, per_shard = cluster.any_host(read).result()
+    check = cluster.any_host(read).result()
     report = {
-        f"shard_{shard}": {"calls": calls, "distinct_ids": distinct_ids, "keys": keys}
-        for shard, calls, distinct_ids, keys in per_shard
+        f"shard_{shard}": {"calls": counts.calls, "distinct_ids": counts.distinct_ids, "keys": counts.keys}
+        for shard, counts in sorted(check.shards.items())
     }
     context.add_output_metadata(
         {
@@ -396,14 +412,14 @@ def check_repair_table(
                 for total in ("calls", "distinct_ids", "keys")
             },
             "per_shard": dagster.MetadataValue.json(report),
-            "conflicts": dagster.MetadataValue.int(conflicts),
-            "chains": dagster.MetadataValue.int(chains),
+            "conflicts": dagster.MetadataValue.int(check.conflicts),
+            "chains": dagster.MetadataValue.int(check.chains),
         }
     )
-    if conflicts or chains:
+    if check.conflicts or check.chains:
         raise dagster.Failure(
-            description=f"{table.qualified_name} has {conflicts} key(s) that map to more than one person_id and "
-            f"{chains} target(s) that are also stale keys. Inspect the table. {_CLEANUP}"
+            description=f"{table.qualified_name} has {check.conflicts} key(s) that map to more than one person_id and "
+            f"{check.chains} target(s) that are also stale keys. Inspect the table. {_CLEANUP}"
         )
     return table
 
@@ -435,19 +451,15 @@ def load_and_verify_repair_dictionary(
 ) -> PersonIdRepairDictionary:
     load_and_verify_on_every_cluster([cluster], dictionary)
 
-    def read_size(client: Client) -> tuple[int, int]:
+    def read_size(client: Client) -> dict[str, int]:
         [[elements, bytes_allocated]] = client.execute(
             "SELECT element_count, bytes_allocated FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": dictionary.name},
         )
-        return elements, bytes_allocated
+        return {"elements": elements, "bytes_allocated": bytes_allocated}
 
-    elements, bytes_allocated = cluster.any_host(read_size).result()
     context.add_output_metadata(
-        {
-            "elements": dagster.MetadataValue.int(elements),
-            "bytes_allocated": dagster.MetadataValue.int(bytes_allocated),
-        }
+        {name: dagster.MetadataValue.int(value) for name, value in cluster.any_host(read_size).result().items()}
     )
     return dictionary
 
