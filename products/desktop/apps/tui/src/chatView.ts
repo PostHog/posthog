@@ -543,7 +543,10 @@ export class ChatView {
     this.transcriptChanged = false;
 
     const top = this.scroll.scrollTop;
-    const anchorItem = [...starts].filter(([, at]) => at <= top).at(-1);
+    // The loading row stays at the top whatever lands above, so the place kept is the first message after it.
+    const anchorItem =
+      [...starts].filter(([id, at]) => at <= top && id !== OLDER_ROW).at(-1) ??
+      [...starts].find(([id]) => id !== OLDER_ROW);
     this.anchor = anchorItem
       ? { id: anchorItem[0], within: top - anchorItem[1] }
       : null;
