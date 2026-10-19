@@ -42,14 +42,8 @@ pub trait StashHandler: Send + Sync {
         cancel: CancellationToken,
     ) -> Result<()>;
 
-    /// Whether the partition still needs a drain: it is stashing, or
-    /// parked requests map to it. This is the authority the reconcile
-    /// pass consults before re-requesting a drain: a settled partition
-    /// is neither, while a drain that yielded early leaves its backlog
-    /// behind, so re-requesting is exactly the retry mechanism. An open
-    /// freeze counts even with nothing parked, because a completed
-    /// handoff with an empty stash window still needs one drain to end
-    /// the freeze.
+    /// Whether the partition still needs a drain: it is stashing, or parked
+    /// requests map to it. The reconcile pass re-requests a drain while this holds.
     ///
     /// Defaults to `true`, which preserves the always-request behavior
     /// for implementations that don't track stash state.

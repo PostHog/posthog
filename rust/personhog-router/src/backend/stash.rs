@@ -14,21 +14,11 @@
 //! (per-key FIFO) drains after it, instead of racing ahead to the old
 //! owner's frozen cache.
 //!
-//! Requests park per key `(team_id, person_id)`, the leader's per-person
-//! serialization boundary, in a shard chosen by the key alone. A key's
-//! requests therefore share one queue whatever the partition count does,
-//! and a request goes straight to the leader only when its key has nothing
-//! parked or in flight and its partition is not stashing. The partition
-//! count decides only which drain delivers a key: a drain for `p` takes
-//! the keys that map to `p` under the live count.
+//! Requests park per person `(team_id, person_id)`, so a person keeps one queue
+//! whatever the partition count does; the count only decides which drain takes it.
 //!
-//! Entries are seq-stamped at admission and leave the stash only through
-//! a definitive outcome (delivered, or failed in a way the client was
-//! told about); an attempt that cannot finish — the target bounced it,
-//! the drain was paused or superseded — puts its entries back at their
-//! sequence positions, so a retry can never be overtaken by newer
-//! same-key work. Draining runs through a [`DrainSession`], which owns
-//! the take → complete/put-back lifecycle and the settle handshake.
+//! An entry leaves the stash only with a definitive outcome. An attempt that
+//! cannot finish puts its entries back in order, so a retry is never overtaken.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -119,9 +109,7 @@ pub struct Charge {
 }
 
 impl StashedRequest {
-    /// Callers recording a definitive outcome pass this back to
-    /// [`DrainSession::complete`] so the bounds release exactly what
-    /// admission charged.
+    /// Passed back to [`DrainSession::complete`] so the bounds release what admission charged.
     pub fn charge(&self) -> Charge {
         Charge {
             partition: self.charged_to,
@@ -130,10 +118,7 @@ impl StashedRequest {
     }
 }
 
-/// Outcome of an `enqueue_or_forward` call. `Forward` means "nothing to
-/// wait behind, route normally"; `Stashed` means the request has been
-/// enqueued and the caller should await the receiver for its reply;
-/// `Rejected` means the partition's bounds are full.
+/// `Forward`: route normally. `Stashed`: await the receiver. `Rejected`: the bounds are full.
 pub enum StashDecision {
     Forward,
     Stashed(oneshot::Receiver<http::Response<BoxBody>>),
@@ -176,9 +161,7 @@ impl Shard {
     }
 }
 
-/// Admission totals for one partition. They count entries until a
-/// definitive outcome, in-attempt ones included, so the bounds reflect
-/// what the router actually holds.
+/// Admission totals for one partition, counting every entry until its outcome.
 #[derive(Default)]
 struct Usage {
     messages: usize,
@@ -276,10 +259,8 @@ impl StashTable {
         self.inner.stashing.insert(partition, generation);
     }
 
-    /// Park the request if its key has parked or in-flight requests, or
-    /// `partition`, the one the caller forwards to, is stashing; otherwise
-    /// return `Forward`. Takes the frame and headers by reference and
-    /// clones them only when the request actually parks.
+    /// Park the request if its key has parked or in-flight requests or `partition`
+    /// is stashing; otherwise `Forward`. Clones the frame only when it parks.
     ///
     /// `possibly_applied` carries the direct path's transport-failure mark
     /// into the parked entry: a request that bounced at the transport
@@ -348,11 +329,8 @@ impl StashTable {
         StashDecision::Stashed(rx)
     }
 
-    /// Open a drain session for `partition`, or `None` when nothing is
-    /// pending. The drain-lane layer serializes drains per partition;
-    /// sessions for different partitions may still meet on one key after
-    /// a count change, and a key out with one session is skipped by the
-    /// others.
+    /// Open a drain session for `partition`, or `None` when nothing is pending.
+    /// After a count change two sessions can meet on one key; each skips keys the other holds.
     pub fn drain_session(&self, partition: u32) -> Option<DrainSession> {
         if !self.is_pending(partition) {
             return None;
@@ -379,9 +357,7 @@ impl StashTable {
 ///   superseded). The entries re-enter at their sequence positions,
 ///   ahead of everything admitted after them.
 ///
-/// When a take finds nothing, [`finish_if_settled`](Self::finish_if_settled)
-/// closes the drain once no key of the partition has parked or in-flight
-/// requests.
+/// [`finish_if_settled`](Self::finish_if_settled) closes the drain once the partition has no keys left.
 pub struct DrainSession {
     inner: Arc<Inner>,
     partition: u32,
@@ -398,11 +374,8 @@ impl DrainSession {
             .expect("drain candidates lock poisoned")
     }
 
-    /// Take the front run of up to `max_keys` of the partition's keys for
-    /// a delivery attempt. Returns an empty vec when none is available.
-    /// Every returned entry is in-attempt until completed or put back;
-    /// dropping entries instead would lose their clients' replies and
-    /// permanently block the partition from settling.
+    /// Take the front runs of up to `max_keys` keys for one attempt. Each entry
+    /// stays in-attempt until completed or put back.
     pub fn take_for_attempt(&self, max_keys: usize) -> Vec<TakenKeyRun> {
         let inner = &self.inner;
         if self.candidates().is_empty() {
@@ -460,16 +433,9 @@ impl DrainSession {
         self.inner.shard_of(&key).lock().put_back(&key, entries);
     }
 
-    /// Close the session if no key of the partition has parked or
-    /// in-flight requests, ending the freeze this session opened on, and
-    /// return `true`. Returns `false` while a key remains: an arrival
-    /// raced the last take, or another session holds one of its keys.
-    ///
-    /// Every shard stays locked across the check and the close, so under a
-    /// fixed count a request that parks for this partition lands before the
-    /// check or sees the freeze gone and forwards. A request that hashed under
-    /// a count adopted away mid-check can still park; the reconcile pass
-    /// drains it on its next tick.
+    /// Close the session and end its freeze once the partition has no parked or
+    /// in-flight keys; all shards stay locked across the check and the close.
+    /// A request hashed under an older count can still park; the reconcile pass drains it.
     pub fn finish_if_settled(&self) -> bool {
         let inner = &self.inner;
         // A key still held needs no global lock to see.
@@ -633,11 +599,7 @@ mod tests {
         assert!(!table.is_pending(0), "settle must end the freeze");
     }
 
-    /// An aborted attempt puts its entries back and leaves the partition
-    /// pending: whatever is parked belongs to the successor drain, and
-    /// new requests must keep stashing in the meantime. Ending the freeze
-    /// instead would let requests bypass the stash and race ahead of the
-    /// parked backlog.
+    /// An aborted attempt leaves the partition pending, so new requests keep parking behind the backlog.
     #[test]
     fn put_back_leaves_queue_live_for_successor() {
         let table = table_over(1, usize::MAX, usize::MAX);
@@ -673,10 +635,7 @@ mod tests {
         );
     }
 
-    /// In-attempt entries must block the settle: the queue can look empty
-    /// (backlog fully taken) while outcomes are still outstanding, and
-    /// settling then would let new requests overtake an attempt that may
-    /// still be put back.
+    /// In-attempt entries block the settle, so new requests cannot overtake a pending attempt.
     #[test]
     fn in_attempt_entries_block_settle() {
         let table = table_over(1, usize::MAX, usize::MAX);
@@ -803,9 +762,7 @@ mod tests {
         assert!(matches!(enqueue(&table, on(1)), StashDecision::Forward));
     }
 
-    /// A drain under the old count settles its partition while a key that
-    /// the new count moves there is still parked under its old partition.
-    /// A later write for that key must queue behind it, not overtake it.
+    /// A key moved by a count change stays ordered behind its writes parked under the old partition.
     #[test]
     fn a_key_keeps_its_order_across_a_count_change() {
         let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", 8));
@@ -906,9 +863,7 @@ mod tests {
         assert!(matches!(enqueue(&table, 1), StashDecision::Stashed(_)));
     }
 
-    /// Race between concurrent enqueues and a drain: every request must
-    /// end up either in the drained batch or forwarded — never lost,
-    /// never duplicated.
+    /// Concurrent enqueues and a drain: every request is drained or forwarded exactly once.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn enqueue_and_drain_race() {
         for iteration in 0..200 {

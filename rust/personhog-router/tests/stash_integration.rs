@@ -1052,9 +1052,7 @@ fn grown_config() -> ChangelogConfig {
     }
 }
 
-/// The router's config watch adopts a flip from etcd, through the same
-/// function `main` runs, and a parked key then belongs to the drain of its
-/// partition under the new count.
+/// The config watch adopts a flip from etcd, and a parked key moves to its new partition's drain.
 #[tokio::test]
 async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
     let store = test_store().await;

@@ -148,9 +148,7 @@ pub struct LeaderBackend {
     /// Resolves pod_name → gRPC address.
     address_resolver: AddressResolver,
     config: LeaderBackendConfig,
-    /// Parks leader-path requests during partition handoffs. Consulted
-    /// before every forward; with nothing parked or stashing it answers
-    /// without taking a lock.
+    /// Parks leader-path requests during partition handoffs; lock-free when nothing is parked.
     stash: StashTable,
 }
 
