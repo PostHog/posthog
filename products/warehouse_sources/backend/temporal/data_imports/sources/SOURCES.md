@@ -1209,6 +1209,7 @@ doesn't conflict with concurrent PRs.
 - gojiberry
 - goldcast
 - google_ad_manager
+- google_admob
 - google_adsense
 - google_analytics
 - google_business_profile

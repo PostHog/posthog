@@ -293,7 +293,7 @@ logger = structlog.get_logger(__name__)
 
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
 # and stripped on save, so they never count as user-chosen filters.
-_QUERY_FILTER_KEYS = (
+SCANNER_QUERY_FILTER_KEYS = (
     "events",
     "actions",
     "properties",
@@ -345,7 +345,7 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "enabled": scanner.enabled,
         # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(experiment_scope),
+        "has_filters": any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(experiment_scope),
         "has_experiment_targeting": bool(experiment_scope),
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
