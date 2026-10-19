@@ -86,8 +86,9 @@ TRANSITION_EVENTS_PATCH = "alerts-platform-transition-events"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
-# The last attempt can start one attempt and one delay past the limit.
-DELIVERY_EXECUTION_TIMEOUT = 3 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
+# One schedule-to-close for the transition events and three for the send attempts. The last send
+# attempt can start one attempt and one delay past the limit.
+DELIVERY_EXECUTION_TIMEOUT = 4 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
 
 
 @frozen
@@ -185,40 +186,39 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
-        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
+        """Emits every part's transition events, then delivers each part in turn.
 
-        A part that fails does not stop the parts after it. The first failure fails the run once
-        every part has had its attempts.
+        Emission comes first for every part, so a held thread on one part never delays another
+        part's events. Parts deliver in turn, so a split evaluation's sends to one destination
+        never overlap. A failure does not stop the steps after it. The first failure fails the
+        run once every part has had its attempts, a failed send before a failed emission.
         """
-        if inputs.parts <= 1:
-            await self._deliver(inputs)
-            return
-        failures: list[ActivityError] = []
-        for part in range(inputs.parts):
+        parts = [inputs] if inputs.parts <= 1 else [replace(inputs, part=part) for part in range(inputs.parts)]
+        emission_failures: list[ActivityError] = []
+        if workflow.patched(TRANSITION_EVENTS_PATCH):
+            for request in parts:
+                try:
+                    await self._emit(request)
+                except ActivityError as error:
+                    emission_failures.append(error)
+        send_failures: list[ActivityError] = []
+        for request in parts:
             try:
-                await self._deliver(replace(inputs, part=part))
+                await self._send(request)
             except ActivityError as error:
-                failures.append(error)
+                send_failures.append(error)
+        failures = [*send_failures, *emission_failures]
         if failures:
             raise failures[0]
 
-    async def _deliver(self, request: AlertDeliveryRequest) -> None:
-        """Emits the transition events, then sends the messages. A failed emission does not cost the messages."""
-        emission_failure: ActivityError | None = None
-        if workflow.patched(TRANSITION_EVENTS_PATCH):
-            try:
-                await workflow.execute_activity(
-                    alerts_platform_emit_transitions_activity,
-                    request,
-                    start_to_close_timeout=DELIVERY_START_TO_CLOSE,
-                    schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-            except ActivityError as error:
-                emission_failure = error
-        await self._send(request)
-        if emission_failure is not None:
-            raise emission_failure
+    async def _emit(self, request: AlertDeliveryRequest) -> None:
+        await workflow.execute_activity(
+            alerts_platform_emit_transitions_activity,
+            request,
+            start_to_close_timeout=DELIVERY_START_TO_CLOSE,
+            schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
     async def _send(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
