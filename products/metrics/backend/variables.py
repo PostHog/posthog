@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import dataclasses
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 
 from posthog.schema import MetricsDashboardVariable, MetricsFilterOp, MetricsQueryFilter, MetricsVariableValue
 
@@ -27,6 +27,7 @@ _REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
 _PROMQL_CONTROL_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
 _SQL_REFERENCE = re.compile(r"\$\{(?P<braced>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\$(?P<plain>[A-Za-z0-9_]+)")
 MATCH_ALL = ".*"
+_LINE_END = re.compile(r"[\r\n]")
 _SQL_TIME_PLACEHOLDERS = {
     "__from": "date_from",
     "__to": "date_to",
@@ -49,6 +50,7 @@ class PromQLStringContext:
     # The quote of the PromQL string that holds the reference, or None outside a string.
     quote: str | None
     in_regex: bool
+    in_matcher: bool = False
 
 
 @frozen
@@ -103,9 +105,28 @@ def _is_sql_reference(name: str) -> bool:
     return name in _SQL_TIME_PLACEHOLDERS or _is_variable_reference(name)
 
 
+def _is_escaped(text: str, position: int) -> bool:
+    backslashes = 0
+    while position - backslashes > 0 and text[position - backslashes - 1] == "\\":
+        backslashes += 1
+    return backslashes % 2 == 1
+
+
+def _filter_references(metric_filter: MetricsQueryFilter) -> Iterator[re.Match[str]]:
+    is_regex = metric_filter.op in (MetricsFilterOp.REGEX, MetricsFilterOp.NOT_REGEX)
+    for match in REFERENCE.finditer(metric_filter.value):
+        # In a regex, \$ is a literal dollar sign.
+        if _is_variable_reference(reference_name(match)) and not (
+            is_regex and _is_escaped(metric_filter.value, match.start())
+        ):
+            yield match
+
+
 def filter_referenced_names(filters: Iterable[MetricsQueryFilter] | None) -> list[str]:
     return list(
-        dict.fromkeys(name for metric_filter in filters or () for name in referenced_names(metric_filter.value))
+        dict.fromkeys(
+            reference_name(match) for metric_filter in filters or () for match in _filter_references(metric_filter)
+        )
     )
 
 
@@ -133,6 +154,7 @@ class _PromQLScanner:
     index: int = 0
     quote: str | None = None
     in_regex: bool = False
+    braces: int = 0
 
     def context_at(self, position: int) -> PromQLStringContext | None:
         """None when the position is inside a `#` comment."""
@@ -146,9 +168,11 @@ class _PromQLScanner:
                 if char == self.quote:
                     self.quote = None
             elif char == "#":
-                end = expr.find("\n", self.index)
-                self.index = len(expr) if end < 0 else end
+                end = _LINE_END.search(expr, self.index)
+                self.index = len(expr) if end is None else end.start()
                 continue
+            elif char in "{}":
+                self.braces = max(0, self.braces + (1 if char == "{" else -1))
             elif char in "\"'`":
                 self.quote = char
                 before = self.index - 1
@@ -158,7 +182,9 @@ class _PromQLScanner:
             self.index += 1
         if self.quote is None and self.index > position:
             return None
-        return PromQLStringContext(quote=self.quote, in_regex=self.quote is not None and self.in_regex)
+        return PromQLStringContext(
+            quote=self.quote, in_regex=self.quote is not None and self.in_regex, in_matcher=self.braces > 0
+        )
 
 
 def _has_value(variable: Variable | None) -> bool:
@@ -238,6 +264,9 @@ def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Col
         if context is None:
             return match.group(0)
         variable = variables.get(name)
+        # A string outside a label matcher can be a label_replace replacement, where $name is a named regex group.
+        if variable is None and context.quote is not None and not context.in_matcher:
+            return match.group(0)
         if variable is None or not _has_value(variable):
             unresolved.append(name)
             return match.group(0)
@@ -268,8 +297,8 @@ def _quoted_end(sql: str, start: int) -> int:
 def _comment_end(sql: str, start: int) -> int | None:
     # HogQL reads `#` followed by a digit as a token, not as a comment.
     if sql.startswith(("--", "//"), start) or (sql.startswith("#", start) and not sql[start + 1 : start + 2].isdigit()):
-        end = sql.find("\n", start)
-        return len(sql) if end < 0 else end
+        end = _LINE_END.search(sql, start)
+        return len(sql) if end is None else end.start()
     if sql.startswith("/*", start):
         end = sql.find("*/", start + 2)
         return len(sql) if end < 0 else end + 2
@@ -390,22 +419,23 @@ def substitute_filter(metric_filter: MetricsQueryFilter, variables: Mapping[str,
         )
 
     unresolved: list[str] = []
-
-    def replace(inner: re.Match[str]) -> str:
+    parts: list[str] = []
+    end = 0
+    for inner in _filter_references(metric_filter):
         name = reference_name(inner)
-        if not _is_variable_reference(name):
-            return inner.group(0)
+        parts.append(metric_filter.value[end : inner.start()])
+        end = inner.end()
         variable = variables.get(name)
         if variable is None or not _has_value(variable):
             unresolved.append(name)
-            return inner.group(0)
-        if is_regex and variable.is_all:
-            return variable.all_value or MATCH_ALL
-        if is_regex:
-            return f"(?:{'|'.join(regex_escape(value) for value in variable.values)})"
-        return ",".join(variable.values)
-
-    value = REFERENCE.sub(replace, metric_filter.value)
+            parts.append(inner.group(0))
+        elif is_regex and variable.is_all:
+            parts.append(variable.all_value or MATCH_ALL)
+        elif is_regex:
+            parts.append(f"(?:{'|'.join(regex_escape(value) for value in variable.values)})")
+        else:
+            parts.append(",".join(variable.values))
+    value = "".join(parts) + metric_filter.value[end:]
     return FilterSubstitution(
         filter=metric_filter.model_copy(update={"value": value}), unresolved=tuple(dict.fromkeys(unresolved))
     )
