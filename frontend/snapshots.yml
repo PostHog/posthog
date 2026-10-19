@@ -14862,6 +14862,10 @@ snapshots:
         hash: v1.k794b7964.62d15835041cea269d599d42d6f654f2e9ed4ae1e39c3f3b5eddd5833fca6394.AcjuW_1a3hPiT3q-Bn7FtXcctGRSm87IsWJU0NTgPK4
     scenes-app-signals-artefactloglist--linked-report-gates--light:
         hash: v1.k794b7964.859a100531c36c4b874e64d2bd0b2500476c8b922f8cdeee1462d1d5d6804506.R61Z2ikhPeSQuqB9dx5_VB6HF-IAjCuhVo932jK6Rt8
+    scenes-app-signals-artefactloglist--monitoring-observations--dark:
+        hash: v1.k794b7964.61aeca618751db24875158433b2c50b315129b5b1dc623b548126e8e6508288d.4Gs7G4G9Dpk5U7WahLriqVmRrS5788w-9EXhiXDjBaI
+    scenes-app-signals-artefactloglist--monitoring-observations--light:
+        hash: v1.k794b7964.084ff7ee7f202ca545d69ffbfad30dae0d190d2730a1cd5d1df0a506995cebb3.QDffrE9QrEwR-1MQQy1CHukEst_6ta5eG_CU86OB6CQ
     scenes-app-signals-artefactloglist--narrow--dark:
         hash: v1.k794b7964.e37229f035e4588fc3b5357c5f2bf501f20d4f0c649463c8ec84179e98fc6f01.NrmQFdBbUe59pKfkhORUaSKwishZZjZf2KXinLIsK6I
     scenes-app-signals-artefactloglist--narrow--light:
