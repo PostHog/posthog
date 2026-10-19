@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 QUEUE_SCHEDULER_FLAG = "warehouse-queue-scheduler"
 DEFAULT_CACHE_TTL_SECONDS = 60.0
+# Expired entries are only dropped once the cache is this large, so the dict stays bounded.
 _PRUNE_THRESHOLD = 1024
 
 # schema id -> (expiry on the monotonic clock, flag value)
