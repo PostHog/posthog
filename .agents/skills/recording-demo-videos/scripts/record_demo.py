@@ -27,7 +27,7 @@ from typing import Any
 import layers
 import requests
 from PIL import Image
-from playwright.async_api import BrowserContext, Locator, Page, async_playwright
+from playwright.async_api import BrowserContext, FloatRect, Locator, Page, async_playwright
 
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
 FIRST_LOAD_TIMEOUT_MS = 300_000
@@ -438,7 +438,7 @@ class Recorder:
         # With a zoom in the storyboard, captions and stickers are drawn after the camera pass, so they don't zoom.
         self.layered = any("zoom" in step for step in storyboard["steps"])
         self.timeline: dict[str, list[dict[str, Any]]] = {"captions": [], "stickers": [], "cards": [], "zooms": []}
-        self.last_box: dict[str, float] | None = None
+        self.last_box: FloatRect | None = None
 
     def now(self) -> float:
         return time.monotonic() - self.t0

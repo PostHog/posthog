@@ -22,7 +22,6 @@ Page loads stay out of the video, so it moves at reading speed.
 A step can also zoom in on the button it clicks or on the detail it proves.
 A voiceover can read the captions, a music bed can sit under it, and a step can pop in a hedgehog sticker with a short sound.
 
-
 Use [qa-frontend](../qa-frontend/SKILL.md) instead for a reel: a short animated WebP of one interaction, made from stills, for a PR description.
 For a narrated or musical promo video, see [hogreel](references/branding.md#promo-videos).
 For a raw take with no captions or narration, frame-perfect at 60 fps, PostHog staff can use `recording-web-demos` from the team skills store (`skill-get` in the PostHog MCP). It steps the page clock frame by frame, so it never judders.
@@ -39,7 +38,6 @@ For example, workflow runs and email sends need the CDP workflow workers, which 
 
 The recorder needs `ffmpeg` and the repo's Python environment, which has Playwright.
 It reads the brand assets from `frontend/node_modules/@posthog/brand`, so run `pnpm install` first if that directory is missing.
-
 
 ### 2. Seed the data the demo needs
 
