@@ -60,9 +60,8 @@ pub enum Rejection {
 /// generation is stale. Generations are independent per partition, so one
 /// partition's reassignment never affects another's in-flight work.
 ///
-/// The ledger counts its own rejections and gap walks under the
-/// `kafka_consumer_ledger_` prefix, so every consumer built on this crate
-/// reports the same series.
+/// The ledger counts its rejections and the gap offsets a take walks over.
+/// Callers log a rejection and do not count it again.
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
