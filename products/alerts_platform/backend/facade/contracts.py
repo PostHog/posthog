@@ -103,11 +103,6 @@ def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
     return condition if isinstance(condition, dict) else {}
 
 
-def source_filters(source_config: dict[str, Any]) -> dict[str, Any]:
-    """A source's own configuration, without the bound `source_condition` reads."""
-    return {key: value for key, value in source_config.items() if key != SOURCE_CONDITION_KEY}
-
-
 class GroupingMode(StrEnum):
     SINGLE = "single"
     BY_RESULT_LABELS = "by_result_labels"
@@ -322,11 +317,6 @@ class PlatformAlertCheckInput:
             for instance in self.instances
             if instance.state != PlatformAlertState.NOT_FIRING.value
         ]
-
-    @property
-    def filters(self) -> dict[str, Any]:
-        """Satisfies the logs query layer, which names this field `filters`."""
-        return self.source_config
 
     @property
     def condition(self) -> dict[str, Any]:
