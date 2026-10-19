@@ -57,10 +57,12 @@ function classifyChanges({ files, diffOutcome, isDraft }) {
             return fallback(isDraft, changedFileCount, 'unindexed_dependency', file)
         }
     }
-    const changedFiles = files
+    const sources = files
         .filter((file) => /\.(ts|tsx|js|jsx|mjs|cjs|json)$/.test(file))
         .filter((file) => /^(frontend|products|common|ee\/frontend)\//.test(file))
         .map((file) => (file.startsWith('frontend/') ? file.slice('frontend/'.length) : `../${file}`))
+    // Listing must use the same space-separated arguments as the test job.
+    const changedFiles = sources.join(' ').split(' ').filter(Boolean)
     return { mode: 'selective', changedFiles, changedFileCount }
 }
 
@@ -90,61 +92,87 @@ function selectTests(input, findRelatedTests) {
             return { ...candidate, testCount: findRelatedTests(candidate.changedFiles).length }
         } catch (error) {
             console.error(`Test selection failed: ${error.message}`)
+            console.log('::notice::Test selection failed; using the prepared fallback')
         }
     }
     return fallback(input.isDraft, candidate.changedFileCount, 'selector_crash', 'Jest selection unavailable')
 }
 
+function planShards(testCount) {
+    return Math.min(MAX_SHARDS, Math.ceil(testCount / TEST_FILES_PER_SHARD))
+}
+
+function planOutputs({ changedFiles, changedFileCount, testCount }) {
+    const shardCount = planShards(testCount)
+    return {
+        mode: 'selective',
+        matrix: JSON.stringify({
+            include: Array.from({ length: shardCount }, (_, i) => ({
+                segment: 'app',
+                chunk: i + 1,
+                shard_count: shardCount,
+            })),
+        }),
+        should_run: String(shardCount > 0),
+        changed_files: changedFiles.join(' '),
+        changed_file_count: String(changedFileCount),
+        selected_file_count: String(changedFiles.length),
+        related_test_count: String(testCount),
+        shard_count: String(shardCount),
+        full_run_reason_category: '',
+        full_run_reason_detail: '',
+    }
+}
+
 /** @param {Selection} selection */
 function workflowOutputs(selection) {
-    const selective = selection.mode === 'selective'
-    const shardCount = selective
-        ? Math.min(MAX_SHARDS, Math.ceil(selection.testCount / TEST_FILES_PER_SHARD))
-        : selection.mode === 'full'
-          ? 4
-          : 0
+    if (selection.mode === 'selective') {
+        return planOutputs(selection)
+    }
     return {
         mode: selection.mode,
         // The test job supplies its full matrix when this output is empty.
-        matrix:
-            selection.mode === 'full'
-                ? ''
-                : JSON.stringify({
-                      include: Array.from({ length: shardCount }, (_, i) => ({
-                          segment: 'app',
-                          chunk: i + 1,
-                          shard_count: shardCount,
-                      })),
-                  }),
-        should_run: shardCount > 0,
-        changed_files: selective ? selection.changedFiles.join(' ') : '',
-        changed_file_count: selection.changedFileCount ?? '',
-        selected_file_count: selective ? selection.changedFiles.length : 0,
-        related_test_count: selective ? selection.testCount : '',
-        shard_count: shardCount,
-        full_run_reason_category: selective ? '' : selection.reason.category,
-        full_run_reason_detail: selective ? '' : selection.reason.detail,
+        matrix: selection.mode === 'full' ? '' : '{"include":[]}',
+        should_run: String(selection.mode === 'full'),
+        changed_files: '',
+        changed_file_count: String(selection.changedFileCount ?? ''),
+        selected_file_count: '0',
+        shard_count: selection.mode === 'full' ? '4' : '0',
+        full_run_reason_category: selection.reason.category,
+        full_run_reason_detail: selection.reason.detail,
     }
 }
 
 function main() {
-    const filesPath = process.env.CHANGED_FILES_PATH ?? '/tmp/changed.txt'
-    const input = {
-        files: fs.existsSync(filesPath) ? fs.readFileSync(filesPath, 'utf8').split('\n').filter(Boolean) : [],
-        diffOutcome: process.env.DIFF_OUTCOME ?? '',
-        isDraft: process.env.PR_DRAFT === 'true',
-        installOutcome: process.env.INSTALL_OUTCOME ?? '',
-    }
     let outputs
-    if (process.argv[2] === 'prepare') {
-        const candidate = classifyChanges(input)
-        outputs = { needs_dependencies: candidate.mode === 'selective' && candidate.changedFiles.length > 0 }
+    if (process.argv[2] === undefined) {
+        const changedFiles = (process.env.CHANGED_FILES ?? '').split(' ').filter(Boolean)
+        const testCount = changedFiles.length === 0 ? 0 : listRelatedTests(changedFiles).length
+        outputs = planOutputs({ changedFiles, changedFileCount: process.env.CHANGED_FILE_COUNT ?? '', testCount })
     } else {
-        const selection = selectTests(input, listRelatedTests)
-        if (selection.mode !== 'selective') {
-            console.log(`Selection ${selection.mode}: ${selection.reason.category} (${selection.reason.detail})`)
+        const filesPath = process.env.CHANGED_FILES_PATH ?? '/tmp/changed.txt'
+        const input = {
+            files: fs.existsSync(filesPath) ? fs.readFileSync(filesPath, 'utf8').split('\n').filter(Boolean) : [],
+            diffOutcome: process.env.DIFF_OUTCOME ?? '',
+            isDraft: process.env.PR_DRAFT === 'true',
+            installOutcome: process.env.INSTALL_OUTCOME ?? '',
         }
-        outputs = workflowOutputs(selection)
+        if (process.argv[2] === 'prepare') {
+            const candidate = classifyChanges(input)
+            outputs = { needs_dependencies: candidate.mode === 'selective' && candidate.changedFiles.length > 0 }
+        } else if (process.argv[2] === 'select') {
+            const selection = selectTests(input, listRelatedTests)
+            if (selection.mode !== 'selective' && selection.reason.category !== 'selector_crash') {
+                const behavior =
+                    selection.mode === 'skip'
+                        ? 'draft skips jest (its ready run selects again)'
+                        : 'running the full jest matrix'
+                console.log(`::notice::${selection.reason.category} (${selection.reason.detail}); ${behavior}`)
+            }
+            outputs = workflowOutputs(selection)
+        } else {
+            throw new Error('Expected prepare or select, or no command for CHANGED_FILES input')
+        }
     }
     fs.appendFileSync(
         process.env.GITHUB_OUTPUT ?? '/dev/stdout',
@@ -152,10 +180,23 @@ function main() {
             .map(([key, value]) => `${key}=${value}\n`)
             .join('')
     )
+    if (outputs.mode === 'selective') {
+        console.log(
+            `Selective mode: ${outputs.selected_file_count} changed files, ${outputs.related_test_count} related tests, ${outputs.shard_count} shards`
+        )
+    }
 }
 
 if (require.main === module) {
     main()
 }
 
-module.exports = { classifyChanges, selectTests, workflowOutputs }
+module.exports = {
+    classifyChanges,
+    selectTests,
+    workflowOutputs,
+    planShards,
+    planOutputs,
+    TEST_FILES_PER_SHARD,
+    MAX_SHARDS,
+}

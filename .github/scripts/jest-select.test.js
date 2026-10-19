@@ -27,7 +27,7 @@ for (const [name, input, category] of [
             assert.equal(selection.mode, isDraft ? 'skip' : 'full')
             assert.equal(selection.reason.category, category)
             const outputs = workflowOutputs(selection)
-            assert.equal(outputs.should_run, !isDraft)
+            assert.equal(outputs.should_run, String(!isDraft))
             assert.equal(outputs.matrix, isDraft ? '{"include":[]}' : '')
         })
     }
@@ -78,10 +78,10 @@ for (const [testCount, shardCount] of [
             Array(testCount)
         )
         const outputs = workflowOutputs(selection)
-        assert.equal(outputs.shard_count, shardCount)
-        assert.equal(outputs.should_run, shardCount > 0)
-        assert.equal(outputs.changed_file_count, 1)
-        assert.equal(outputs.related_test_count, testCount)
+        assert.equal(outputs.shard_count, String(shardCount))
+        assert.equal(outputs.should_run, String(shardCount > 0))
+        assert.equal(outputs.changed_file_count, '1')
+        assert.equal(outputs.related_test_count, String(testCount))
         assert.deepEqual(JSON.parse(outputs.matrix), {
             include: Array.from({ length: shardCount }, (_, i) => ({
                 segment: 'app',
@@ -120,7 +120,7 @@ test('a diff without Jest sources needs neither dependencies nor test listing', 
         assert.fail('must not invoke Jest for an empty source selection')
     })
     assert.equal(selection.mode, 'selective')
-    assert.equal(workflowOutputs(selection).should_run, false)
+    assert.equal(workflowOutputs(selection).should_run, 'false')
 })
 
 test('the CLI prepares dependency installation and writes the final fallback without temporary state', () => {
@@ -131,7 +131,7 @@ test('the CLI prepares dependency installation and writes the final fallback wit
         for (const [args, expected] of [
             [['prepare'], { needs_dependencies: 'true' }],
             [
-                [],
+                ['select'],
                 {
                     mode: 'full',
                     should_run: 'true',
@@ -140,7 +140,7 @@ test('the CLI prepares dependency installation and writes the final fallback wit
                 },
             ],
         ]) {
-            const output = path.join(directory, args.length ? 'prepare' : 'selection')
+            const output = path.join(directory, args[0])
             const result = spawnSync(process.execPath, [path.join(__dirname, 'jest-select.js'), ...args], {
                 encoding: 'utf8',
                 env: {
@@ -170,3 +170,50 @@ test('the CLI prepares dependency installation and writes the final fallback wit
         fs.rmSync(directory, { recursive: true, force: true })
     }
 })
+
+test("listing keeps the test job's existing space-separated argument contract", () => {
+    const selection = selectTests({ ...ready, files: ['frontend/src/a b.ts'], installOutcome: 'success' }, (files) => {
+        assert.deepEqual(files, ['src/a', 'b.ts'])
+        return []
+    })
+    assert.equal(workflowOutputs(selection).selected_file_count, '2')
+})
+
+for (const [name, changedFiles, listingExit, expectedCount] of [
+    ['success', 'src/a.ts ../products/example/a.tsx', 0, '2'],
+    ['empty input', '', 1, '0'],
+    ['listing failure', 'src/a.ts', 1, null],
+]) {
+    test(`the original CHANGED_FILES CLI retains its ${name} behavior`, () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jest-selection-cli-'))
+        try {
+            fs.writeFileSync(
+                path.join(directory, 'pnpm'),
+                '#!/bin/sh\nprintf "/test-a\\n/test-b\\n"\nexit "$LISTING_EXIT"\n',
+                { mode: 0o755 }
+            )
+            const output = path.join(directory, 'output')
+            const result = spawnSync(process.execPath, [path.join(__dirname, 'jest-select.js')], {
+                encoding: 'utf8',
+                env: {
+                    PATH: directory,
+                    CHANGED_FILES: changedFiles,
+                    CHANGED_FILE_COUNT: '7',
+                    LISTING_EXIT: String(listingExit),
+                    GITHUB_OUTPUT: output,
+                },
+            })
+            if (expectedCount === null) {
+                assert.equal(result.status, 1)
+                assert.equal(fs.existsSync(output), false)
+            } else {
+                assert.deepEqual({ status: result.status, stderr: result.stderr }, { status: 0, stderr: '' })
+                assert.match(fs.readFileSync(output, 'utf8'), new RegExp(`related_test_count=${expectedCount}\\n`))
+                assert.match(fs.readFileSync(output, 'utf8'), /changed_file_count=7\n/)
+                assert.match(result.stdout, /Selective mode:/)
+            }
+        } finally {
+            fs.rmSync(directory, { recursive: true, force: true })
+        }
+    })
+}
