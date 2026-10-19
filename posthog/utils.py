@@ -762,7 +762,9 @@ def _build_template_context(
         stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
         if stable_chunks:
             context["stable_chunks"] = True
-            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(
+                context["js_url"], logged_out=not is_authenticated
+            )
             context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
             if stable_chunks.eager_css_urls:
                 # The stable page links its split stylesheets and loads the full one only as a fallback.
