@@ -37,7 +37,7 @@ from posthog.models.property.util import count_hogql_properties, extract_tables_
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
-from products.product_analytics.backend.facade.queries import trends_actors_date_window
+from products.product_analytics.backend.facade import queries as product_analytics_queries
 
 
 def offset_time_series_date_by_interval(
@@ -293,7 +293,8 @@ class PropertiesTimeline:
             | _crucial_keys_in_properties(source.properties, aggregation_group_type_index)
             | _crucial_keys_in_breakdown_filter(source.breakdownFilter, aggregation_group_type_index)
         )
-        window = trends_actors_date_window(team=team, query=query)
+        # The facade imports the trends runner on first attribute access, which keeps it off the startup import path.
+        window = product_analytics_queries.trends_actors_date_window(team=team, query=query)
         series_expr = self._series_expr(series, team)
         return _TimelineScope(
             entity_exprs=(series_expr,) if series_expr is not None else (),

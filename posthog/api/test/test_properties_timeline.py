@@ -1,7 +1,7 @@
 import json
 import uuid
 import random
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import time_machine
 from posthog.test.base import (
@@ -14,8 +14,11 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.renderers import JSONRenderer
 
 from posthog.schema import (
     Breakdown,
@@ -36,11 +39,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimelineResult
+from posthog.api.person import PropertiesTimelineRequestSerializer
+from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimeline, PropertiesTimelineResult
 from posthog.models.filters.mixins.base import BreakdownType
-
-if TYPE_CHECKING:
-    from rest_framework.response import _MonkeyPatchedResponse
+from posthog.models.person.util import get_person_by_uuid
 
 MATERIALIZED_COLUMN_KWARGS = {"person_properties": ["foo", "bar"]}
 TEST_PERSON_ID = uuid.UUID("12345678-0000-0000-0000-000000000001")
@@ -94,17 +96,11 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties_timeline.status_code, expected_status)
         return properties_timeline.json()
 
-    def _post_timeline_query(self, query: InsightActorsQuery) -> "_MonkeyPatchedResponse":
-        return self.client.post(
-            f"/api/projects/{self.team.id}/persons/{TEST_PERSON_ID}/properties_timeline/",
-            {"query": query.model_dump(mode="json", exclude_none=True)},
-            format="json",
-        )
-
     def _get_query_timeline_result(self, query: InsightActorsQuery) -> PropertiesTimelineResult:
-        response = self._post_timeline_query(query)
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        return response.json()
+        person = get_person_by_uuid(self.team.pk, str(TEST_PERSON_ID))
+        assert person is not None
+        # Rendered like the API response, so timestamps compare as the strings clients receive.
+        return json.loads(JSONRenderer().render(PropertiesTimeline().run(query, self.team, person)))
 
     @parameterized.expand(
         [
@@ -233,12 +229,15 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def test_query_timeline_rejects_unsupported_insight(self):
+    def test_query_timeline_rejects_invalid_query(self):
         self._create_person({"foo": "abc"})
         flush_persons_and_events()
 
-        query = InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3)
-        response = self._post_timeline_query(query)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{TEST_PERSON_ID}/properties_timeline/",
+            {"query": {"kind": "InsightActorsQuery"}},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "query")
@@ -950,3 +949,12 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
                 "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
             },
         )
+
+
+class TestPropertiesTimelineRequestSerializer(SimpleTestCase):
+    def test_rejects_unsupported_insight(self):
+        query = InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3)
+        serializer = PropertiesTimelineRequestSerializer(data={"query": query.model_dump(mode="json")})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["query"] == ["The properties timeline supports Trends insights only."]

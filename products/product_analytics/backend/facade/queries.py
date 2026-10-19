@@ -14,9 +14,9 @@ that presentation loads at startup.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any
 
-from products.product_analytics.backend.facade.contracts import TrendsActorsDateWindow, TrendsQueryRunResult
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 
 _B = "products.product_analytics.backend.hogql_queries."
 
@@ -36,6 +36,7 @@ _LAZY = {
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "TrendsDisplay": "trends.display",
     "TrendsQueryRunner": "trends.trends_query_runner",
+    "trends_actors_date_window": "trends.trends_actors_date_window",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",
     "edge_to_funnels_query": "paths_v2.funnel_converter",
     "get_properties_chain": "trends.utils",
@@ -44,12 +45,10 @@ _LAZY = {
     "step_source_for_event": "paths_v2.path_item",
 }
 
-__all__ = sorted((*_LAZY, "run_cached_trends_query", "trends_actors_date_window"))
+__all__ = sorted((*_LAZY, "run_cached_trends_query"))
 
 
 if TYPE_CHECKING:
-    from posthog.schema import InsightActorsQuery
-
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.models import Team
 
@@ -72,6 +71,9 @@ if TYPE_CHECKING:
     from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
+    )
+    from products.product_analytics.backend.hogql_queries.trends.trends_actors_date_window import (  # noqa: F401
+        trends_actors_date_window,
     )
     from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (  # noqa: F401
         TrendsQueryRunner,
@@ -114,34 +116,6 @@ def run_cached_trends_query(
     return TrendsQueryRunResult(
         results=results,
         last_refresh=last_refresh if isinstance(last_refresh, datetime) else None,
-    )
-
-
-def trends_actors_date_window(*, team: Team, query: InsightActorsQuery) -> TrendsActorsDateWindow:
-    """The window of the events that the actors query for a Trends data point counts.
-
-    Raises ``ValueError`` when the query's source is not a Trends query, and ``QueryError`` when the query's
-    ``day`` does not suit the insight's display.
-    """
-
-    from posthog.schema import TrendsQuery
-
-    from posthog.hogql import ast
-
-    from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
-
-    if not isinstance(query.source, TrendsQuery):
-        raise ValueError(f"Expected a Trends query source, got {query.source.kind}")
-    # The runner can rewrite its query's breakdown, so it gets a copy.
-    window = TrendsQueryRunner(query=query.source.model_copy(deep=True), team=team).to_actors_date_window(
-        time_frame=cast(Optional[str], query.day),  # Trends data points are dates, never integers
-        series_index=query.series or 0,
-        compare_value=query.compare,
-    )
-    return TrendsActorsDateWindow(
-        date_from=window.from_datetime,
-        date_to=window.to_datetime,
-        date_to_inclusive=window.to_op == ast.CompareOperationOp.LtEq,
     )
 
 
