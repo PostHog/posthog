@@ -61,9 +61,6 @@ NON_DETERMINISTIC_FUNCTIONS = {
     "generateuuidv7",
 }
 
-_LOW_CARDINALITY_WRAPPER = ("lowcardinality(",)
-_CLICKHOUSE_TYPE_WRAPPERS = ("nullable(", *_LOW_CARDINALITY_WRAPPER)
-
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
 
 INCREMENTAL_KEY_FIELD = "incremental_key"
@@ -190,6 +187,11 @@ def check_incremental_eligibility(
     _check_nullable_unique_key(config, column_types, unique_key_blockers)
     _check_determinism(node, warnings)
     blockers.extend([*key_blockers, *unique_key_blockers])
+    blocked_keys = []
+    if key_blockers:
+        blocked_keys.append(INCREMENTAL_KEY_FIELD)
+    if unique_key_blockers:
+        blocked_keys.append(UNIQUE_KEY_FIELD)
 
     return EligibilityResult(
         eligible=not blockers,
@@ -197,11 +199,7 @@ def check_incremental_eligibility(
         unique_key_candidates=unique_key_candidates,
         key_candidate_types=key_candidate_types,
         blockers=_unique(blockers),
-        blocked_keys=[
-            name
-            for name, key_blocked in ((INCREMENTAL_KEY_FIELD, key_blockers), (UNIQUE_KEY_FIELD, unique_key_blockers))
-            if key_blocked
-        ],
+        blocked_keys=blocked_keys,
         warnings=_unique(warnings),
     )
 
@@ -234,9 +232,9 @@ def propose_incremental_config(
 
 
 def _is_nondeterministic(node: ast.SelectQuery) -> bool:
-    warnings: list[str] = []
-    _check_determinism(node, warnings)
-    return bool(warnings)
+    finder = _NonDeterministicFinder()
+    finder.visit(node)
+    return bool(finder.found)
 
 
 def _reads_a_subquery_value(select: ast.SelectQuery) -> bool:
@@ -282,14 +280,13 @@ def _grouped_output_names(select: ast.SelectQuery) -> Optional[list[str]]:
 
 
 def _is_time_type(clickhouse_type: Optional[str]) -> bool:
-    return clickhouse_type is not None and _unwrapped(clickhouse_type, _CLICKHOUSE_TYPE_WRAPPERS).startswith("date")
+    return clickhouse_type is not None and _without_low_cardinality(clickhouse_type).removeprefix(
+        "nullable("
+    ).startswith("date")
 
 
-def _unwrapped(clickhouse_type: str, wrappers: tuple[str, ...]) -> str:
-    unwrapped = clickhouse_type.strip().lower()
-    while unwrapped.startswith(wrappers):
-        unwrapped = unwrapped.split("(", 1)[1]
-    return unwrapped
+def _without_low_cardinality(clickhouse_type: str) -> str:
+    return clickhouse_type.strip().lower().removeprefix("lowcardinality(")
 
 
 def _unique(messages: list[str]) -> list[str]:
@@ -613,9 +610,7 @@ def _check_nullable_unique_key(
         return
     for column in config.unique_key:
         clickhouse_type = column_types.get(column)
-        if isinstance(clickhouse_type, str) and _unwrapped(clickhouse_type, _LOW_CARDINALITY_WRAPPER).startswith(
-            "nullable("
-        ):
+        if isinstance(clickhouse_type, str) and _without_low_cardinality(clickhouse_type).startswith("nullable("):
             blockers.append(
                 f'Unique key column "{column}" can be null. A null key adds a duplicate row on '
                 f"every run instead of updating. Wrap it in coalesce() to give it a fallback value."
