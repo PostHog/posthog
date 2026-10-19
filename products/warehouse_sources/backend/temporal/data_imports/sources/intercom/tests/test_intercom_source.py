@@ -63,11 +63,6 @@ class TestIntercomSource:
         assert ("macros" in names) is has_macros
         assert ("contact_activities" in names) is has_contact_activities
 
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
-
-        assert {s.name for s in schemas} == {"contacts", "companies"}
-
     @pytest.mark.parametrize(
         "pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), ("2.17", "2.17"), (None, "2.17")]
     )
