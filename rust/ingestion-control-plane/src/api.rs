@@ -446,8 +446,8 @@ async fn personhog_changelog(
 #[derive(Deserialize)]
 struct SeedChangelogRequest {
     topic: String,
-    /// Must name the writer's consumer group: retire and the leaders' settle trust it.
-    gated_groups: Vec<String>,
+    /// The writer's consumer group, as its `KAFKA_CONSUMER_GROUP` names it.
+    writer_group: String,
 }
 
 async fn personhog_seed_changelog(

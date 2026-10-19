@@ -1160,7 +1160,7 @@ async fn the_draining_flag_follows_the_subscribed_topic_not_the_move() {
         topic: NEXT_TOPIC.to_string(),
         partitions: 1,
         epoch: 2,
-        gated_groups: vec!["test-follow".to_string()],
+        writer_group: "test-follow".to_string(),
         draining: vec![Generation {
             topic: TOPIC.to_string(),
             partitions: 1,

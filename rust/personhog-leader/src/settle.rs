@@ -15,10 +15,10 @@ use crate::cache::{
 };
 use crate::warming::{fetch_writer_committed_offsets, ConsumerPool};
 
-/// A topic listed neither live nor draining was retired, which proves every gated
-/// group applied it. The proof covers the writer only when its group is gated.
+/// A topic listed neither live nor draining was retired, which proves the config's
+/// writer group applied it. The proof covers this leader only when that group is its own.
 pub fn retired_topic(live: &ChangelogConfig, writer_group: &str, topic: &str) -> bool {
-    live.gated_groups.iter().any(|g| g == writer_group)
+    live.writer_group == writer_group
         && live.topic != topic
         && live.draining.iter().all(|g| g.topic != topic)
 }
@@ -177,11 +177,11 @@ mod tests {
 
     #[test]
     fn a_topic_is_retired_only_when_the_config_vouches_for_the_writer() {
-        let config = |topic: &str, gated: &[&str], draining: &[&str]| ChangelogConfig {
+        let config = |topic: &str, writer_group: &str, draining: &[&str]| ChangelogConfig {
             topic: topic.to_string(),
             partitions: 8,
             epoch: 2,
-            gated_groups: gated.iter().map(|g| g.to_string()).collect(),
+            writer_group: writer_group.to_string(),
             draining: draining
                 .iter()
                 .map(|t| Generation {
@@ -194,29 +194,29 @@ mod tests {
         let cases = [
             (
                 "the live topic",
-                config("live", &["writer"], &[]),
+                config("live", "writer", &[]),
                 "live",
                 false,
             ),
             (
                 "a draining topic",
-                config("live", &["writer"], &["old"]),
+                config("live", "writer", &["old"]),
                 "old",
                 false,
             ),
             (
                 "a topic listed nowhere",
-                config("live", &["writer"], &["old"]),
+                config("live", "writer", &["old"]),
                 "gone",
                 true,
             ),
             (
-                "the writer group is not gated",
-                config("live", &["other"], &[]),
+                "another writer group",
+                config("live", "other", &[]),
                 "gone",
                 false,
             ),
-            ("a legacy config", config("", &[], &[]), "gone", false),
+            ("no writer group", config("", "", &[]), "gone", false),
         ];
         for (name, live, topic, expected) in cases {
             assert_eq!(retired_topic(&live, "writer", topic), expected, "{name}");

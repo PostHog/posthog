@@ -2070,7 +2070,7 @@ async fn the_reconcile_pass_heals_an_out_of_protocol_deletion() {
 async fn the_reconcile_pass_drops_routes_above_the_live_count() {
     let store = test_store("reconcile-drops-dissolved").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", 2, vec![])
+        .seed_changelog_config("personhog_updates", 2, "personhog-writer")
         .await
         .unwrap());
     let assignments: Vec<PartitionAssignment> = (0..4)

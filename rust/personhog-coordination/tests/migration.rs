@@ -94,7 +94,7 @@ async fn a_held_handoff_stops_in_draining_and_outlives_the_deadline() {
     let store = test_store("migration-held").await;
     let cancel = CancellationToken::new();
     store
-        .seed_changelog_config(TOPIC, PARTITIONS, vec![])
+        .seed_changelog_config(TOPIC, PARTITIONS, "personhog-writer")
         .await
         .unwrap();
 
@@ -156,7 +156,7 @@ async fn an_acquisition_parks_until_the_config_reaches_the_handoffs_epoch() {
     let store = test_store("migration-park").await;
     let cancel = CancellationToken::new();
     store
-        .seed_changelog_config(TOPIC, PARTITIONS, vec![])
+        .seed_changelog_config(TOPIC, PARTITIONS, "personhog-writer")
         .await
         .unwrap();
     let pod = start_ticking_pod(Arc::clone(&store), "writer-0", cancel.clone());
@@ -177,7 +177,7 @@ async fn an_acquisition_parks_until_the_config_reaches_the_handoffs_epoch() {
             topic: TOPIC.to_string(),
             partitions: PARTITIONS,
             epoch: 2,
-            gated_groups: vec![],
+            writer_group: String::new(),
             draining: Vec::new(),
         })
         .await
@@ -323,7 +323,7 @@ async fn fleet(test_name: &str) -> Fleet {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
     store
-        .seed_changelog_config(TOPIC, PARTITIONS, vec!["writer".to_string()])
+        .seed_changelog_config(TOPIC, PARTITIONS, "writer")
         .await
         .unwrap();
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
@@ -382,7 +382,7 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
     assert_eq!(config.topic, TOPIC_V2);
     assert_eq!(config.partitions, 8);
     assert_eq!(config.epoch, 2);
-    assert_eq!(config.gated_groups, vec!["writer".to_string()]);
+    assert_eq!(config.writer_group, "writer");
     assert_eq!(
         config.draining,
         vec![Generation {
@@ -475,7 +475,7 @@ async fn a_migration_past_its_pre_flip_deadline_cancels_and_resumes_in_place() {
     let store = test_store("migration-deadline").await;
     let cancel = CancellationToken::new();
     store
-        .seed_changelog_config(TOPIC, PARTITIONS, vec!["writer".to_string()])
+        .seed_changelog_config(TOPIC, PARTITIONS, "writer")
         .await
         .unwrap();
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
@@ -622,7 +622,7 @@ async fn the_flip_waits_for_every_partition_to_be_sealed() {
 async fn a_plan_lands_only_on_the_basis_it_was_read_on() {
     let store = test_store("migration-plan-basis").await;
     assert!(store
-        .seed_changelog_config(TOPIC, PARTITIONS, vec![])
+        .seed_changelog_config(TOPIC, PARTITIONS, "personhog-writer")
         .await
         .unwrap());
     let absent = |partition| vec![AssignmentPrecondition::Absent { partition }];
@@ -672,7 +672,7 @@ async fn a_plan_lands_only_on_the_basis_it_was_read_on() {
         topic: TOPIC_V2.to_string(),
         partitions: 8,
         epoch: 2,
-        gated_groups: vec![],
+        writer_group: String::new(),
         draining: vec![],
     };
     store.put_changelog_config(&flipped).await.unwrap();
@@ -1058,7 +1058,7 @@ async fn a_request_waits_while_an_owner_is_draining() {
 
     let store = test_store("migration-request-draining-owner").await;
     assert!(store
-        .seed_changelog_config(TOPIC, PARTITIONS, vec![])
+        .seed_changelog_config(TOPIC, PARTITIONS, "personhog-writer")
         .await
         .unwrap());
     let pod = |name: &str, status: PodStatus| RegisteredPod {

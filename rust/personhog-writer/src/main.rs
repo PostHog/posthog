@@ -65,6 +65,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     let store = Arc::new(PersonhogStore::new(store));
     let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL).await?;
+    if loaded.writer_group != config.kafka_consumer_group {
+        return Err(format!(
+            "config/changelog names writer group {} but KAFKA_CONSUMER_GROUP is {}",
+            loaded.writer_group, config.kafka_consumer_group
+        )
+        .into());
+    }
     tracing::info!(
         topic = %loaded.topic,
         epoch = loaded.epoch,

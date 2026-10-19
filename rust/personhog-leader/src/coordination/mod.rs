@@ -608,15 +608,14 @@ mod tests {
     /// judges a topic this pod marks as retired.
     #[tokio::test]
     async fn a_capture_ahead_of_the_watch_keeps_its_topic_live() {
-        let gated = vec!["personhog-writer".to_string()];
         let mut handler = handler();
         handler.changelog = LiveChangelog::new(ChangelogConfig {
-            gated_groups: gated.clone(),
+            writer_group: "personhog-writer".to_string(),
             ..ChangelogConfig::new("personhog_updates", 4)
         });
         let flipped = ChangelogConfig {
             epoch: 2,
-            gated_groups: gated,
+            writer_group: "personhog-writer".to_string(),
             ..ChangelogConfig::new("personhog_updates_v2", 8)
         };
         handler.capture_changelog(0, &flipped).await;

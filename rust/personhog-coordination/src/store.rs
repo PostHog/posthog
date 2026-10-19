@@ -1638,7 +1638,7 @@ impl PersonhogStore {
             topic: migration.to.topic.clone(),
             partitions: migration.to.partitions,
             epoch: config.epoch + 1,
-            gated_groups: config.gated_groups.clone(),
+            writer_group: config.writer_group.clone(),
             draining,
         };
         let mut record = migration.clone();

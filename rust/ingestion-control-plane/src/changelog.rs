@@ -86,7 +86,7 @@ pub struct GroupLag {
 #[derive(Serialize)]
 pub struct ChangelogView {
     pub config: Option<ChangelogConfig>,
-    pub groups: Vec<GatedGroupLag>,
+    pub writer: Option<GroupLag>,
     pub migration: Option<MigrationState>,
     pub request: Option<MigrationRequest>,
     pub history: Vec<MigrationState>,
@@ -101,13 +101,13 @@ pub struct GroupDrain {
     pub error: Option<String>,
 }
 
-/// A retired generation and how far each gated group has read it.
+/// A draining generation and how far the writer group has read it.
 #[derive(Serialize)]
 pub struct DrainingView {
     pub topic: String,
     pub partitions: u32,
     pub epoch: u64,
-    pub groups: Vec<GroupDrain>,
+    pub writer: GroupDrain,
 }
 
 async fn group_drain(config: &Config, group: &str, topic: &str) -> GroupDrain {
@@ -155,18 +155,17 @@ pub async fn retire(
     if !live.draining.iter().any(|g| g.topic == topic) {
         bail!("{topic} is not a draining generation");
     }
-    for group in &live.gated_groups {
-        let drain = group_drain(config, group, topic).await;
-        if let Some(error) = drain.error {
-            bail!("group {group}: {error}");
-        }
-        if drain.partitions == 0 || drain.drained_partitions < drain.partitions {
-            bail!(
-                "group {group} has read {} of {} partitions of {topic} to the end",
-                drain.drained_partitions,
-                drain.partitions
-            );
-        }
+    let group = &live.writer_group;
+    let drain = group_drain(config, group, topic).await;
+    if let Some(error) = drain.error {
+        bail!("group {group}: {error}");
+    }
+    if drain.partitions == 0 || drain.drained_partitions < drain.partitions {
+        bail!(
+            "group {group} has read {} of {} partitions of {topic} to the end",
+            drain.drained_partitions,
+            drain.partitions
+        );
     }
     if !store.retire_changelog_topic(topic).await? {
         bail!("the config moved; refresh and retry");
@@ -289,48 +288,21 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
     let mut draining = Vec::new();
     if let Some(changelog) = &changelog {
         for generation in &changelog.draining {
-            let mut groups = Vec::new();
-            for group in &changelog.gated_groups {
-                groups.push(group_drain(config, group, &generation.topic).await);
-            }
             draining.push(DrainingView {
                 topic: generation.topic.clone(),
                 partitions: generation.partitions,
                 epoch: generation.epoch,
-                groups,
+                writer: group_drain(config, &changelog.writer_group, &generation.topic).await,
             });
         }
     }
-    let mut groups = Vec::new();
-    if let Some(changelog) = &changelog {
-        for group in &changelog.gated_groups {
-            let target = ConsumerTarget {
-                group: group.clone(),
-                topic: changelog.topic.clone(),
-            };
-            groups.push(match scan_group_lag(config, &target).await {
-                Ok(lag) => GatedGroupLag {
-                    group: group.clone(),
-                    partitions: lag.partitions.len(),
-                    lagging_partitions: lag.partitions.iter().filter(|p| p.lag > 0).count(),
-                    total_lag: lag.partitions.iter().map(|p| p.lag).sum(),
-                    max_partition_lag: lag.partitions.iter().map(|p| p.lag).max().unwrap_or(0),
-                    error: None,
-                },
-                Err(e) => GatedGroupLag {
-                    group: group.clone(),
-                    partitions: 0,
-                    lagging_partitions: 0,
-                    total_lag: 0,
-                    max_partition_lag: 0,
-                    error: Some(format!("{e:#}")),
-                },
-            });
-        }
-    }
+    let writer = match &changelog {
+        Some(changelog) => Some(group_lag(config, &changelog.writer_group, &changelog.topic).await),
+        None => None,
+    };
     Ok(ChangelogView {
         config: changelog,
-        groups,
+        writer,
         migration,
         request,
         history,
