@@ -85,6 +85,7 @@ impl Settlement for GroupSettlement {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::num::NonZeroU64;
 
     use super::super::charge_offsets;
     use super::*;
@@ -244,5 +245,115 @@ mod tests {
 
         assert!(settlement.take_due(Instant::now()).is_none());
         assert_eq!(ledger.held(&p0).offsets, 1);
+    }
+
+    const HOUR: Duration = Duration::from_secs(3600);
+
+    fn p0() -> TopicPartition {
+        TopicPartition::new("events", 0)
+    }
+
+    fn budgeted_hourly_settlement_of_10_events_resuming_at_8() -> GroupSettlement {
+        GroupSettlement::new(
+            Arc::new(TopicOffsetLedger::new()),
+            HOUR,
+            BudgetLimits::new(NonZeroU64::new(10), None, 0.8).expect("valid limits"),
+        )
+    }
+
+    fn charge(
+        settlement: &GroupSettlement,
+        topic_partition: &TopicPartition,
+        offset: i64,
+        events: u64,
+    ) -> Option<Pause> {
+        settlement
+            .charge(
+                topic_partition,
+                0,
+                &[(Offset(offset), Charge { events, bytes: 0 })],
+            )
+            .expect("the ledger accepts the charge")
+    }
+
+    #[test]
+    fn a_take_the_interval_holds_counts_toward_the_pause() {
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        charge(&settlement, &p0(), 10, 6);
+        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+
+        assert_eq!(charge(&settlement, &p0(), 11, 4), Some(Pause));
+    }
+
+    enum HandOut {
+        DueAfterTheInterval,
+        All,
+    }
+
+    #[rstest::rstest]
+    #[case::due_after_the_interval(HandOut::DueAfterTheInterval)]
+    #[case::all(HandOut::All)]
+    fn a_paused_partition_resumes_only_when_its_frontier_is_handed_out(#[case] hand_out: HandOut) {
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        let now = Instant::now();
+        charge(&settlement, &p0(), 9, 1);
+        settlement.settle_run(&p0(), 0, &[Offset(9)]).unwrap();
+        settlement
+            .take_due(now)
+            .expect("the first frontier is due at once");
+        assert_eq!(charge(&settlement, &p0(), 10, 10), Some(Pause));
+
+        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+        assert!(settlement.take_due(now).is_none());
+        assert_eq!(settlement.paused(), vec![p0()]);
+
+        let commit = match hand_out {
+            HandOut::DueAfterTheInterval => settlement.take_due(now + HOUR),
+            HandOut::All => settlement.take_all(),
+        }
+        .expect("the frontier is handed out");
+        assert_eq!(commit.resume, vec![p0()]);
+        assert!(settlement.paused().is_empty());
+    }
+
+    #[test]
+    fn a_held_prefix_keeps_its_partition_paused_and_another_is_not_resumed() {
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        let p1 = TopicPartition::new("events", 1);
+        charge(&settlement, &p0(), 10, 5);
+        assert_eq!(charge(&settlement, &p0(), 11, 5), Some(Pause));
+        charge(&settlement, &p1, 20, 1);
+
+        settlement.settle_run(&p0(), 0, &[Offset(11)]).unwrap();
+        settlement.settle_run(&p1, 0, &[Offset(20)]).unwrap();
+        let commit = settlement.take_all().expect("partition 1 is due");
+        assert_eq!(commit.offsets, HashMap::from([(p1, Offset(21))]));
+        assert!(
+            commit.resume.is_empty(),
+            "offset 10 still holds partition 0"
+        );
+
+        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+        assert_eq!(
+            settlement.take_all().expect("partition 0 is due").resume,
+            vec![p0()]
+        );
+    }
+
+    #[test]
+    fn a_revoked_paused_partition_is_never_resumed() {
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        assert_eq!(charge(&settlement, &p0(), 10, 10), Some(Pause));
+        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+
+        settlement.forget_partitions(&[p0()]);
+
+        assert!(settlement.paused().is_empty());
+        assert!(settlement.take_all().is_none());
+        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+        assert!(
+            settlement.take_all().is_none(),
+            "the stale run moves nothing"
+        );
     }
 }
