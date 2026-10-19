@@ -9411,9 +9411,9 @@ snapshots:
     scenes-app-analytics--list-space--light:
         hash: v1.k794b7964.df1ef949811073830fa620d905b8abdc14cdf4a4ae3129d962ab678186bd8727.uWlFQERiA-1QpohoPbgqHGPOwHU4d9QSg6KQX6qHBxU
     scenes-app-analytics--mine--dark:
-        hash: v1.k794b7964.659428eb68d4d634c208995e28dbfe344ddcf0cca992b94675b477c7adbd440f.vH9NIDJc_a7Iwuz5Almo0pe63ikM-JQrv0Un1QM-FS4
+        hash: v1.k794b7964.bb59918810a92bfbfc2e3f30ad1eb218c0a6ba58ca25655b6007129d963599b1.Dm6FmdMgZMWl6QMTEWolU0B6Z82WRCgE--ap7yyFO10
     scenes-app-analytics--mine--light:
-        hash: v1.k794b7964.b5f523dd51f2e6f3cbaafa4363f455e57836cb02761cc6aaec94b56b4ddea44d.ZnN6FG9-YmW4hFdv3dRyr5HRFZb33OmeNZ5jMNicTJA
+        hash: v1.k794b7964.98afd0e9cc82295301ee38ecbac67a15b64f99af446c8efc09d100668512e18a.tuARP9J2x7maARISipcsPmer_sYhiSdp0aVaDhTnN4w
     scenes-app-analytics--spaces--dark:
         hash: v1.k794b7964.978b19e47d5106243cfe2873e2a623a4e22cf89139df7bce365824ab34fde2b1.L4q9XBXDrhvtrZUasYZpzrKf2jCcvE7WORywHS7brOc
     scenes-app-analytics--spaces--light:
@@ -10559,9 +10559,9 @@ snapshots:
     scenes-app-errortracking--group-page-releases-stacked--light:
         hash: v1.k794b7964.6229ba0294619c7c881929c7375df4700325ee629f842369641e5fe2355c1cd4._sFGlcefvjCQOkjMzoP9-CWeQ054s-pQHQ0vChbYbhE
     scenes-app-errortracking--group-page-today-rail-nav--dark:
-        hash: v1.k794b7964.51774301e193ce23aa082825a13a4c8222b1ab7cee5020316650a30a09263ca8.rtaHVo9A6Ks4bR_fBhcE_ti4Y1afBzbXUMGbb7wsQLk
+        hash: v1.k794b7964.0a696b9018fe814439ef41070a904b0bf6d5aafd3fb668cf1858b1f78b0a0783.O5x-0QjnG3NmkLmJhxQt3xJZjCeAB5lWE-M1tqJq3KI
     scenes-app-errortracking--group-page-today-rail-nav--light:
-        hash: v1.k794b7964.7087fa389913eb61a5e8eca00e0519ec11efd6395e6d4c6e646f080fcbda2333.1SYO_4nSy1Dzp--Kn2CPGcG_GZhFEGF6feO3oHBHcMA
+        hash: v1.k794b7964.9c527d3c4158b4d9adfc3f3a28dd18473da4b22bbc1a4eb2777f1f7da62261e5.eDDfQ09EGFBH5OQpxZPRX4ThjCT9wVqrhS49IrKnq7Q
     scenes-app-errortracking--group-page-with-many-self-driving-reports--dark:
         hash: v1.k794b7964.0aa0858442d3e422f4825c4665d289c006c87b1c5a22265e447a1c0fa5e5a544.Hy3i1o_nWpWVqH4WqCEDvZTI4LQxeI2c9B6GW9rHDYA
     scenes-app-errortracking--group-page-with-many-self-driving-reports--light:
