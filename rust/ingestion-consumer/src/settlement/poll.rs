@@ -319,3 +319,103 @@ mod tests {
         assert!(commit.resume.is_empty());
     }
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use std::collections::HashMap;
+
+    use common_kafka_consumer::Charge;
+
+    use super::*;
+    use crate::order_sentinel::OffsetSpan;
+
+    fn settlement() -> (Arc<TopicOffsetLedger>, PollSettlement) {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement = PollSettlement::new(Arc::clone(&ledger));
+        (ledger, settlement)
+    }
+
+    struct Charged {
+        topic_partition: TopicPartition,
+        generation: u64,
+        span: OffsetSpan,
+        charges: Vec<(Offset, Charge)>,
+    }
+
+    impl Charged {
+        fn slice(&self) -> ChargedSlice<'_> {
+            ChargedSlice {
+                topic_partition: &self.topic_partition,
+                generation: self.generation,
+                span: self.span,
+                charges: &self.charges,
+            }
+        }
+    }
+
+    fn charged(ledger: &TopicOffsetLedger, partition: i32, first: i64, last: i64) -> Charged {
+        let topic_partition = TopicPartition::new("test", partition);
+        let generation = ledger.generation(&topic_partition);
+        let charges: Vec<(Offset, Charge)> = (first..=last)
+            .map(|offset| (Offset(offset), Charge::ZERO))
+            .collect();
+        ledger
+            .charge(&topic_partition, generation, charges.iter().copied())
+            .expect("charge");
+        Charged {
+            topic_partition,
+            generation,
+            span: OffsetSpan { first, last },
+            charges,
+        }
+    }
+
+    #[test]
+    fn a_retired_poll_makes_each_partitions_frontier_due() {
+        let (ledger, settlement) = settlement();
+        let p0 = charged(&ledger, 0, 10, 11);
+        let p1 = charged(&ledger, 1, 20, 21);
+
+        settlement.settle_poll(&[p0.slice(), p1.slice()]).unwrap();
+
+        assert_eq!(
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
+            Some(HashMap::from([
+                (p0.topic_partition, Offset(12)),
+                (p1.topic_partition, Offset(22)),
+            ]))
+        );
+    }
+
+    #[test]
+    fn a_poll_behind_an_earlier_one_becomes_due_when_the_earlier_retires() {
+        let (ledger, settlement) = settlement();
+        let older = charged(&ledger, 0, 10, 11);
+        let newer = charged(&ledger, 0, 12, 13);
+
+        settlement.settle_poll(&[newer.slice()]).unwrap();
+        assert!(settlement.take_due(Instant::now()).is_none());
+
+        settlement.settle_poll(&[older.slice()]).unwrap();
+        assert_eq!(
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
+            Some(HashMap::from([(older.topic_partition, Offset(14))]))
+        );
+    }
+
+    #[test]
+    fn a_stale_poll_makes_nothing_due() {
+        let (ledger, settlement) = settlement();
+        let poll = charged(&ledger, 0, 10, 11);
+        // The partition left and came back while the poll was in flight.
+        ledger.forget_partitions([("test", 0)]);
+
+        settlement.settle_poll(&[poll.slice()]).unwrap();
+
+        assert!(settlement.take_due(Instant::now()).is_none());
+    }
+}
