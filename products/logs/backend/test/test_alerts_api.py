@@ -24,7 +24,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, list_configurations
+from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import PlatformConfigurationSnapshot, SourceKind
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -2347,6 +2347,22 @@ class TestLogsAlertAPI(APIBaseTest):
             50,
             ("service_name",),
         )
+
+    def test_a_backfill_snapshot_taken_before_a_disable_does_not_turn_the_copy_back_on(self) -> None:
+        created = self._owned_by_the_platform()
+        snapshot = platform_upsert_of(LogsAlertConfiguration.objects.get(pk=created["id"]))
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        upsert_configuration(snapshot)
+
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                configuration_id=self._copy(created["id"]).id,
+            )
+        assert view is not None and view.enabled is False
 
     def test_the_platform_api_refuses_an_edit_of_an_environments_alert(self) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
