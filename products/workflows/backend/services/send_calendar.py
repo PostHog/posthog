@@ -54,7 +54,7 @@ def list_send_calendar_flows(
         .filter(Q(id__in=open_schedules.values("hog_flow_id")) | Q(id__in=runs_in_range.values("hog_flow_id")))
         # The card reads a few keys of the first email step and the trigger. Postgres extracts them, so the
         # full step configuration, which holds the email body, never leaves the database.
-        .annotate(
+        .alias(
             _email_step=models.Func(
                 F("actions"),
                 models.Func(
