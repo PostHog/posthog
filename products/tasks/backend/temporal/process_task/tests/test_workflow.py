@@ -1659,6 +1659,21 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    @pytest.mark.parametrize("origin", ["signals_scout", "signal_report", "signals_chat", "scout_suggestions"])
+    @pytest.mark.parametrize("patched", [False, True])
+    def test_trial_quota_rechecks_cover_non_pr_work_with_replay_gate(
+        self, origin: str, patched: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        wf = ProcessTaskWorkflow()
+        wf._context = dataclasses.replace(
+            _build_context(github_integration_id=None),
+            origin_product=origin,
+            create_pr=False,
+            state={"self_driving_funding": {"funding": "trial"}},
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: patched)
+        assert wf._self_driving_quota_recheck_scheduled() is patched
+
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
         # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
         # create_pr=False; scheduling the recheck for them would let the quota gate cancel

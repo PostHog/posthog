@@ -664,10 +664,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     def _self_driving_quota_recheck_scheduled(self) -> bool:
+        if not self._self_driving_quota_checks_active or self._context is None:
+            return False
+        if (self.context.state or {}).get("self_driving_funding", {}).get("funding") == "trial" and workflow.patched(
+            "self-driving-trial-quota-rechecks"
+        ):
+            return True
         return (
-            self._self_driving_quota_checks_active
-            and self._context is not None
-            and self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
             # Research / repo-selection / custom-agent sessions run with create_pr=False and can
             # never open the billable PR; rechecking them would let the quota gate cancel
             # in-flight research.
@@ -1425,8 +1429,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             if not self._task_completed:
                                 self._completion_status = "cancelled"
                                 self._completion_error = (
-                                    "Stopped automatically: the organization reached its "
-                                    "self-driving pull request limit."
+                                    "Stopped: the project's one-time Self-driving trial allowance is exhausted."
+                                    if (self.context.state or {}).get("self_driving_funding", {}).get("funding")
+                                    == "trial"
+                                    and workflow.patched("self-driving-trial-quota-rechecks")
+                                    else "Stopped automatically: the organization reached its self-driving pull request limit."
                                 )
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
@@ -1668,7 +1675,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
                 if (
                     self._context
-                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                    and (
+                        self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                        or (
+                            (self.context.state or {}).get("self_driving_funding", {}).get("funding") == "trial"
+                            and workflow.patched("self-driving-trial-complete-spend")
+                        )
+                    )
                     and workflow.patched("signals-publish-spend-on-completion")
                 ):
                     try:
