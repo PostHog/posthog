@@ -326,6 +326,10 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "cohort_deleted": {
+                                                        "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                                                        "type": "boolean"
+                                                    },
                                                     "cohort_name": {
                                                         "type": "string"
                                                     },
@@ -708,6 +712,10 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "cohort_deleted": {
+                                                        "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                                                        "type": "boolean"
+                                                    },
                                                     "cohort_name": {
                                                         "type": "string"
                                                     },
@@ -1145,6 +1153,10 @@
                     },
                     {
                         "properties": {
+                            "cohort_deleted": {
+                                "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                                "type": "boolean"
+                            },
                             "cohort_name": {
                                 "type": "string"
                             },

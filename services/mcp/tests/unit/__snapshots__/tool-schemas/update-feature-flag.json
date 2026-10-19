@@ -360,6 +360,10 @@
                                         },
                                         {
                                             "properties": {
+                                                "cohort_deleted": {
+                                                    "description": "Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.",
+                                                    "type": "boolean"
+                                                },
                                                 "cohort_name": {
                                                     "anyOf": [
                                                         {

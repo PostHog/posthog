@@ -658,6 +658,17 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {
