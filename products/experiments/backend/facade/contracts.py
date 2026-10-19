@@ -136,6 +136,12 @@ class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
     UNKNOWN = "unknown"
 
 
+class ExperimentHealthFlagChangeKind(LabeledStrEnum):
+    SPLIT = "split"
+    # A setting that decides the variant draw: the key, the group type, the bucketing identifier or persistence.
+    BUCKETING = "bucketing"
+
+
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
     # The values are the severities of the platform's health issues (posthog/models/health_issue.py), so a
     # finding can become a health issue by value. The labels differ on purpose: two choice sets with the same
