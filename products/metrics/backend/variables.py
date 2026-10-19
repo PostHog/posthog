@@ -1,13 +1,6 @@
 """Grafana-style variables in metrics queries: `$name`, `${name}`, `${name:format}` and `[[name]]`.
 
-A dashboard stores its variables and their selections in its filters. When a tile runs, the runner
-copies the values of the variables that the tile refers to into `query.variables`, so the values
-reach the cache key and the async worker. Each language then gets the values in its own way:
-
-- PromQL text gets the values put in as text, regex-escaped inside `=~` and `!~` matchers.
-- SQL gets each reference changed to a HogQL placeholder that holds an `ast.Constant` or an
-  `ast.Tuple`, so a value never becomes SQL text.
-- Builder filters get their value, and a regex op when a variable has more than one value.
+SQL gets HogQL placeholders that hold constants, so a value never becomes SQL text.
 """
 
 from __future__ import annotations
@@ -170,7 +163,7 @@ def _has_value(variable: Variable | None) -> bool:
 
 
 def from_dashboard(definitions: Iterable[MetricsDashboardVariable] | None) -> dict[str, Variable]:
-    """The current selection of each dashboard variable. A variable with no selection is left out."""
+    """A variable with no selection is left out."""
     variables: dict[str, Variable] = {}
     for definition in definitions or ():
         current = definition.current
@@ -230,10 +223,7 @@ def format_promql(variable: Variable, value_format: str | None, *, context: Prom
 
 
 def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Collection[str] = ()) -> Substitution:
-    """Put the variable values in a PromQL expression. Also returns the names it could not resolve.
-
-    References to the names in `keep` stay in the text.
-    """
+    """References to the names in `keep` stay in the text."""
     unresolved: list[str] = []
     scanner = _PromQLScanner(expr)
 
