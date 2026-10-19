@@ -37,7 +37,7 @@ class TestSyncNotebookTableToDag(BaseTest):
         self._sync("SELECT event FROM events", "SELECT * FROM accounts", "SELECT * FROM scores")
 
         node = self._node()
-        self.assertEqual(node.notebook_source, {"short_id": "nb123", "node_id": "cell-1"})
+        self.assertEqual(node.properties[NOTEBOOK_SOURCE_KEY], {"short_id": "nb123", "node_id": "cell-1"})
         upstream = {edge.source.name for edge in Edge.objects.filter(target=node).select_related("source")}
         self.assertEqual(upstream, {"events", "accounts"})
 
