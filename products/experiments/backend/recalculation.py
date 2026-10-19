@@ -311,18 +311,23 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
+def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
+    # Evaluated locally: callers sit on request and start paths, and a miss would otherwise block them on a call
+    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
+    return feature_enabled_or_false(
+        flag_key,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
 def _activity_task_queue(organization_id: str) -> str | None:
-    # Evaluated locally, like the rate-limit flag, so the start never waits on /flags. A flag error keeps the run
-    # on the workflow's queue, because a failed start would roll the row back to FAILED.
+    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
     try:
-        enabled = feature_enabled_or_false(
-            RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
-            organization_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
     except Exception as e:
         capture_exception(e)
         return None
@@ -333,17 +338,7 @@ def _refresh_window_enforced(experiment: Experiment) -> bool:
     # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
     if settings.DEBUG and not settings.TEST:
         return False
-    organization_id = str(experiment.team.organization_id)
-    # Evaluated locally: this sits on the POST path, and a miss would otherwise block the request on a call
-    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
-    return feature_enabled_or_false(
-        RECALCULATION_RATE_LIMIT_FEATURE_FLAG,
-        organization_id,
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
+    return _organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
 
 
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
