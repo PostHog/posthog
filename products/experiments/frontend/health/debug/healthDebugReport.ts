@@ -190,6 +190,21 @@ function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
         : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
+function conditionsChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    const changed = `${evidence.change_count} changes, from ${evidence.conditions_before} to ${evidence.conditions_after} conditions.`
+    if (finding.subcode === 'not_checked') {
+        return `Not checked: ${evidence.reason}. ${changed}`
+    }
+    const pinnedShare = share(evidence.pinned_share)
+    const removedOverride = pinnedShare
+        ? `Removed override share ${pinnedShare}.`
+        : typeof evidence.reason === 'string'
+          ? `Removed override share unknown: ${evidence.reason}.`
+          : null
+    return [changed, exposedBeforeFirst(finding), removedOverride].filter(Boolean).join(' ')
+}
+
 function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const parts = [`Pinned sets: ${evidence.pinned_condition_sets}, to ${evidence.pinned_variant_keys}.`]
@@ -292,6 +307,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         flagStateCheck(input),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
+        serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
         serverOnlyCheck(input, 'flag_variants_mismatch', null),
         serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
         noMetricCheck(input),

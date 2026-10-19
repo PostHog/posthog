@@ -178,11 +178,11 @@ describe('offlineOverviewTrendLogic', () => {
         expect(logic.values.periodSummary?.mean).toBe(0.64)
     })
 
-    it('reloads a shared source and upload state within the same frozen date range', async () => {
+    it('reloads shared filters including tag-only changes within the same frozen date range', async () => {
         const logic = offlineOverviewTrendLogic({ ...props, filters: { run_source: 'local' } })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        const filters = { run_source: 'ci', statuses: 'failed' }
+        const filters = { run_source: 'ci', statuses: 'failed', tags: '["quality"]', tag_match: 'any' as const }
         offlineOverviewTrendLogic({ ...props, filters })
         await expectLogic(logic).toFinishAllListeners()
 
@@ -193,5 +193,21 @@ describe('offlineOverviewTrendLogic', () => {
             date_to: props.dateTo,
             limit: 100,
         })
+        offlineOverviewTrendLogic({
+            ...props,
+            filters: { ...filters, tags: '["quality","production"]', tag_match: 'all' },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(history).toHaveBeenCalledTimes(3)
+        expect(history).toHaveBeenLastCalledWith(
+            '997',
+            props.scorerId,
+            expect.objectContaining({
+                tags: '["quality","production"]',
+                tag_match: 'all',
+                date_from: props.dateFrom,
+                date_to: props.dateTo,
+            })
+        )
     })
 })

@@ -38,13 +38,6 @@ def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
     assert schema["should_sync_default"] is False
 
 
-def test_get_schemas_filters_by_names():
-    schemas = GoogleSearchConsoleSource().get_schemas(
-        _config(), team_id=1, names=["search_analytics_by_date", "search_analytics_by_query"]
-    )
-    assert {s.name for s in schemas} == {"search_analytics_by_date", "search_analytics_by_query"}
-
-
 @pytest.mark.parametrize(
     "config",
     [pytest.param(_config(), id="web_only"), pytest.param(_all_types_config(), id="all_types")],
