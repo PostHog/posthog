@@ -15,15 +15,15 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 
 import { todayShellLogic } from './todayShellLogic'
+import { TodaySidebarBreadcrumb } from './TodaySidebarBreadcrumb'
+import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
@@ -40,7 +40,7 @@ const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */
 export function TodayWarehouseHeader({ className }: { className?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { currentWarehouseItem: current } = useValues(todayShellLogic)
+    const { currentWarehouseItem: current, paneHasSidebar, sidebarVisible } = useValues(todayShellLogic)
     const items = visibleWarehouseItems(featureFlags)
     const groups = GROUP_ORDER.map((group) => items.filter((item) => item.group === group)).filter(
         (group) => group.length
@@ -48,7 +48,16 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
 
     return (
         <QuillSceneHeader
-            className={cn('bg-chrome', className)}
+            className={cn('group/sidebar bg-chrome', className)}
+            back={
+                paneHasSidebar ? (
+                    sidebarVisible ? (
+                        <TodaySidebarCollapseButton />
+                    ) : (
+                        <TodaySidebarBreadcrumb />
+                    )
+                ) : undefined
+            }
             title={
                 <DropdownMenu>
                     <DropdownMenuTrigger
@@ -113,12 +122,6 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
                         ))}
                     </DropdownMenuContent>
                 </DropdownMenu>
-            }
-            actions={
-                <>
-                    <ProductSetupButton />
-                    <SceneTitlePanelButton />
-                </>
             }
         />
     )

@@ -14,8 +14,11 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { TodayContextPanelFloating } from '~/layout/today/TodayContextPanelFloating'
 import { TodayShell } from '~/layout/today/TodayShell'
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidePanel } from '~/layout/today/TodaySidePanel'
+import { TodayTopBar } from '~/layout/today/TodayTopBar'
 import { TodayWarehouseHeader } from '~/layout/today/TodayWarehouseHeader'
 import { TodayWarehouseSidebar } from '~/layout/today/TodayWarehouseSidebar'
 
@@ -57,12 +60,15 @@ export function Navigation({
         sidebarVisible: todaySidebarVisible,
         phoneLayout: todayPhoneLayout,
         phoneHeaderHidden: todayPhoneHeaderHidden,
+        onAiPage: todayOnAiPage,
         warehouseHeaderShown: todayWarehouseHeaderShown,
         sidebarInContent: todaySidebarInContent,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
     const todayFramed = todayRail && !todayPhone
+    // The framed Today layout gives the side panel its own grid column, so the panel no longer overlaps the scene.
+    const sidePanelOverlapsMain = sidePanelOpen && !todayFramed
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -143,10 +149,12 @@ export function Navigation({
                 <main
                     className={
                         mode === 'zen'
-                            ? 'p-4'
+                            ? '@container/main-content p-4'
                             : mode === 'embedded'
                               ? '@container/main-content min-h-screen p-4'
-                              : undefined
+                              : mode === 'minimal' && sceneConfig?.layout !== 'plain'
+                                ? '@container/main-content flex flex-col p-4'
+                                : undefined
                     }
                 >
                     {children}
@@ -171,26 +179,21 @@ export function Navigation({
                     'TodayAppLayout scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]':
                         todayRail,
                     'TodayAppLayout--phone': todayPhone,
+                    'TodayAppLayout--top-bar': todayFramed,
                     'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
                 })}
                 style={
                     {
                         ...theme?.mainStyle,
-                        '--scene-layout-rect-right': mainContentRect?.right + 'px',
-                        '--scene-layout-rect-width': mainContentRect?.width + 'px',
-                        '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                        '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                            ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                            : '0px',
-                        '--scene-layout-background': sceneConfig?.canvasBackground
-                            ? 'var(--color-bg-surface-primary)'
-                            : 'var(--color-bg-primary)',
+                        // The Today layout keeps one background on every scene, so it leaves out the notebook canvas.
+                        '--scene-layout-background':
+                            sceneConfig?.canvasBackground && !todayRail
+                                ? 'var(--color-bg-surface-primary)'
+                                : 'var(--color-bg-primary)',
                         '--side-panel-width': sidePanelWidth + 'px',
-                        // Live navbar width from the resizer drives both the grid's left column
-                        // (via --left-nav-width below) and the nav element itself, which reads
-                        // --project-navbar-width. Collapsed/mobile fall back to the base default.
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
+                        '--today-rail-width': todayRail ? `${TODAY_RAIL_WIDTH}px` : undefined,
                         '--left-nav-width': todayRail
                             ? `${todayLeftNavWidth}px`
                             : isLayoutNavCollapsed
@@ -200,7 +203,9 @@ export function Navigation({
                 }
             >
                 <ProjectDragAndDropProvider>
+                    {todayFramed && <TodayTopBar />}
                     {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
+                    {todayFramed && <div aria-hidden className="TodayAppLayout__shadow" />}
                     {todayFramed && (
                         // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
                         <div data-quill aria-hidden className="TodayAppLayout__backdrop bg-[var(--chrome)]" />
@@ -208,17 +213,16 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
-                            // Under the Today layout the column is a grid: the warehouse header spans the top row, and the warehouse sidebar sits under it beside the page.
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative [--left-nav-width:initial] [--project-navbar-width:initial]',
                             todayRail
                                 ? [
                                       'grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]',
                                       todayFramed && 'TodayAppLayout__content',
                                       // A docked sidebar owns the corner and the seam, so the content draws them only without one.
-                                      // The warehouse sidebar sits inside the content, so the content draws them beside it too.
                                       todayFramed &&
                                           (mobileLayout || !todaySidebarVisible || todaySidebarInContent) &&
                                           'TodayAppLayout__content--corner',
+                                      todayFramed && sidePanelWidth > 0 && 'TodayAppLayout__content--side-panel',
                                   ]
                                 : [
                                       'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
@@ -226,6 +230,16 @@ export function Navigation({
                                   ]
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
+                        style={
+                            {
+                                '--scene-layout-rect-right': mainContentRect?.right + 'px',
+                                '--scene-layout-rect-width': mainContentRect?.width + 'px',
+                                '--scene-layout-rect-height': mainContentRect?.height + 'px',
+                                '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
+                                    ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
+                                    : '0px',
+                            } as React.CSSProperties
+                        }
                     >
                         {todayFramed && (
                             // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
@@ -235,8 +249,6 @@ export function Navigation({
                         {todayRail && todaySidebarInContent && todaySidebarVisible && (
                             <TodayWarehouseSidebar className="col-start-1 row-start-2" />
                         )}
-                        {/* Same wrapper on every route so main never remounts when the warehouse header or sidebar appears.
-                            It stays unpositioned, so the side panel and the takeover host size against the whole column, header row included. */}
                         <div
                             className={cn(
                                 'flex min-h-0 min-w-0 flex-1 overflow-hidden',
@@ -254,19 +266,23 @@ export function Navigation({
                                         // The Today layout's content meets the chrome on straight seams.
                                         'rounded-t': !todayRail,
                                         'p-0': noPaddingScene,
-                                        'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
+                                        'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
+                                            sidePanelOverlapsMain,
                                     }
                                 )}
                             >
                                 <SceneLayout sceneConfig={sceneConfig}>
                                     {/* While a takeover covers the scene its controls must leave the tab
-                                        order and the accessibility tree, or keyboard and screen-reader
-                                        users can operate them invisibly. The side panel stays outside the
-                                        wrapper: it renders beside the takeover and must stay usable. */}
+                                    order and the accessibility tree, or keyboard and screen-reader
+                                    users can operate them invisibly. The side panel stays outside the
+                                    wrapper: it renders beside the takeover and must stay usable. */}
                                     {/* The attribute rides a spread with the empty-string form: React 18's
-                                        types lack `inert`, and its runtime serializes `inert={false}` to a
-                                        string, which is still inert (presence-based attribute). */}
-                                    <div className="contents" {...(sceneTakeoverActive ? { inert: '' } : {})}>
+                                    types lack `inert`, and its runtime serializes `inert={false}` to a
+                                    string, which is still inert (presence-based attribute). */}
+                                    <div
+                                        className="contents [--side-panel-width:initial]"
+                                        {...(sceneTakeoverActive ? { inert: '' } : {})}
+                                    >
                                         {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                             <div
                                                 className={cn({
@@ -287,15 +303,15 @@ export function Navigation({
                                         )}
                                         {children}
                                     </div>
-                                    <SidePanel />
+                                    {!todayFramed && <SidePanel />}
                                 </SceneLayout>
                             </main>
 
                             {/* Scene takeover host: fullscreen-in-scene surfaces (the email editor)
-                                portal here to fill the main well at full height, while the navigation
-                                stays visible and the side panel stays usable beside it (z-50 keeps this
-                                under the side panel). Mirrors main's max-width shrink so it never sits
-                                underneath the open side panel. */}
+                            portal here to fill the main well at full height, while the navigation
+                            stays visible and the side panel stays usable beside it (z-50 keeps this
+                            under the side panel). Mirrors main's max-width shrink so it never sits
+                            underneath the open side panel. */}
                             <div
                                 ref={takeoverCallbackRef}
                                 tabIndex={-1}
@@ -303,7 +319,7 @@ export function Navigation({
                                     'absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col outline-none',
                                     {
                                         hidden: !sceneTakeoverActive,
-                                        'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOpen,
+                                        'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
                                     }
                                 )}
                             />
@@ -335,7 +351,9 @@ export function Navigation({
                                 </>
                             )}
                         </div>
+                        {todayFramed && !todayOnAiPage && <TodayContextPanelFloating />}
                     </div>
+                    {todayFramed && <TodaySidePanel />}
                 </ProjectDragAndDropProvider>
             </div>
         </>

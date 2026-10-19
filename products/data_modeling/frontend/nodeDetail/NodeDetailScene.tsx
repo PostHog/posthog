@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -59,6 +60,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     const {
         node,
         savedQuery,
+        savedQueryDeleted,
         savedQueryLoading,
         nodeLoading,
         availableTabs,
@@ -86,6 +88,19 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
             )
         }
         return <NotFound object="model" />
+    }
+
+    if (savedQueryDeleted) {
+        return (
+            <NotFound
+                object="model"
+                caption={
+                    <>
+                        This model was deleted. Go back to <Link to={urls.models()}>Models</Link>.
+                    </>
+                }
+            />
+        )
     }
 
     const savedQueryId = node.saved_query_id

@@ -55,6 +55,7 @@ import {
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import { HogFunctionPublishDraftButton } from './configuration/HogFunctionPublishDraftButton'
 import { humanizeHogFunctionType } from './hog-function-utils'
 import { HogInvocations } from './invocations/HogInvocations'
 import { TransformationInvocations } from './invocations/TransformationInvocations'
@@ -434,6 +435,8 @@ function HogFunctionHeader(): JSX.Element {
             <SceneTitleSection
                 name={configuration.name}
                 description={configuration.description || ''}
+                markdown
+                descriptionAlwaysVisible
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (
@@ -474,6 +477,7 @@ function HogFunctionHeader(): JSX.Element {
                         )}
                         <HogFunctionConfigurationClearChangesButton />
                         <HogFunctionConfigurationSaveButton />
+                        {logicProps.id ? <HogFunctionPublishDraftButton logicProps={logicProps} /> : null}
                     </>
                 }
             />

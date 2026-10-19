@@ -4,9 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
@@ -151,7 +149,6 @@ describe('createExperimentLogic', () => {
         })
 
         it('creates a scanner scoped to enrolled experiment sessions when selected', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({
@@ -208,7 +205,7 @@ describe('createExperimentLogic', () => {
                 })
             )
             expect(lemonToast.success).toHaveBeenCalledWith(
-                'Experiment created. The Replay Vision scanner turns on when you launch the experiment.',
+                'Experiment created. The experiment scanner turns on when you launch the experiment.',
                 expect.objectContaining({
                     button: expect.objectContaining({ label: 'View scanner' }),
                 })
@@ -246,13 +243,56 @@ describe('createExperimentLogic', () => {
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
             expect(lemonToast.error).toHaveBeenCalledWith(
-                "Experiment created, but the Replay Vision scanner wasn't.",
+                "Experiment created, but the experiment scanner wasn't.",
                 expect.objectContaining({
-                    button: expect.objectContaining({ label: 'Set up scanner' }),
+                    button: expect.objectContaining({ label: 'Set up experiment scanner' }),
                 })
             )
+            const [, { button }] = (lemonToast.error as jest.Mock).mock.calls.at(-1)
+            button.action()
+            // The retry must reopen the experiment scanner wizard on this experiment, not the generic
+            // template list, or the person starts over without the experiment.
+            expect(routerPushSpy).toHaveBeenLastCalledWith('/replay-vision/new/details?experiment=123')
             expect(captureExceptionSpy).toHaveBeenCalledTimes(shouldCapture ? 1 : 0)
             captureExceptionSpy.mockRestore()
+        })
+
+        it('skips the scanner when the experiment flag aggregates by group', async () => {
+            useMocks({
+                post: {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
+                        const body = (await request.json()) as Experiment
+                        return [
+                            200,
+                            {
+                                ...body,
+                                id: 123,
+                                feature_flag: {
+                                    id: 456,
+                                    key: body.feature_flag_key,
+                                    filters: { groups: [], aggregation_group_type_index: 0 },
+                                },
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setCreateReplayVisionScanner(true)
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Org-level experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'org-level-experiment',
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                .toFinishAllListeners()
+
+            expect(scannerCreateSpy).not.toHaveBeenCalled()
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
         })
 
         it('refreshes tree items for experiment and feature flag after creation', async () => {

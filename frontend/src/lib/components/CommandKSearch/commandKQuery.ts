@@ -363,7 +363,7 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
     }
 }
 
-/** The raw query as a person would type it, chips included. Used for "Ask PostHog AI". */
+/** The raw query as a person would type it, chips included. Used when copying the input. */
 export function queryAsText(text: string, chips: QueryChip[]): string {
     return [...chips.map(chipToText), text.trim()].filter(Boolean).join(' ')
 }

@@ -129,6 +129,35 @@ describe("TaskRunEventStreamSender", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["sync", "upload"])(
+    "stops a superseded sender during %s",
+    async (phase) => {
+      vi.useFakeTimers();
+      try {
+        const fetchMock = vi.fn(
+          async (_url: string | URL | Request, init?: RequestInit) => {
+            const body = await readRequestBody(init);
+            if (phase === "upload" && !body) return responseForBody(body);
+            return new Response(
+              JSON.stringify({ code: "stream_generation_mismatch" }),
+              { status: 403 },
+            );
+          },
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const sender = createSender({ keepProxyStreamOpen: false });
+        sender.enqueue({ type: "old-event" });
+        await vi.advanceTimersByTimeAsync(100);
+        sender.enqueue({ type: "later-event" });
+        await vi.advanceTimersByTimeAsync(2000);
+        await sender.stop();
+        expect(fetchMock).toHaveBeenCalledTimes(phase === "sync" ? 1 : 2);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it.each([true, false])(
     "streams ordered NDJSON events with complete=%s",
     async (complete) => {

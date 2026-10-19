@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
@@ -74,7 +75,7 @@ export const toolsLogic = kea<toolsLogicType>([
                             seen.has(item.href) ||
                             // The rail's warehouse menu is the only home for these under the rail navigation.
                             (todayWarehouseEnabled && isWarehouseToolHref(item.href)) ||
-                            (item.flag && !featureFlags[item.flag as keyof FeatureFlagsSet]) ||
+                            !isFileSystemImportFlagEnabled(item, featureFlags) ||
                             getProductAccessDisabledReason(item)
                         ) {
                             return false

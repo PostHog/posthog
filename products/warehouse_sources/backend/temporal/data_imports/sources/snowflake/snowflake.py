@@ -133,10 +133,24 @@ _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS = 300
 # `ProgrammingError` 000604 (57014, "SQL execution was cancelled by the client due to a timeout").
 # That's harmless for the short metadata queries, but it must not cancel a legitimately long
 # full-table data scan — so those pass this explicit, much larger per-query `timeout`, overriding the
-# timebomb while leaving the retry budget above intact. It mirrors the import activity's 6h
-# `start_to_close_timeout`, which is the real ceiling: the connector defers to Temporal rather than
-# pre-empting a sync that is still making progress.
-_SNOWFLAKE_QUERY_TIMEOUT_SECONDS = 6 * 60 * 60
+# timebomb while leaving the retry budget above intact.
+#
+# This is the limit on the time to the first row: `execute` returns only when Snowflake has the
+# result, and the worker cannot hand the import to another worker before that. While the query runs
+# the connector polls for the result, and `network_timeout` limits each of those requests, so this
+# is not the limit on a silent connection.
+_SNOWFLAKE_QUERY_TIMEOUT_SECONDS = 2 * 60 * 60
+
+# The count scans the same rows as the read, on each attempt, before the first row is read. Its
+# result feeds the progress display and the billing limit check only, so a count that is not done
+# by this time gives 0 (unknown).
+_SNOWFLAKE_ROW_COUNT_TIMEOUT_SECONDS = 120
+
+# The login request. The connector default is 120 seconds.
+_SNOWFLAKE_LOGIN_TIMEOUT_SECONDS = 60
+
+# The connector's wording when it cancels a query at its `timeout`.
+_SNOWFLAKE_CLIENT_TIMEOUT_MESSAGE = "SQL execution was cancelled by the client due to a timeout"
 
 
 def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
@@ -345,6 +359,7 @@ class SnowflakeImplementation(
             # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
             schema=normalize_namespace(config.schema),
             role=config.role,
+            login_timeout=_SNOWFLAKE_LOGIN_TIMEOUT_SECONDS,
             network_timeout=_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
             **auth_connect_args,
         ) as connection:
@@ -630,7 +645,7 @@ class SnowflakeImplementation(
         try:
             query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
-            cursor.execute(query, inner_query_args, timeout=_SNOWFLAKE_QUERY_TIMEOUT_SECONDS)
+            cursor.execute(query, inner_query_args, timeout=_SNOWFLAKE_ROW_COUNT_TIMEOUT_SECONDS)
             row = cursor.fetchone()
 
             if row is None:
@@ -644,7 +659,9 @@ class SnowflakeImplementation(
             return rows_to_sync_int
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-            capture_exception(e)
+            # A count past its limit is expected on a large table, so it is not an error to track.
+            if _SNOWFLAKE_CLIENT_TIMEOUT_MESSAGE not in str(e):
+                capture_exception(e)
             return 0
 
     # ------------------------------------------------------------------

@@ -30,34 +30,13 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['/project/1/home', 'home', true],
-        ['/project/1/home/reports/abc', 'home', true],
-        ['/project/1/library', 'products', true],
-        ['/project/1/library/feature_flag', 'products', true],
-        ['/project/1/ai', 'spaces', true],
-        ['/project/1/ai/history', 'spaces', true],
-        ['/project/1/spaces/abc', 'spaces', true],
-        ['/project/1/feature_flags/920847', 'products', true],
-        ['/project/1/insights/abc', 'products', true],
-        ['/project/1/feature_flags', 'products', true],
         ['/project/1/data-management/destinations', 'warehouse', true],
         ['/project/1/sql', 'warehouse', true],
         ['/project/1/warehouse', 'warehouse', true],
         ['/project/1/data-management/sources/abc/schemas', 'warehouse', true],
         ['/project/1/data-warehouse/new-source', 'warehouse', true],
         ['/project/1/models/abc', 'warehouse', true],
-        ['/project/1/notebooks', 'products', true],
         ['/project/1/warehouses', null, true],
-        ['/project/1/views', 'views', true],
-        ['/project/1/canvases/abc', 'views', true],
-        ['/project/1/canvases/new', 'views', true],
-        ['/project/1/notebooks/abc', 'views', true],
-        ['/project/1/dashboard/12', 'views', true],
-        ['/project/1/dashboard', 'products', true],
-        ['/project/1/persons', 'products', true],
-        ['/project/1/activity/events', 'products', true],
-        ['/project/1/airplane', null, true],
-        ['/project/1/homework', null, true],
         ['/project/1/endpoints/my-endpoint', 'products', true],
         ['/project/1/data-management/properties', 'warehouse', true],
         ['/project/1/pipeline/batch-exports/abc', 'warehouse', true],
@@ -68,9 +47,46 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/sources/abc/schemas', 'products', false],
         ['/project/1/models/abc', 'products', false],
         ['/project/1/warehouse', null, false],
-        ['/project/1/notebooks', 'products', false],
+        ['/project/1/notebooks', 'analytics', false],
     ])('puts %s under %s with the warehouse flag %s', (pathname, pane, warehouseEnabled) => {
         expect(railPaneForPath(pathname, warehouseEnabled)).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/home', 'home'],
+        ['/project/1/home/reports/abc', 'home'],
+        ['/project/1/library', 'products'],
+        ['/project/1/library/feature_flag', 'products'],
+        ['/project/1/ai', 'spaces'],
+        ['/project/1/ai/history', 'spaces'],
+        ['/project/1/spaces/abc', 'spaces'],
+        ['/project/1/feature_flags/920847', 'products'],
+        ['/project/1/insights/abc', 'analytics'],
+        ['/project/1/insights', 'analytics'],
+        ['/project/1/feature_flags', 'products'],
+        ['/project/1/data-management/destinations', 'products'],
+        ['/project/1/web', 'analytics'],
+        ['/project/1/marketing', 'analytics'],
+        ['/project/1/mcp-analytics', 'analytics'],
+        ['/project/1/sql', 'products'],
+        ['/project/1/analytics', 'analytics'],
+        ['/project/1/analytics/all', 'analytics'],
+        ['/project/1/canvases/abc', 'analytics'],
+        ['/project/1/canvases/new', 'analytics'],
+        ['/project/1/notebooks/abc', 'analytics'],
+        ['/project/1/dashboard/12', 'analytics'],
+        ['/project/1/notebooks', 'analytics'],
+        ['/project/1/dashboard', 'analytics'],
+        ['/project/1/persons', 'products'],
+        ['/project/1/activity/events', 'products'],
+        ['/project/1/settings/project-replay', 'settings'],
+        ['/organization/billing/overview', 'settings'],
+        ['/organization/legal/new/dpa', 'settings'],
+        ['/project/1/exports', 'settings'],
+        ['/project/1/airplane', null],
+        ['/project/1/homework', null],
+    ])('puts %s under %s', (pathname, pane) => {
+        expect(railPaneForPath(pathname)).toBe(pane)
     })
 
     test.each([
@@ -84,8 +100,8 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['Notebooks', true],
-        ['Dashboards', true],
+        ['Notebooks', false],
+        ['Dashboards', false],
         ['Session replay', true],
         ['Persons', true],
         ['Activity', true],
@@ -98,18 +114,16 @@ describe('todayShellLogic', () => {
         expect(rows.includes(label)).toBe(ownRow)
     })
 
-    it('finds the Insights row with a search for the Product analytics name', () => {
-        expect(libraryRowProductLabels('insight')).toContain('Product analytics')
+    it('finds the Feature flags row with a search for the product name', () => {
+        expect(libraryRowProductLabels('feature_flag')).toContain('Feature flags')
     })
 
     test.each([
         ['home', '/home'],
-        ['spaces', '/ai'],
-        ['views', '/views'],
-        ['products', '/tools'],
-        ['warehouse', '/warehouse'],
+        ['spaces', '/spaces/new'],
+        ['analytics', '/airplane'],
+        ['products', '/airplane'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
-        setRailFlags({ warehouse: true })
         const logic = todayShellLogic()
         logic.mount()
 
@@ -119,15 +133,34 @@ describe('todayShellLogic', () => {
         expect(logic.values.activePane).toBe(pane)
     })
 
-    it('keeps warehouse routes under Products while the warehouse flag is off', () => {
-        setRailFlags({ warehouse: false })
+    test.each(['spaces', 'analytics', 'products'] as const)(
+        'a second rail click on %s hides the sidebar it opened',
+        (pane) => {
+            const logic = todayShellLogic()
+            logic.mount()
+
+            logic.actions.setSidebarOpen(false)
+            logic.actions.clickRailPane(pane)
+            expect(logic.values.sidebarVisible).toBe(true)
+
+            logic.actions.clickRailPane(pane)
+            expect(logic.values.sidebarVisible).toBe(false)
+        }
+    )
+
+    it('never shows a sidebar on Home, so the page takes the full width', () => {
         const logic = todayShellLogic()
         logic.mount()
 
-        router.actions.push('/project/1/sql')
-        expect(logic.values.todayWarehouseEnabled).toBe(false)
-        expect(logic.values.activePane).toBe('products')
-        expect(logic.values.sceneTabsInSidebar).toBe(false)
+        logic.actions.setSidebarOpen(true)
+        logic.actions.setSidebarWidth(300)
+        logic.actions.clickRailPane('home')
+        expect(logic.values.sidebarVisible).toBe(false)
+        expect(logic.values.sidebarBreadcrumbShown).toBe(false)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+
+        logic.actions.clickRailPane('products')
+        expect(logic.values.sidebarVisible).toBe(true)
     })
 
     it('keeps the last pane open on pages that belong to no pane', () => {
@@ -146,12 +179,32 @@ describe('todayShellLogic', () => {
         const logic = todayShellLogic()
         logic.mount()
 
+        logic.actions.pickPane('products')
         logic.actions.setSidebarOpen(true)
         logic.actions.setSidebarWidth(10_000)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + TODAY_SIDEBAR_MAX_WIDTH)
 
         logic.actions.setSidebarOpen(false)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+    })
+
+    it('keeps the pinned sidebar open on a page change, and hides it once unpinned unless the rail picked the page', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        logic.actions.setSidebarOpen(true)
+        router.actions.push('/project/1/insights')
+        expect(logic.values.sidebarVisible).toBe(true)
+
+        logic.actions.toggleSidebarPinned()
+        router.actions.push('/project/1/insights?tab=all')
+        expect(logic.values.sidebarVisible).toBe(true)
+        router.actions.push('/project/1/cohorts')
+        expect(logic.values.sidebarVisible).toBe(false)
+
+        logic.actions.pickPane('analytics')
+        expect(logic.values.sidebarVisible).toBe(true)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
         const originalWidth = window.innerWidth
@@ -245,7 +298,6 @@ describe('todayShellLogic', () => {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
     })
-
     it('gives a sidebar-less pane the full width without forgetting the sidebar setting', () => {
         setRailFlags({ warehouse: true })
         const logic = todayShellLogic()
@@ -278,13 +330,13 @@ describe('todayShellLogic', () => {
         expect(logic.values.sidebarVisible).toBe(false)
 
         logic.actions.pickPane('home')
-        expect(logic.values.sidebarVisible).toBe(true)
+        expect(logic.values.sidebarVisible).toBe(false)
 
         logic.actions.pickPane('warehouse')
         setRailFlags({ warehouse: false })
         expect(logic.values.activePane).not.toBe('warehouse')
-        expect(logic.values.activePaneHasSidebar).toBe(true)
-        expect(logic.values.sidebarVisible).toBe(true)
+        expect(logic.values.paneHasSidebar).toBe(false)
+        expect(logic.values.sidebarVisible).toBe(false)
     })
 
     test.each([

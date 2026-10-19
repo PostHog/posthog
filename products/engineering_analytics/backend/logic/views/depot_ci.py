@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 )
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    OPTIONAL_WORKFLOW_RUNS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -118,14 +119,19 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
+        actor = "nullIf(pr.author, '')"
         branch_join = f"""
             LEFT JOIN (
-                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+                SELECT
+                    number,
+                    any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch,
+                    any(user) AS author
                 FROM {pull_requests_table}
                 GROUP BY number
             ) AS pr ON {pr_number} = pr.number"""
     else:
         head_branch = "NULL"
+        actor = "NULL"
         branch_join = ""
     # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
@@ -135,6 +141,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {pr_number} AS pr_number,
             coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
             a.repo AS repo,
+            {actor} AS actor,
             coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
             a.run_id AS native_run_id,
             a.workflow_id AS native_workflow_run_id,
@@ -180,7 +187,9 @@ def _runs(attempts: str) -> str:
             ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
-            NULL AS actor,
+            any(actor) AS actor,
+            {OPTIONAL_WORKFLOW_RUNS_COLUMNS["workflow_id"]} AS workflow_id,
+            {OPTIONAL_WORKFLOW_RUNS_COLUMNS["event"]} AS event,
             'depot_ci' AS ci_engine,
             any(native_run_id) AS native_run_id,
             any(native_workflow_run_id) AS native_workflow_run_id
@@ -277,22 +286,29 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
             ) = 'success'
             AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
     """
-    # The runs builder parses JSON columns on every row, so the raw columns narrow its input first.
-    successful_relays = f"id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})"
+    # Depot's PR is the run's association (see ASSOCIATION_PR_NUMBER). The raw columns come first, so
+    # the JSON parse runs only on successful relays.
     return f"""
-        SELECT r.id
-        FROM ({workflow_runs.build_query(f"({_github_runs(runs_table, successful_relays)})")}) AS r
-        WHERE (r.head_sha, r.pr_number) IN (
-            SELECT head_sha, pr_number FROM {handoffs}
-            WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
-        )
+        SELECT id
+        FROM {runs_table}
+        WHERE id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})
+            AND (head_sha, {workflow_runs.ASSOCIATION_PR_NUMBER}) IN (
+                SELECT head_sha, pr_number FROM {handoffs}
+                WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
+            )
     """
 
 
 # UNION ALL matches columns by position, so the GitHub selects name them in the contract order the
 # Depot side follows.
-def _github_runs(table: str, where: str = "1") -> str:
-    return f"""SELECT {", ".join(WORKFLOW_RUNS_COLUMNS)}, 'github_actions' AS ci_engine,
+def _github_runs(table: str, where: str = "1", optional_columns: frozenset[str] = frozenset()) -> str:
+    columns = [
+        column
+        if column not in OPTIONAL_WORKFLOW_RUNS_COLUMNS or column in optional_columns
+        else f"{OPTIONAL_WORKFLOW_RUNS_COLUMNS[column]} AS {column}"
+        for column in WORKFLOW_RUNS_COLUMNS
+    ]
+    return f"""SELECT {", ".join(columns)}, 'github_actions' AS ci_engine,
         toString(id) AS native_run_id, toString(id) AS native_workflow_run_id
         FROM {table} WHERE {where}"""
 
@@ -305,18 +321,25 @@ def _github_jobs(table: str, where: str = "1") -> str:
 
 
 def with_depot_runs(
-    runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None, jobs_table: str | None
+    runs_table: str,
+    depot: DepotJobAttempts | None,
+    pull_requests_table: str | None,
+    jobs_table: str | None,
+    *,
+    optional_columns: frozenset[str] = frozenset(),
 ) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced.
 
     Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
+    ``optional_columns`` names the ``OPTIONAL_WORKFLOW_RUNS_COLUMNS`` that ``runs_table`` has. The
+    others read as NULL.
     """
     if depot is None:
-        return f"({_github_runs(runs_table)})"
+        return f"({_github_runs(runs_table, optional_columns=optional_columns)})"
     handoffs = _handoff_workflows(depot)
     where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
     depot_runs = _runs(_executed_attempts(depot, handoffs, pull_requests_table))
-    return f"({_github_runs(runs_table, where)} UNION ALL {depot_runs})"
+    return f"({_github_runs(runs_table, where, optional_columns)} UNION ALL {depot_runs})"
 
 
 def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> workflow_jobs.JobsTable:

@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react'
+
+import type { XAxisConfig, ChartMargins, ValueDomain } from '@posthog/quill-charts'
+
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
@@ -35,6 +39,13 @@ export type SqlChartProps = {
      *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
     pointClickHint?: string
+    directPointClick?: boolean
+    labelFormatter?: (label: string) => string
+    xAxis?: XAxisConfig
+    margins?: Partial<ChartMargins>
+    /** Shared bounds for comparable charts rendered from the same worksheet result. */
+    valueDomain?: ValueDomain
+    children?: ReactNode
 }
 
 /**

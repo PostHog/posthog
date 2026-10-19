@@ -7,6 +7,76 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface WarehouseSuggestionCertifyPayloadApi {
+    /** Name of the view or table to certify. */
+    subject_name: string
+}
+
+export interface WarehouseSuggestionDeprecatePayloadApi {
+    /** Name of the unread view to deprecate. */
+    subject_name: string
+    /** Time its refreshes take in a month, in seconds. */
+    refresh_seconds_per_month: number
+    /** Bytes its refreshes read in a month. */
+    refresh_bytes_per_month: number
+}
+
+export interface WarehouseSuggestionVisibleSourcesApi {
+    /** Names of the sources the caller may see. */
+    names: string[]
+    /** How many more sources exist that the caller may not see. */
+    hidden_count: number
+}
+
+export interface WarehouseSuggestionMaterializePayloadApi {
+    /** Sources that are always current, such as PostHog tables and direct connections. */
+    live_sources: WarehouseSuggestionVisibleSourcesApi
+    /** Sources with no sync schedule, so their freshness is unknown. */
+    unknown_sources: WarehouseSuggestionVisibleSourcesApi
+    /** Name of the view to materialize. */
+    subject_name: string
+    /** Proposed refresh interval, in seconds. */
+    refresh_interval_seconds: number
+    /** Query time materializing saves in a month, in seconds. */
+    saves_seconds_per_month: number
+    /** Bytes materializing saves from scanning in a month. */
+    saves_bytes_per_month: number
+    /**
+     * How old the view's data can be today, in seconds. Null when its sources are live.
+     * @nullable
+     */
+    freshness_today_seconds: number | null
+    /** How old the data can be once materialized, in seconds. */
+    freshness_after_seconds: number
+}
+
+export type WarehouseSuggestionPayloadApi =
+    | WarehouseSuggestionCertifyPayloadApi
+    | WarehouseSuggestionDeprecatePayloadApi
+    | WarehouseSuggestionMaterializePayloadApi
+
+/**
+ * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
+ */
+export type WarehouseSuggestionEvidenceApiRequestsBySurface = { [key: string]: number }
+
+export interface WarehouseSuggestionEvidenceApi {
+    /** Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any project, so it shows how much history exists, not how active this project is. */
+    days_with_data?: number
+    /** Queries people ran that read the subject in the usage window. */
+    human_requests?: number
+    /** Distinct people who ran those queries. */
+    human_users?: number
+    /** Days on which people read the subject. */
+    human_days?: number
+    /** Queries PostHog ran on its own that read the subject, such as cache warming and alerts. */
+    background_requests?: number
+    /** Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp. */
+    requests_by_surface?: WarehouseSuggestionEvidenceApiRequestsBySurface
+    /** When any query last read the subject, including queries PostHog ran on its own. */
+    last_read_at?: string
+}
+
 export interface WarehouseSuggestionReviewerApi {
     /** User id. */
     id: number
@@ -89,16 +159,6 @@ export const WarehouseSuggestionAssetOutcomeEnumApi = {
 } as const
 
 /**
- * What accepting this suggestion would create or change. Shape depends on kind.
- */
-export type WarehouseSuggestionApiPayload = { [key: string]: unknown }
-
-/**
- * The usage numbers that led to this suggestion.
- */
-export type WarehouseSuggestionApiEvidence = { [key: string]: unknown }
-
-/**
  * What accepting this suggestion created. Null until accepted.
  * @nullable
  */
@@ -106,9 +166,9 @@ export type WarehouseSuggestionApiCreatedAsset = { [key: string]: unknown } | nu
 
 export interface WarehouseSuggestionApi {
     /** What accepting this suggestion would create or change. Shape depends on kind. */
-    payload: WarehouseSuggestionApiPayload
-    /** The usage numbers that led to this suggestion. */
-    evidence: WarehouseSuggestionApiEvidence
+    readonly payload: WarehouseSuggestionPayloadApi
+    /** The read counts that led to this suggestion. A field is missing when the subject had no reads. */
+    evidence: WarehouseSuggestionEvidenceApi
     /**
      * What accepting this suggestion created. Null until accepted.
      * @nullable
@@ -159,8 +219,6 @@ export interface WarehouseSuggestionApi {
     evidence_window_end: string
     /** When the daily job last found evidence for this suggestion. */
     last_seen_at: string
-    /** How strongly the evidence supports the suggestion. Higher comes first. */
-    score: number
     /**
      * When the suggestion was first shown. Null while it waits for a slot.
      * @nullable
@@ -189,6 +247,15 @@ export interface PaginatedWarehouseSuggestionListApi {
     results: WarehouseSuggestionApi[]
 }
 
+export interface AcceptWarehouseSuggestionApi {
+    /**
+     * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+     * @minimum 1
+     * @maximum 2592000
+     */
+    refresh_interval_seconds?: number
+}
+
 export interface DismissWarehouseSuggestionApi {
     /** Why the suggestion is dismissed.
      *
@@ -201,6 +268,27 @@ export interface DismissWarehouseSuggestionApi {
      * @maxLength 1000
      */
     note?: string
+}
+
+export interface WarehouseSuggestionStatusApi {
+    /** False when the project turned suggestions off. */
+    enabled: boolean
+    /** Whether the project reads its views often enough to get suggestions. */
+    eligible: boolean
+    /** Days of read history the last run had, up to the window. */
+    days_with_data: number
+    /** Days of read history a full window holds. */
+    window_days: number
+    /**
+     * Why new suggestions stopped showing. Null while they show.
+     * @nullable
+     */
+    paused_reason: string | null
+    /**
+     * When the daily job last ran for this project.
+     * @nullable
+     */
+    refreshed_at: string | null
 }
 
 export type WarehouseSuggestionsListParams = {
@@ -232,6 +320,10 @@ export type WarehouseSuggestionsListParams = {
      * @minLength 1
      */
     status?: WarehouseSuggestionsListStatus
+    /**
+     * Only return suggestions about the view or table with this ID.
+     */
+    subject_id?: string
 }
 
 export type WarehouseSuggestionsListKind =

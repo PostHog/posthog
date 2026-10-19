@@ -56,6 +56,17 @@ class WorkflowProposalStatus(LabeledStrEnum):
     APPLIED = "applied", "Applied"
 
 
+class WorkflowIdeaStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
+class WorkflowIdeaSource(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    SCOUT = "scout", "Scout"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
@@ -67,6 +78,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
 
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
+    TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
@@ -81,3 +93,45 @@ class HogFlowExitCondition(LabeledStrEnum):
     TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
     TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
     ONLY_AT_END = "exit_only_at_end"
+
+
+class EmailDraftSource(LabeledStrEnum):
+    ERROR_TRACKING = "error_tracking", "Error tracking issue"
+    EARLY_ACCESS = "early_access", "Early access feature"
+    SURVEY = "survey", "Survey"
+    FEATURE_FLAG = "feature_flag", "Feature flag"
+    COHORT = "cohort", "Cohort"
+
+
+class EmailDraftOrigin(LabeledStrEnum):
+    AI = "ai", "AI"
+    TEMPLATE = "template", "Template"
+
+
+class EmailDraftFallbackReason(LabeledStrEnum):
+    FLAG_OFF = "flag_off", "AI drafts are not enabled for this project"
+    AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
+    GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
+    RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"
+    TIMEOUT = "timeout", "The model took too long"
+    MODEL_ERROR = "model_error", "The model call failed"
+    INVALID_OUTPUT = "invalid_output", "The model returned an unusable draft"
+
+
+# pinned: step keys in the setup status API - renaming breaks agents that read them
+class SetupStepKey(LabeledStrEnum):
+    CHANNEL = "channel", "Channel"
+    DOMAIN = "domain", "Domain"
+    OPT_OUTS = "opt-outs", "Opt-outs"
+    SENDING_RULES = "sending-rules", "Sending rules"
+    EMAIL_TEMPLATE = "email-template", "Email template"
+    FIRST_WORKFLOW = "first-workflow", "First workflow"
+
+
+class RealtimeAudienceCohortState(LabeledStrEnum):
+    """How far a realtime cohort audience's membership has come, as the audience size response reports it."""
+
+    READY = "ready", "Ready"
+    BUILDING = "building", "Building"
+    REBUILDING = "rebuilding", "Rebuilding"
+    NEEDS_ATTENTION = "needs_attention", "Needs attention"

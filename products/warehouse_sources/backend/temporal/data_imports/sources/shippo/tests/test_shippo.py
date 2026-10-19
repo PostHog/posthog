@@ -1,13 +1,20 @@
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo import shippo
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import ENDPOINTS, SHIPPO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shippo import (
@@ -18,93 +25,36 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shi
     ShippoUntrustedURLError,
     _validate_pagination_url,
     check_access,
-    get_rows,
-    shippo_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source import ShippoSource
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = shippo._fetch_page.__wrapped__  # type: ignore[attr-defined]
 
 
-class _FakeResumableManager:
-    def __init__(self, state: ShippoResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[ShippoResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> ShippoResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: ShippoResumeConfig) -> None:
-        self.saved.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(ShippoSource(), ShippoSourceConfig(api_key="shippo_test_key"))
 
 
-def _query_params(url: str) -> dict[str, str]:
-    return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
-
-
-def _http_error(status: int) -> requests.HTTPError:
-    response = MagicMock()
-    response.status_code = status
-    return requests.HTTPError(f"{status} Client Error", response=response)
+def _page(results: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"next": next_url, "results": results})
 
 
 class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[str, Any],
-        endpoint: str = "shipments",
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict], list[str]]:
-        requested: list[str] = []
-
-        def fake_fetch(session: Any, url: str, logger: Any) -> dict:
-            requested.append(url)
-            for prefix, response in pages.items():
-                if url.startswith(prefix):
-                    if isinstance(response, Exception):
-                        raise response
-                    return response
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-
-        monkeypatch.setattr(shippo, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(shippo, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="shippo_test_key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-        return rows, requested
-
     @time_machine.travel("2026-07-08T12:00:00Z", tick=False)
-    def test_incremental_walks_creation_windows_under_90_days(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {f"{SHIPPO_BASE_URL}/shipments/": {"next": None, "results": [{"object_id": "s"}]}}
+    def test_incremental_walks_creation_windows_under_90_days(self) -> None:
         # Watermark ~188 days before the frozen clock: needs 3 windows to reach "now".
-        rows, requested = self._collect(
-            manager,
-            monkeypatch,
-            pages,
+        result = _driver().run(
+            "shipments",
+            always(_page([{"object_id": "s"}])),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
 
-        assert len(rows) == 3
-        windows = [
-            (_query_params(url)["object_created_gt"], _query_params(url)["object_created_lte"]) for url in requested
-        ]
+        assert result.raised is None
+        assert len(result.rows) == 3
+        windows = list(zip(result.params("object_created_gt"), result.params("object_created_lte")))
         assert windows == [
             ("2026-01-01T00:00:00Z", "2026-03-31T00:00:00Z"),
             ("2026-03-31T00:00:00Z", "2026-06-28T00:00:00Z"),
@@ -113,7 +63,7 @@ class TestGetRows:
         # Windows are contiguous (gt of window N+1 == lte of window N): no gaps, no overlap.
         assert all(windows[i][1] == windows[i + 1][0] for i in range(len(windows) - 1))
         # Window completion is persisted so a crash between windows resumes from the boundary.
-        completed = [s for s in manager.saved if s.next_url is None]
+        completed = [s for s in result.saved_states if s.next_url is None]
         assert [s.window_start for s in completed] == [
             "2026-03-31T00:00:00Z",
             "2026-06-28T00:00:00Z",
@@ -121,65 +71,69 @@ class TestGetRows:
         ]
 
     @time_machine.travel("2026-07-08T12:00:00Z", tick=False)
-    def test_incremental_resumes_mid_window_then_advances(self, monkeypatch: Any) -> None:
+    def test_incremental_resumes_mid_window_then_advances(self) -> None:
         page_2 = f"{SHIPPO_BASE_URL}/shipments/?page=2&object_created_gt=2026-06-01T00:00:00Z"
-        manager = _FakeResumableManager(ShippoResumeConfig(next_url=page_2, window_start="2026-06-01T00:00:00Z"))
-        pages: dict[str, dict] = {
-            page_2: {"next": None, "results": [{"object_id": "resumed"}]},
-            f"{SHIPPO_BASE_URL}/shipments/?results=": {"next": None, "results": []},
-        }
-        rows, requested = self._collect(
-            manager,
-            monkeypatch,
-            pages,
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            return _page([{"object_id": "resumed"}] if request.url == page_2 else [])
+
+        result = _driver().run(
+            "shipments",
+            script,
+            resume_state=ShippoResumeConfig(next_url=page_2, window_start="2026-06-01T00:00:00Z"),
             should_use_incremental_field=True,
             # Stale watermark must be superseded by the resumed window position.
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
 
-        assert rows == [{"object_id": "resumed"}]
+        assert result.raised is None
+        assert result.rows == [{"object_id": "resumed"}]
         # First request is the saved page URL, not a rebuilt window from the watermark.
-        assert requested[0] == page_2
+        assert result.urls[0] == page_2
         # The rest of the run continues from the resumed window's end, not from January.
-        assert all("2026-01-01" not in url for url in requested[1:])
+        assert all("2026-01-01" not in url for url in result.urls[1:])
 
-    def test_incremental_without_watermark_falls_back_to_full_pagination(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, requested = self._collect(
-            manager,
-            monkeypatch,
-            {f"{SHIPPO_BASE_URL}/shipments/?results={PAGE_SIZE}": {"next": None, "results": [{"object_id": "s"}]}},
+    def test_incremental_without_watermark_falls_back_to_full_pagination(self) -> None:
+        result = _driver().run(
+            "shipments",
+            [_page([{"object_id": "s"}])],
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
-        assert rows == [{"object_id": "s"}]
-        assert "object_created_gt" not in requested[0]
 
-    def test_pagination_cap_404_ends_the_table_without_failing(self, monkeypatch: Any) -> None:
+        assert result.raised is None
+        assert result.rows == [{"object_id": "s"}]
+        assert result.urls == [f"{SHIPPO_BASE_URL}/shipments/?results={PAGE_SIZE}"]
+        assert result.params("object_created_gt") == [None]
+
+    def test_pagination_cap_404_ends_the_table_without_failing(self) -> None:
         # Shippo advertises a `next` link past its deepest addressable page and 404s that page.
         # Following it must finish the table, not fail the whole sync.
-        manager = _FakeResumableManager()
         capped_page = f"{SHIPPO_BASE_URL}/addresses/?page=1001&results={PAGE_SIZE}"
-        pages: dict[str, Any] = {
-            capped_page: _http_error(404),
-            f"{SHIPPO_BASE_URL}/addresses/?results={PAGE_SIZE}": {
-                "next": capped_page,
-                "results": [{"object_id": "a"}],
-            },
-        }
-        rows, requested = self._collect(manager, monkeypatch, pages, endpoint="addresses")
 
-        assert rows == [{"object_id": "a"}]
-        assert requested[-1] == capped_page
+        result = _driver().run(
+            "addresses",
+            [_page([{"object_id": "a"}], capped_page), ScriptedResponse(status=404)],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"object_id": "a"}]
+        assert result.urls[-1] == capped_page
 
     @parameterized.expand([("unpaged_first_page", ""), ("explicit_first_page", "page=1&")])
     def test_404_outside_the_pagination_cap_still_fails(self, _name: str, page_param: str) -> None:
         # A 404 that is not a deep-page refusal means the endpoint itself is gone; swallowing it
         # would silently sync an empty table.
         url = f"{SHIPPO_BASE_URL}/addresses/?{page_param}results={PAGE_SIZE}"
-        manager = _FakeResumableManager(ShippoResumeConfig(next_url=url) if page_param else None)
-        with pytest.MonkeyPatch.context() as monkeypatch, pytest.raises(requests.HTTPError):
-            self._collect(manager, monkeypatch, {url: _http_error(404)}, endpoint="addresses")
+
+        result = _driver().run(
+            "addresses",
+            [ScriptedResponse(status=404)],
+            resume_state=ShippoResumeConfig(next_url=url) if page_param else None,
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.urls == [url]
 
 
 class TestValidatePaginationURL:
@@ -245,15 +199,6 @@ class TestFetchPage:
 
 
 class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -262,25 +207,20 @@ class TestCheckAccess:
             ("server_error", 500, False, "Shippo returned HTTP 500"),
         ]
     )
-    @patch(f"{shippo.__name__}.make_tracked_session")
     def test_validate_credentials_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
-        assert validate_credentials("shippo_test_key") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))):
+            assert validate_credentials("shippo_test_key") == (expected_valid, expected_message)
 
-    @patch(f"{shippo.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("shippo_test_key")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            status, message = check_access("shippo_test_key")
+
         assert status == 0
         assert message is not None and "boom" in message
 
@@ -288,12 +228,9 @@ class TestCheckAccess:
 class TestShippoSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = shippo_source(
-            api_key="shippo_test_key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver().run(endpoint, always(_page([])))
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["object_id"]
         # Shippo doesn't document list ordering, so the watermark must only commit at run end.

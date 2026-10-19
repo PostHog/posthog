@@ -7,12 +7,16 @@ with, so a served score is the value the dag would produce for the same model an
 
 Nothing is written until every report of the call is scored, so a failure part of the way through
 a call writes nothing.
+
+A model that reads its team's project vectors gets the team's row of the day the manifest names,
+repeated for each report, through the same `project_inputs` the training dag builds them with.
 """
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import structlog
 
@@ -24,26 +28,32 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
     EMBEDDING_INSERTED_AT_COLUMN,
     REPORT_EMBEDDINGS_EXTRA,
-    TITLE_EMBEDDINGS_EXTRA,
     FeatureSet,
+    ProjectInputs,
     ReportEmbeddingsFeatureSet,
 )
 from products.signals.backend.ranking.model_contract import head_lifts
-from products.signals.backend.ranking.model_store import LoadedModel, ServingSet, load_serving_set
+from products.signals.backend.ranking.model_store import (
+    LoadedModel,
+    ProjectVectors,
+    ServingSet,
+    load_project_vectors,
+    load_serving_set,
+)
 from products.signals.backend.ranking.serving_manifest import ServingManifestEntry
 from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
-from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
 
 logger = structlog.get_logger(__name__)
 
 NO_VECTOR = "no_vector"
+NO_PROJECT_VECTORS = "no_project_vectors"
 
 # The rendering each embedding side input is the vector of. The dataset dag snapshots the same
 # renderings under the same keys, so a model reads the text it was fit on.
 RENDERING_BY_EXTRA: Mapping[str, str] = {
     REPORT_EMBEDDINGS_EXTRA: EMBEDDING_RENDERING_TITLE_SUMMARY,
-    TITLE_EMBEDDINGS_EXTRA: EMBEDDING_RENDERING_TITLE,
 }
 
 # A model that did not load has no feature contract this pass could read.
@@ -99,6 +109,22 @@ def served_rendering(serving: ServingSet) -> str:
     return RENDERING_BY_EXTRA[_served_model_extra(serving.served)]
 
 
+def pass_project_vectors(serving: ServingSet, team_ids: Sequence[int]) -> ProjectVectors | None:
+    """The project vectors of `team_ids`, read once for a pass, or None when no model reads them.
+
+    A failed read is no vectors at all, so it costs only the models that read them.
+    """
+    if not any(model.reads_project_vectors for model in (serving.served, *serving.others)):
+        return None
+    try:
+        return load_project_vectors(serving.manifest, team_ids)
+    except Exception:
+        logger.exception(
+            "inbox_ranking_project_vectors_unreadable", project_vectors_key=serving.manifest.project_vectors
+        )
+        return ProjectVectors(available=False, by_team={})
+
+
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:
     present = [report_id for report_id in report_ids if report_id in vectors]
     return pd.DataFrame(
@@ -111,13 +137,18 @@ def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]
 
 
 def _score_model(
-    model: LoadedModel, report_ids: Sequence[str], vectors_by_extra: Mapping[str, Mapping[str, ReportVector]]
+    model: LoadedModel,
+    report_ids: Sequence[str],
+    vectors_by_extra: Mapping[str, Mapping[str, ReportVector]],
+    team_project: ProjectInputs | None,
 ) -> _ModelScores:
     extra = _served_extra(model.feature_set)
     if extra is None:
         return _ModelScores(
             model=model, by_report={}, skip_reason=f"feature set {model.feature_set.name} is not served yet"
         )
+    if model.reads_project_vectors and team_project is None:
+        return _ModelScores(model=model, by_report={}, skip_reason=NO_PROJECT_VECTORS)
     rows = pd.DataFrame(index=pd.Index(list(report_ids), name="report_id"))
     extras = {extra: _extras_frame(report_ids, vectors_by_extra[extra])}
     # `as_of=None`: serving scores the latest vector, where training reads the one of its moment.
@@ -125,7 +156,13 @@ def _score_model(
     if not buildable.any():
         return _ModelScores(model=model, by_report={}, skip_reason=None)
     matrix = model.feature_set.build_matrix(rows, extras, as_of=None).loc[buildable]
-    probabilities = model.predict(matrix.to_numpy())
+    project = None
+    if model.reads_project_vectors and team_project is not None:
+        project = ProjectInputs(
+            vectors=np.repeat(team_project.vectors, len(matrix), axis=0),
+            has_history=np.repeat(team_project.has_history, len(matrix), axis=0),
+        )
+    probabilities = model.predict(matrix.to_numpy(), project)
     by_report = {
         report_id: {head: float(values[index]) for head, values in probabilities.items()}
         for index, report_id in enumerate(matrix.index)
@@ -176,6 +213,7 @@ def score_reports(
     now: datetime,
     serving: ServingSet | None = None,
     capture: ScopedCapture | None = None,
+    project_vectors: ProjectVectors | None = None,
 ) -> list[ReportScoringOutcome]:
     """One outcome per distinct report id, in the order given.
 
@@ -183,8 +221,10 @@ def score_reports(
     so the caller can try it again later. A challenger with no vector is a skipped result inside
     the score. `persist=False` returns the scores and writes nothing.
 
-    A caller that scores many teams passes the `serving` set it loaded and one `capture`, so each
-    team does not read the manifest from object storage again or flush its own events.
+    A caller that scores many teams passes the `serving` set it loaded, one `capture`, and the
+    `project_vectors` of every team it scores, so each team does not read the manifest or the
+    project vectors from object storage again or flush its own events. A served model that reads
+    project vectors when the pass has none raises, because no report could get a served score.
     """
     if serving is None:
         serving = load_serving_set()
@@ -198,11 +238,16 @@ def score_reports(
     served_extra = _served_model_extra(served)
 
     models = [served, *serving.others]
+    if project_vectors is None:
+        project_vectors = pass_project_vectors(serving, [team_id])
+    team_project = project_vectors.for_team(team_id) if project_vectors is not None else None
+    if served.reads_project_vectors and team_project is None:
+        raise ScoringError(f"served model {served.entry.key} reads project vectors and the pass has none")
     needed_extras = {extra for model in models if (extra := _served_extra(model.feature_set)) is not None}
     vectors_by_extra = {
         extra: latest_report_vectors(team_id, ids, rendering=RENDERING_BY_EXTRA[extra]) for extra in needed_extras
     }
-    scored_models = {model.entry.key: _score_model(model, ids, vectors_by_extra) for model in models}
+    scored_models = {model.entry.key: _score_model(model, ids, vectors_by_extra, team_project) for model in models}
     served_key = serving.manifest.served.key
     served_vectors = vectors_by_extra[served_extra]
 

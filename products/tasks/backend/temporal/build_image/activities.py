@@ -22,6 +22,7 @@ from products.tasks.backend.logic.services.image_spec import (
     validate_image_repository,
     validate_spec_buildable,
 )
+from products.tasks.backend.logic.services.task_filesystem import TASK_FILESYSTEM_LOCAL_SCRIPT, TASK_FILESYSTEM_SCRIPT
 from products.tasks.backend.metrics import observe_custom_image_build
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -271,6 +272,10 @@ def _compose_modal_image(
     if spec.repo_setup_commands:
         image = _attach_repo_warm_layer(image, spec)
 
+    image = image.add_local_file(TASK_FILESYSTEM_LOCAL_SCRIPT, TASK_FILESYSTEM_SCRIPT, copy=True).run_commands(
+        f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} seed-home"
+    )
+
     return image, app, base_image_reference
 
 
@@ -410,7 +415,5 @@ def mark_image_build_failed(input: MarkImageBuildFailedInput) -> None:
                 else SandboxCustomImage.Status.BUILD_FAILED
             )
             image.error = input.error[:2000]
-            if input.refresh:
-                image.base_image_refresh_reference = None
-            image.save(update_fields=["status", "error", "base_image_refresh_reference", "updated_at"])
+            image.save(update_fields=["status", "error", "updated_at"])
             observe_custom_image_build("failed")

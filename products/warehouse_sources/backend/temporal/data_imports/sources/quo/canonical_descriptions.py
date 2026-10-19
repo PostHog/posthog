@@ -61,6 +61,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "The data type of the custom contact field.",
         },
     },
+    "contact_notes": {
+        "description": "The notes your team left on contacts in your Quo workspace.",
+        "docs_url": "https://www.quo.com/docs/2026-03-30/contact-notes/list-notes-for-a-contact",
+        "columns": {
+            "id": "The unique identifier of the note.",
+            "contactId": "The unique identifier of the contact the note belongs to.",
+            "text": "The body of the note.",
+            "media": "The attachments on the note, each with a URL, MIME type and file name.",
+            "actorId": "The unique identifier of the user who wrote the note.",
+            "createdAt": "Timestamp of note creation, in ISO 8601 format.",
+            "updatedAt": "Timestamp of last note update, in ISO 8601 format.",
+        },
+    },
     "conversations": {
         "description": "The call and message conversations in your Quo workspace, one per phone number and participant set.",
         "docs_url": "https://www.quo.com/docs/mdx/api-reference/conversations/list-conversations",

@@ -881,6 +881,9 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -911,6 +914,9 @@ export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOp
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -1234,6 +1240,7 @@ export const ExperimentsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1300,6 +1307,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1361,6 +1369,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1424,6 +1433,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1484,6 +1494,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1544,6 +1555,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1611,6 +1623,7 @@ export const ExperimentsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1669,6 +1682,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1729,6 +1743,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1793,6 +1808,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1853,6 +1869,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1962,6 +1979,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2022,6 +2040,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2082,6 +2101,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2142,6 +2162,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2198,6 +2219,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2258,6 +2280,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2314,6 +2337,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2374,6 +2398,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2437,6 +2462,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2506,6 +2532,7 @@ export const ExperimentsCreateBody = () => zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -2578,6 +2605,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -2650,6 +2678,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -2716,6 +2745,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -2834,6 +2864,7 @@ export const ExperimentsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2940,6 +2971,7 @@ export const ExperimentsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3006,6 +3038,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3067,6 +3100,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3130,6 +3164,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3190,6 +3225,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3250,6 +3286,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3317,6 +3354,7 @@ export const ExperimentsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3375,6 +3413,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3435,6 +3474,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3499,6 +3539,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3559,6 +3600,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3668,6 +3710,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3728,6 +3771,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3788,6 +3832,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3848,6 +3893,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3904,6 +3950,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -3964,6 +4011,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4020,6 +4068,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4080,6 +4129,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4143,6 +4193,7 @@ export const ExperimentsCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -4212,6 +4263,7 @@ export const ExperimentsCreateBody = () => zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -4284,6 +4336,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -4356,6 +4409,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -4422,6 +4476,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -4540,6 +4595,7 @@ export const ExperimentsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4606,6 +4662,81 @@ export const ExperimentsCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -4699,6 +4830,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4854,6 +4986,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5076,6 +5209,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5268,6 +5402,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -5412,6 +5547,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5559,6 +5695,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5648,6 +5785,81 @@ export const ExperimentsCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -5741,6 +5953,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5896,6 +6109,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6118,6 +6332,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6310,6 +6525,7 @@ export const ExperimentsCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -6454,6 +6670,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6601,6 +6818,7 @@ export const ExperimentsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -6856,6 +7074,9 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -6886,6 +7107,9 @@ export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOn
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -7207,6 +7431,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -7273,6 +7498,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7334,6 +7560,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7397,6 +7624,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7457,6 +7685,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7517,6 +7746,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7584,6 +7814,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -7642,6 +7873,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7702,6 +7934,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7766,6 +7999,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7826,6 +8060,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7935,6 +8170,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -7995,6 +8231,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8055,6 +8292,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8115,6 +8353,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8171,6 +8410,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8231,6 +8471,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8287,6 +8528,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8347,6 +8589,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8410,6 +8653,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -8479,6 +8723,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -8551,6 +8796,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -8623,6 +8869,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -8689,6 +8936,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -8807,6 +9055,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -8913,6 +9162,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -8979,6 +9229,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9040,6 +9291,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9103,6 +9355,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9163,6 +9416,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9223,6 +9477,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9290,6 +9545,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -9348,6 +9604,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9408,6 +9665,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9472,6 +9730,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9532,6 +9791,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9641,6 +9901,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9701,6 +9962,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9761,6 +10023,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9821,6 +10084,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9877,6 +10141,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9937,6 +10202,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -9993,6 +10259,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -10053,6 +10320,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -10116,6 +10384,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -10185,6 +10454,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -10257,6 +10527,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -10329,6 +10600,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -10395,6 +10667,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -10513,6 +10786,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -10579,6 +10853,81 @@ export const ExperimentsPartialUpdateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -10672,6 +11021,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -10827,6 +11177,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11049,6 +11400,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11241,6 +11593,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -11385,6 +11738,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11532,6 +11886,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11621,6 +11976,81 @@ export const ExperimentsPartialUpdateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -11714,6 +12144,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -11869,6 +12300,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12095,6 +12527,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12287,6 +12720,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -12431,6 +12865,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12578,6 +13013,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -12910,6 +13346,9 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -12940,6 +13379,9 @@ export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneProperties
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -13159,6 +13601,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -13225,6 +13668,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13286,6 +13730,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13349,6 +13794,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13409,6 +13855,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13469,6 +13916,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13536,6 +13984,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -13594,6 +14043,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13654,6 +14104,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13718,6 +14169,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13778,6 +14230,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13887,6 +14340,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -13947,6 +14401,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14007,6 +14462,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14067,6 +14523,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14123,6 +14580,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14183,6 +14641,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14239,6 +14698,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14299,6 +14759,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14362,6 +14823,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14431,6 +14893,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -14503,6 +14966,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -14575,6 +15039,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -14641,6 +15106,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -14759,6 +15225,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -14865,6 +15332,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -14931,6 +15399,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -14992,6 +15461,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15055,6 +15525,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15115,6 +15586,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15175,6 +15647,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15242,6 +15715,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -15300,6 +15774,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15360,6 +15835,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15424,6 +15900,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15484,6 +15961,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15593,6 +16071,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15653,6 +16132,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15713,6 +16193,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15773,6 +16254,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15829,6 +16311,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15889,6 +16372,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -15945,6 +16429,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -16005,6 +16490,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -16068,6 +16554,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -16137,6 +16624,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                                 'in',
                                                                                 'not_in',
                                                                                 'is_cleaned_path_exact',
+                                                                                'is_cleaned_path_not_exact',
                                                                                 'flag_evaluates_to',
                                                                                 'semver_eq',
                                                                                 'semver_neq',
@@ -16209,6 +16697,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -16281,6 +16770,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -16347,6 +16837,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -16465,6 +16956,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -16531,6 +17023,81 @@ export const ExperimentsDuplicateCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -16624,6 +17191,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -16779,6 +17347,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17001,6 +17570,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17193,6 +17763,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -17337,6 +17908,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17484,6 +18056,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17573,6 +18146,81 @@ export const ExperimentsDuplicateCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe('Properties to break the metric results down by.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -17666,6 +18314,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -17821,6 +18470,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -18047,6 +18697,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -18239,6 +18890,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                         'in',
                                                                         'not_in',
                                                                         'is_cleaned_path_exact',
+                                                                        'is_cleaned_path_not_exact',
                                                                         'flag_evaluates_to',
                                                                         'semver_eq',
                                                                         'semver_neq',
@@ -18383,6 +19035,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -18530,6 +19183,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -18886,10 +19540,10 @@ export const ExperimentsMetricsRecalculationLatestRetrieveParams = () => zod.obj
  * Move a legacy experiment onto the new experiments engine.
  *
  * Creates a new experiment with the same configuration and its metrics converted
- * to the new format, and returns it. The legacy experiment is left untouched and
- * keeps its results, so the project ends up with two experiments. Both point at
- * the same feature flag, so no new rollout is needed and users keep the variant
- * they already have.
+ * to the new format, and returns it. Legacy experiments no longer show results,
+ * so this is how to get results for one. The legacy experiment is left untouched,
+ * so the project ends up with two experiments. Both point at the same feature
+ * flag, so no new rollout is needed and users keep the variant they already have.
  *
  * Legacy shared metrics used by the experiment are converted as part of the same
  * call. Each one gets a new shared metric, and the new experiment links to that.
@@ -19454,6 +20108,7 @@ export const ExperimentsSetupContextCreateBody = () => zod
                                             'in',
                                             'not_in',
                                             'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
                                             'flag_evaluates_to',
                                             'semver_eq',
                                             'semver_neq',
@@ -19516,6 +20171,7 @@ export const ExperimentsSetupContextCreateBody = () => zod
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -19597,6 +20253,7 @@ export const ExperimentsSetupContextCreateBody = () => zod
                                             'in',
                                             'not_in',
                                             'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
                                             'flag_evaluates_to',
                                             'semver_eq',
                                             'semver_neq',
@@ -19659,6 +20316,7 @@ export const ExperimentsSetupContextCreateBody = () => zod
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',

@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import Any
+
 from posthog.dataclasses import frozen
 
 CONFIG_API_VERSION = "2014-11-12"
@@ -17,6 +20,27 @@ class AwsConfigEndpoint:
     description: str
     page_size: int | None = None
     expression: str | None = None
+    params: Mapping[str, Any] | None = None
+    flatten: tuple[str, ...] = ()
+    # Child endpoints run once per parent row, passing the parent's `parent_param` value through.
+    parent: "AwsConfigEndpoint | None" = None
+    parent_param: str | None = None
+
+
+CONFIG_RULES = AwsConfigEndpoint(
+    operation="DescribeConfigRules",
+    result_key="ConfigRules",
+    primary_key=("config_rule_arn",),
+    description="AWS Config rules, their evaluation settings, and resource scopes.",
+)
+
+CONFIGURATION_AGGREGATORS = AwsConfigEndpoint(
+    operation="DescribeConfigurationAggregators",
+    result_key="ConfigurationAggregators",
+    primary_key=("configuration_aggregator_arn",),
+    description="Configuration aggregators in the selected region.",
+    page_size=100,
+)
 
 
 AWS_CONFIG_ENDPOINTS: dict[str, AwsConfigEndpoint] = {
@@ -28,12 +52,7 @@ AWS_CONFIG_ENDPOINTS: dict[str, AwsConfigEndpoint] = {
         page_size=100,
         expression=RESOURCE_EXPRESSION,
     ),
-    "config_rules": AwsConfigEndpoint(
-        operation="DescribeConfigRules",
-        result_key="ConfigRules",
-        primary_key=("config_rule_arn",),
-        description="AWS Config rules, their evaluation settings, and resource scopes.",
-    ),
+    "config_rules": CONFIG_RULES,
     "rule_compliance": AwsConfigEndpoint(
         operation="DescribeComplianceByConfigRule",
         result_key="ComplianceByConfigRules",
@@ -46,6 +65,35 @@ AWS_CONFIG_ENDPOINTS: dict[str, AwsConfigEndpoint] = {
         primary_key=("conformance_pack_arn",),
         description="Conformance packs and their deployment settings in the selected region.",
         page_size=20,
+    ),
+    "conformance_pack_compliance_scores": AwsConfigEndpoint(
+        operation="ListConformancePackComplianceScores",
+        result_key="ConformancePackComplianceScores",
+        primary_key=("region", "conformance_pack_name"),
+        description="Percentage of compliant rule and resource combinations in each conformance pack.",
+        page_size=20,
+    ),
+    "rule_evaluation_results": AwsConfigEndpoint(
+        operation="GetComplianceDetailsByConfigRule",
+        result_key="EvaluationResults",
+        primary_key=("region", "config_rule_name", "resource_type", "resource_id"),
+        description="Latest evaluation result for each resource that each AWS Config rule evaluated.",
+        page_size=100,
+        # INSUFFICIENT_DATA is not a valid filter value, so the three filterable outcomes are listed explicitly.
+        params={"ComplianceTypes": ["COMPLIANT", "NON_COMPLIANT", "NOT_APPLICABLE"]},
+        flatten=("EvaluationResultIdentifier", "EvaluationResultQualifier"),
+        parent=CONFIG_RULES,
+        parent_param="ConfigRuleName",
+    ),
+    "aggregated_resources": AwsConfigEndpoint(
+        operation="SelectAggregateResourceConfig",
+        result_key="Results",
+        primary_key=("configuration_aggregator_name", "account_id", "aws_region", "resource_type", "resource_id"),
+        description="Current configurations of resources across the accounts and regions of each configuration aggregator in the selected region.",
+        page_size=100,
+        expression=RESOURCE_EXPRESSION,
+        parent=CONFIGURATION_AGGREGATORS,
+        parent_param="ConfigurationAggregatorName",
     ),
 }
 

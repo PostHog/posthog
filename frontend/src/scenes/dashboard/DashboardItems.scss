@@ -12,16 +12,16 @@
 }
 
 .react-grid-layout {
+    --tile-hog-slide-duration: 200ms; // Also drives the hog's slide in TileDecorations.scss
+    --dashboard-tile-transition:
+        transform 220ms ease-out, width 220ms ease-out, height 220ms ease-out, border-color 100ms ease;
+
     position: relative;
     transition: height 100ms ease;
 
     /* Preserve the tile border transition while spacing changes animate. */
     &.dashboard-view-mode .react-grid-item {
-        transition:
-            transform 220ms ease-out,
-            width 220ms ease-out,
-            height 220ms ease-out,
-            border-color 100ms ease;
+        transition: var(--dashboard-tile-transition);
 
         /* Skip rendering for off-screen tiles during resize/reflow */
         content-visibility: auto;
@@ -30,6 +30,29 @@
         /* content-visibility paint-clips the resize handles revealed on border hover; lift it while one shows */
         &:has(> .handle) {
             content-visibility: visible;
+        }
+
+        /* Tile decorations draw outside the tile box, so the same paint clip would cut them off */
+        &:has(> .TileDecorations__group-title, > .TileDecorations__crown) {
+            content-visibility: visible;
+        }
+
+        /* The hog only shows while hovered. On leave, hold the lift for the hog's slide down (browsers without discrete content-visibility transitions hide it at once) */
+        &:where(:has(> .TileDecorations__hog)) {
+            &:hover {
+                content-visibility: visible;
+                transition-delay: 0s;
+            }
+
+            @supports (transition-behavior: allow-discrete) {
+                transition:
+                    var(--dashboard-tile-transition),
+                    content-visibility 0s linear var(--tile-hog-slide-duration) allow-discrete;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                transition: var(--dashboard-tile-transition);
+            }
         }
     }
 
@@ -43,6 +66,10 @@
 
     &.dashboard-layout-interaction .react-grid-item {
         transition: none;
+    }
+
+    &.dashboard-edit-mode .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
+        visibility: hidden;
     }
 
     &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
@@ -99,6 +126,16 @@
     display: none;
 }
 
+@keyframes DashboardResizeHandle__Reveal {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
 .react-grid-item {
     box-sizing: border-box;
     transition:
@@ -120,6 +157,7 @@
         align-items: flex-end;
         justify-content: center;
         pointer-events: none;
+        animation: DashboardResizeHandle__Reveal 300ms step-end;
 
         &.horizontal {
             svg {
@@ -165,6 +203,10 @@
                 transform: translate(0.5rem, 0.5rem);
             }
 
+            &.bottom-right svg {
+                transform: translate(-0.25rem, -0.25rem);
+            }
+
             &.bottom-left {
                 align-items: flex-end;
                 justify-content: flex-start;
@@ -194,6 +236,10 @@
         }
     }
 
+    &.resizing > .handle {
+        animation: none;
+    }
+
     & > .react-resizable-handle {
         position: absolute;
         right: -0.5rem;
@@ -205,6 +251,8 @@
     }
 
     & > .react-resizable-handle.react-resizable-handle-se {
+        right: 0;
+        bottom: 0;
         cursor: se-resize;
     }
 

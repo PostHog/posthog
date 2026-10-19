@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 import zstd
 import redis.exceptions
@@ -44,7 +44,7 @@ from posthog.storage.hypercache_verifier import (
 from posthog.storage.object_storage import ObjectStorageError
 
 
-class TestVerificationResult(TestCase):
+class TestVerificationResult(SimpleTestCase):
     """Test VerificationResult dataclass functionality."""
 
     def test_default_values(self):
@@ -885,6 +885,41 @@ class TestVerifyAndFixBatch(BaseTest):
         assert received_cache_batch_data[0] == {}
         assert result.total == 1
         assert result.errors == 0  # Should not count as error, just fallback
+
+    def test_expiry_tracking_timeout_skips_expiry_fixes_without_aborting_batch(self):
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None
+        mock_config.get_primary_writer_fn = None
+        mock_config.get_team_ids_to_skip_fix_fn = None
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+        mock_config.update_fn.return_value = True
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        statuses = {self.team.id: "match", other_team.id: "miss"}
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": statuses[team.id], "issue": None}
+
+        with patch(
+            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking",
+            side_effect=redis.exceptions.TimeoutError("Timeout reading from socket"),
+        ):
+            _verify_and_fix_batch(
+                teams=[self.team, other_team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        assert result.total == 2
+        assert result.errors == 0
+        assert result.expiry_missing_fixed == 0
+        assert result.cache_miss_fixed == 1
+        mock_config.update_fn.assert_called_once_with(other_team)
 
     def test_get_team_ids_to_skip_fix_fn_skips_mismatch_fix(self):
         """A mismatch on a skip-listed (recently updated) team is left for the in-flight

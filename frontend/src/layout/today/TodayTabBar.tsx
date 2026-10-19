@@ -5,7 +5,7 @@ import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
-import { TODAY_RAIL_ITEMS, withoutWarehouse } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_PANES, withoutWarehouse } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
 const TAB_CLASS =
@@ -13,13 +13,14 @@ const TAB_CLASS =
 
 export function TodayTabBar(): JSX.Element {
     const { activePane, todayWarehouseEnabled } = useValues(todayShellLogic)
-    const { pickPane } = useActions(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {withoutWarehouse(TODAY_RAIL_ITEMS, todayWarehouseEnabled).map(({ pane, label, icon }) => {
+                {withoutWarehouse(TODAY_RAIL_PANES, todayWarehouseEnabled).map((pane) => {
+                    const { label, icon } = TODAY_PANES[pane]
                     const active = activePane === pane
                     return (
                         <button
@@ -27,7 +28,7 @@ export function TodayTabBar(): JSX.Element {
                             type="button"
                             aria-current={active ? 'page' : undefined}
                             data-attr={`today-rail-${pane}`}
-                            onClick={() => pickPane(pane)}
+                            onClick={() => clickRailPane(pane)}
                             className={cn(
                                 TAB_CLASS,
                                 active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground'

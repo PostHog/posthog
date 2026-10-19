@@ -37,6 +37,7 @@ from django.db.models import (
     Count,
     DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
     Field,
     FloatField,
@@ -113,6 +114,7 @@ from products.customer_analytics.backend.logic import (
     customer_tasks as _customer_tasks_logic,
     feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
+    key_metrics as _key_metrics_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
@@ -1836,19 +1838,9 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
 
 def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. ``sync_frequency_interval`` is null once the view's DAG runs on a shared
-    schedule (the frequency lives on the DAG node), which leaves the next run unknown rather than
-    guessable — so both schedule fields stay None."""
-    interval = saved_query.sync_frequency_interval
-    next_sync_at = (
-        saved_query.last_run_at + interval if interval is not None and saved_query.last_run_at is not None else None
-    )
-    return _ProfileWarehouseMeta(
-        table_name=saved_query.name,
-        sync_frequency_interval_seconds=interval.total_seconds() if interval is not None else None,
-        next_sync_at=next_sync_at,
-        saved_query_name=saved_query.name,
-    )
+    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
+    unknown rather than guessable — so both schedule fields stay None."""
+    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
 
 
 def _resolve_profile_warehouse_meta(
@@ -3701,6 +3693,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
+    inactive_last: bool = False,
 ) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
@@ -3731,7 +3724,15 @@ def list_accounts_for_view(
             .values("account_id")
         )
 
-    queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
+    order_fields = [ordering or "-created_at"]
+    if inactive_last:
+        queryset = queryset.annotate(
+            is_inactive=ExpressionWrapper(
+                Q(churned_at__isnull=False) | Q(ignored_at__isnull=False), output_field=BooleanField()
+            )
+        )
+        order_fields.insert(0, "is_inactive")
+    queryset = queryset.order_by(*order_fields)
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
@@ -3786,6 +3787,7 @@ def update_account(
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
     churned_at: "datetime | None | _Unset" = _UNSET,
+    ignored_at: "datetime | None | _Unset" = _UNSET,
     allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
@@ -3818,6 +3820,9 @@ def update_account(
     if not isinstance(churned_at, _Unset):
         account.churned_at = churned_at
         update_fields.append("churned_at")
+    if not isinstance(ignored_at, _Unset):
+        account.ignored_at = ignored_at
+        update_fields.append("ignored_at")
     if update_fields:
         account.save(update_fields=update_fields)
     if matching_expanded:
@@ -3837,6 +3842,7 @@ def create_account(
     tags: list[str] | None = None,
     slack_summary_cadence: str | None = None,
     churned_at: datetime | None = None,
+    ignored_at: datetime | None = None,
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
@@ -3855,6 +3861,7 @@ def create_account(
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
                 slack_summary_cadence=slack_summary_cadence,
                 churned_at=churned_at,
+                ignored_at=ignored_at,
             )
             _set_tags(tags, account, actor=created_by)
     except PydanticValidationError as exc:
@@ -3891,6 +3898,7 @@ def create_account_for_view(
         tags=input.tags,
         slack_summary_cadence=input.slack_summary_cadence,
         churned_at=input.churned_at,
+        ignored_at=input.ignored_at,
         was_impersonated=was_impersonated,
     )
     return _to_account_details(account)
@@ -3923,6 +3931,8 @@ def update_account_for_view(
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
     if input.churned_at_provided:
         update_kwargs["churned_at"] = input.churned_at
+    if input.ignored_at_provided:
+        update_kwargs["ignored_at"] = input.ignored_at
     update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
@@ -5733,3 +5743,8 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
     except SupportSlackChannelsUnavailable:
         logger.warning("announcement_channels_unavailable", team_id=team_id)
         return []
+
+
+def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
+    """The key metrics, or None while a background calculation is still running."""
+    return _key_metrics_logic.key_metrics(team, user)

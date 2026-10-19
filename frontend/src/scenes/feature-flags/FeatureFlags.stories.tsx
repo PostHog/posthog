@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -49,6 +50,14 @@ const meta: Meta = {
                         type: 'invalid',
                         code: 'not_found',
                         detail: 'Not found.',
+                    },
+                ],
+                '/api/projects/:team_id/feature_flags/2222222222222/': [
+                    500,
+                    {
+                        type: 'server_error',
+                        code: 'error',
+                        detail: 'Something went wrong.',
                     },
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
@@ -252,9 +261,37 @@ export const DeletedFeatureFlag: Story = {
     },
 }
 
+// The banner has no Restore button, because the server refuses to restore a flag in another config version.
+export const DeletedRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/feature_flags/${RULES_V2_FLAG_ID}/`]: () => [
+                    200,
+                    {
+                        ...featureFlags.results.find((r) => r.id === RULES_V2_FLAG_ID),
+                        deleted: true,
+                        active: false,
+                        can_edit: true,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
+    },
+}
+
+export const FeatureFlagLoadFailed: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(2222222222222),
     },
 }
 
@@ -322,6 +359,35 @@ export const NewMultivariateFlagVariantKeyError: Story = {
         logic.actions.submitFeatureFlag()
 
         await waitForErrorText(canvasElement, 'Please set a key')
+    },
+}
+
+export const NewFeatureFlagKeyTaken: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag('new'),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => {
+        await waitForMountedFeatureFlagLogic()
+        const keyInput = await waitFor(
+            () => {
+                const input = canvasElement.querySelector<HTMLInputElement>('input[data-attr="feature-flag-key"]')
+                if (!input) {
+                    throw new Error('flag key input not yet rendered')
+                }
+                return input
+            },
+            { timeout: 5000 }
+        )
+        await userEvent.type(keyInput, 'session-recording-console')
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-key-conflict-link"]')) {
+                    throw new Error('key conflict message not yet visible')
+                }
+            },
+            { timeout: 5000 }
+        )
     },
 }
 

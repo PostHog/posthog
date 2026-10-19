@@ -166,6 +166,12 @@ _TRANSIENT_INTERNAL_DB_MARKERS = (
     # Nothing accepts a connection on the port, because the pooler or the database is restarting
     # or its endpoint is being re-pointed.
     "connection refused",
+    # psycopg raises this only while establishing a connection, never mid-query. Every caller here
+    # reconnects to a database it was already talking to moments earlier, so a connect-time timeout
+    # is our own database being momentarily slow to accept, not a config problem. Mirrors
+    # `_is_connect_timeout_error` in products/warehouse_sources_queue/backend/core/batch_consumer.py,
+    # which treats a connect timeout on the queue DB connection the same way.
+    "connection timeout expired",
 )
 
 # The tightest start_to_close timeout among the activities that use this is one minute, so the
@@ -320,6 +326,29 @@ def _timestamped_folder_scan_due(
     return _folder_scan_window(table_folder_uri, datetime.now(UTC)) != _folder_scan_window(
         table_folder_uri, pointer_history.active_since
     )
+
+
+async def copy_s3_file(s3: "S3FileSystem", source: str, destination: str, size: Optional[int]) -> None:
+    """Copy one object to a known destination key, with one CopyObject when the size allows it.
+
+    `_cp_file` reads the size of the source with a HEAD to select between a single CopyObject and
+    the multipart copy. A caller that has the size from the Delta log or from a listing passes it,
+    and a file at or below the s3fs managed-copy threshold then costs one request. CopyObject copies
+    the full object, so a wrong size cannot change the bytes that arrive.
+    """
+    if size is not None and size <= MANAGED_COPY_THRESHOLD:
+        try:
+            await s3._copy_basic(source, destination)
+            return
+        except FileNotFoundError:
+            raise
+        except OSError as e:
+            if _is_s3_throttling_error(e):
+                raise
+            # Object stores do not agree on the error for a source that is gone: S3 answers
+            # NoSuchKey, others answer with an invalid-argument error. The copy below reads the
+            # source first, so it raises the error the caller's retry loop expects.
+    await s3._cp_file(source, destination)
 
 
 async def _list_query_folder_files(s3: "S3FileSystem", folder_uri: str) -> dict[str, str]:
@@ -602,24 +631,8 @@ async def prepare_s3_files_for_querying(
                 # files copied concurrently, that multiplies into enough LIST traffic to trigger
                 # S3's SlowDown rate limiting on the destination prefix.
                 relative = relative_path(file)
-                destination = f"{s3_path_for_querying}/{relative}"
                 size = file_sizes.get(relative) if file_sizes is not None else None
-                if size is not None and size <= MANAGED_COPY_THRESHOLD:
-                    # `_cp_file` reads the size of the source with a HEAD to select between this copy
-                    # and the multipart copy. The Delta log already has the size. CopyObject copies
-                    # the full object, so a wrong size cannot change the bytes that arrive.
-                    try:
-                        await s3._copy_basic(file, destination)
-                        return
-                    except FileNotFoundError:
-                        raise
-                    except OSError as e:
-                        if _is_s3_throttling_error(e):
-                            raise
-                        # Object stores do not agree on the error for a source that is gone: S3
-                        # answers NoSuchKey, others answer with an invalid-argument error. The copy
-                        # below reads the source first, so it raises the error the retry loop expects.
-                await s3._cp_file(file, destination)
+                await copy_s3_file(s3, file, f"{s3_path_for_querying}/{relative}", size)
 
         import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
 
@@ -734,7 +747,12 @@ async def prepare_s3_files_for_querying(
                                 continue
 
                             await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
+                            # Throttling that outlasted the retry budget is no longer a blip that
+                            # clears on its own, so it is reported even though the classifier
+                            # treats a single throttled response as transient.
+                            if _is_s3_throttling_error(e) or not (
+                                _is_transient_s3_connection_error(e) or is_transient_object_store_error(e)
+                            ):
                                 capture_exception(S3OperationError("delete an old query folder for this table", e))
                             # Cleanup stays best effort: the folder is timestamped, so the age-based
                             # GC above picks it up on a later sync. Failing the sync over it would

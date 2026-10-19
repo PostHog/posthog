@@ -344,7 +344,7 @@ export type projectNoticeLogicType = MakeLogicType<
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
-        logic: [verifyEmailLogic],
+        logic: [verifyEmailLogic, billingLogic],
         values: [
             membersLogic,
             ['memberCount'],

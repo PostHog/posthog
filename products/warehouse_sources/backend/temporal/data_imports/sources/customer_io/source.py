@@ -5,6 +5,9 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,7 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 CIO_DOCS_WEBHOOKS_URL = "https://fly.customer.io/settings/webhooks/new/reporting_webhook"
@@ -81,6 +84,84 @@ class CustomerIOSource(
     SimpleSource[CustomerIOSourceConfig],
     WebhookSource[CustomerIOSourceConfig],
 ):
+    codebase_detection = detect(
+        env=(
+            "^CUSTOMER_?IO_",
+            "^CIO_SITE_ID$",
+            "^CIO_API_KEY$",
+            "^CIO_TOKEN$",
+            "^CIO_ACCESS_TOKEN$",
+            "^CIO_REGION$",
+            "^CIO_PROFILE$",
+        ),
+        script_hosts=(
+            "assets.customer.io",
+            "cdp.customer.io",
+            "cdp-eu.customer.io",
+            "code.gist.build",
+            "customerioforms.com",
+            "eu.customerioforms.com",
+        ),
+        npm=(
+            "customerio-node",
+            "@customerio/cdp-analytics-node",
+            "@customerio/cdp-analytics-browser",
+            "customerio-reactnative",
+            "customerio-expo-plugin",
+            "@customerio/cdp-analytics-core",
+            "customerio-gist-web",
+            "@customerio/cli",
+        ),
+        pypi=("customerio", "customerio-cdp-analytics"),
+        cocoapods=(
+            "CustomerIO",
+            "CustomerIODataPipelines",
+            "CustomerIOMessagingPushAPN",
+            "CustomerIOCommon",
+            "CustomerIOMessagingInApp",
+            "CustomerIOMessagingInbox",
+            "CustomerIOMessagingPush",
+            "CustomerIOMessagingPushFCM",
+            "CustomerIOLocation",
+            "CustomerIOLocationGeofence",
+            "CustomerIOLiveActivities",
+            "CustomerIOLiveActivitiesAttributes",
+            "CustomerIOLiveActivitiesTemplates",
+            "CustomerIOTrackingMigration",
+            "CustomerIOTracking",
+            "AnalyticsSwiftCIO",
+            "CioFirebaseWrapper",
+        ),
+        composer=("printu/customerio", "userscape/customerio"),
+        go=(
+            "github.com/customerio/go-customerio",
+            "github.com/customerio/cdp-analytics-go",
+            "github.com/customerio/cli",
+        ),
+        hex=("customerio",),
+        maven=(
+            "io.customer.android:datapipelines",
+            "io.customer.android:tracking",
+            "io.customer.android:messaging-push-fcm",
+            "io.customer.android:base",
+            "io.customer.android:core",
+            "io.customer.android:messaging-in-app",
+            "io.customer.android:messaging-in-app-compose",
+            "io.customer.android:messaging-inbox",
+            "io.customer.android:location",
+            "io.customer.android:geofence",
+            "io.customer.android:tracking-migration",
+        ),
+        pub=("customer_io",),
+        rubygems=("customerio",),
+        swiftpm=(
+            "github.com/customerio/customerio-ios",
+            "github.com/customerio/cdp-analytics-swift",
+            "github.com/customerio/customerio-ios-fcm",
+        ),
+        alternative_to=(ProductKey.WORKFLOWS,),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.customer.io/api/app/"

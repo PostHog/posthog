@@ -1,10 +1,21 @@
 from datetime import UTC, date, datetime
-from typing import cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualysvmdr import (
+    QualysVmdrSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
     MISSING_GATEWAY_ERROR,
     QualysVmdrResponseTooLargeError,
@@ -17,10 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
     _parse_xml,
     _read_capped_body,
     build_base_url,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.settings import QUALYS_VMDR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source import QualysVmdrSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr"
 
@@ -120,6 +131,76 @@ KNOWLEDGE_BASE_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
 </KNOWLEDGE_BASE_VULN_LIST_OUTPUT>"""
 
 
+ASSET_GROUP_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<ASSET_GROUP_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <ASSET_GROUP_LIST>
+      <ASSET_GROUP>
+        <ID>501</ID>
+        <TITLE><![CDATA[Web servers]]></TITLE>
+        <OWNER_USER_ID>77</OWNER_USER_ID>
+        <IP_SET>
+          <IP_RANGE>10.0.0.1-10.0.0.9</IP_RANGE>
+          <IP>10.0.1.5</IP>
+        </IP_SET>
+        <HOST_IDS>1001, 1002</HOST_IDS>
+      </ASSET_GROUP>
+    </ASSET_GROUP_LIST>
+  </RESPONSE>
+</ASSET_GROUP_LIST_OUTPUT>"""
+
+REPORT_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<REPORT_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <REPORT_LIST>
+      <REPORT>
+        <ID>9001</ID>
+        <TITLE><![CDATA[Weekly scan]]></TITLE>
+        <TYPE>Scan</TYPE>
+        <LAUNCH_DATETIME>2026-07-14T08:00:00Z</LAUNCH_DATETIME>
+        <STATUS>
+          <STATE>Finished</STATE>
+        </STATUS>
+      </REPORT>
+    </REPORT_LIST>
+  </RESPONSE>
+</REPORT_LIST_OUTPUT>"""
+
+APPLIANCE_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<APPLIANCE_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <APPLIANCE_LIST>
+      <APPLIANCE>
+        <ID>301</ID>
+        <NAME>scanner-a</NAME>
+        <STATUS>Online</STATUS>
+        <TYPE>Virtual</TYPE>
+        <ACTIVATION_CODE>00000000000000</ACTIVATION_CODE>
+        <INTERFACE_SETTINGS>
+          <INTERFACE>lan</INTERFACE>
+          <IP_ADDRESS>10.0.9.1</IP_ADDRESS>
+        </INTERFACE_SETTINGS>
+      </APPLIANCE>
+    </APPLIANCE_LIST>
+  </RESPONSE>
+</APPLIANCE_LIST_OUTPUT>"""
+
+IP_LIST_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<IP_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <IP_SET>
+      <IP>10.0.1.5</IP>
+      <IP_RANGE>10.0.0.1-10.0.0.9</IP_RANGE>
+      <IP> </IP>
+    </IP_SET>
+  </RESPONSE>
+</IP_LIST_OUTPUT>"""
+
+
 def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | None = None) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
@@ -133,22 +214,20 @@ def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | 
     return response
 
 
-class _FakeManager:
-    def __init__(self, state: QualysVmdrResumeConfig | None = None):
-        self.state = state
-        self.saved: list[QualysVmdrResumeConfig] = []
+def _config(gateway_server: str | None = None, api_server: str = "qualysapi.qualys.com") -> QualysVmdrSourceConfig:
+    return QualysVmdrSourceConfig(
+        api_server=api_server, username="user", password="pass", gateway_server=gateway_server
+    )
 
-    def can_resume(self) -> bool:
-        return self.state is not None
 
-    def load_state(self) -> QualysVmdrResumeConfig | None:
-        return self.state
+def _drive(
+    endpoint: str, script: Script, *, config: QualysVmdrSourceConfig | None = None, **inputs: Any
+) -> DriveResult:
+    return SourceDriver(QualysVmdrSource(), config or _config()).run(endpoint, script, **inputs)
 
-    def save_state(self, data: QualysVmdrResumeConfig) -> None:
-        self.saved.append(data)
 
-    def as_manager(self) -> ResumableSourceManager[QualysVmdrResumeConfig]:
-        return cast(ResumableSourceManager[QualysVmdrResumeConfig], self)
+def _xml(text: str, status: int = 200, headers: dict[str, str] | None = None) -> ScriptedResponse:
+    return ScriptedResponse(status=status, body=text.encode(), headers=headers or {})
 
 
 class TestQualysVmdr:
@@ -187,66 +266,106 @@ class TestQualysVmdr:
         assert "host_detection_list" not in rows[0]
 
     def test_get_rows_paginates_and_saves_state_after_yield(self):
-        manager = _FakeManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [_response(text=HOST_LIST_PAGE_1), _response(text=HOST_LIST_PAGE_2)]
+        result = _drive("hosts", [_xml(HOST_LIST_PAGE_1), _xml(HOST_LIST_PAGE_2)], api_version="2.0")
 
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            generator = get_rows(
-                "qualysapi.qualys.com", "user", "pass", "hosts", "2.0", mock.MagicMock(), manager.as_manager()
-            )
+        assert result.raised is None
+        assert [[row["id"] for row in batch] for batch in result.items] == [["1001"], ["1002"]]
+        assert result.params("id_min") == [None, "1002"]
+        # State is saved only for the non-final page, after its batch was yielded
+        assert len(result.saved_states) == 1
+        assert "id_min=1002" in result.saved_states[0].next_url
 
-            first_batch = next(generator)
-            assert [row["id"] for row in first_batch] == ["1001"]
-            # State is saved only once the consumer resumes after the yield — a crash while the
-            # batch is being processed re-yields it instead of skipping it
-            assert len(manager.saved) == 0
+    @pytest.mark.parametrize(
+        "endpoint,body,expected_path,expected_params,expected_rows",
+        [
+            (
+                "asset_groups",
+                ASSET_GROUP_PAGE,
+                "/api/2.0/fo/asset/group/",
+                {"action": "list", "show_attributes": "ALL", "truncation_limit": "1000"},
+                [
+                    {
+                        "id": "501",
+                        "title": "Web servers",
+                        "owner_user_id": "77",
+                        "ip_set": '{"ip_range": "10.0.0.1-10.0.0.9", "ip": "10.0.1.5"}',
+                        "host_ids": "1001, 1002",
+                    }
+                ],
+            ),
+            (
+                "reports",
+                REPORT_PAGE,
+                "/api/3.0/fo/report/",
+                {"action": "list", "truncation_limit": None},
+                [
+                    {
+                        "id": "9001",
+                        "title": "Weekly scan",
+                        "type": "Scan",
+                        "launch_datetime": "2026-07-14T08:00:00Z",
+                        "status": '{"state": "Finished"}',
+                    }
+                ],
+            ),
+            (
+                "appliances",
+                APPLIANCE_PAGE,
+                "/api/2.0/fo/appliance/",
+                {"action": "list", "output_mode": "full", "truncation_limit": None},
+                [
+                    {
+                        "id": "301",
+                        "name": "scanner-a",
+                        "status": "Online",
+                        "type": "Virtual",
+                        "interface_settings": '{"interface": "lan", "ip_address": "10.0.9.1"}',
+                    }
+                ],
+            ),
+            (
+                "ips",
+                IP_LIST_PAGE,
+                "/api/2.0/fo/asset/ip/",
+                {"action": "list", "truncation_limit": None},
+                [
+                    {"ip_range": "10.0.1.5", "start_ip": "10.0.1.5", "end_ip": "10.0.1.5"},
+                    {"ip_range": "10.0.0.1-10.0.0.9", "start_ip": "10.0.0.1", "end_ip": "10.0.0.9"},
+                ],
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("api_version", ["2.0", "4.0"])
+    def test_get_rows_lookup_endpoints_request_shape_and_rows(
+        self, api_version, endpoint, body, expected_path, expected_params, expected_rows
+    ):
+        result = _drive(endpoint, [_xml(body)], api_version=api_version)
 
-            second_batch = next(generator)
-            assert [row["id"] for row in second_batch] == ["1002"]
-            assert len(manager.saved) == 1
-            assert "id_min=1002" in manager.saved[0].next_url
-            with pytest.raises(StopIteration):
-                next(generator)
-
-        # No further state saved for the final page
-        assert len(manager.saved) == 1
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert {name: result.params(name)[0] for name in expected_params} == expected_params
+        assert result.rows == expected_rows
+        assert result.requests[0].headers["authorization"].startswith("Basic ")
 
     def test_get_rows_resumes_from_saved_state(self):
         resume_url = "https://qualysapi.qualys.com/api/2.0/fo/asset/host/?action=list&id_min=1002"
-        manager = _FakeManager(state=QualysVmdrResumeConfig(next_url=resume_url))
-        session = mock.MagicMock()
-        session.get.return_value = _response(text=HOST_LIST_PAGE_2)
 
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            batches = list(
-                get_rows("qualysapi.qualys.com", "user", "pass", "hosts", "2.0", mock.MagicMock(), manager.as_manager())
-            )
+        result = _drive(
+            "hosts",
+            [_xml(HOST_LIST_PAGE_2)],
+            api_version="2.0",
+            resume_state=QualysVmdrResumeConfig(next_url=resume_url),
+        )
 
-        assert session.get.call_args[0][0] == resume_url
-        assert [row["id"] for row in batches[0]] == ["1002"]
+        assert result.urls == [resume_url]
+        assert [row["id"] for row in result.rows] == ["1002"]
 
     def test_get_rows_rejects_disallowed_api_server_before_any_request(self):
-        session = mock.MagicMock()
+        result = _drive("hosts", [], config=_config(api_server="169.254.169.254"), api_version="2.0")
 
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "URL resolves to a private IP")),
-        ):
-            with pytest.raises(ValueError, match="Qualys API server URL is not allowed"):
-                list(
-                    get_rows(
-                        "169.254.169.254", "user", "pass", "hosts", "2.0", mock.MagicMock(), _FakeManager().as_manager()
-                    )
-                )
-
-        session.get.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert "Qualys API server URL is not allowed" in str(result.raised)
+        assert result.requests == []
 
     def test_fetch_page_rate_limit_carries_server_wait(self):
         session = mock.MagicMock()
@@ -286,101 +405,77 @@ class TestQualysVmdr:
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=status_code, text="<x/>")
-
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
+        with scripted_network(always(_xml("<x/>", status=status_code))) as network:
             ok, error = validate_credentials("qualysapi.qualys.com", "user", "pass")
 
         assert ok is expected
         assert (error is None) is expected
+        assert network.requests_log[0].path == "/api/2.0/fo/asset/host/"
+        assert network.requests_log[0].param("truncation_limit") == "1"
 
     def test_validate_credentials_false_on_connection_error(self):
-        session = mock.MagicMock()
-        session.get.side_effect = ConnectionError("dns failure")
-
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
+        with scripted_network(always(ConnectionError("dns failure"))):
             ok, error = validate_credentials("nonexistent.example.com", "user", "pass")
 
         assert ok is False
         assert error is not None
 
     def test_validate_credentials_rejects_disallowed_api_server_before_any_request(self):
-        session = mock.MagicMock()
-
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "URL resolves to a private IP")),
-        ):
+        with scripted_network([]) as network:
             ok, error = validate_credentials("localhost", "user", "pass")
 
         assert ok is False
         assert error is not None and "not allowed" in error
-        session.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_get_rows_knowledge_base_4_0_mints_jwt_and_uses_bearer(self):
-        get_session = mock.MagicMock()
-        get_session.get.return_value = _response(text=KNOWLEDGE_BASE_PAGE)
-        gateway_session = mock.MagicMock()
-        gateway_session.post.return_value = _response(status_code=200, text="jwt-token")
-
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=get_session) as make_session,
-            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            batches = list(
-                get_rows(
-                    "qualysapi.qualys.com",
-                    "user",
-                    "pass",
-                    "knowledge_base",
-                    "4.0",
-                    mock.MagicMock(),
-                    _FakeManager().as_manager(),
-                    gateway_server="gateway.qg2.apps.qualys.com",
-                )
-            )
+        result = _drive(
+            "knowledge_base",
+            route({"/auth": [_xml("jwt-token")], "/api/4.0/fo/knowledge_base/vuln/": [_xml(KNOWLEDGE_BASE_PAGE)]}),
+            config=_config(gateway_server="gateway.qg2.apps.qualys.com"),
+            api_version="4.0",
+        )
 
         # The JWT is minted at the gateway host, then threaded into the request session as a Bearer token
-        assert gateway_session.post.call_args[0][0] == "https://gateway.qg2.apps.qualys.com/auth"
-        assert gateway_session.post.call_args.kwargs["data"]["token"] == "true"
-        assert make_session.call_args.kwargs["bearer_token"] == "jwt-token"
+        auth_request, data_request = result.requests
+        assert auth_request.method == "POST"
+        assert auth_request.url == "https://gateway.qg2.apps.qualys.com/auth"
+        assert b"token=true" in (auth_request.body or b"")
+        assert data_request.headers["authorization"] == "Bearer jwt-token"
         # KnowledgeBase 4.0 is served from the FO host on the /api/4.0/ path
-        assert get_session.get.call_args[0][0].startswith(
-            "https://qualysapi.qualys.com/api/4.0/fo/knowledge_base/vuln/"
-        )
-        assert [row["qid"] for row in batches[0]] == ["38170"]
+        assert data_request.url.startswith("https://qualysapi.qualys.com/api/4.0/fo/knowledge_base/vuln/")
+        assert [row["qid"] for row in result.rows] == ["38170"]
 
     def test_get_rows_knowledge_base_4_0_without_gateway_raises_before_any_request(self):
+        result = _drive("knowledge_base", [], config=_config(gateway_server=None), api_version="4.0")
+
+        assert isinstance(result.raised, ValueError)
+        assert MISSING_GATEWAY_ERROR in str(result.raised)
+        assert result.requests == []
+        assert result.session_options == []
+
+    def test_fetch_jwt_refuses_an_oversized_gateway_body(self):
+        # `gateway_server` is user-supplied, so a host that returns a huge (or slow-dripped) body
+        # must not be able to exhaust a shared worker's memory.
         with (
-            mock.patch(f"{_MODULE}._make_session") as make_session,
-            mock.patch(f"{_MODULE}.make_tracked_session") as gateway,
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+            scripted_network([ScriptedResponse(body=b"a" * 2048)]),
+            mock.patch(f"{_MODULE}.MAX_JWT_RESPONSE_BYTES", 1500),
+            pytest.raises(QualysVmdrResponseTooLargeError),
         ):
-            with pytest.raises(ValueError, match=MISSING_GATEWAY_ERROR):
-                list(
-                    get_rows(
-                        "qualysapi.qualys.com",
-                        "user",
-                        "pass",
-                        "knowledge_base",
-                        "4.0",
-                        mock.MagicMock(),
-                        _FakeManager().as_manager(),
-                        gateway_server=None,
-                    )
-                )
+            _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
 
-        gateway.assert_not_called()
-        make_session.assert_not_called()
+    def test_fetch_jwt_raises_on_empty_token(self):
+        with scripted_network([_xml("   ")]), pytest.raises(ValueError, match="empty JWT"):
+            _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
 
+    def test_fetch_jwt_rejects_disallowed_gateway_before_any_request(self):
+        with scripted_network([]) as network, pytest.raises(ValueError, match="not allowed"):
+            _fetch_jwt("169.254.169.254", "user", "pass", mock.MagicMock())
+
+        assert network.requests_log == []
+
+
+class TestQualysVmdrGatewayBodyClose:
     def test_fetch_jwt_refuses_an_oversized_gateway_body(self):
         # `gateway_server` is user-supplied, so a host that returns a huge (or slow-dripped) body
         # must not be able to exhaust a shared worker's memory.
@@ -398,26 +493,3 @@ class TestQualysVmdr:
                 _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
 
         response.close.assert_called_once()
-
-    def test_fetch_jwt_raises_on_empty_token(self):
-        gateway_session = mock.MagicMock()
-        gateway_session.post.return_value = _response(status_code=200, text="   ")
-
-        with (
-            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            with pytest.raises(ValueError, match="empty JWT"):
-                _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
-
-    def test_fetch_jwt_rejects_disallowed_gateway_before_any_request(self):
-        gateway_session = mock.MagicMock()
-
-        with (
-            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "URL resolves to a private IP")),
-        ):
-            with pytest.raises(ValueError, match="not allowed"):
-                _fetch_jwt("169.254.169.254", "user", "pass", mock.MagicMock())
-
-        gateway_session.post.assert_not_called()

@@ -499,6 +499,62 @@ class TestValidateSchemaAndUpdateTable:
         assert table.row_count == 150
 
     @pytest.mark.parametrize(
+        "table_exists,sync_type,live_row_count,expected_row_count,counts_files",
+        [
+            pytest.param(
+                False, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, False, id="first_sync_full_refresh"
+            ),
+            pytest.param(
+                False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, False, id="first_sync_incremental"
+            ),
+            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, False, id="later_full_refresh"),
+            pytest.param(
+                True,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                200,
+                False,
+                id="full_refresh_falls_back_to_run_count",
+            ),
+            pytest.param(
+                True,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                5_000,
+                True,
+                id="incremental_falls_back_to_file_count",
+            ),
+        ],
+    )
+    def test_stores_the_delta_log_count_and_never_counts_the_files_of_a_full_refresh(
+        self, team, table_exists, sync_type, live_row_count, expected_row_count, counts_files
+    ):
+        schema, job = self._schema_and_job(team)
+        schema.sync_type = sync_type
+        schema.save()
+        if table_exists:
+            self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=5_000) as get_count,
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=200,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+                live_row_count=live_row_count,
+            )
+
+        assert get_count.called is counts_files
+        schema.refresh_from_db()
+        assert schema.table is not None
+        assert schema.table.row_count == expected_row_count
+
+    @pytest.mark.parametrize(
         "previous_size_mib,live_size_mib,expected_size_mib,expected_delta_mib",
         [
             pytest.param("no_table", 12.5, 12.5, 12.5, id="new_table"),

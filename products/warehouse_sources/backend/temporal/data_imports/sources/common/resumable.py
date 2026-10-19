@@ -1,5 +1,6 @@
 import json
 import functools
+import threading
 import dataclasses
 import collections.abc
 from contextlib import contextmanager
@@ -14,12 +15,43 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
+    SourceAbandonedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
     SourceResponse,
 )
+
+
+class _WriteFence:
+    """Stops the writes of a source that the pipeline abandoned.
+
+    The lock covers each write to Redis, so `revoke` returns True only when no write is in
+    progress and no later write can start.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._revoked = False
+
+    @contextmanager
+    def writing(self) -> collections.abc.Iterator[None]:
+        with self._lock:
+            if self._revoked:
+                raise SourceAbandonedError("The pipeline no longer reads this source, so it cannot store resume state")
+            yield
+
+    def revoke(self, timeout_seconds: float) -> bool:
+        if not self._lock.acquire(timeout=timeout_seconds):
+            return False
+        try:
+            self._revoked = True
+        finally:
+            self._lock.release()
+        return True
 
 
 class ResumableSourceManager(Generic[ResumableData]):
@@ -37,6 +69,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         namespace: str | None = None,
         pending: dict[str, str] | None = None,
         staged: dict[str, str] | None = None,
+        write_fence: _WriteFence | None = None,
     ):
         self._inputs = inputs
         self._data_class = data_class
@@ -48,6 +81,8 @@ class ResumableSourceManager(Generic[ResumableData]):
         # Cursors wait here until commit(). Siblings from with_namespace() share the dict, so the
         # one commit the pipeline issues after a write covers every namespace a source touched.
         self._staged = staged if staged is not None else {}
+        # Shared with the siblings for the same reason: one revoke stops every namespace.
+        self._write_fence = write_fence if write_fence is not None else _WriteFence()
 
     def with_namespace(self, namespace: str) -> "ResumableSourceManager[ResumableData]":
         """Return a sibling manager whose Redis state is isolated under `namespace`.
@@ -58,8 +93,23 @@ class ResumableSourceManager(Generic[ResumableData]):
         cursor the other endpoint wrote and replay it against an API that can't parse it.
         """
         return ResumableSourceManager(
-            self._inputs, self._data_class, namespace=namespace, pending=self._pending, staged=self._staged
+            self._inputs,
+            self._data_class,
+            namespace=namespace,
+            pending=self._pending,
+            staged=self._staged,
+            write_fence=self._write_fence,
         )
+
+    def revoke_writes(self, timeout_seconds: float) -> bool:
+        """Make every later `commit` and `clear_state` raise `SourceAbandonedError`.
+
+        The pipeline calls this before it hands a run to another worker while the source is still
+        inside a call. The thread of that source can run for a long time after the hand-off, and a
+        cursor it stored then would move the resume point of the attempt that continues the run.
+        Returns False, and revokes nothing, when a write is still in progress after `timeout_seconds`.
+        """
+        return self._write_fence.revoke(timeout_seconds)
 
     @contextmanager
     def _get_redis(self):
@@ -156,7 +206,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         """Persist every confirmed cursor, across namespaces."""
         if not self._staged:
             return
-        with self._get_redis() as redis_client:
+        with self._write_fence.writing(), self._get_redis() as redis_client:
             for key, json_data in list(self._staged.items()):
                 self._logger.debug(f"Saving resumable source state. key={key}")
                 self._write_with_stale_replica_retry(
@@ -197,7 +247,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         """
         self._pending.pop(self._key, None)
         self._staged.pop(self._key, None)
-        with self._get_redis() as redis_client:
+        with self._write_fence.writing(), self._get_redis() as redis_client:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
 

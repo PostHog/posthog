@@ -1,5 +1,6 @@
 import './InsightDetails.scss'
 
+import { deepEqual } from 'fast-equals'
 import { useValues } from 'kea'
 import React from 'react'
 
@@ -18,6 +19,7 @@ import {
 import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -28,6 +30,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { everyWarehouseSeriesReadsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
@@ -50,10 +53,12 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     AnyDataWarehouseNode,
+    CompareFilter as CompareFilterType,
     DashboardFilter,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import {
+    getCompareFilter,
     getInterval,
     isActionsNode,
     isAnyDataWarehouseNode,
@@ -707,6 +712,35 @@ export function TestAccountFilterSummary({
     )
 }
 
+function CompareFilterSummary({
+    compareFilter,
+    override,
+    insightCompareFilter,
+}: {
+    compareFilter: CompareFilterType
+    override: { source: OverrideSource }
+    insightCompareFilter?: CompareFilterType | null
+}): JSX.Element {
+    const replaced =
+        insightCompareFilter && !deepEqual(insightCompareFilter, compareFilter) ? insightCompareFilter : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconClock />} label="Compare">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{compareFilterLabel(compareFilter)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{compareFilterLabel(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
 interface InsightDetailsProps {
     query: Node | null
     footerInfo?: {
@@ -742,6 +776,7 @@ export const InsightDetails = React.memo(
             breakdown: overrideBreakdown,
             interval: overrideInterval,
             filterTestAccounts: overrideFilterTestAccounts,
+            compareFilter: overrideCompareFilter,
             ignoresDashboardFilters,
         } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
@@ -753,6 +788,8 @@ export const InsightDetails = React.memo(
         )
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
+        const ignoresPropertyOverrides =
+            hasDataWarehouseSeries && isInsightVizNode(query) && !everyWarehouseSeriesReadsFlagCalls(query.source)
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
@@ -783,7 +820,7 @@ export const InsightDetails = React.memo(
                                 override={dateOverride}
                             />
                         )}
-                        {hasDataWarehouseSeries && hasPropertyOverrides ? (
+                        {ignoresPropertyOverrides && hasPropertyOverrides ? (
                             <PropertiesIgnoredWarning />
                         ) : (
                             <PropertiesSummary
@@ -822,6 +859,13 @@ export const InsightDetails = React.memo(
                                         ? query.source.filters?.filterTestAccounts
                                         : query.source.filterTestAccounts
                                 }
+                            />
+                        )}
+                        {overrideCompareFilter && (
+                            <CompareFilterSummary
+                                compareFilter={overrideCompareFilter.value}
+                                override={{ source: overrideCompareFilter.source }}
+                                insightCompareFilter={isInsightVizNode(query) ? getCompareFilter(query.source) : null}
                             />
                         )}
                     </>

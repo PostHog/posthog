@@ -7,13 +7,8 @@ import { useActions, useValues } from 'kea'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod, InsightType } from '~/types'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentStatsMethod } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
@@ -39,11 +34,9 @@ const sectionHasRecalculatingMetric =
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
-    results: NewExperimentQueryResponse[]
+    results: (NewExperimentQueryResponse | undefined)[]
     errors: any[]
-    metricIndexes: number[]
     isSecondary: boolean
-    getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
     /** Drops the table's own border so it can sit inside a parent panel. */
     embedded?: boolean
@@ -53,9 +46,7 @@ export function MetricsTable({
     metrics,
     results,
     errors,
-    metricIndexes,
     isSecondary,
-    getInsightType,
     showDetailsModal = true,
     embedded = false,
 }: MetricsTableProps): JSX.Element {
@@ -126,7 +117,7 @@ export function MetricsTable({
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
-    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse) => {
+    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse | undefined) => {
         const allVariants: ExperimentVariantResult[] = []
 
         // Include main variant results
@@ -199,9 +190,8 @@ export function MetricsTable({
                     />
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>
                         {metrics.map((metric, index) => {
-                            const result = results[index]
+                            const result = results[index] ?? null
                             const error = errors[index]
-                            const metricIndex = metricIndexes[index]
 
                             const isLoading = !result && !error && isLaunched(experiment)
 
@@ -219,8 +209,6 @@ export function MetricsTable({
                                             dragHandle={dragHandle}
                                             result={result}
                                             experiment={experiment}
-                                            metricType={getInsightType(metric)}
-                                            metricIndex={metricIndex}
                                             displayOrder={index}
                                             axisRange={axisRange}
                                             isSecondary={isSecondary}

@@ -8,7 +8,11 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { observationsDrilldownSearchParams, scannerOverviewLogic } from './scannerOverviewLogic'
+import {
+    observationsDrilldownSearchParams,
+    overviewDefaultDateFrom,
+    scannerOverviewLogic,
+} from './scannerOverviewLogic'
 
 const STATS = {
     status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0, success_rate: null },
@@ -35,6 +39,8 @@ describe('scannerOverviewLogic', () => {
                     scanner_config: { prompt: 'p' },
                     sampling_rate: 1,
                     enabled: true,
+                    // Old enough that the Overview keeps its standard 14-day default.
+                    created_at: dayjs().subtract(30, 'day').toISOString(),
                 },
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
                 '/api/projects/:team/vision/scanners/:id/observations/stats/': ({ request }) => {
@@ -162,6 +168,20 @@ describe('scannerOverviewLogic', () => {
         })
     })
 
+    describe('overviewDefaultDateFrom', () => {
+        const now = dayjs('2026-03-10T15:00:00Z')
+
+        it.each([
+            ['an unsaved scanner', undefined, '-14d'],
+            ['a scanner created today', '2026-03-10T09:00:00Z', '-1d'],
+            ['a scanner created yesterday', '2026-03-09T23:00:00Z', '-1d'],
+            ['a scanner created six days ago', '2026-03-04T09:00:00Z', '-6d'],
+            ['a scanner created a week ago', '2026-03-03T09:00:00Z', '-14d'],
+        ])('defaults %s to %s', (_name, createdAt, expected) => {
+            expect(overviewDefaultDateFrom(createdAt, now)).toBe(expected)
+        })
+    })
+
     describe('observationsDrilldownSearchParams', () => {
         const day = (overrides: object = {}): Parameters<typeof observationsDrilldownSearchParams>[0] => ({
             day: '2026-05-04',
@@ -268,6 +288,22 @@ describe('scannerOverviewLogic', () => {
             // A filtered flip must not latch as settled: clearing the filter brings the panel back.
             await expectLogic(freshLogic, () => freshLogic.actions.clearOverviewFilters()).toFinishAllListeners()
             expect(freshLogic.values.firstScanPending).toBe(true)
+        })
+
+        it('defaults the date range to the days since a young scanner was created', async () => {
+            freshLogic.mount()
+            await expectLogic(freshLogic).toFinishAllListeners()
+
+            // The scanner loads after the first stats request, so the newest request must use its age.
+            expect(freshLogic.values.overviewDateFrom).toBe('-1d')
+            expect(new URL(statsRequests[statsRequests.length - 1]).searchParams.get('date_from')).toBe('-1d')
+            expect(freshLogic.values.hasActiveOverviewFilters).toBe(false)
+
+            await expectLogic(freshLogic, () =>
+                freshLogic.actions.setOverviewDateRange('-30d', null)
+            ).toFinishAllListeners()
+            expect(freshLogic.values.overviewDateFrom).toBe('-30d')
+            expect(freshLogic.values.hasActiveOverviewFilters).toBe(true)
         })
 
         it('polls stats in the background while pending and stops once observations settle', async () => {
