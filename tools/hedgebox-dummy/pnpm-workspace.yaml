@@ -3,7 +3,10 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
-trustLockfile: true
+trustPolicyExclude:
+    - eslint-import-resolver-typescript@3.10.1
+    - semver@6.3.1
+    - undici-types@6.21.0
 
 # These install without their build scripts.
 allowBuilds:

@@ -33,9 +33,10 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
-# Skip registry re-verification of every locked entry, which costs a round trip per package
-# in CI jobs and Docker builds. Policies still apply to new resolutions.
-trustLockfile: true
+# Maintenance releases published without the provenance of an earlier release.
+trustPolicyExclude:
+    - semver@5.7.2 || 6.3.1
+    - undici-types@6.21.0
 # `pnpm run` must not start an install, because Docker builds install a filtered subset.
 verifyDepsBeforeRun: false
 # Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
