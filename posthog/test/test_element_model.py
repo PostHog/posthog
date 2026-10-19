@@ -149,7 +149,11 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand(
         [
             ("value never closes", 'href="/a"text="' + '\\"' * 2000, [ElementAttribute(key="href", value="/a")]),
-            ("value cannot span lines", 'a="1\nb="2"', [ElementAttribute(key="b", value="2")]),
+            (
+                "empty value",
+                'alt=""href="/a"',
+                [ElementAttribute(key="alt", value=""), ElementAttribute(key="href", value="/a")],
+            ),
             (
                 "escaped quote inside value",
                 'text="say \\"hi\\""',
@@ -159,6 +163,21 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
     )
     def test_iter_element_attributes(self, _name: str, attrs: str, expected: list[ElementAttribute]) -> None:
         assert list(iter_element_attributes(attrs)) == expected
+
+    @parameterized.expand(
+        [
+            ("empty nth-child", 'a:nth-child=""nth-of-type="2"', {"nth_child": None, "nth_of_type": 2}),
+            ("non-numeric nth-of-type", 'a:nth-child="1"nth-of-type="x"', {"nth_child": 1, "nth_of_type": None}),
+            (
+                "empty value before other attributes",
+                'a:attr__title=""href="/a-url"nth-child="1"',
+                {"href": "/a-url", "nth_child": 1, "attributes": {"attr__title": ""}},
+            ),
+        ]
+    )
+    def test_chain_to_element_dicts_tolerates_malformed_values(self, _name: str, chain: str, expected: dict) -> None:
+        element = chain_to_element_dicts(chain)[0]
+        assert {field: element[field] for field in expected} == expected
 
     def test_build_attributes_filter_caps_entry_count(self) -> None:
         many_attrs = [f"data-attr-{i}" for i in range(100)]

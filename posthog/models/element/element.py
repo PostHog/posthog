@@ -104,18 +104,21 @@ def split_elements_chain(chain: str) -> list[str]:
 def _find_attribute_value_end(attrs: str, value_start: int) -> int:
     """Returns the index of the quote that closes the value starting at `value_start`, or -1.
 
-    The closing quote must follow a character that is not a backslash. The value cannot
-    contain a newline, except as that final character before the quote.
+    A backslash escapes the character after it, except a newline, which cannot be escaped.
+    The value may be empty.
     """
     position = value_start
-    last = len(attrs) - 1
-    while position < last:
+    length = len(attrs)
+    while position < length:
         char = attrs[position]
-        if char != _ESCAPE and attrs[position + 1] == _QUOTE:
-            return position + 1
-        if char == "\n":
-            return -1
-        position += 1
+        if char == _QUOTE:
+            return position
+        if char == _ESCAPE:
+            if position + 1 >= length or attrs[position + 1] == "\n":
+                return -1
+            position += 2
+        else:
+            position += 1
     return -1
 
 
@@ -123,9 +126,10 @@ def iter_element_attributes(attrs: str) -> Iterator[ElementAttribute]:
     """Yields the attributes found in the attributes part of one element string.
 
     Each attribute is key="value". The key runs from the end of the previous attribute
-    to the next =" on the same line. If no closing quote follows on that line, nothing
-    before the end of the line can start an attribute, so scanning resumes after it.
-    This keeps the scan to a single pass over client-supplied input.
+    to the next =" on the same line. A failed search for a closing quote skipped every
+    later quote as escaped, so the same search from any later =" fails too: scanning
+    resumes after the newline that stopped it, or ends. This keeps the scan to a single
+    pass over client-supplied input.
     """
     start = 0
     while True:
@@ -139,10 +143,10 @@ def iter_element_attributes(attrs: str) -> Iterator[ElementAttribute]:
         value_start = separator + 2
         closing = _find_attribute_value_end(attrs, value_start)
         if closing == -1:
-            newline = attrs.find("\n", value_start)
+            newline = attrs.find("\\\n", value_start)
             if newline == -1:
                 return
-            start = newline + 1
+            start = newline + 2
             continue
         yield ElementAttribute(key=attrs[start:separator], value=attrs[value_start:closing])
         start = closing + 1
@@ -229,12 +233,19 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     return matches
 
 
+def _int_or_none(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 _PROMOTED_ATTRIBUTES: dict[str, tuple[str, Callable[[str], object]]] = {
     "text": ("text", str),
     "href": ("href", str),
     "attr_id": ("attr_id", str),
-    "nth-child": ("nth_child", int),
-    "nth-of-type": ("nth_of_type", int),
+    "nth-child": ("nth_child", _int_or_none),
+    "nth-of-type": ("nth_of_type", _int_or_none),
 }
 
 
