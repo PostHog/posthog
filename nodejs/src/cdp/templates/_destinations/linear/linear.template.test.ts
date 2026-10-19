@@ -43,7 +43,7 @@ describe('linear template', () => {
         expect(attachmentBody).toContain(expectedLinkPart)
     })
 
-    it('builds the title and description from the event properties', async () => {
+    it('builds the title and description from the event properties, with the stack trace', async () => {
         const { title: _title, description: _description, ...inputs } = baseInputs
         const response = await tester.invoke(inputs, {
             event: {
@@ -52,6 +52,21 @@ describe('linear template', () => {
                     $exception_values: ['Invalid Date'],
                     $current_url: 'https://example.com/checkout',
                     $session_id: 'session-1',
+                    $exception_list: [
+                        {
+                            stacktrace: {
+                                frames: [
+                                    {
+                                        source: 'src/checkout.ts',
+                                        line: 42,
+                                        resolved_name: 'parseDate',
+                                        resolved: true,
+                                        in_app: true,
+                                    },
+                                ],
+                            },
+                        },
+                    ],
                 },
             },
         })
@@ -60,7 +75,7 @@ describe('linear template', () => {
         const mutation = parseJSON((response.invocation.queueParameters as any).body).query
         expect(mutation).toContain('title: "RangeError: Invalid Date"')
         expect(mutation).toContain(
-            'description: "Invalid Date\\n\\n- URL: https://example.com/checkout\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1"'
+            'description: "Invalid Date\\n\\n- URL: https://example.com/checkout\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1\\n\\n```\\n  File \\"src/checkout.ts\\", line: 42, in: parseDate\\n```"'
         )
     })
 })

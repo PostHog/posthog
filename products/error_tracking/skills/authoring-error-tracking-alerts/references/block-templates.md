@@ -109,15 +109,16 @@ all three:
 
 ```json
 "inputs": {
-  "title": { "value": "{substring(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, 1, 120)}" },
+  "title": { "value": "{substring(replaceAll(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, '\\n', ' '), 1, 120)}" },
   "description": { "value": "{event.properties.description}\n{notEmpty(event.properties.$current_url) ? concat('\\n- URL: ', event.properties.$current_url) : ''}{notEmpty(trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))) ? concat('\\n- Browser: ', trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))) : ''}{notEmpty(trim(concat(event.properties.$os, ' ', event.properties.$os_version))) ? concat('\\n- OS: ', trim(concat(event.properties.$os, ' ', event.properties.$os_version))) : ''}{notEmpty(event.properties.$exception_release.version) ? concat('\\n- Release: ', event.properties.$exception_release.version) : ''}{notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status)) ? concat('\\n- Session replay: ', concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))) : ''}" },
   "posthog_issue_id": { "value": "{event.distinct_id}" },
   "posthog_issue_url": { "value": "{project.url}/error-tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=linear" }
 }
 ```
 
-The title reads as the exception type and message, for example `RangeError: Invalid Date`, cut at 120 characters.
+The title reads as the exception type and message, for example `RangeError: Invalid Date`, on one line, cut at 120 characters.
 The description is the message, then a Markdown list of the page URL, browser, OS, release and a session replay link.
+The destination code then adds up to 10 resolved in-app stack frames as a code block, so the inputs do not carry the trace.
 Each list line is left out when the event has no value for it, and the replay line is left out when replay was not recording.
 Keep the list form: GitLab joins plain consecutive lines into one paragraph.
 `_spiking` events carry no exception properties, so on them only the message would render.

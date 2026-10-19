@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../error-tracking-ticket'
+import { hogErrorTrackingStacktraceFn } from '../../hog-helpers'
 
 export const template: HogFunctionTemplate = {
     status: 'stable',
@@ -12,7 +13,9 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/gitlab.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `let posthog_issue_url := inputs.posthog_issue_url
+    code: `${hogErrorTrackingStacktraceFn}
+
+let posthog_issue_url := inputs.posthog_issue_url
 if (empty(posthog_issue_url)) {
     posthog_issue_url := f'{project.url}/error-tracking/{inputs.posthog_issue_id}'
 }
@@ -24,7 +27,7 @@ let payload := {
     },
     'body': {
         'title': inputs.title,
-        'description': f'{inputs.description}\n\n[View in PostHog]({posthog_issue_url})'
+        'description': f'{inputs.description}{errorTrackingStacktrace(event.properties.$exception_list)}\n\n[View in PostHog]({posthog_issue_url})'
     }
 }
 

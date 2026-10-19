@@ -39,10 +39,34 @@ describe('github template', () => {
 
     it.each<[string, Record<string, any>, string, string]>([
         [
-            'adds a line for each context property on the event',
+            'adds a line for each context property and the resolved in-app frames, crash site first',
             {
                 $exception_types: ['RangeError'],
-                $exception_values: ['Invalid Date'],
+                $exception_values: ['Invalid Date\nvalue: abc'],
+                $exception_list: [
+                    {
+                        stacktrace: {
+                            frames: [
+                                {
+                                    source: 'node_modules/react-dom.js',
+                                    line: 10,
+                                    resolved_name: 'commit',
+                                    resolved: true,
+                                    in_app: false,
+                                },
+                                { source: 'src/main.ts', line: 3, resolved_name: 'main', resolved: true, in_app: true },
+                                { source: 'main.3f9a.js', line: 1, mangled_name: 't.e', resolved: false, in_app: true },
+                                {
+                                    source: 'src/checkout.ts',
+                                    line: 42,
+                                    resolved_name: 'parseDate',
+                                    resolved: true,
+                                    in_app: true,
+                                },
+                            ],
+                        },
+                    },
+                ],
                 $current_url: 'https://example.com/checkout',
                 $browser: 'Chrome',
                 $browser_version: 129,
@@ -52,14 +76,21 @@ describe('github template', () => {
                 $session_id: 'session/1',
                 $recording_status: 'active',
             },
-            'RangeError: Invalid Date',
-            'Invalid Date\n\n- URL: https://example.com/checkout\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1',
+            'RangeError: Invalid Date value: abc',
+            'Invalid Date\nvalue: abc\n\n- URL: https://example.com/checkout\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "src/checkout.ts", line: 42, in: parseDate\n  File "src/main.ts", line: 3, in: main\n```',
         ],
         [
-            'leaves out lines whose property is missing, and replay when recording was off',
+            'leaves out missing lines, replay when recording was off, and a trace with no resolved frame',
             {
                 $exception_types: ['RangeError'],
                 $exception_values: [''],
+                $exception_list: [
+                    {
+                        stacktrace: {
+                            frames: [{ source: 'main.3f9a.js', mangled_name: 't.e', resolved: false, in_app: true }],
+                        },
+                    },
+                ],
                 $browser: 'Chrome',
                 $session_id: 'session-1',
                 $recording_status: 'disabled',

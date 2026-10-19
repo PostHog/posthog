@@ -6,7 +6,7 @@ const ticketLine = (label: string, value: string, condition = `notEmpty(${value}
 
 // Keep in step with the tracker entries in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 // and with products/error_tracking/skills/authoring-error-tracking-alerts/references/block-templates.md.
-export const ERROR_TRACKING_TICKET_TITLE = `{substring(notEmpty(${EXCEPTION_MESSAGE}) ? concat(${EXCEPTION_TYPE}, ': ', ${EXCEPTION_MESSAGE}) : ${EXCEPTION_TYPE}, 1, 120)}`
+export const ERROR_TRACKING_TICKET_TITLE = `{substring(replaceAll(notEmpty(${EXCEPTION_MESSAGE}) ? concat(${EXCEPTION_TYPE}, ': ', ${EXCEPTION_MESSAGE}) : ${EXCEPTION_TYPE}, '\\n', ' '), 1, 120)}`
 
 // A Markdown list because GitLab joins consecutive plain lines into one paragraph.
 export const ERROR_TRACKING_TICKET_DESCRIPTION = [
