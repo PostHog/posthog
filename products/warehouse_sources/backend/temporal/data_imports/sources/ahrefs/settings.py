@@ -1,4 +1,4 @@
-from typing import NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -8,6 +8,11 @@ MAX_PAGE_ROWS = 100
 MAX_BACKLINK_ROWS = 1000
 # History rows cost API units and plans cap how far back history goes, so a first sync reads a bounded window.
 HISTORY_DAYS = 180
+# Link intersect requests accept at most 20 competitors.
+MAX_COMPETITORS = 20
+MAX_WEB_PAGE_ROWS = 1000
+TOP_DOMAINS_COUNT = 1_000_000
+TOP_DOMAINS_PAGE_ROWS = 100_000
 
 BACKLINK_FIELDS = (
     "url_from",
@@ -45,6 +50,10 @@ class EndpointSettings(TypedDict):
     # Site Explorer reports query the selected project's target with these parameters.
     target_params: NotRequired[list[str]]
     history: NotRequired[bool]
+    # POST reports take their parameters as a JSON body instead of the query string.
+    body: NotRequired[dict[str, Any]]
+    # Reports that need more inputs than the project's target, or more than one request.
+    kind: NotRequired[Literal["link_intersect", "brand_radar", "top_domains"]]
 
 
 ENDPOINTS: dict[str, EndpointSettings] = {
@@ -118,6 +127,63 @@ ENDPOINTS: dict[str, EndpointSettings] = {
             "strongest referring domains first."
         ),
         "target_params": ["target", "mode", "protocol"],
+    },
+    "link_intersect_refdomains": {
+        "path": "competitive-analysis/link-intersect-refdomains",
+        "data_selector": "referring-domains",
+        "primary_keys": ["project_id", "domain"],
+        "params": {},
+        "body": {
+            "select": ["domain", "domain_rating", "intersect", "links_to_target"],
+            "order_by": ["intersect:desc", "domain_rating:desc"],
+            "limit": MAX_BACKLINK_ROWS,
+        },
+        "description": (
+            f"Up to {MAX_BACKLINK_ROWS} referring domains that link to the selected project's target "
+            "or its competitors in Ahrefs, most shared first."
+        ),
+        "kind": "link_intersect",
+    },
+    "link_intersect_refpages": {
+        "path": "competitive-analysis/link-intersect-refpages",
+        "data_selector": "referring-pages",
+        "primary_keys": ["project_id", "url"],
+        "params": {},
+        "body": {
+            "select": ["url", "title", "domain_rating", "url_rating", "intersect", "links_to_target"],
+            "order_by": ["intersect:desc", "domain_rating:desc"],
+            "limit": MAX_BACKLINK_ROWS,
+        },
+        "description": (
+            f"Up to {MAX_BACKLINK_ROWS} referring pages that link to the selected project's target "
+            "or its competitors in Ahrefs, most shared first."
+        ),
+        "kind": "link_intersect",
+    },
+    "brand_radar_web_pages": {
+        "path": "brand-radar/web-pages",
+        "data_selector": "pages",
+        "primary_keys": ["project_id", "report_id", "url"],
+        "params": {},
+        "body": {
+            "select": ["url", "title", "content", "domain_rating", "referring_domains", "traffic", "traffic_value"],
+            "order_by": "traffic",
+            "limit": MAX_WEB_PAGE_ROWS,
+        },
+        "description": (
+            f"Up to {MAX_WEB_PAGE_ROWS} web pages with the most traffic that mention the brands "
+            "in each Brand Radar report linked to the selected project."
+        ),
+        "kind": "brand_radar",
+    },
+    "domain_rating_top_domains": {
+        "path": "public/domain-rating-top-domains",
+        "data_selector": "domains",
+        "primary_keys": ["domain"],
+        "params": {},
+        "description": "The top 1 million domains ranked by Ahrefs Domain Rating. Free to sync.",
+        "project_scoped": False,
+        "kind": "top_domains",
     },
 }
 
