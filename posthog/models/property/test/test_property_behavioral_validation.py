@@ -1,8 +1,17 @@
+from typing import Any
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.property import BehavioralPropertyType, Property
+
+SEQUENCE_FIELDS: dict[str, Any] = {
+    "seq_event_type": "events",
+    "seq_event": "$pageleave",
+    "seq_time_value": 1,
+    "seq_time_interval": "day",
+}
 
 
 class TestBehavioralPropertyDateRangeValidation(SimpleTestCase):
@@ -86,8 +95,8 @@ class TestBehavioralPropertyDateRangeValidation(SimpleTestCase):
             ("time_value_interval", {"time_value": 30, "time_interval": "day"}),
         ]
     )
-    def test_performed_event_sequence_accepts_time_bound(self, _name, time_bound) -> None:
-        self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **self._sequence_fields(), **time_bound)
+    def test_performed_event_sequence_accepts_time_bound(self, _name: str, time_bound: dict[str, Any]) -> None:
+        self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **SEQUENCE_FIELDS, **time_bound)
 
     @parameterized.expand(
         [
@@ -95,17 +104,9 @@ class TestBehavioralPropertyDateRangeValidation(SimpleTestCase):
             ("only_upper_bound", {"explicit_datetime_to": "-7d"}),
         ]
     )
-    def test_performed_event_sequence_rejects_missing_time_bound(self, _name, time_bound) -> None:
+    def test_performed_event_sequence_rejects_missing_time_bound(self, _name: str, time_bound: dict[str, Any]) -> None:
         with self.assertRaises(ValueError):
-            self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **self._sequence_fields(), **time_bound)
-
-    def _sequence_fields(self) -> dict:
-        return {
-            "seq_event_type": "events",
-            "seq_event": "$pageleave",
-            "seq_time_value": 1,
-            "seq_time_interval": "day",
-        }
+            self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **SEQUENCE_FIELDS, **time_bound)
 
 
 class TestBehavioralPropertyValueAlias(SimpleTestCase):
