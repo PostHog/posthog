@@ -192,7 +192,7 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert set(recalc.metric_uuids) == expected_uuids
         assert {m.metric_uuid for m in metrics} == expected_uuids
-        assert {m.metric_type for m in metrics} == expected_roles
+        assert {m.role for m in metrics} == expected_roles
 
     @parameterized.expand(
         [
@@ -912,7 +912,7 @@ class TestCalculateActivity(BaseTest):
         with _record_captures() as captured:
             _record_out_of_time(
                 MetricOutOfTimeFailure(
-                    recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", metric_type="primary"
+                    recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", role="primary"
                 )
             )
 
@@ -940,7 +940,7 @@ class TestCalculateActivity(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
         _record_out_of_time(
             MetricOutOfTimeFailure(
-                recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", metric_type="primary"
+                recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", role="primary"
             )
         )
 
@@ -1665,7 +1665,7 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["execution_mode"] == "recalculation"
 
     def test_secondary_metric_is_not_marked_primary(self):
-        # The workflow passes the role from discovery (ExperimentMetricToRecalculate.metric_type), and the
+        # The workflow passes the role from discovery (ExperimentMetricToRecalculate.role), and the
         # calculation does not look it up again, so the test passes it explicitly to exercise the same path.
         exp = self._experiment(flag_key="an-secondary", secondary=[_mean_metric("s1")])
         recalc = self._recalc(exp, metric_uuids=["s1"])
