@@ -77,9 +77,20 @@ export type ButtonProps = ButtonPrimitive.Props &
         disabledReason?: React.ReactNode
     }
 
-/** A `render` element that is not a `<button>` (a router link, an `<a>`) needs Base UI's non-native button handling. */
+/**
+ * Whether the `render` element needs Base UI's non-native button handling. A plain element is a
+ * button only when it is `<button>`. A component is assumed to render one unless it carries a link
+ * destination: `LinkPrimitive` renders an anchor only when given `to`, and composed triggers such
+ * as `ComboboxTrigger` render a real `<button>`.
+ */
 function rendersNonButton(render: ButtonPrimitive.Props['render']): boolean {
-    return React.isValidElement(render) && render.type !== 'button'
+    if (!React.isValidElement<{ to?: unknown; href?: unknown }>(render)) {
+        return false
+    }
+    if (typeof render.type === 'string') {
+        return render.type !== 'button'
+    }
+    return render.props.to !== undefined || render.props.href !== undefined
 }
 
 /**
@@ -118,6 +129,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ) => {
         const hasDisabledReason = hasTooltipContent(disabledReason)
         const isDisabled = disabled || loading || hasDisabledReason
+        const renderTarget = isDisabled ? withoutDestination(render) : render
         const button = (
             <ButtonPrimitive
                 ref={ref}
@@ -127,8 +139,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-loading={loading || undefined}
                 aria-busy={loading || undefined}
                 disabled={isDisabled}
-                nativeButton={nativeButton ?? !rendersNonButton(render)}
-                render={isDisabled ? withoutDestination(render) : render}
+                nativeButton={nativeButton ?? !rendersNonButton(renderTarget)}
+                render={renderTarget}
                 // While loading, stay focusable: Base UI then renders aria-disabled instead of
                 // the native disabled attribute, keeping the button in the tab order so screen
                 // readers can reach it and announce busy. Activation stays blocked. A disabled

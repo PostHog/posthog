@@ -18,7 +18,9 @@ export function hasTooltipContent(content: React.ReactNode): boolean {
 
 /**
  * Internal helper behind the `tooltip` and `disabledReason` props of quill primitives.
- * Returns `element` unchanged when there is no content, so callers can pass it unconditionally.
+ * Callers pass it unconditionally. Without content the tooltip is disabled rather than left out,
+ * so the control keeps the same ancestors when a reason appears or clears and React does not
+ * remount it, which would reset an uncontrolled Checkbox or Switch.
  */
 export function withTooltip(
     element: React.ReactElement,
@@ -39,12 +41,10 @@ export function withTooltip(
         focusable?: boolean
     }
 ): React.ReactElement {
-    if (!hasTooltipContent(content)) {
-        return element
-    }
-    const tabIndex = focusable ? 0 : undefined
+    const hasContent = hasTooltipContent(content)
+    const tabIndex = focusable && hasContent ? 0 : undefined
     return (
-        <Tooltip>
+        <Tooltip disabled={!hasContent}>
             {target === 'self' ? (
                 <TooltipTrigger render={element} delay={delay} />
             ) : (
@@ -61,7 +61,7 @@ export function withTooltip(
                     {element}
                 </TooltipTrigger>
             )}
-            <TooltipContent side={side}>{content}</TooltipContent>
+            {hasContent && <TooltipContent side={side}>{content}</TooltipContent>}
         </Tooltip>
     )
 }
