@@ -11,6 +11,8 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortPropertyFilter } from '~/types'
 
+import { cohortCanBeRestored } from './deletedCohortFilters'
+
 /**
  * The cohort a flag condition targets, linked, with a bolt when flags read its membership in realtime.
  * A deleted or missing cohort renders as a warning instead.
@@ -21,9 +23,8 @@ export function CohortConditionLink({ property }: { property: CohortPropertyFilt
     const isRealtime = realtimeTargetingEnabled && cohortsById[property.value]?.realtime?.state === 'ready'
 
     if (property.cohort_deleted) {
-        // A cohort with no name is missing and has no page to open. A soft-deleted cohort's page
-        // has a restore action.
-        const restorable = !!property.cohort_name
+        // A missing cohort has no page to open. A soft-deleted cohort's page has a restore action.
+        const restorable = cohortCanBeRestored(property)
         return (
             <LemonButton
                 type="secondary"

@@ -6,6 +6,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter, humanList } from 'lib/utils/strings'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
+import { cohortCanBeRestored } from './deletedCohortFilters'
+
 /** Warns that release conditions target a cohort the flag evaluator cannot load, so the flag fails to evaluate. */
 export function FeatureFlagDeletedCohortBanner(): JSX.Element | null {
     const { featureFlag, deletedCohortFilters } = useValues(featureFlagLogic)
@@ -22,8 +24,7 @@ export function FeatureFlagDeletedCohortBanner(): JSX.Element | null {
     const them = single ? 'it' : 'them'
     const theCohorts = single ? 'the cohort' : 'the cohorts'
     const deleted = single ? `Cohort ${cohorts[0]} was deleted.` : `Cohorts ${humanList(cohorts)} were deleted.`
-    // The flag API sends no name for a cohort that no longer exists. That cohort has nothing to restore.
-    const restorable = deletedCohortFilters.every((property) => !!property.cohort_name)
+    const restorable = deletedCohortFilters.every(cohortCanBeRestored)
     const removeThem = `update the release conditions to remove ${them}`
     const fix = restorable ? `restore ${theCohorts} or ${removeThem}` : removeThem
     // The flag API refuses to restore, unarchive or enable a flag while a condition targets a deleted cohort.

@@ -117,6 +117,22 @@ describe('FeatureFlagDeletedCohortBanner', () => {
             showsEdit: false,
         },
         {
+            state: 'a flag whose deleted cohort has no name',
+            flag: buildFlag({
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [cohortProperty(7, { cohort_name: '', cohort_deleted: true })],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            }),
+            says: /^Cohort ID 7 was deleted\. .* Restore the cohort or update the release conditions to remove it\.$/,
+            showsEdit: true,
+        },
+        {
             state: 'a flag whose cohort no longer exists',
             flag: buildFlag({
                 active: true,

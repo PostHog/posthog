@@ -7352,6 +7352,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         groups = [{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}]
         cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=groups)
         deleted_cohort = Cohort.objects.create(team=self.team, name="deleted_cohort", groups=groups, deleted=True)
+        nameless_deleted_cohort = Cohort.objects.create(team=self.team, name=None, groups=groups, deleted=True)
         other_project_team = Team.objects.create(organization=self.organization, name="Other project")
         other_project_cohort = Cohort.objects.create(team=other_project_team, name="other_cohort", groups=groups)
         flag = FeatureFlag.objects.create(
@@ -7363,6 +7364,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": str(cohort.pk), "cohort_deleted": True}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": deleted_cohort.pk}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": nameless_deleted_cohort.pk}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": other_project_cohort.pk}]},
                 ]
             },
@@ -7406,6 +7408,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "type": "cohort",
                     "value": deleted_cohort.pk,
                     "cohort_name": "deleted_cohort",
+                    "cohort_deleted": True,
+                },
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    "value": nameless_deleted_cohort.pk,
+                    "cohort_name": "",
                     "cohort_deleted": True,
                 },
                 {

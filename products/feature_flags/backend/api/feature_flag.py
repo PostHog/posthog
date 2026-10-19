@@ -3063,7 +3063,9 @@ class FeatureFlagSerializer(
         for cohort_prop in cohort_props:
             cohort_id = _condition_cohort_id(cohort_prop.get("value"))
             cohort = cohorts.get(cohort_id) if cohort_id is not None else None
-            cohort_prop["cohort_name"] = cohort.name if cohort else None
+            # The frontend reads a null name as a cohort that no longer exists. An existing cohort
+            # therefore sends a string, even an empty one.
+            cohort_prop["cohort_name"] = (cohort.name or "") if cohort else None
             # The flag evaluator loads only non-deleted cohorts. A condition on a deleted or missing
             # cohort fails the flag. A client that echoes the key back can store it, and removing the
             # key here hides that stale value on a live cohort.
