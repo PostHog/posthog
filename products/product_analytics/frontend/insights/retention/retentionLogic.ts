@@ -393,7 +393,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 const isIncomplete = (cohortDate: dayjs.ConfigType, index: number): boolean =>
                     dayjs(cohortDate)
                         .tz(timezone)
-                        .add(brackets ? sum(brackets.slice(0, index)) + 1 : index + 1, periodUnit)
+                        .add(brackets?.length ? sum(brackets.slice(0, index)) + 1 : index + 1, periodUnit)
                         .isAfter(now)
 
                 const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []

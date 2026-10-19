@@ -155,6 +155,16 @@ describe('retentionLogic', () => {
             expectedCounts: [100, 40],
         },
         {
+            name: 'treats empty custom brackets as ordinary retention',
+            query: {
+                ...retentionQuery(),
+                retentionFilter: { ...retentionQuery().retentionFilter, retentionCustomBrackets: [] },
+                dateRange: { excludeIncompletePeriods: true },
+            },
+            rows: [cohortRow(daysAgo(2), [100, 50, 20])],
+            expectedCounts: [100, 50],
+        },
+        {
             name: 'ignores the exclusion for 24-hour windows',
             query: {
                 ...retentionQuery(),
