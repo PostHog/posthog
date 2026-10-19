@@ -56,7 +56,7 @@ The ledger emits its own counters, so any consumer built on the crate reports th
 When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
 The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
 Polling never stops, so a paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive.
-A revoked partition is forgotten, and an assignment starts unpaused with a fresh ledger: librdkafka clears pause flags on assign.
+A revoked partition is forgotten. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned, and the partition starts with a fresh ledger.
 Both limits default to `0`, which sets no budget; the admission cap (`CONSUMER_MAX_BACKGROUND_TASKS`) then governs alone.
 The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
 `ingestion_consumer_budget_paused_partitions` gauges how many partitions are paused and `ingestion_consumer_budget_pauses_total{topic,partition}` counts pauses; read them against `ingestion_lag_ms`.
