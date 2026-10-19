@@ -18,7 +18,8 @@ interface FeatureFlagEvaluationContextsProps {
     evaluationContexts: string[]
     tagsAvailable?: string[]
     className?: string
-    flagId?: number | string | null
+    /** Required, because the editing state is keyed per flag. */
+    flagId: number | string | null
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
