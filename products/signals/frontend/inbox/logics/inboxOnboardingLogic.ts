@@ -477,9 +477,8 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             actions.loadPullsCount()
             actions.loadReportsCount()
         },
-        // Record the choice, then open the surface that holds the controls. On narrow viewports
-        // that is the Configuration tab; on wide ones the scene remaps `config` to `pulls` and
-        // shows the same widgets in the setup rail, so this one push is right at either width.
+        // Record the choice, then open the surface that holds the controls. The scene redirects
+        // the old `config` segment to the Settings tab.
         requestManualSetup: () => {
             captureInboxWelcomeManualSetupClicked()
             if (values.currentTeamId != null) {
