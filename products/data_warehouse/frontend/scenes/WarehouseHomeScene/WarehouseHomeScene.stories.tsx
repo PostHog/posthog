@@ -1,12 +1,11 @@
 import { Meta, StoryFn } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockSignature } from '~/mocks/utils'
-
-import { WarehouseHomeScene } from './WarehouseHomeScene'
 
 const EMPTY_LIST = { results: [], count: 0, next: null, previous: null }
 const EMPTY_ACTIVITY = { results: [], next: null, previous: null }
@@ -149,9 +148,9 @@ function mocks({ sources, tables, savedQueries, health, completed, running }: Mo
     })
 }
 
-const meta: Meta<typeof WarehouseHomeScene> = {
+const meta: Meta = {
     title: 'Scenes-App/Data Warehouse/Warehouse home',
-    component: WarehouseHomeScene,
+    component: App,
     parameters: {
         layout: 'fullscreen',
         pageUrl: urls.warehouse(),
@@ -165,7 +164,7 @@ const meta: Meta<typeof WarehouseHomeScene> = {
 }
 export default meta
 
-const Template: StoryFn = () => <WarehouseHomeScene />
+const Template: StoryFn = () => <App />
 
 export const NewTeam = Template.bind({})
 NewTeam.decorators = [
