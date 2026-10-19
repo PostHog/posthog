@@ -125,6 +125,13 @@ impl Config {
     pub fn bind(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
+
+    /// An empty value is unset: an empty header must not open the endpoint.
+    pub fn debug_api_secret(&self) -> Option<&str> {
+        self.debug_api_secret
+            .as_deref()
+            .filter(|secret| !secret.is_empty())
+    }
 }
 
 #[cfg(test)]
@@ -163,6 +170,15 @@ mod tests {
             ])
             .warmup(),
             Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn an_empty_debug_secret_leaves_the_endpoint_off() {
+        assert_eq!(config(&[("DEBUG_API_SECRET", "")]).debug_api_secret(), None);
+        assert_eq!(
+            config(&[("DEBUG_API_SECRET", "s")]).debug_api_secret(),
+            Some("s")
         );
     }
 }

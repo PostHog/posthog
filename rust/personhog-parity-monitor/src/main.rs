@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         grace_seconds = config.parity_grace_seconds,
         max_entries = config.parity_max_entries,
         teams = ?join_config.teams,
-        debug_api = config.debug_api_secret.is_some(),
+        debug_api = config.debug_api_secret().is_some(),
         "starting personhog-parity-monitor"
     );
 
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     let router = server::router(
         health.clone(),
         samples.clone(),
-        config.debug_api_secret.clone(),
+        config.debug_api_secret().map(str::to_string),
     );
     let (events, arrivals) = mpsc::channel(EVENT_QUEUE);
 
