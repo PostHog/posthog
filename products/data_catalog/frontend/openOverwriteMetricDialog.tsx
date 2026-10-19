@@ -1,18 +1,22 @@
+import { router } from 'kea-router'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { ExistingMetric } from './common'
+import type { DataCatalogMetricNameConflictExistingApi } from './generated/api.schemas'
 
 export function openOverwriteMetricDialog({
     existing,
     onOverwrite,
     onCancel,
 }: {
-    existing: ExistingMetric
+    existing: DataCatalogMetricNameConflictExistingApi
     onOverwrite: () => void
     onCancel?: () => void
 }): void {
     // Escape, the close icon, and an outside click skip the buttons, so every close that is not an overwrite counts as a cancel.
+    // A close caused by navigation is the exception, because the cancel path would reopen the save form on the next page.
     let overwriting = false
+    const openedAt = router.values.location.pathname
     LemonDialog.open({
         title: 'Overwrite the existing metric?',
         content: (
@@ -40,7 +44,7 @@ export function openOverwriteMetricDialog({
         },
         secondaryButton: { children: 'Cancel' },
         onAfterClose: () => {
-            if (!overwriting) {
+            if (!overwriting && router.values.location.pathname === openedAt) {
                 onCancel?.()
             }
         },

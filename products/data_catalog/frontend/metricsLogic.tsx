@@ -419,11 +419,12 @@ export const metricsLogic = kea<metricsLogicType>([
                 // A markdown metric is created as a stub; its definition is authored on the
                 // metric page, where the editor has room. The null definition makes an overwrite
                 // drop the existing query, which the markdown editor cannot open.
+                // Blank fields are sent as blank, so an overwrite clears the old values.
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: form.name,
-                    display_name: form.display_name || undefined,
+                    display_name: form.display_name,
                     description: form.description,
-                    unit: form.unit || undefined,
+                    unit: form.unit,
                     ...(form.definitionType === 'insight'
                         ? { source_insight_short_id: form.sourceInsightShortId }
                         : { definition: null }),
@@ -457,7 +458,7 @@ export const metricsLogic = kea<metricsLogicType>([
             try {
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: request.name,
-                    display_name: request.display_name || undefined,
+                    display_name: request.display_name,
                     description: request.description,
                     source_insight_short_id: request.source_insight_short_id,
                     overwrite,
