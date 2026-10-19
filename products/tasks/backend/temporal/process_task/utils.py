@@ -1627,6 +1627,14 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
     return True
 
 
+WORKFLOWS_PRODUCT = "workflows"
+WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL = "ai_credits_exhausted"
+WORKFLOWS_CREDITS_EXHAUSTED_DETAIL = (
+    "This project has used its monthly PostHog AI credits. "
+    "Raise the AI credit limit in billing settings, or wait for the next billing period."
+)
+
+
 def ai_gateway_env_vars(
     *,
     team_id: int | None = None,
@@ -1652,7 +1660,8 @@ def ai_gateway_env_vars(
     Go gateway only when the token is present, so a missing token (mint failure,
     or a caller that cannot supply run context) degrades the run to the Python
     gateway, except a `posthog_code` run, which raises: the Python gateway
-    refuses `posthog_code`.
+    refuses `posthog_code`. A `workflows` run whose team is out of AI credits
+    also raises, because the Python gateway refuses it too.
     """
     ai_product = (
         resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
@@ -1703,6 +1712,13 @@ def ai_gateway_env_vars(
                 )
                 if requires_go:
                     raise posthog_code_token_unavailable(refusal, team_id)
+                # The legacy gateway refuses an exhausted bucket with a retryable 429. A background
+                # workflow run has nobody to read the refusal, so the agent retries until the idle
+                # timeout and the run fails as lost. Fail it here with the real reason.
+                if ai_product == WORKFLOWS_PRODUCT and refusal == WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL:
+                    raise GatewayTokenUnavailableError(
+                        WORKFLOWS_CREDITS_EXHAUSTED_DETAIL, {"team_id": team_id, "reason": refusal}
+                    )
                 return env_vars
             mint_kwargs: dict[str, Any] = {}
             if ai_product == POSTHOG_CODE_PRODUCT:
