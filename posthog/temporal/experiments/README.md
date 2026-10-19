@@ -188,3 +188,11 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Calculation-key version 2 rollout
+
+Before deploying discovery that emits version 2 keys, pause every `experiment-regular-metrics-hour-*` and `experiment-saved-metrics-hour-*` schedule in both regions. Each family has 24 hourly schedules with 30-minute jitter; there is no globally quiet daily significance window. Drain in-flight discovery and metric-calculation workflows before rolling the workers. Resume schedules only after all workers understand the version 1/display-key significance fallback. Pausing schedules alone does not stop workflows already running.
+
+Drain active timeseries backfills before switching versions too: old workers do not honor the new canceled status or the write fence. Historical result fingerprints stay unchanged, so the first new-worker comparison can use their version 1 keys without sending duplicate significance notifications.
+
+Monitor page-load runs by `heal_latest_run` (a gap in a real terminal run) and `cold_run` (404 or an incomplete timeseries fallback). `experiment_config_change` identifies an experiment edit, not page-load healing. Ended experiments with compatible stored results should not start either page-load run after a project settings change.

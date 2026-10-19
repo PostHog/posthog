@@ -18,8 +18,8 @@ configs.
 The calculation key (version 2) hashes the metric and an explicit field list of each setting that equality
 compares, with numbers normalized. So equal configs have equal keys, and so do settings that differ only by float
 noise. Key version 1 (`legacy_key`) hashes only part of a config: the metric, the start date, the stats method,
-the exposure criteria as stored, maturity and the excluded variants. Results stored before version 2 carry it until a
-one-time conversion gives them the version 2 key, and every result stores it as its display key.
+the exposure criteria as stored, maturity and the excluded variants. Historical results keep their version 1 key
+for display, with unknown configuration provenance. New results also store it as their display key.
 """
 
 import json

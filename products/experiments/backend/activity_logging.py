@@ -30,6 +30,18 @@ def _is_derived_running_time_drift(change: Change) -> bool:
     return _without_derived_running_time_keys(change.before) == _without_derived_running_time_keys(change.after)
 
 
+def _is_metric_fingerprint_drift(change: Change) -> bool:
+    if change.field not in ("metrics", "metrics_secondary"):
+        return False
+    if not isinstance(change.before, list) or not isinstance(change.after, list):
+        return False
+    if not all(isinstance(metric, dict) for metric in [*change.before, *change.after]):
+        return False
+    before = [{key: value for key, value in metric.items() if key != "fingerprint"} for metric in change.before]
+    after = [{key: value for key, value in metric.items() if key != "fingerprint"} for metric in change.after]
+    return before == after
+
+
 @mutable_receiver(model_activity_signal, sender=Experiment)
 @mutable_receiver(model_activity_signal, sender=WebExperiment)
 def handle_experiment_change(
@@ -67,7 +79,11 @@ def handle_experiment_change(
     # changes. A change earns a log entry only when a calculator input was edited.
     # log_activity drops an "updated" activity whose changes end up empty, so a pure-drift
     # save produces no row at all.
-    changes = [change for change in changes if not _is_derived_running_time_drift(change)]
+    changes = [
+        change
+        for change in changes
+        if not _is_derived_running_time_drift(change) and not _is_metric_fingerprint_drift(change)
+    ]
 
     log_activity(
         organization_id=after_update.team.organization_id,

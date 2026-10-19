@@ -56,6 +56,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.metric_calculation.results import ExperimentResultConfigurationStatus
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
@@ -1526,6 +1527,12 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
 class MetricRecalculationResultSerializer(serializers.Serializer):
     """One metric's recalculated result row, read back from ExperimentMetricResult."""
 
+    configuration_status = serializers.ChoiceField(
+        choices=ExperimentResultConfigurationStatus.choices,
+        read_only=True,
+        help_text="Whether this result uses current settings, earlier settings, or settings that were not recorded.",
+    )
+
     metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
     status = serializers.ChoiceField(
         choices=["pending", "completed", "failed"],
@@ -1569,6 +1576,10 @@ class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
             "Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start "
             "date to the end date or today. Null for a day without a completed result."
         ),
+    )
+    configuration_by_day = serializers.DictField(
+        child=serializers.ChoiceField(choices=ExperimentResultConfigurationStatus.choices),
+        help_text="Configuration provenance for each stored day: current, previous, or unknown.",
     )
     computed_at = serializers.DateTimeField(
         allow_null=True, help_text="When the most recent day's result was computed, or null."

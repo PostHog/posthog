@@ -506,6 +506,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         IN_PROGRESS = "in_progress", "In Progress"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELED = "canceled", "Canceled"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)

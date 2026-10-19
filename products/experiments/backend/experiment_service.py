@@ -3827,6 +3827,12 @@ class ExperimentService:
         separately because that relation is excluded from it.
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        if before_update is not None:
+            for field_name in ("metrics", "metrics_secondary"):
+                before = [_metric_merge_view(metric) for metric in (getattr(before_update, field_name) or [])]
+                after = [_metric_merge_view(metric) for metric in (getattr(experiment, field_name) or [])]
+                if before == after:
+                    changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
             changed_fields = [*changed_fields, "saved_metrics"]
@@ -4555,6 +4561,7 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "configuration_by_day": {day.isoformat(): status for day, status in stored.configuration_by_day.items()},
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4591,16 +4598,21 @@ class ExperimentService:
         validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
         with transaction.atomic():
-            # A metric's active backfill must be reused even if its calculation key changes between requests.
+            # Serialize supersession with each backfill's status check and result write.
             Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
             existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
+
+            if existing_recalculation and existing_recalculation.fingerprint != fingerprint:
+                existing_recalculation.status = ExperimentTimeseriesRecalculation.Status.CANCELED
+                existing_recalculation.save(update_fields=["status"])
+                existing_recalculation = None
 
             if existing_recalculation:
                 return {
                     "id": existing_recalculation.id,
                     "experiment_id": experiment.id,
                     "metric_uuid": existing_recalculation.metric.get("uuid"),
-                    "fingerprint": fingerprint,
+                    "fingerprint": existing_recalculation.fingerprint,
                     "status": existing_recalculation.status,
                     "created_at": existing_recalculation.created_at.isoformat(),
                     "is_existing": True,
@@ -4634,9 +4646,8 @@ class ExperimentService:
     ) -> ExperimentTimeseriesRecalculation | None:
         """The pending or running backfill of the metric with this uuid, under any key.
 
-        A backfill requested before a settings edit or before calculation key version 2 carries another key but
-        writes the same days. It counts as the active backfill, so that a second backfill does not race it for the
-        rows of those days.
+        A different key must be canceled before its replacement starts. Workers check this status under the
+        experiment lock before writing, so a superseded query cannot overwrite the replacement's results.
         """
         return (
             ExperimentTimeseriesRecalculation.objects.filter(

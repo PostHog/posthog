@@ -10,12 +10,17 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentMetric,
-    ExperimentMetricTimeseries,
     ExperimentQueryResponse,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType } from '~/types'
+
+import { experimentsTimeseriesResultsRetrieve } from 'products/experiments/frontend/generated/api'
+import type {
+    ExperimentTimeseriesResultsApi as ExperimentMetricTimeseries,
+    ExperimentResultConfigurationStatusEnumApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import { getVariantInterval } from './MetricsView/shared/utils'
@@ -27,6 +32,7 @@ export interface ProcessedTimeseriesDataPoint {
     upper_bound: number | null
     lower_bound: number | null
     hasRealData: boolean
+    configurationStatus?: ExperimentResultConfigurationStatusEnumApi
     number_of_samples?: number
     denominator_sum?: number
     significant?: boolean
@@ -155,13 +161,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     if (!metric.uuid) {
                         throw new Error('Metric UUID is required')
                     }
-                    if (!metric.fingerprint) {
-                        throw new Error('Metric fingerprint is required')
-                    }
-
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsTimeseriesResultsRetrieve() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    const response = await api.get(
-                        `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
+                    const response = await experimentsTimeseriesResultsRetrieve(
+                        String(values.currentProjectId),
+                        Number(props.experiment.id),
+                        { metric_uuid: metric.uuid }
                     )
                     return response
                 },
@@ -255,6 +258,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                     upper_bound: upper,
                                     lower_bound: lower,
                                     hasRealData: true,
+                                    configurationStatus: timeseries.configuration_by_day?.[entry.date],
                                     number_of_samples: variant.number_of_samples || 0,
                                     denominator_sum: variant.denominator_sum || 0,
                                     significant: variant.significant ?? false,

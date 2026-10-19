@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconCheck, IconInfo } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useAnimatedNumber } from '@posthog/quill-charts'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -13,14 +13,22 @@ import { useRetryCountdownLabel } from '~/scenes/experiments/MetricsView/shared/
 import { Experiment } from '~/types'
 
 /**
- * Status line for an in-flight recalculation. Renders only while a run is actually executing
- * (`cold` / `refreshing`); loading-from-latest and terminal states show nothing — the metric rows
- * carry their own loading and error affordances. ExperimentView renders it once the experiment has metrics.
+ * Run progress and the configuration provenance of saved results.
+ * ExperimentView renders this once the experiment has metrics.
  */
 export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
-    const { recalculationDisplayState, currentRecalculation, liveRowsProgress, metricRetries, nextRetryAt } = useValues(
-        experimentMetricsLogic({ experiment })
-    )
+    const logic = experimentMetricsLogic({ experiment })
+    const {
+        recalculationDisplayState,
+        currentRecalculation,
+        liveRowsProgress,
+        metricRetries,
+        nextRetryAt,
+        resultConfigurationNotice,
+        isRecalculating,
+        isManualRefreshBlocked,
+    } = useValues(logic)
+    const { triggerRecalculation } = useActions(logic)
     /**
      * Mounted here rather than inside the in-flight branch so the finish-edge subscription that
      * fires the browser notification is still alive when the bar disappears on the terminal state.
@@ -30,7 +38,22 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
     const { subscribeToResultsNotification } = useActions(notificationLogic)
 
     if (recalculationDisplayState !== 'cold' && recalculationDisplayState !== 'refreshing') {
-        return null
+        return resultConfigurationNotice ? (
+            <LemonBanner
+                type="info"
+                className="mb-2"
+                action={{
+                    children: 'Recalculate',
+                    onClick: () => triggerRecalculation('manual'),
+                    loading: isRecalculating,
+                    disabledReason: isManualRefreshBlocked ? 'Please wait before recalculating again' : undefined,
+                }}
+            >
+                {resultConfigurationNotice === 'previous'
+                    ? 'Some results were calculated with earlier settings. Recalculate to use the current settings.'
+                    : 'The settings used for some saved results were not recorded. Recalculate to use the current settings.'}
+            </LemonBanner>
+        ) : null
     }
     return (
         <InFlightStatus

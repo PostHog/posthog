@@ -10,18 +10,16 @@ hide two storage conventions from the callers:
 
 The calculation key includes the start date, so no reader needs `query_from` to tell a relaunch apart.
 
-Rows written before calculation key version 2 carry the version 1 key (`MetricCalculationConfig.legacy_key`), which
-leaves out several analytical inputs. A one-time conversion after the deploy gives each such row the version 2 key of
-the experiment's current configuration. Until then, every reader falls back to the version 1 key of the current
-config where no row under the version 2 key covers the same metric, window or day. This includes the reuse check, so
-before the conversion a reuse behaves as it did under version 1. After the conversion no row carries the current
-version 1 key as its fingerprint, and the fallback finds nothing.
+Rows written before calculation key version 2 carry a version 1 key that omits analytical inputs. Display readers
+fall back to that key, but calculation reuse requires the current version 2 key. Historical rows are never
+relabeled with current settings: their configuration is unknown.
 
-Every write also stores the version 1 key of its calculation config in `display_key`, salted like the fingerprint on
-a run row. The version 1 key hashes only inputs that the experiment owns. So after a team setting changes the
-current key, the chart, the current outcome and the significance baseline still find the rows written under the
-earlier key. The run read, the reuse check and the cold-start read do not use `display_key`: after such a change
-they must leave the metric uncovered, so that the results page computes it under the new settings.
+Every write also stores its config's version 1 key in `display_key`, salted like the fingerprint on a run row.
+The chart, current outcome and significance baseline use it to preserve history across project setting changes.
+Ended experiments also use it for run reads and cold-start display, so opening the page does not overwrite the
+result after a project setting changes. Running experiments leave such run results uncovered and recompute.
+Display readers report whether each result used current, previous, or unknown settings; display compatibility
+never makes a result reusable for calculation.
 
 Several rows can share `(experiment, metric_uuid, query_to)` once the unique constraint on that key goes. Every
 query that can meet such rows returns the one with the newest `completed_at`, then the highest id. It never looks a
@@ -37,11 +35,12 @@ Every query filters on the experiment first, so the `(experiment, metric_uuid, q
 
 import hashlib
 from collections.abc import Iterable, Mapping
+from dataclasses import field
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import BooleanField, Case, F, Q, QuerySet, Value, When
 from django.db.models.fields.json import KT, KeyTransform
 from django.db.models.functions import Least
@@ -102,6 +101,21 @@ def _current_key_first(under_current_key: Q) -> Case:
     return Case(When(under_current_key, then=Value(False)), default=Value(True), output_field=BooleanField())
 
 
+class ExperimentResultConfigurationStatus(models.TextChoices):
+    CURRENT = "current", "Current settings"
+    PREVIOUS = "previous", "Earlier settings"
+    UNKNOWN = "unknown", "Settings not recorded"
+
+
+def result_configuration_status(fingerprint: str | None, config: MetricCalculationConfig) -> str:
+    key, legacy_key = config.calculation_key(), config.legacy_key()
+    if fingerprint in (key, _recalc_fingerprint(key)):
+        return ExperimentResultConfigurationStatus.CURRENT
+    if fingerprint in (legacy_key, _recalc_fingerprint(legacy_key)):
+        return ExperimentResultConfigurationStatus.UNKNOWN
+    return ExperimentResultConfigurationStatus.PREVIOUS
+
+
 @frozen
 class DailyTimeseries:
     """The stored results of one metric, one row per day."""
@@ -109,6 +123,7 @@ class DailyTimeseries:
     by_day: dict[date, ExperimentMetricResult]
     earliest: ExperimentMetricResult | None
     latest: ExperimentMetricResult | None
+    configuration_by_day: dict[date, str] = field(default_factory=dict)
 
 
 @frozen
@@ -122,6 +137,7 @@ class ResultSummary:
     baseline_samples: str | None
     baseline_sum: str | None
     variant_results: tuple[dict[str, Any], ...]
+    configuration_status: str = ExperimentResultConfigurationStatus.UNKNOWN
 
 
 @frozen
@@ -130,13 +146,15 @@ class MetricResultStore:
 
     experiment_id: int
 
-    def for_run(self, run: ExperimentMetricsRecalculation) -> list[ExperimentMetricResult]:
+    def for_run(
+        self, run: ExperimentMetricsRecalculation, *, configs: list[MetricCalculationConfig] | None = None
+    ) -> list[ExperimentMetricResult]:
         """The rows of a recalculation run, one per metric uuid, ordered by metric uuid.
 
         A run has no link to its rows. The rows are found by the salted keys of the run's metrics under the
         current configuration of the experiment, at the run's query_to. A metric that no longer resolves on the
-        experiment has no key, so its row is not found. A configuration change after the run changes the keys, so
-        the run's rows are not found until the configuration changes back.
+        experiment has no key, so its row is not found. Ended experiments also retain completed rows with a
+        compatible display key; running experiments expose a gap after the calculation key changes.
 
         A row under the salted version 1 key stands in for a metric that has no row under its version 2 key at the
         window. So a run from before key version 2, or a reuse of such a row, still reads complete.
@@ -145,7 +163,7 @@ class MetricResultStore:
             return []
         calculation_configs = {
             calculation_config.metric_id: calculation_config
-            for calculation_config in build_calculation_configs(run.experiment)
+            for calculation_config in (configs if configs is not None else build_calculation_configs(run.experiment))
         }
         run_configs = [
             calculation_configs[metric_uuid]
@@ -163,6 +181,12 @@ class MetricResultStore:
                 metric_uuid=calculation_config.metric_id,
                 fingerprint__in=[current_key, _recalc_fingerprint(calculation_config.legacy_key())],
             )
+            if run.experiment.is_stopped:
+                filed_under_run_keys |= Q(
+                    metric_uuid=calculation_config.metric_id,
+                    display_key=_recalc_fingerprint(calculation_config.legacy_key()),
+                    status=_COMPLETED,
+                )
         # The recalc fingerprint is per config, not per run, so each window of a running experiment holds a row under
         # the same fingerprint. Without the query_to filter a later run would return every earlier window's row.
         rows = ExperimentMetricResult.objects.filter(
@@ -175,29 +199,33 @@ class MetricResultStore:
         )
 
     def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
-        """Whether a recalculation already stored a completed result for this calculation config at this window, under
-        the version 2 key or, for a row that the conversion has not reached, the version 1 key."""
+        """Whether this exact calculation config already completed at this window."""
         return ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id,
             metric_uuid=calculation_config.metric_id,
             query_to=window,
-            fingerprint__in=[
-                _recalc_fingerprint(calculation_config.calculation_key()),
-                _recalc_fingerprint(calculation_config.legacy_key()),
-            ],
+            fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
             status=_COMPLETED,
         ).exists()
 
     def latest_daily_point(
-        self, calculation_config: MetricCalculationConfig, *, since: datetime, until: datetime
+        self,
+        calculation_config: MetricCalculationConfig,
+        *,
+        since: datetime,
+        until: datetime,
+        preserve_history: bool = False,
     ) -> ExperimentMetricResult | None:
         """The completed daily point of this calculation config with the latest query_to inside [since, until]. A
         point under the version 1 key stands in when no point under the version 2 key falls inside the range."""
         current_key = calculation_config.calculation_key()
+        keys = Q(fingerprint__in=[current_key, calculation_config.legacy_key()])
+        if preserve_history:
+            keys |= Q(display_key=calculation_config.legacy_key())
         rows = ExperimentMetricResult.objects.filter(
+            keys,
             experiment_id=self.experiment_id,
             metric_uuid=calculation_config.metric_id,
-            fingerprint__in=[current_key, calculation_config.legacy_key()],
             status=_COMPLETED,
             query_to__gte=since,
             query_to__lte=until,
@@ -245,6 +273,9 @@ class MetricResultStore:
             by_day=by_day,
             earliest=min(shown, key=lambda row: row.query_to, default=None),
             latest=max(shown, key=lambda row: row.query_to, default=None),
+            configuration_by_day={
+                day: result_configuration_status(row.fingerprint, calculation_config) for day, row in by_day.items()
+            },
         )
 
     def current_outcome(self, calculation_config: MetricCalculationConfig) -> ResultSummary | None:
@@ -333,6 +364,7 @@ class MetricResultStore:
         calculation_key: str,
         *,
         calculation_config: MetricCalculationConfig | None,
+        display_key: str | None = None,
         window: datetime,
         query_from: datetime,
         result: dict[str, Any],
@@ -346,7 +378,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            display_key=calculation_config.legacy_key() if calculation_config is not None else None,
+            display_key=calculation_config.legacy_key() if calculation_config is not None else display_key,
             query_from=query_from,
             status=_COMPLETED,
             result=result,
@@ -361,6 +393,7 @@ class MetricResultStore:
         calculation_key: str,
         *,
         calculation_config: MetricCalculationConfig | None,
+        display_key: str | None = None,
         window: datetime,
         query_from: datetime,
         error_message: str,
@@ -377,7 +410,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            display_key=calculation_config.legacy_key() if calculation_config is not None else None,
+            display_key=calculation_config.legacy_key() if calculation_config is not None else display_key,
             query_from=query_from,
             status=_FAILED,
             result=None,
@@ -397,8 +430,7 @@ class MetricResultStore:
     ) -> None:
         """Copy daily points into a timeseries sync run at its window, under the salted keys a run read looks for.
 
-        Each copy carries the salted form of its point's own key, which is the version 2 or the version 1 key of the
-        config. So a point that the conversion has not reached yet gets a copy that the conversion also reaches.
+        Each copy retains its point's own key and provenance, including unknown settings on version 1 points.
         """
         for calculation_config, point in points:
             assert point.fingerprint is not None
@@ -564,6 +596,7 @@ class MetricResultStore:
                 "metric_uuid",
                 "completed_at",
                 "query_to",
+                "fingerprint",
                 baseline_samples=KT("result__baseline__number_of_samples"),
                 baseline_sum=KT("result__baseline__sum"),
                 variant_results=KeyTransform("variant_results", "result"),
@@ -575,6 +608,9 @@ class MetricResultStore:
             summaries[row["experiment_id"]] = ResultSummary(
                 completed_at=row["completed_at"],
                 query_to=row["query_to"],
+                configuration_status=result_configuration_status(
+                    row["fingerprint"], config_by_experiment[row["experiment_id"]]
+                ),
                 baseline_samples=row["baseline_samples"],
                 baseline_sum=row["baseline_sum"],
                 variant_results=tuple(variant for variant in variant_results if isinstance(variant, dict)),
@@ -587,7 +623,13 @@ def _experiment_in_team(experiment_id: int, team_id: int) -> Experiment | None:
 
 
 def previous_completed_metric_result(
-    experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str, before: datetime
+    experiment_id: int,
+    *,
+    team_id: int,
+    metric_uuid: str,
+    calculation_key: str,
+    before: datetime,
+    display_key: str | None = None,
 ) -> dict[str, Any] | None:
     """The stored result of the completed daily point under this key with the latest query_to before `before`,
     for callers outside the product. None when there is no such point or the experiment is not in the team.
@@ -599,11 +641,13 @@ def previous_completed_metric_result(
     experiment = _experiment_in_team(experiment_id, team_id)
     if experiment is None:
         return None
-    calculation_config = find_calculation_config_by_key(experiment, metric_uuid, calculation_key)
+    calculation_config = (
+        find_calculation_config_by_key(experiment, metric_uuid, calculation_key) if display_key is None else None
+    )
     row = MetricResultStore(experiment_id=experiment_id).previous_completed(
         metric_uuid,
         calculation_key,
-        legacy_key=calculation_config.legacy_key() if calculation_config is not None else None,
+        legacy_key=calculation_config.legacy_key() if calculation_config is not None else display_key,
         before=before,
     )
     return row.result if row is not None else None
@@ -634,6 +678,7 @@ def record_daily_metric_result(
     window: datetime,
     query_from: datetime,
     result: dict[str, Any],
+    display_key: str | None = None,
 ) -> None:
     """Store a completed daily point, for the scheduled workflows outside the product.
 
@@ -642,13 +687,18 @@ def record_daily_metric_result(
     configuration change since then leaves the row without a display key. So does an `experiment_id` that is not in
     the team.
     """
-    calculation_config = _daily_calculation_config(
-        experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+    calculation_config = (
+        _daily_calculation_config(
+            experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+        )
+        if display_key is None
+        else None
     )
     MetricResultStore(experiment_id=experiment_id).record_daily_point(
         metric_uuid,
         calculation_key,
         calculation_config=calculation_config,
+        display_key=display_key,
         window=window,
         query_from=query_from,
         result=result,
@@ -664,16 +714,22 @@ def record_daily_metric_failure(
     window: datetime,
     query_from: datetime,
     error_message: str,
+    display_key: str | None = None,
 ) -> None:
     """Store a failed daily point, for the scheduled workflows outside the product. The row gets its display key
     as `record_daily_metric_result` describes."""
-    calculation_config = _daily_calculation_config(
-        experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+    calculation_config = (
+        _daily_calculation_config(
+            experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+        )
+        if display_key is None
+        else None
     )
     MetricResultStore(experiment_id=experiment_id).record_daily_failure(
         metric_uuid,
         calculation_key,
         calculation_config=calculation_config,
+        display_key=display_key,
         window=window,
         query_from=query_from,
         error_message=error_message,

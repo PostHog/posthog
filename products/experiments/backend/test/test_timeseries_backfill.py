@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated, ExperimentVariantResultFrequentist
 
 from posthog.models import Organization, Team, User
@@ -63,6 +65,7 @@ class TestBackfillExperimentTimeseries(BaseTest):
 
         with patch("products.experiments.backend.timeseries_backfill.ExperimentQueryRunner") as mock_query_runner_class:
             mock_query_runner = MagicMock()
+            mock_query_runner.calculation_config = calculation_config
             mock_query_runner._calculate.return_value = mock_result
             mock_query_runner_class.return_value = mock_query_runner
 
@@ -127,6 +130,13 @@ class TestBackfillExperimentTimeseries(BaseTest):
             status=ExperimentTimeseriesRecalculation.Status.PENDING,
         )
 
+        experiment.metrics = [recalculation_request.metric]
+        experiment.save()
+        calculation_config = get_metric_calculation_config(experiment, "test-metric-uuid")
+        assert calculation_config is not None
+        recalculation_request.fingerprint = calculation_config.calculation_key()
+        recalculation_request.save()
+
         mock_result = ExperimentQueryResponse(
             baseline=ExperimentStatsBaseValidated(key="control", number_of_samples=100, sum=1000, sum_squares=10000),
             variant_results=[],
@@ -134,6 +144,7 @@ class TestBackfillExperimentTimeseries(BaseTest):
 
         with patch("products.experiments.backend.timeseries_backfill.ExperimentQueryRunner") as mock_query_runner_class:
             mock_query_runner = MagicMock()
+            mock_query_runner.calculation_config = calculation_config
             mock_query_runner._calculate.return_value = mock_result
             mock_query_runner_class.return_value = mock_query_runner
 
@@ -146,3 +157,56 @@ class TestBackfillExperimentTimeseries(BaseTest):
         recalculation_request.refresh_from_db()
         assert recalculation_request.status == ExperimentTimeseriesRecalculation.Status.COMPLETED
         assert recalculation_request.last_successful_date == datetime.date(2024, 10, 27)
+
+    @parameterized.expand([("before_start",), ("before_query",), ("between_days",), ("superseded_during_query",)])
+    def test_settings_drift_and_supersession_do_not_write_mislabeled_results(self, moment: str) -> None:
+        metric = {"uuid": "m1", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}
+        flag = FeatureFlag.objects.create(team=self.team, key="drift-flag", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            feature_flag=flag,
+            metrics=[metric],
+            start_date=datetime.datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            end_date=datetime.datetime(2024, 1, 3, tzinfo=ZoneInfo("UTC")),
+        )
+        config = get_metric_calculation_config(experiment, "m1")
+        assert config is not None
+        request = ExperimentTimeseriesRecalculation.objects.create(
+            team=self.team, experiment=experiment, metric=metric, fingerprint=config.calculation_key()
+        )
+        result = ExperimentQueryResponse(
+            baseline=ExperimentStatsBaseValidated(key="control", number_of_samples=100, sum=1000, sum_squares=10000),
+            variant_results=[],
+        )
+
+        def change_settings() -> None:
+            experiment.stats_config = {"cuped": {"enabled": True}}
+            experiment.save()
+
+        def calculate() -> ExperimentQueryResponse:
+            if moment == "between_days":
+                change_settings()
+            if moment == "superseded_during_query":
+                ExperimentTimeseriesRecalculation.objects.filter(id=request.id).update(status="canceled")
+            return result
+
+        def runner(**kwargs):
+            if moment == "before_query":
+                change_settings()
+            mock = MagicMock()
+            mock.calculation_config = get_metric_calculation_config(Experiment.objects.get(id=experiment.id), "m1")
+            mock._calculate.side_effect = calculate
+            return mock
+
+        if moment == "before_start":
+            change_settings()
+        with patch("products.experiments.backend.timeseries_backfill.ExperimentQueryRunner", side_effect=runner):
+            output = backfill_experiment_timeseries(str(request.id))
+        request.refresh_from_db()
+        assert request.status == "canceled"
+        assert output["days_processed"] == (1 if moment == "between_days" else 0)
+        rows = ExperimentMetricResult.objects.filter(experiment=experiment)
+        assert rows.count() == (1 if moment == "between_days" else 0)
+        if moment == "between_days":
+            assert rows.get().fingerprint == config.calculation_key()
+            assert rows.get().display_key == config.legacy_key()

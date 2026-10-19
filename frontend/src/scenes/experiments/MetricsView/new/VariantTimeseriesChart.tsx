@@ -66,6 +66,7 @@ export function VariantTimeseriesChart({
                             denominator={point.denominator_sum}
                             significant={point.significant}
                             hasRealData={point.hasRealData}
+                            configurationStatus={point.configurationStatus}
                             computedAt={computedAt}
                             color={variantColor}
                         />

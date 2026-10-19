@@ -1124,7 +1124,7 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 2
         assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
 
-    @parameterized.expand([("version_2_key", False), ("version_1_key_before_its_conversion", True)])
+    @parameterized.expand([("version_2_key", False), ("version_1_key_is_display_only", True)])
     def test_skips_query_when_completed_result_already_exists_for_this_fingerprint(
         self, _name: str, version_1: bool
     ) -> None:
@@ -1156,9 +1156,13 @@ class TestCalculateActivity(BaseTest):
         recalc.save(update_fields=["metric_retries"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {"fresh": True}
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-        mock_runner.assert_not_called()
+        if version_1:
+            mock_runner.assert_called_once()
+        else:
+            mock_runner.assert_not_called()
         assert result.success is True
         recalc.refresh_from_db()
         assert recalc.metric_retries == {}
@@ -1167,7 +1171,8 @@ class TestCalculateActivity(BaseTest):
         assert rows.count() == 1
         row = rows.get()
         assert row.id == existing.id
-        assert row.result == {"already": "computed"}
+        assert row.result == ({"fresh": True} if version_1 else {"already": "computed"})
+        assert row.fingerprint == _recalc_fingerprint(calculation_config.calculation_key())
 
     def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
         # A config change yields a different recalc fingerprint, so the existing row does not match and the

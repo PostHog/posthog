@@ -45939,6 +45939,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `current` - Current settings
+     * * `previous` - Earlier settings
+     * * `unknown` - Settings not recorded
+     */
+    export type ExperimentResultConfigurationStatusEnum = typeof ExperimentResultConfigurationStatusEnum[keyof typeof ExperimentResultConfigurationStatusEnum];
+
+
+    export const ExperimentResultConfigurationStatusEnum = {
+      Current: 'current',
+      Previous: 'previous',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -45956,6 +45970,12 @@ export namespace Schemas {
      * One metric's recalculated result row, read back from ExperimentMetricResult.
      */
     export interface MetricRecalculationResult {
+      /** Whether this result uses current settings, earlier settings, or settings that were not recorded.
+       *
+       * * `current` - Current settings
+       * * `previous` - Earlier settings
+       * * `unknown` - Settings not recorded */
+      readonly configuration_status: ExperimentResultConfigurationStatusEnum;
       /** UUID of the metric this result belongs to */
       readonly metric_uuid: string;
       /** Status of this metric's calculation in the run
@@ -47247,6 +47267,11 @@ export namespace Schemas {
     export type ExperimentTimeseriesResultsTimeseries = {[key: string]: unknown};
 
     /**
+     * Configuration provenance for each stored day: current, previous, or unknown.
+     */
+    export type ExperimentTimeseriesResultsConfigurationByDay = {[key: string]: 'current' | 'previous' | 'unknown'};
+
+    /**
      * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
      * @nullable
      */
@@ -47285,6 +47310,8 @@ export namespace Schemas {
       status: ExperimentTimeseriesResultsStatusEnum;
       /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
       timeseries: ExperimentTimeseriesResultsTimeseries;
+      /** Configuration provenance for each stored day: current, previous, or unknown. */
+      configuration_by_day: ExperimentTimeseriesResultsConfigurationByDay;
       /**
          * When the most recent day's result was computed, or null.
          * @nullable

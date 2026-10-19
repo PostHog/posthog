@@ -9,9 +9,12 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
+from posthog.schema import ExperimentQuery
+
 from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     get_metric_calculation_config,
@@ -22,12 +25,14 @@ from products.experiments.backend.metric_calculation.results import (
     previous_completed_metric_result,
     record_daily_metric_result,
 )
+from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation import get_run_results
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -352,15 +357,18 @@ class TestMetricResultStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("team_test_account_filters", "team", True),
-            ("team_default_cuped", "team_config", True),
-            ("metric_definition", "metric", False),
+            (f"{change}_{stopped}", change, history_shown, stopped)
+            for change, history_shown in [("team", True), ("team_config", True), ("metric", False)]
+            for stopped in [False, True]
         ]
     )
     def test_a_settings_change_keeps_the_history_that_the_experiment_still_describes(
-        self, _name: str, change: str, history_shown: bool
+        self, _name: str, change: str, history_shown: bool, stopped: bool
     ) -> None:
         experiment = self._experiment()
+        if stopped:
+            experiment.end_date = _WINDOW + timedelta(hours=1)
+            experiment.save()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
         store = MetricResultStore(experiment_id=experiment.id)
@@ -418,8 +426,79 @@ class TestMetricResultStore(BaseTest):
         shown = (_samples(series.by_day.get(_WINDOW_DAY)), outcome and outcome.baseline_samples)
         assert shown == (([3], "4") if history_shown else ([], None))
         assert not store.has_completed(changed_config, window=run_window)
-        assert store.for_run(ExperimentMetricsRecalculation.objects.get(id=run.id)) == []
+        stored_run = ExperimentMetricsRecalculation.objects.get(id=run.id)
+        run_rows = store.for_run(stored_run)
+        if stopped and history_shown:
+            assert get_run_results(stored_run)[0]["configuration_status"] == "previous"
+        assert [sample for row in run_rows for sample in _samples(row)] == ([4] if stopped and history_shown else [])
         assert store.latest_daily_point(changed_config, since=_WINDOW - timedelta(days=1), until=_WINDOW) is None
+        if history_shown:
+            assert series.configuration_by_day[_WINDOW_DAY] == "previous"
+            assert outcome is not None and outcome.configuration_status == "previous"
+        preserved = store.latest_daily_point(changed_config, since=_START, until=_WINDOW, preserve_history=stopped)
+        assert _samples(preserved) == ([3] if stopped and history_shown else [])
+
+    @parameterized.expand(
+        [
+            ("confidence", {"bayesian": {"ci_level": 0.9}}),
+            ("cuped", {"cuped": {"enabled": True}}),
+            ("multiple_variants", {"multiple_variant_handling": "first_seen"}),
+            ("test_accounts", None),
+        ]
+    )
+    def test_query_cache_key_changes_with_analytical_settings(self, _name: str, stats_config: dict | None) -> None:
+        experiment = self._experiment()
+        assert experiment.metrics is not None
+        query = ExperimentQuery(experiment_id=experiment.id, metric=build_metric(experiment.metrics[0]))
+        before = ExperimentQueryRunner(query=query, team=self.team).get_cache_key()
+        if stats_config is None:
+            self.team.test_account_filters = [{"key": "email", "type": "person", "value": "@example.com"}]
+            self.team.save()
+        elif _name == "multiple_variants":
+            experiment.exposure_criteria = stats_config
+            experiment.save()
+        else:
+            experiment.stats_config = stats_config
+            experiment.save()
+        after = ExperimentQueryRunner(query=query, team=self.team).get_cache_key()
+        assert before != after
+
+    def test_legacy_result_is_displayable_but_not_reusable(self) -> None:
+        experiment = self._experiment()
+        config = get_metric_calculation_config(experiment, "m1")
+        assert config is not None
+        self._row(
+            experiment, _recalc_fingerprint(config.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=7
+        )
+        run = self._run(experiment, ExperimentMetricsRecalculation.Status.COMPLETED)
+        assert get_run_results(run)[0]["configuration_status"] == "unknown"
+        assert not MetricResultStore(experiment_id=experiment.id).has_completed(config, window=_WINDOW)
+
+    def test_daily_facades_use_the_already_resolved_display_key(self) -> None:
+        experiment = self._experiment()
+        config = get_metric_calculation_config(experiment, "m1")
+        assert config is not None
+        with self.assertNumQueries(6):
+            record_daily_metric_result(
+                experiment.id,
+                team_id=self.team.id,
+                metric_uuid="m1",
+                calculation_key=config.calculation_key(),
+                display_key=config.legacy_key(),
+                window=_WINDOW,
+                query_from=_START,
+                result=_stored_result(3),
+            )
+        with self.assertNumQueries(2):
+            result = previous_completed_metric_result(
+                experiment.id,
+                team_id=self.team.id,
+                metric_uuid="m1",
+                calculation_key=config.calculation_key(),
+                display_key=config.legacy_key(),
+                before=_WINDOW + timedelta(days=1),
+            )
+        assert result == _stored_result(3)
 
     def _run(self, experiment: Experiment, status: str) -> ExperimentMetricsRecalculation:
         return ExperimentMetricsRecalculation.objects.create(

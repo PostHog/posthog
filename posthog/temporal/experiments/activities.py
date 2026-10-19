@@ -205,6 +205,10 @@ def _calculate_experiment_regular_metric_sync(
         tag_queries(trigger="warming/experiment_timeseries")
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
+        runtime_config = query_runner.calculation_config.settings.build_metric_config(
+            metric_id=metric_uuid, role="primary", definition=metric_dict
+        )
+        display_key = runtime_config.legacy_key() if runtime_config.calculation_key() == fingerprint else None
 
         record_daily_metric_result(
             experiment_id,
@@ -214,9 +218,12 @@ def _calculate_experiment_regular_metric_sync(
             window=query_to_utc,
             query_from=query_from_utc,
             result=result_dict,
+            display_key=display_key,
         )
 
-        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(
+            experiment, metric_uuid, fingerprint, result_dict, query_to_utc, display_key=display_key
+        )
 
         logger.info(
             "Successfully calculated experiment metric",
@@ -478,6 +485,10 @@ def _calculate_experiment_saved_metric_sync(
         tag_queries(trigger="warming/experiment_timeseries")
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
+        runtime_config = query_runner.calculation_config.settings.build_metric_config(
+            metric_id=metric_uuid, role="primary", definition=query
+        )
+        display_key = runtime_config.legacy_key() if runtime_config.calculation_key() == fingerprint else None
 
         record_daily_metric_result(
             experiment_id,
@@ -487,9 +498,12 @@ def _calculate_experiment_saved_metric_sync(
             window=query_to_utc,
             query_from=query_from_utc,
             result=result_dict,
+            display_key=display_key,
         )
 
-        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(
+            experiment, metric_uuid, fingerprint, result_dict, query_to_utc, display_key=display_key
+        )
 
         logger.info(
             "Successfully calculated experiment saved metric",

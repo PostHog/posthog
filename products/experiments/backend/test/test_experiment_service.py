@@ -2347,6 +2347,7 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
@@ -2361,6 +2362,14 @@ class TestExperimentService(APIBaseTest):
         # update pipeline internally re-touches existing inline metrics.
         assert "metrics" not in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
+        assert "metrics" not in logged_fields
+        assert "metrics_secondary" not in logged_fields
 
     @parameterized.expand(
         [
@@ -2408,6 +2417,12 @@ class TestExperimentService(APIBaseTest):
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
 
     @parameterized.expand(
         [
@@ -5527,8 +5542,15 @@ class TestExperimentService(APIBaseTest):
 
         second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        assert (second["id"], second["is_existing"]) == (first_id, True)
-        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 1
+        superseded = first_under_legacy_key or edit_settings_after_first
+        assert second["is_existing"] is not superseded
+        assert (second["id"] == first_id) is not superseded
+        assert second["fingerprint"] == _calculation_key(experiment, "m1")
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == (
+            2 if superseded else 1
+        )
+        if superseded:
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
         chart = service.get_timeseries_results(experiment, metric_uuid="m1")
         assert chart["recalculation_status"] is not None
 

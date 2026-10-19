@@ -597,23 +597,35 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('does not auto-trigger when the latest completed run is healthy', async () => {
-            // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
-            // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                        200,
-                        freshCompletedRecalculation,
-                    ],
-                },
-            })
-            mountLogic()
+        it.each(['current', 'previous', 'unknown'] as const)(
+            'displays %s results without automatically recalculating',
+            async (configurationStatus) => {
+                // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
+                // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            {
+                                ...freshCompletedRecalculation,
+                                results: freshCompletedRecalculation.results.map((result) => ({
+                                    ...result,
+                                    configuration_status: configurationStatus,
+                                })),
+                            },
+                        ],
+                    },
+                })
+                mountLogic()
 
-            await expectLogic(logic)
-                .toDispatchActions(['setCurrentRecalculation'])
-                .toNotHaveDispatchedActions(['triggerRecalculation'])
-        })
+                await expectLogic(logic)
+                    .toDispatchActions(['setCurrentRecalculation'])
+                    .toNotHaveDispatchedActions(['triggerRecalculation'])
+                expect(logic.values.resultConfigurationNotice).toBe(
+                    configurationStatus === 'current' ? null : configurationStatus
+                )
+            }
+        )
 
         it('accepts a timeseries fallback that covers every metric without triggering a run', async () => {
             useMocks({
