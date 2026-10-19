@@ -920,7 +920,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
         {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
-        "budget_exhausted": bool}.
+        "budget_exhausted": bool, "sliced": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
@@ -1032,7 +1032,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
         return self.sync_type_config.get("repartition_claim") == claim
 
-    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+    def abandon_repartition_if_claimed(self, claim_token: str, *, stamp_cooldown: bool = True) -> bool:
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
         def _write(config: dict[str, Any]) -> None:
@@ -1043,7 +1043,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
                 config.pop(key, None)
-            config["last_repartition_at"] = timezone.now().isoformat()
+            if stamp_cooldown:
+                config["last_repartition_at"] = timezone.now().isoformat()
 
         self.sync_type_config = retry_on_db_connection_drop(
             lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
@@ -1057,6 +1058,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
             )
         )
+
+    def disable_repartition_slicing(self) -> None:
+        def _write(config: dict[str, Any]) -> None:
+            pending = config.get("repartition_pending")
+            if isinstance(pending, dict):
+                pending["slice_disabled"] = True
+
+        self.sync_type_config = update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -1953,6 +1962,27 @@ def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_tok
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
 
 
+def mark_repartition_dropping_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> int | None:
+    """Count one failed drop of the pending target while `claim_token` still owns the schema.
+
+    Returns the drop attempts so far, or None when a newer attempt owns the schema. A target marked
+    `dropping` is never promoted by a reset (see `pending_scheme_for_table_replacement`).
+    """
+    drop_attempts: int | None = None
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal drop_attempts
+        claim = config.get("repartition_claim")
+        pending = config.get("repartition_pending")
+        if not (claim and claim.get("token") == claim_token) or not isinstance(pending, dict):
+            return
+        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        pending.update({"dropping": True, "drop_attempts": drop_attempts})
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return drop_attempts
+
+
 def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
     """Remove the rewrite checkpoint for `temp_uri` while `claim_token` still owns the schema.
 
@@ -2119,10 +2149,11 @@ def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, An
 
     None while a swap is staged, because the temp table can then be the only intact copy and the
     swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
-    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme. A target that
+    the activity is dropping (`dropping`) describes no table either.
     """
     pending = config.get("repartition_pending")
-    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+    if not isinstance(pending, dict) or not pending.get("partition_keys") or pending.get("dropping"):
         return None
     if config.get("repartition_swap") is not None:
         return None
@@ -2246,6 +2277,31 @@ def _resource_id(metadata: object) -> str | None:
     if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
         return str(metadata[SCHEMA_RESOURCE_ID_METADATA_KEY])
     return None
+
+
+def discovered_schema_finder(
+    discovered: Iterable["SourceSchema"],
+) -> Callable[[str, object], "SourceSchema | None"]:
+    """Return a lookup that finds the discovered schema for a stored one: by its stable resource id
+    first, then by name.
+
+    A renamed resource keeps its id but not its name, so a match by name alone misses it. Build one
+    lookup per discovery, so that matching many stored schemas costs one dict read each."""
+    by_resource_id: dict[str, SourceSchema] = {}
+    by_name: dict[str, SourceSchema] = {}
+    for discovered_schema in discovered:
+        resource_id = _resource_id(discovered_schema.schema_metadata)
+        if resource_id is not None:
+            by_resource_id.setdefault(resource_id, discovered_schema)
+        by_name.setdefault(discovered_schema.name, discovered_schema)
+
+    def find(stored_name: str, stored_metadata: object) -> "SourceSchema | None":
+        stored_resource_id = _resource_id(stored_metadata)
+        if stored_resource_id is not None and stored_resource_id in by_resource_id:
+            return by_resource_id[stored_resource_id]
+        return by_name.get(stored_name)
+
+    return find
 
 
 def _renamed_schema_names(

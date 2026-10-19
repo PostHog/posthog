@@ -48,7 +48,10 @@ import {
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
 
+import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
+import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { getBIAutoChartType } from 'products/business_intelligence/frontend/biEditorTypes'
+import { createBIMemberDisplayLookup } from 'products/business_intelligence/frontend/biMemberAliases'
 import {
     getBISeriesSettings,
     getBIVisualizationResponse,
@@ -916,7 +919,8 @@ export interface dataVisualizationLogicMeta {
         xData: (
             selectedXAxis: string | null,
             response: AnyResponseType | null,
-            columns: Column[]
+            columns: Column[],
+            query: VisualizationNode
         ) => AxisSeries<string> | null
         sourceTabularColumns: (
             tabularColumnSettings: (SelectedYAxis | null)[] | null,
@@ -926,7 +930,8 @@ export interface dataVisualizationLogicMeta {
         sourceTabularData: (
             sourceTabularColumns: AxisSeries<any>[],
             response: AnyResponseType | null,
-            chartSettings: ChartSettings
+            chartSettings: ChartSettings,
+            query: VisualizationNode
         ) => TableDataCell<any>[][]
         tabularColumns: (
             sourceTabularColumns: AxisSeries<any>[],
@@ -1573,7 +1578,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         xData: [
-            (s) => [s.selectedXAxis, s.response, s.columns],
+            (s) => [s.selectedXAxis, s.response, s.columns, s.query],
             (
                 xSeries: string | null,
                 response:
@@ -1591,7 +1596,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
-                columns: Column[]
+                columns: Column[],
+                query: VisualizationNode
             ): AxisSeries<string> | null => {
                 if (!response) {
                     return {
@@ -1633,7 +1639,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n: any) => humanizeEventColumnValue(column.name, n[column.dataIndex])),
+                    data: data.map((n: any) =>
+                        query.kind === NodeKind.BIVisualizationNode
+                            ? n[column.dataIndex]
+                            : humanizeEventColumnValue(column.name, n[column.dataIndex])
+                    ),
                 }
             },
         ],
@@ -1674,7 +1684,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         sourceTabularData: [
-            (s) => [s.sourceTabularColumns, s.response, s.chartSettings],
+            (s) => [s.sourceTabularColumns, s.response, s.chartSettings, s.query],
             (
                 sourceTabularColumns: AxisSeries<any>[],
                 response:
@@ -1692,7 +1702,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
-                chartSettings: ChartSettings
+                chartSettings: ChartSettings,
+                query: VisualizationNode
             ): TableDataCell<any>[][] => {
                 if (!response) {
                     return []
@@ -1706,6 +1717,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
+                const dimensions = new Map(
+                    query.kind === NodeKind.BIVisualizationNode
+                        ? getBIResultDimensions(query.config).map(({ column, field }) => [column, field])
+                        : []
+                )
+                const memberDisplay =
+                    query.kind === NodeKind.BIVisualizationNode ? createBIMemberDisplayLookup(query.config) : undefined
+
                 return data.map((row): TableDataCell<any>[] => {
                     return sourceTabularColumns.map((column): TableDataCell<any> => {
                         if (!column) {
@@ -1717,6 +1736,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         }
 
                         const value = row[column.column.dataIndex]
+                        const dimension = dimensions.get(column.column.name)
+                        const alias = dimension ? memberDisplay?.(dimension, value) : undefined
+                        if (alias !== undefined) {
+                            return { value, formattedValue: alias, type: column.column.type.name }
+                        }
 
                         if (column.column.type.isNumerical) {
                             try {
@@ -2000,6 +2024,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         },
         updateChartSettings: ({ settings }) => {
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('chart_settings_changed', values.query.config, {
+                    setting_keys: Object.keys(settings),
+                })
+            }
             actions.setQuery((query) => ({
                 ...query,
                 chartSettings: mergeChartSettings(query.chartSettings ?? ({} as ChartSettings), settings),

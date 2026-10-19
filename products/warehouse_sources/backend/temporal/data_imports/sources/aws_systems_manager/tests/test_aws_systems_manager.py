@@ -475,3 +475,311 @@ def test_snapshot_requests_never_filter_by_watermark(
     )
     list(iter_batches(AwsSystemsManagerSource().source_for_pipeline(config, manager, inputs)))
     assert json.loads(http.post.call_args.kwargs["data"]) == {"MaxResults": 50}
+
+
+def _error(code: str) -> ScriptedResponse:
+    return ScriptedResponse(status=400, json={"__type": code, "Message": "Not found"})
+
+
+def _key(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True)
+
+
+def _instance(instance_id: str, status: str) -> dict[str, Any]:
+    return {"Id": instance_id, "Data": {"AWS:InstanceInformation": {"Content": [{"InstanceStatus": status}]}}}
+
+
+@pytest.mark.parametrize(
+    "schema,script,expected_requests,expected_rows",
+    [
+        (
+            "compliance_items",
+            [
+                ScriptedResponse(
+                    json={
+                        "ResourceComplianceSummaryItems": [
+                            {"ResourceId": "i-a", "ResourceType": "ManagedInstance", "ComplianceType": "Patch"},
+                            {"ResourceId": "i-gone", "ResourceType": "ManagedInstance", "ComplianceType": "Patch"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "ComplianceItems": [
+                            {
+                                "ResourceId": "i-a",
+                                "ResourceType": "ManagedInstance",
+                                "ComplianceType": "Patch",
+                                "Id": "KB1",
+                                "Status": "NON_COMPLIANT",
+                                "Details": {"PatchState": "Missing"},
+                                "ExecutionSummary": {"ExecutionTime": 1735689600},
+                            }
+                        ]
+                    }
+                ),
+                _error("InvalidResourceId"),
+            ],
+            [
+                ("ListResourceComplianceSummaries", {"MaxResults": 50}),
+                *(
+                    (
+                        "ListComplianceItems",
+                        {
+                            "MaxResults": 50,
+                            "ResourceIds": [resource_id],
+                            "ResourceTypes": ["ManagedInstance"],
+                            "Filters": [{"Key": "ComplianceType", "Values": ["Patch"], "Type": "EQUAL"}],
+                        },
+                    )
+                    for resource_id in ["i-a", "i-gone"]
+                ),
+            ],
+            [
+                {
+                    "resource_id": "i-a",
+                    "id": "KB1",
+                    "details_patch_state": "Missing",
+                    "execution_summary_execution_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                }
+            ],
+        ),
+        (
+            "inventory_entries",
+            [
+                ScriptedResponse(
+                    json={
+                        "Schemas": [
+                            {"TypeName": name} for name in ["AWS:Service", "AWS:InstanceInformation", "AWS:Application"]
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={"Entities": [_instance("i-0123456789abcdef0", "Active"), _instance("i-ended", "Terminated")]}
+                ),
+                ScriptedResponse(
+                    json={
+                        "InstanceId": "i-0123456789abcdef0",
+                        "TypeName": "AWS:Application",
+                        "SchemaVersion": "1.1",
+                        "CaptureTime": "2025-01-01T00:00:00Z",
+                        "Entries": [{"Name": "nginx", "Version": "1.0"}, {"Name": "curl", "Version": "8.0"}],
+                    }
+                ),
+                _error("InvalidInstanceId"),
+            ],
+            [
+                ("GetInventorySchema", {"MaxResults": 200}),
+                ("GetInventory", {"MaxResults": 50, "ResultAttributes": [{"TypeName": "AWS:InstanceInformation"}]}),
+                *(
+                    ("ListInventoryEntries", {"MaxResults": 50, "InstanceId": "i-0123456789abcdef0", "TypeName": name})
+                    for name in ["AWS:Application", "AWS:Service"]
+                ),
+            ],
+            [
+                {
+                    "instance_id": "i-0123456789abcdef0",
+                    "type_name": "AWS:Application",
+                    "capture_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "entry": json.dumps({"Name": name, "Version": version}, sort_keys=True),
+                }
+                for name, version in [("nginx", "1.0"), ("curl", "8.0")]
+            ],
+        ),
+        (
+            "association_execution_targets",
+            [
+                ScriptedResponse(json={"Associations": [{"AssociationId": "a-1"}]}),
+                ScriptedResponse(
+                    json={
+                        "AssociationExecutions": [
+                            {"AssociationId": "a-1", "ExecutionId": "e-1"},
+                            {"AssociationId": "a-1", "ExecutionId": "e-gone"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "AssociationExecutionTargets": [
+                            {
+                                "AssociationId": "a-1",
+                                "ExecutionId": "e-1",
+                                "ResourceId": "i-a",
+                                "ResourceType": "ManagedInstance",
+                                "Status": "Failed",
+                                "LastExecutionDate": 1735689600,
+                            }
+                        ]
+                    }
+                ),
+                _error("AssociationExecutionDoesNotExist"),
+            ],
+            [
+                ("ListAssociations", {"MaxResults": 50}),
+                ("DescribeAssociationExecutions", {"MaxResults": 50, "AssociationId": "a-1"}),
+                *(
+                    (
+                        "DescribeAssociationExecutionTargets",
+                        {"MaxResults": 50, "AssociationId": "a-1", "ExecutionId": execution_id},
+                    )
+                    for execution_id in ["e-1", "e-gone"]
+                ),
+            ],
+            [
+                {
+                    "execution_id": "e-1",
+                    "resource_id": "i-a",
+                    "status": "Failed",
+                    "last_execution_date": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                }
+            ],
+        ),
+    ],
+)
+def test_fan_out_requests_each_parent_row_and_skips_vanished_parents(
+    config: AwsSystemsManagerSourceConfig,
+    schema: str,
+    script: list[ScriptedResponse],
+    expected_requests: list[tuple[str, dict[str, Any]]],
+    expected_rows: list[dict[str, Any]],
+) -> None:
+    result = driver(config).run(schema, script)
+    assert result.raised is None
+    assert [
+        (request.headers["x-amz-target"].removeprefix("AmazonSSM."), request.json()) for request in result.requests
+    ] == expected_requests
+    assert [{key: row[key] for key in expected} for row, expected in zip(result.rows, expected_rows)] == expected_rows
+    assert len(result.rows) == len(expected_rows)
+    assert result.response is not None
+    keys = {tuple(row[column] for column in result.response.primary_keys or []) for row in result.rows}
+    assert len(keys) == len(result.rows) and all(None not in key for key in keys)
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
+
+
+def test_fan_out_resumes_inside_nested_parent_without_rereading_done_children(
+    config: AwsSystemsManagerSourceConfig,
+) -> None:
+    a1 = _key({"AssociationId": "a-1"})
+    e1 = _key({"AssociationId": "a-1", "ExecutionId": "e-1"})
+    target = {"AssociationId": "a-1", "ResourceId": "i-a", "ResourceType": "ManagedInstance"}
+    result = driver(config).run(
+        "association_execution_targets",
+        [
+            ScriptedResponse(
+                json={
+                    "Associations": [{"AssociationId": "a-0"}, {"AssociationId": "a-1"}],
+                    "NextToken": "associations-2",
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "AssociationExecutions": [
+                        {"AssociationId": "a-1", "ExecutionId": "e-0"},
+                        {"AssociationId": "a-1", "ExecutionId": "e-1"},
+                        {"AssociationId": "a-1", "ExecutionId": "e-2"},
+                    ],
+                }
+            ),
+            ScriptedResponse(json={"AssociationExecutionTargets": [{**target, "ExecutionId": "e-1"}]}),
+            ScriptedResponse(json={"AssociationExecutionTargets": [{**target, "ExecutionId": "e-2"}]}),
+            ScriptedResponse(json={"Associations": []}),
+        ],
+        resume_state=SystemsManagerResumeConfig(parents=((None, a1), ("executions-2", e1)), next_token="targets-2"),
+    )
+    assert result.raised is None
+    assert [request.json() for request in result.requests] == [
+        {"MaxResults": 50},
+        {"MaxResults": 50, "AssociationId": "a-1", "NextToken": "executions-2"},
+        {"MaxResults": 50, "AssociationId": "a-1", "ExecutionId": "e-1", "NextToken": "targets-2"},
+        {"MaxResults": 50, "AssociationId": "a-1", "ExecutionId": "e-2"},
+        {"MaxResults": 50, "NextToken": "associations-2"},
+    ]
+    assert [row["execution_id"] for row in result.rows] == ["e-1", "e-2"]
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
+
+
+_PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000"
+
+
+@pytest.mark.parametrize(
+    "schema,script,expected_requests,expected",
+    [
+        (
+            "association_execution_targets",
+            [
+                ScriptedResponse(json={"Associations": [{"AssociationId": "a-1"}]}),
+                ScriptedResponse(json={"AssociationExecutions": [{"AssociationId": "a-1", "ExecutionId": "e-1"}]}),
+                ScriptedResponse(json={}),
+            ],
+            [
+                ("ListAssociations", {"MaxResults": 1}),
+                ("DescribeAssociationExecutions", {"MaxResults": 1, "AssociationId": "a-1"}),
+                (
+                    "DescribeAssociationExecutionTargets",
+                    {"MaxResults": 1, "AssociationId": "a-1", "ExecutionId": "e-1"},
+                ),
+            ],
+            (True, None),
+        ),
+        (
+            "association_execution_targets",
+            [ScriptedResponse(json={}), _error("AssociationDoesNotExist"), _error("AssociationDoesNotExist")],
+            [
+                ("ListAssociations", {"MaxResults": 1}),
+                ("DescribeAssociationExecutions", {"MaxResults": 1, "AssociationId": _PLACEHOLDER_UUID}),
+                (
+                    "DescribeAssociationExecutionTargets",
+                    {"MaxResults": 1, "AssociationId": _PLACEHOLDER_UUID, "ExecutionId": _PLACEHOLDER_UUID},
+                ),
+            ],
+            (True, None),
+        ),
+        (
+            "inventory_entries",
+            [ScriptedResponse(json={}), _error("AccessDeniedException")],
+            [
+                ("GetInventory", {"MaxResults": 1, "ResultAttributes": [{"TypeName": "AWS:InstanceInformation"}]}),
+                ("GetInventorySchema", {"MaxResults": 50}),
+            ],
+            (False, "Grant ssm:GetInventorySchema to read this table."),
+        ),
+        (
+            "compliance_items",
+            [
+                ScriptedResponse(
+                    json={
+                        "ResourceComplianceSummaryItems": [
+                            {"ResourceId": "i-a", "ResourceType": "ManagedInstance", "ComplianceType": "Association"}
+                        ]
+                    }
+                ),
+                _error("AccessDeniedException"),
+            ],
+            [
+                ("ListResourceComplianceSummaries", {"MaxResults": 1}),
+                (
+                    "ListComplianceItems",
+                    {
+                        "MaxResults": 1,
+                        "ResourceIds": ["i-a"],
+                        "ResourceTypes": ["ManagedInstance"],
+                        "Filters": [{"Key": "ComplianceType", "Values": ["Association"], "Type": "EQUAL"}],
+                    },
+                ),
+            ],
+            (False, "Grant ssm:ListComplianceItems to read this table."),
+        ),
+    ],
+)
+def test_fan_out_validation_probes_real_parents_before_placeholders(
+    config: AwsSystemsManagerSourceConfig,
+    schema: str,
+    script: list[ScriptedResponse],
+    expected_requests: list[tuple[str, dict[str, Any]]],
+    expected: tuple[bool, str | None],
+) -> None:
+    with scripted_network(script) as network:
+        assert validate_credentials(config, API_VERSION, schema) == expected
+    assert [
+        (request.headers["x-amz-target"].removeprefix("AmazonSSM."), request.json()) for request in network.requests_log
+    ] == expected_requests

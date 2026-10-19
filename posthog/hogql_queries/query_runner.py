@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -126,6 +126,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -156,7 +157,12 @@ from posthog.clickhouse.client.limit import (
     get_app_dashboard_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import (
+    get_query_tag_value,
+    is_api_key_access_method,
+    is_known_product_tag,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
@@ -176,7 +182,7 @@ from posthog.hogql_queries.query_failure_handling import (
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
-from posthog.hogql_queries.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.validation import (
@@ -185,6 +191,7 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import get_new_events_cluster_host, new_events_cluster_host_scope
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -558,6 +565,52 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
         API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="check").inc()
         capture_exception(e)
         return None
+
+
+def enforce_api_queries_budget(team: Team) -> None:
+    """Hourly read budget for api key queries. Observe-only until the org is flagged in;
+    then an exhausted budget is a 429. The query that crosses the line still runs in full,
+    since the budget is debited after the query and the next request is the one refused."""
+    status = get_api_queries_budget_status(team)
+    if status is None:
+        return
+    API_QUERIES_BUDGET_BALANCE_HISTOGRAM.observe(status.remaining_bytes)
+    if status.remaining_bytes > 0:
+        return
+    enforced = _api_queries_budget_enforcement_enabled(team)
+    outcome = "enforced" if enforced else "observed"
+    API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
+    budget_logger.info(
+        "api_queries_budget_limited",
+        organization_id=str(team.organization_id),
+        team_id=team.pk,
+        remaining_bytes=status.remaining_bytes,
+        bytes_per_hour=status.spec.bytes_per_hour,
+        retry_after_seconds=status.retry_after_seconds,
+        outcome=outcome,
+    )
+    if claim_limited_event(str(team.pk)):
+        try:
+            access_method = get_query_tag_value("access_method")
+            product = get_query_tag_value("product")
+            report_team_action(
+                team,
+                "api queries budget limited",
+                {
+                    "outcome": outcome,
+                    "team_id": team.pk,
+                    "bytes_per_hour": status.spec.bytes_per_hour,
+                    "remaining_bytes": status.remaining_bytes,
+                    "retry_after_seconds": status.retry_after_seconds,
+                    "access_method": str(access_method) if access_method else None,
+                    "product": str(product) if product else None,
+                },
+            )
+        except Exception as e:
+            API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
+            capture_exception(e)
+    if outcome == "enforced":
+        raise APIQueriesBudgetExceeded(wait=status.retry_after_seconds)
 
 
 RunnableQueryNode = Union[
@@ -1186,34 +1239,6 @@ def get_query_runner(
             user=user,
         )
 
-    if kind == "ExperimentFunnelsQuery":
-        from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import (
-            ExperimentFunnelsQueryRunner,
-        )
-
-        return ExperimentFunnelsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "ExperimentTrendsQuery":
-        from products.experiments.backend.hogql_queries.experiment_trends_query_runner import (
-            ExperimentTrendsQueryRunner,
-        )
-
-        return ExperimentTrendsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
     if kind == "ExperimentQuery":
         from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 
@@ -1827,6 +1852,25 @@ def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     return getattr(query, "modifiers", None)
 
 
+def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
+    # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+    # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+    # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+    # separate from the successfully-loaded key.
+    def read(name: str) -> dict | str:
+        try:
+            return getattr(team, name).to_cache_key_dict()
+        except OperationalError:
+            logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+            return "unavailable"
+
+    return {
+        "revenue_analytics": read("revenue_analytics_config"),
+        "marketing_analytics": read("marketing_analytics_config"),
+        "customer_analytics": read("customer_analytics_config"),
+    }
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -2317,6 +2361,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
+    @new_events_cluster_host_scope()
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -2327,6 +2372,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
+        if self.modifiers.useNewEventsCluster:
+            if not isinstance(self.query, HogQLQuery):
+                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
+            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
+
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
         # __init__; let them refresh it now that we know the real user. Only on an
@@ -2378,7 +2429,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.productKey:
                     product_key = tags.productKey
                     posthoganalytics.tag("product_key", product_key)
-                    tag_queries(product=tags.productKey)
+                    # Client-supplied: an unknown product must not fail the query.
+                    if is_known_product_tag(product_key):
+                        tag_queries(product=product_key)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
@@ -3020,49 +3073,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return feature.get("limit") if feature else None
 
     def _enforce_api_queries_budget(self) -> None:
-        """Hourly read budget for api key queries. Observe-only until the org is flagged in;
-        then an exhausted budget is a 429. The query that crosses the line still runs in full,
-        since the budget is debited after the query and the next request is the one refused."""
-        status = get_api_queries_budget_status(self.team)
-        if status is None:
-            return
-        API_QUERIES_BUDGET_BALANCE_HISTOGRAM.observe(status.remaining_bytes)
-        if status.remaining_bytes > 0:
-            return
-        enforced = _api_queries_budget_enforcement_enabled(self.team)
-        outcome = "enforced" if enforced else "observed"
-        API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
-        budget_logger.info(
-            "api_queries_budget_limited",
-            organization_id=str(self.team.organization_id),
-            team_id=self.team.pk,
-            remaining_bytes=status.remaining_bytes,
-            bytes_per_hour=status.spec.bytes_per_hour,
-            retry_after_seconds=status.retry_after_seconds,
-            outcome=outcome,
-        )
-        if claim_limited_event(str(self.team.pk)):
-            try:
-                access_method = get_query_tag_value("access_method")
-                product = get_query_tag_value("product")
-                report_team_action(
-                    self.team,
-                    "api queries budget limited",
-                    {
-                        "outcome": outcome,
-                        "team_id": self.team.pk,
-                        "bytes_per_hour": status.spec.bytes_per_hour,
-                        "remaining_bytes": status.remaining_bytes,
-                        "retry_after_seconds": status.retry_after_seconds,
-                        "access_method": str(access_method) if access_method else None,
-                        "product": str(product) if product else None,
-                    },
-                )
-            except Exception as e:
-                API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
-                capture_exception(e)
-        if outcome == "enforced":
-            raise APIQueriesBudgetExceeded(wait=status.retry_after_seconds)
+        enforce_api_queries_budget(self.team)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -3091,7 +3102,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
-
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
@@ -3103,6 +3113,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
+        if self.modifiers.useNewEventsCluster:
+            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
@@ -3143,22 +3155,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _products_modifiers_for_cache(self) -> dict:
-        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
-        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
-        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
-        # separate from the successfully-loaded key.
-        def read(name: str, fn: Callable[[], Any]) -> dict | str:
-            try:
-                return fn().to_cache_key_dict()
-            except OperationalError:
-                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
-                return "unavailable"
-
-        return {
-            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
-            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
-            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
-        }
+        return team_configs_for_cache_key(self.team)
 
     def _get_property_access_restrictions(self) -> list[dict[str, str | int | None]] | None:
         """Returns sorted restricted property metadata for the current user, or None if unrestricted.
@@ -3428,11 +3425,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             return
 
-        has_data_warehouse_series = (
-            hasattr(self.query, "series")
-            and isinstance(self.query.series, list)
-            and has_data_warehouse_node(self.query.series)
-        )
+        series = getattr(self.query, "series", None)
+        series_nodes = series if isinstance(series, list) else []
+        has_data_warehouse_series = has_data_warehouse_node(series_nodes)
 
         dashboard_breakdown_filter = dashboard_filter.breakdown_filter
 
@@ -3449,7 +3444,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
         )
 
-        if dashboard_filter.properties and not has_data_warehouse_series:
+        applies_dashboard_properties = every_warehouse_series_reads_flag_calls(series_nodes)
+
+        if dashboard_filter.properties and applies_dashboard_properties:
             if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")

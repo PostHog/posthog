@@ -31,6 +31,7 @@ _RECALCULATION_ACTIVITY_TYPES = {
     "discover_experiment_metrics",
     "calculate_experiment_metric_for_recalculation",
     "update_recalculation_progress",
+    "record_metric_out_of_time_failure",
 }
 
 EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS = (

@@ -95,7 +95,7 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
             "github.com/appboy/appboy-ios-sdk",
             "github.com/appboy/appboy-segment-ios",
         ),
-        competes_with=(ProductKey.WORKFLOWS,),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

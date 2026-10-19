@@ -140,7 +140,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "github.com/amplitude/experiment-ios-client",
             "github.com/amplitude/amplitude-engagement-swift",
         ),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
     )
 
     api_docs_url = "https://amplitude.com/docs/apis/analytics"

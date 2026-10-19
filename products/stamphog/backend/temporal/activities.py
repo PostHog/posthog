@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -63,6 +63,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewTrigger,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun, get_finished_review_hooks
 from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidenceProvider,
     ReviewEvidenceState,
@@ -106,7 +107,6 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
-    STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
@@ -134,12 +134,6 @@ _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_t
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
-
-# Server-shipped default policy files, the base layer every repo's config sits on. Named by the
-# basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
-# config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
-# (see _effective_policy_files), and a repo's review-guidance.md replaces the default wholesale.
-_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "logic" / "policy_defaults"
 
 
 @dataclass
@@ -1212,6 +1206,7 @@ def _run_reviewer(
     command = (
         f'export AI_GATEWAY_API_KEY="$(cat {token_path})" && rm -f {token_path} && '
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
+        f"STAMPHOG_REPO_ROOT={shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} "
         f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
     )
     with timer.step("reviewer"):
@@ -1848,6 +1843,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
 
+    # Right after the save wins: the GitHub steps below can still fail the activity, and the
+    # outcome must not wait on them.
+    _notify_finished_review(run, input.team_id, ReviewRunStatus(run.status))
+
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
     # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
@@ -1898,6 +1897,25 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
 
 
+def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatus) -> None:
+    """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
+    pull_request = run.pull_request
+    finished = FinishedReviewRun(
+        run_id=run.id,
+        team_id=team_id,
+        repository=pull_request.repo_config.repository,
+        pr_number=pull_request.pr_number,
+        status=status,
+        verdict=ReviewVerdict(run.verdict),
+    )
+    for hook in get_finished_review_hooks():
+        # A callback belongs to another product, and the outcome is already saved and posted.
+        try:
+            hook(finished)
+        except Exception:
+            activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
+
+
 @activity.defn
 @asyncify
 def mark_review_failed(input: MarkReviewFailedInput) -> None:
@@ -1936,6 +1954,10 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         .exclude(status__in=TERMINAL_STATUSES)
         .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
+    # Right after the save wins, before the cleanup below can fail the activity: a retry stops at
+    # the terminal guard and would never report.
+    if marked_failed:
+        _notify_finished_review(run, input.team_id, ReviewRunStatus.FAILED)
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
     # two concurrently failing runs could each defer to the other and leak the reaction.
@@ -1969,9 +1991,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
             },
         )
 
-    # Last, because this step raises. A retry returns through the terminal guard, which posts the
-    # notice and nothing else, so the event above must reach PostHog on this attempt.
     if marked_failed:
+        # Last, because this step raises. A retry returns through the terminal guard, which posts the
+        # notice and nothing else, so the event above must reach PostHog on this attempt.
         _post_failure_notice(client, run, input.team_id)
 
 
@@ -2155,28 +2177,13 @@ def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str
         )
 
 
-def _read_default_policy_file(path: str) -> str:
-    """Read a shipped default by the policy path's basename; missing means a server packaging bug."""
-    default_file = _POLICY_DEFAULTS_DIR / Path(path).name
-    if not default_file.is_file():
-        raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
-    return default_file.read_text()
+def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
+    """The repository's policy.yml as it is, once it parses as a YAML mapping.
 
-
-def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) -> str:
-    """Overlay the repo's policy.yml top-level sections onto the shipped default.
-
-    Lets a repo declare only the sections it wants to change (e.g. just ``size_gate``); each
-    present section replaces the default's section wholesale. The engine's strict loader still
-    validates the merged doc inside the sandbox, so required sections and the self-governance
-    deny can't be dropped by omission, and a full-schema repo file overlays to exactly itself.
-    The ``digest:`` key passes through harmlessly (the engine tolerates and ignores it).
-
-    A present-but-unusable repo file (malformed YAML, non-mapping root) fails closed: the repo
-    declared *something*, and silently reviewing under pure defaults would be wrong.
+    The engine merges it onto the default it ships (`merge_policy` in the engine's policy.py) and
+    validates the result. This check only fails a malformed file closed before a sandbox exists:
+    the repository declared something, and reviewing under pure defaults would be wrong.
     """
-    if repo_text is None:
-        return default_text
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
@@ -2186,34 +2193,27 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
-    merged = {**yaml.safe_load(default_text), **overlay}
-    # sort_keys=False keeps the default's section order stable in the dumped doc.
-    return yaml.safe_dump(merged, sort_keys=False)
+    return repo_text
 
 
 def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """The final injection set: the repo's default-branch files layered over the hosted defaults.
+    """The repository's default-branch policy files that go into the tree, as they are.
 
-    policy.yml: section overlay onto the shipped default (see _overlay_policy_yaml).
-    review-guidance.md: the repo's copy if present, else the shipped default.
-    Optional paths (steering.md): the repo's copy if present, else omitted — no default exists.
+    The engine ships the defaults and layers these over them: it merges policy.yml onto its default
+    policy, a review-guidance.md replaces its default guidance, and steering.md is appended. A file
+    the repository does not carry is left out, and the PR head's copy is still wiped.
     """
     defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
     if defaulted:
-        activity.logger.info(f"Policy files for {repo} using hosted defaults: {defaulted}")
+        activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
 
     effective = {
-        STAMPHOG_POLICY_ENTRYPOINT: _overlay_policy_yaml(
-            repo,
-            _read_default_policy_file(STAMPHOG_POLICY_ENTRYPOINT),
-            policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
-        ),
-        STAMPHOG_REVIEW_GUIDANCE_PATH: policy_files.get(STAMPHOG_REVIEW_GUIDANCE_PATH)
-        or _read_default_policy_file(STAMPHOG_REVIEW_GUIDANCE_PATH),
+        path: policy_files[path]
+        for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
+        if path in policy_files
     }
-    for path in STAMPHOG_OPTIONAL_POLICY_PATHS:
-        if path in policy_files:
-            effective[path] = policy_files[path]
+    if STAMPHOG_POLICY_ENTRYPOINT in effective:
+        effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
     return effective
 
 
@@ -2246,8 +2246,9 @@ def _review_payload_command() -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
-    the (untrusted) PR head carried. The engine reads them from the tree at import via its repo-root
-    walk, which is what makes the run judge the PR against our policy, not the PR's own.
+    the (untrusted) PR head carried. The engine reads them at import from the checkout root that the
+    reviewer command names in STAMPHOG_REPO_ROOT, which is what makes the run judge the PR against our
+    policy, not the PR's own.
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
@@ -2273,8 +2274,8 @@ def _ship_review_payload(
 ) -> None:
     """Place the trusted policy, the engine, the owners resolver and the review context in the checkout.
 
-    The engine goes under ``<checkout>/tools/pr-approval-agent``, so its repo-root walk lands on the
-    checkout and reads the injected trusted policy. We always run our version, not the PR's.
+    The engine goes under ``<checkout>/tools/pr-approval-agent`` and reads the injected trusted policy
+    from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
     result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))

@@ -13,15 +13,19 @@ class TestKalshiSource:
     @parameterized.expand(
         [
             ("trades_is_incremental", "trades", True),
+            ("historical_trades_is_incremental", "historical_trades", True),
+            ("market_candlesticks_is_incremental", "market_candlesticks", True),
+            ("weather_index_is_incremental", "weather_index", True),
             ("markets_is_not", "markets", False),
+            ("historical_markets_is_not", "historical_markets", False),
             ("events_is_not", "events", False),
             ("series_is_not", "series", False),
             ("milestones_is_not", "milestones", False),
         ]
     )
-    def test_only_trades_supports_incremental(self, _name: str, endpoint: str, expected: bool) -> None:
-        # Only /markets/trades honours a server-side time filter. Advertising incremental anywhere
-        # else would promise a cheap sync that still walks the whole collection.
+    def test_only_time_filtered_endpoints_support_incremental(self, _name: str, endpoint: str, expected: bool) -> None:
+        # Only the trade and candlestick endpoints honour a server-side time filter. Advertising
+        # incremental anywhere else would promise a cheap sync that still walks the whole collection.
         schemas = {s.name: s for s in KalshiSource().get_schemas(None, 1)}  # type: ignore[arg-type]
 
         assert schemas[endpoint].supports_incremental is expected

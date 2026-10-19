@@ -10,7 +10,9 @@ personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-database = { path = "../common/database" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-alloc = { path = "../common/alloc" }
+common-kafka = { path = "../common/kafka" }
 common-metrics = { path = "../common/metrics" }
 common-sqlx-macros = { path = "../common/sqlx-macros" }
 lifecycle = { path = "../common/lifecycle" }
@@ -20,20 +22,32 @@ axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
+metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
+rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+metrics-util = { workspace = true }
+rstest = "0.26"
 tokio = { workspace = true, features = ["test-util"] }
+
+# Drains the publish outbox identity writes; a second binary of this crate
+# because everything it needs (config, table set, publish module) is the
+# identity lib, and it deploys and scales separately from identity.
+[[bin]]
+name = "personhog-publisher"
+path = "src/bin/publisher.rs"
 
 [lints]
 workspace = true

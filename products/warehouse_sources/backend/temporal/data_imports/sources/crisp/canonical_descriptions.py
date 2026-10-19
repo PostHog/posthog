@@ -19,6 +19,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#get-messages-in-conversation",
         "columns": {
             "session_id": "The conversation that contains the message.",
+            "conversation_updated_at": "The time when Crisp last updated the conversation that contains the message.",
             "fingerprint": "The message identifier within the conversation.",
             "timestamp": "The time when Crisp sent the message.",
             "content": "The message text or structured content for other message types.",
