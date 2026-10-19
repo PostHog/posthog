@@ -622,6 +622,16 @@ def test_a_custom_list_reads_grafana_text_and_value_items() -> None:
     assert [definition.customValues for definition in variables.definitions()] == [["prod", "dev", "a,b"]]
 
 
+def test_a_custom_list_too_large_for_the_api_stays_static() -> None:
+    query = "a," + "b" * 5_000_000
+    started = time.monotonic()
+
+    variables = TemplateVariables.from_templating([{"name": "env", "type": "custom", "query": query, "current": {}}])
+
+    assert variables.definitions() == []
+    assert time.monotonic() - started < 1
+
+
 def test_a_long_custom_list_item_parses_in_linear_time() -> None:
     item = "a" + " " * 200_000 + "b"
     started = time.monotonic()

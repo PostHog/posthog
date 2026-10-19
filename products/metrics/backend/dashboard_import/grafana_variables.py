@@ -33,7 +33,8 @@ MAX_VALUE_LENGTH = 1024
 MAX_VALUES = 1000
 # Each change to a selection walks the variables that depend on it, so a dashboard keeps a practical number live.
 MAX_LIVE_VARIABLES = 50
-_CUSTOM_ITEM = re.compile(r"(?:\\,|[^,])+")
+# An item holds `text : value`, so it can be longer than a value, but not much.
+_MAX_CUSTOM_ITEM_LENGTH = 4 * MAX_VALUE_LENGTH
 _CUSTOM_SEPARATOR = re.compile(r"\s:\s")
 # Private use characters, which stand for variables while dependencies are checked.
 _MARKER_START = 0xF0000
@@ -66,10 +67,31 @@ def _regex(item: dict[str, Any]) -> str | None:
     return regex.strip()
 
 
-def _custom_values(query: str) -> list[str]:
-    """The values of a Grafana custom list. An item is `value` or `text : value`, and `\\,` is a literal comma."""
+def _custom_items(query: str) -> list[str] | None:
+    """The comma-separated items of a custom list, where `\\,` is a literal comma. None when the list is too large."""
+    items: list[str] = []
+    item_start = search_from = 0
+    while True:
+        comma = query.find(",", search_from)
+        end = len(query) if comma < 0 else comma
+        if end - item_start > _MAX_CUSTOM_ITEM_LENGTH or len(items) > MAX_VALUES:
+            return None
+        if comma > 0 and query[comma - 1] == "\\":
+            search_from = comma + 1
+            continue
+        items.append(query[item_start:end])
+        if comma < 0:
+            return items
+        item_start = search_from = comma + 1
+
+
+def _custom_values(query: str) -> list[str] | None:
+    """The values of a Grafana custom list. An item is `value` or `text : value`. None when the list is too large."""
+    items = _custom_items(query)
+    if items is None:
+        return None
     values = []
-    for item in _CUSTOM_ITEM.findall(query):
+    for item in items:
         text = item.replace("\\,", ",").strip()
         # Grafana splits `text : value` at the last separator that has text on both sides.
         separators = [match.start() for match in _CUSTOM_SEPARATOR.finditer(text) if 0 < match.start() < len(text) - 3]
@@ -130,7 +152,10 @@ def _live_definition(
             return None
         source = MetricsDashboardVariableSource.PROMQL
     elif kind == "custom":
-        custom_values = list(variable.options) or _custom_values(_query_text(item)) or list(variable.values)
+        parsed = [] if variable.options else _custom_values(_query_text(item))
+        if parsed is None:
+            return None
+        custom_values = list(variable.options) or parsed or list(variable.values)
         if not _within_limits(custom_values):
             return None
         if include_all and all_value is None:
