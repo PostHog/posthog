@@ -1120,7 +1120,7 @@ class SandboxRunStartDenial(StrEnum):
 
 @dataclass(frozen=True)
 class SandboxRunStarter:
-    """The task (and run, when known) whose sandbox starts a run for the task's owner."""
+    """The task and run whose sandbox starts a run for the task's owner."""
 
     parent_task_id: UUID
-    parent_run_id: UUID | None = None
+    parent_run_id: UUID
