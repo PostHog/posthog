@@ -376,6 +376,33 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONExtract" not in sql
         assert expression.split("[")[0] not in sql
 
+    @parameterized.expand(
+        [
+            ("stats_pathname", "web_stats_dimensional_preaggregated", "pathname", "$pathname"),
+            ("stats_viewport", "web_stats_dimensional_preaggregated", "viewport_width", "$viewport_width"),
+            ("bounces_country", "web_bounces_dimensional_preaggregated", "country_code", "$geoip_country_code"),
+            ("bounces_metadata", "web_bounces_dimensional_preaggregated", "mat_metadata_backend", "metadata.backend"),
+        ]
+    )
+    def test_web_dimensional_columns_use_the_source_property_rule(
+        self, _name: str, table_name: str, column: str, property_name: str
+    ) -> None:
+        self.event_prop.name = property_name
+        self.event_prop.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        sql = self._compile_select(
+            f"SELECT {column} AS restricted_value, host FROM {table_name} WHERE {column} = 'x' OR {column} IS NULL"
+        )
+
+        assert "NULL AS restricted_value" in sql
+        assert f"{table_name}.{column}" not in sql
+        assert f"{table_name}.host" in sql
+
     def test_ai_json_content_is_not_an_event_property(self) -> None:
         PropertyAccessControl.objects.create(
             team=self.team,

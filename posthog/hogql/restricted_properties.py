@@ -11,6 +11,10 @@ from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPers
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
+    WebStatsDimensionalPreAggregatedTable,
+)
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -47,6 +51,26 @@ _FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
 
 _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
 
+# Web analytics dimensional columns copied from an event property by the INSERT templates in
+# `web_dimensional_precompute.py`. Keep this mapping in sync with those templates. The remaining dimensions
+# (entry/end pathname, referring domain, utm_*, click-id flags) come from session properties, which HogQL does
+# not restrict anywhere.
+_WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, str] = {
+    "host": "$host",
+    "device_type": "$device_type",
+    "pathname": "$pathname",
+    "browser": "$browser",
+    "os": "$os",
+    "viewport_width": "$viewport_width",
+    "viewport_height": "$viewport_height",
+    "country_code": "$geoip_country_code",
+    "city_name": "$geoip_city_name",
+    "region_code": "$geoip_subdivision_1_code",
+    "region_name": "$geoip_subdivision_1_name",
+    "mat_metadata_loggedIn": "metadata.loggedIn",
+    "mat_metadata_backend": "metadata.backend",
+}
+
 
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
     """The event property a typed column copies verbatim, or None when the column copies nothing.
@@ -70,6 +94,8 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
         return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    if isinstance(table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable):
+        return _WEB_DIMENSIONAL_MIRRORED_COLUMNS.get(column_name)
     return None
 
 
@@ -115,7 +141,14 @@ def restricted_property_keys_for_table_type(
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable | FlagEvaluationsTable | AiEventsTable):
+    elif isinstance(
+        table,
+        EventsTable
+        | FlagEvaluationsTable
+        | AiEventsTable
+        | WebStatsDimensionalPreAggregatedTable
+        | WebBouncesDimensionalPreAggregatedTable,
+    ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
