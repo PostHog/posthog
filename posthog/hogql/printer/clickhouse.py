@@ -139,6 +139,10 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     }
 )
 
+JSON_FUNCTIONS_RETURNING_CONTAINERS = frozenset(
+    {"JSONExtractArrayRaw", "JSONExtractKeys", "JSONExtractKeysAndValues", "JSONExtractKeysAndValuesRaw"}
+)
+
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
@@ -210,6 +214,9 @@ class ClickHousePrinter(BasePrinter):
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
+        # ClickHouse has no Nullable(Array) or Nullable(Map), so a nullable JSON input must become '' first.
+        elif self._returns_json_container(node.name, node_args) and self._is_nullable(node_args[0]):
+            args = [f"ifNull({self.visit(node_args[0])}, '')", *(self.visit(arg) for arg in node_args[1:])]
         else:
             args = [self.visit(arg) for arg in node_args]
 
@@ -332,6 +339,21 @@ class ClickHousePrinter(BasePrinter):
         args_part = f"({', '.join(args)}{order_by_part})"
         filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
         return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+
+    @staticmethod
+    def _returns_json_container(name: str, args: list[ast.Expr]) -> bool:
+        if not args:
+            return False
+        if name in JSON_FUNCTIONS_RETURNING_CONTAINERS:
+            return True
+        if name != "JSONExtract" or len(args) < 2:
+            return False
+        type_arg = args[-1]
+        return (
+            isinstance(type_arg, ast.Constant)
+            and isinstance(type_arg.value, str)
+            and parse_sql_runtime_type(type_arg.value).family in ("array", "map")
+        )
 
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]
