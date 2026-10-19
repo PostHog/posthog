@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import dataclasses
 from collections.abc import Collection, Iterable, Iterator, Mapping
+from typing import Any
 
 from posthog.schema import MetricsDashboardVariable, MetricsFilterOp, MetricsQueryFilter, MetricsVariableValue
 
@@ -52,7 +53,8 @@ class PromQLStringContext:
     # The quote of the PromQL string that holds the reference, or None outside a string.
     quote: str | None
     in_regex: bool
-    in_matcher: bool = False
+    # The replacement argument of label_replace, where `$name` is a named regex group.
+    in_replacement: bool = False
 
 
 @frozen
@@ -160,7 +162,18 @@ class _PromQLScanner:
     index: int = 0
     quote: str | None = None
     in_regex: bool = False
-    braces: int = 0
+    in_replacement: bool = False
+    # The open brackets, each as [bracket, the function name before a parenthesis, the argument index].
+    groups: list[list[Any]] = dataclasses.field(default_factory=list)
+
+    def _function_name(self) -> str:
+        end = self.index
+        while end > 0 and self.expr[end - 1].isspace():
+            end -= 1
+        start = end
+        while start > 0 and (self.expr[start - 1].isalnum() or self.expr[start - 1] in "_:"):
+            start -= 1
+        return self.expr[start:end].lower()
 
     def context_at(self, position: int) -> PromQLStringContext | None:
         """None when the position is inside a `#` comment."""
@@ -177,19 +190,28 @@ class _PromQLScanner:
                 end = _LINE_END.search(expr, self.index)
                 self.index = len(expr) if end is None else end.start()
                 continue
-            elif char in "{}":
-                self.braces = max(0, self.braces + (1 if char == "{" else -1))
+            elif char in "({":
+                self.groups.append([char, self._function_name() if char == "(" else "", 0])
+            elif char in ")}":
+                if self.groups and self.groups[-1][0] == ("(" if char == ")" else "{"):
+                    self.groups.pop()
+            elif char == ",":
+                if self.groups:
+                    self.groups[-1][2] += 1
             elif char in "\"'`":
                 self.quote = char
                 before = self.index - 1
                 while before >= 0 and expr[before].isspace():
                     before -= 1
                 self.in_regex = before >= 1 and expr[before] == "~" and expr[before - 1] in "=!"
+                self.in_replacement = bool(self.groups) and self.groups[-1] == ["(", "label_replace", 2]
             self.index += 1
         if self.quote is None and self.index > position:
             return None
         return PromQLStringContext(
-            quote=self.quote, in_regex=self.quote is not None and self.in_regex, in_matcher=self.braces > 0
+            quote=self.quote,
+            in_regex=self.quote is not None and self.in_regex,
+            in_replacement=self.quote is not None and self.in_replacement,
         )
 
 
@@ -277,8 +299,7 @@ def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Col
             if (backslashes if context.quote == "`" else backslashes // 2) % 2 == 1:
                 return match.group(0)
         variable = variables.get(name)
-        # A string outside a label matcher can be a label_replace replacement, where $name is a named regex group.
-        if variable is None and context.quote is not None and not context.in_matcher:
+        if variable is None and context.in_replacement:
             return match.group(0)
         if variable is None or not _has_value(variable):
             unresolved.append(name)
