@@ -38,7 +38,7 @@ _ACTIVITIES_MODULE = "products.experiments.backend.temporal.recalculation_activi
 
 
 def _metric(metric_uuid: str) -> ExperimentMetricToRecalculate:
-    return ExperimentMetricToRecalculate(experiment_id=1, metric_uuid=metric_uuid, metric_type="primary")
+    return ExperimentMetricToRecalculate(experiment_id=1, metric_uuid=metric_uuid, role="primary")
 
 
 def _make_mock_activities(
@@ -252,7 +252,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             info = activity.info()
             timeouts.append((info.schedule_to_close_timeout, info.heartbeat_timeout))
@@ -292,7 +292,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             nonlocal attempts
             if metric_uuid == "m2":
@@ -309,7 +309,7 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         assert result == {"total": 2, "succeeded": 1, "failed": 1}
         assert attempts < MAX_METRIC_ATTEMPTS
-        assert [(f.experiment_id, f.metric_uuid, f.metric_type) for f in backstop_calls] == [(1, "m1", "primary")]
+        assert [(f.experiment_id, f.metric_uuid, f.role) for f in backstop_calls] == [(1, "m1", "primary")]
 
     async def test_workflow_cancel_reaches_the_running_calc_and_kills_its_query(self):
         activities, _progress, _calls = _make_mock_activities(metrics=[_metric("m1")])
