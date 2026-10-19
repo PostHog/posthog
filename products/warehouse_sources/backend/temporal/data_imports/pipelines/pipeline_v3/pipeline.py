@@ -89,9 +89,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     IncrementalBatchRangeReader,
     IncrementalHandoffCheckpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (
-    UnfinishedAppendRuns,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -516,6 +513,11 @@ class PipelineV3(Generic[ResumableData]):
         """
         if should_resume or self._run_uuid is None or self._pg_producer.sync_type != "append":
             return False
+        # Deferred: the `load` package imports the load processor, which imports the facade that imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (  # noqa: PLC0415
+            UnfinishedAppendRuns,
+        )
+
         append_runs = UnfinishedAppendRuns(self._schema, self._delta_table_ref)
         try:
             return await database_sync_to_async_pool(append_runs.restores_before_first_batch)(self._run_uuid)

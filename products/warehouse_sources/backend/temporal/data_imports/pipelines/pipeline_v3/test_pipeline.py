@@ -345,7 +345,11 @@ class TestPreWriteCompactionBeforeAnAppendRestore:
             stack.enter_context(patch(f"{_PIPELINE}.validate_incremental_sync"))
             maintenance = stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance"))
             maintenance.return_value.run_scheduled = AsyncMock()
-            append_runs = stack.enter_context(patch(f"{_PIPELINE}.UnfinishedAppendRuns"))
+            append_runs = stack.enter_context(
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback.UnfinishedAppendRuns"
+                )
+            )
             append_runs.return_value.restores_before_first_batch.return_value = loader_restores
             stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
 
