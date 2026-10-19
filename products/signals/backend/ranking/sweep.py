@@ -302,6 +302,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         peak_rss_mb=_peak_rss_mb(),
     )
 
+    project_vectors = scorer.pass_project_vectors(serving, list(ids_by_team))
     # A scorer call holds the vectors and matrices of all its reports, so one call scores at most one
     # vector read of one team. Each call persists its scores, so a pass that stops keeps its progress.
     chunks = [
@@ -320,7 +321,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 continue
             try:
                 outcomes = scorer.score_reports(
-                    team_id, list(report_ids), persist=True, now=now, serving=serving, capture=capture
+                    team_id,
+                    list(report_ids),
+                    persist=True,
+                    now=now,
+                    serving=serving,
+                    capture=capture,
+                    project_vectors=project_vectors,
                 )
             except (scorer.ScoringError, ModelLoadError):
                 # A pass without a served score is worse than no pass.

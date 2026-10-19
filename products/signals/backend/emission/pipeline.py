@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from django.utils import timezone
 
@@ -29,7 +30,9 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.spend import signal_id_for
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -186,7 +189,7 @@ def build_emitter_outputs(
                     output,
                     extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
                 )
-            outputs.append(output)
+            outputs.append(dataclasses.replace(output, signal_id=output.signal_id or str(uuid4())))
     return outputs, error_count
 
 
@@ -198,8 +201,12 @@ async def _summarize_description(
     threshold: int,
     gateway_mode: bool | None = None,
 ) -> SignalEmitterOutput:
+    gateway = resolve_ai_gateway_config() if gateway_mode is not False else None
     messages: list[MessageParam] = [
-        {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
+        {
+            "role": "user",
+            "content": summarization_prompt.format(description=output.description, max_length=threshold),
+        }
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id)
     for attempt in range(LLM_MAX_ATTEMPTS):
@@ -207,7 +214,7 @@ async def _summarize_description(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         summary = ""
         try:
-            response = await asyncio.wait_for(
+            generation = asyncio.wait_for(
                 client.messages.create(
                     model=LLM_MODEL,
                     messages=messages,
@@ -218,6 +225,10 @@ async def _summarize_description(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
+            priced = await generate_with_spend(
+                generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+            )
+            response = priced.response
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -337,6 +348,7 @@ async def check_actionability(
     Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
     entered this batch pipeline.
     """
+    gateway = resolve_ai_gateway_config() if gateway_mode is not False else None
     description = output.description
     # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
     # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
@@ -372,7 +384,7 @@ async def check_actionability(
             if attempt > 0:
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
-                response = await asyncio.wait_for(
+                generation = asyncio.wait_for(
                     client.messages.create(
                         model=LLM_MODEL,
                         messages=[{"role": "user", "content": prompt}],
@@ -383,6 +395,10 @@ async def check_actionability(
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
+                priced = await generate_with_spend(
+                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
+                )
+                response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
             except Exception as e:
@@ -556,6 +572,7 @@ async def _emit_signals(
                     )
                     output = without_extra
                 await emit_signal(
+                    signal_id=output.signal_id,
                     team=team,
                     source_product=output.source_product,
                     source_type=output.source_type,
@@ -624,6 +641,22 @@ async def run_signal_pipeline(
         emitter=config.emitter,
         unloggable_fields=config.unloggable_fields,
     )
+    emission_run_id = activity.info().workflow_run_id if activity.in_activity() else None
+    if config.record_processed_outputs or emission_run_id is not None:
+        outputs = [
+            dataclasses.replace(
+                output,
+                signal_id=signal_id_for(
+                    team_id=team.id,
+                    source_product=output.source_product,
+                    source_type=output.source_type,
+                    idempotency_key=output.source_id
+                    if config.record_processed_outputs
+                    else f"{emission_run_id}:{activity.info().activity_id}:{output.source_id}",
+                ),
+            )
+            for output in outputs
+        ]
     # Only fail if every record raised — emitters may return None as a benign skip,
     # so a mix of skips and errors should fall through to the no_actionable_records path.
     if error_count == len(records):

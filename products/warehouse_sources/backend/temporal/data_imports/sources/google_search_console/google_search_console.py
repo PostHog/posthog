@@ -17,7 +17,7 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -196,8 +196,19 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     A site's root URL entered where only its domain property is registered gets the domain
     property suggested. A URL with a path doesn't: the domain property covers the whole
     site, so syncing it would import more than the entry asked for.
+
+    A domain property entered where only the site's root URL-prefix property is registered
+    gets that URL-prefix property suggested.
     """
     if site_url.startswith("sc-domain:"):
+        domain = site_url.removeprefix("sc-domain:").strip().strip("/").lower()
+        if not domain:
+            return None
+        registered_set = set(registered)
+        for scheme in ("https", "http"):
+            for host in (domain, f"www.{domain}"):
+                if f"{scheme}://{host}/" in registered_set:
+                    return f"{scheme}://{host}/"
         return None
     parsed = urlparse(site_url)
     if parsed.scheme:
@@ -255,7 +266,7 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
-    resolved = integration_secrets.get_secrets(
+    resolved = credentials_service.get_secrets(
         ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
     )
     return OAuthCredentials(

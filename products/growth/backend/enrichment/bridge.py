@@ -15,6 +15,8 @@ unreachable group store raises. Scoring an org on inputs we failed to fetch woul
 silently-too-low score, which is worse than writing none — so callers degrade to writing
 firmographics without a score on a raise, and get another chance at the delayed recheck.
 
+The wizard input is true when a stored codebase scan of any of the org's projects finds one of
+this module's LLM tool kinds, or when the organization group still carries the stamp older wizards set.
 """
 
 import dataclasses
@@ -29,10 +31,43 @@ from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.wizard.backend.facade import api as wizard_facade
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
+# Set by wizards before they reported scans to PostHog. Still read, so those orgs keep the input.
 WIZARD_AI_SDK_DETECTED_PROPERTY = "wizard_ai_sdk_detected"
+# Tool kinds from the wizard's scan that mean the org builds with LLMs. This list is the scoring
+# decision, so it lives here rather than in the wizard's tool catalog.
+LLM_TOOL_KINDS: frozenset[ExternalDataSourceType] = frozenset(
+    {
+        ExternalDataSourceType.ANTHROPIC,
+        ExternalDataSourceType.ASSEMBLYAI,
+        ExternalDataSourceType.BROWSERBASE,
+        ExternalDataSourceType.COHERE,
+        ExternalDataSourceType.DEEPGRAM,
+        ExternalDataSourceType.E2B,
+        ExternalDataSourceType.ELEVENLABS,
+        ExternalDataSourceType.FIRECRAWL,
+        ExternalDataSourceType.FIREWORKSAI,
+        ExternalDataSourceType.GROQ,
+        ExternalDataSourceType.HELICONE,
+        ExternalDataSourceType.HUGGINGFACE,
+        ExternalDataSourceType.LANGSMITH,
+        ExternalDataSourceType.LANGFUSE,
+        ExternalDataSourceType.LLAMACLOUD,
+        ExternalDataSourceType.MEM0,
+        ExternalDataSourceType.MISTRALAI,
+        ExternalDataSourceType.OPENAI,
+        ExternalDataSourceType.OPENROUTER,
+        ExternalDataSourceType.REPLICATE,
+        ExternalDataSourceType.TOGETHERAI,
+        ExternalDataSourceType.VELLUM,
+        ExternalDataSourceType.WEIGHTSANDBIASES,
+        ExternalDataSourceType.ZEP,
+    }
+)
 
 
 class OrganizationGroupTypeMissing(Exception):
@@ -51,7 +86,7 @@ class ClayBridgeInputs:
 
 @frozen
 class WizardBridgeInputs:
-    """The wizard's own AI-SDK detection stamp for one org. False when the wizard never reported it."""
+    """Whether the wizard found an LLM SDK in one org's code. False when it never scanned."""
 
     ai_sdk_detected: bool = False
 
@@ -87,7 +122,7 @@ def _organization_group_type_index(team: Team) -> int:
 
 
 def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBridgeInputs:
-    """Fetch score inputs from one organization-group read. Raises when the group store cannot be read."""
+    """Fetch score inputs for one org. Raises when the group store or the wizard's scan store cannot be read."""
     # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
     # skip the lookup entirely instead of querying a project the bridge never touched.
     if get_instance_region() != "US":
@@ -100,16 +135,20 @@ def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBrid
         group_type_index=_organization_group_type_index(team),
         group_key=organization_id,
     )
+    properties = (group.group_properties or {}) if group is not None else {}
+    wizard = WizardBridgeInputs(
+        ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True
+        or wizard_facade.organization_has_detected_tool(
+            organization_id=organization_id, kinds=[kind.value for kind in LLM_TOOL_KINDS]
+        )
+    )
     if group is None:
-        return OrganizationBridgeInputs()
+        return OrganizationBridgeInputs(wizard=wizard)
 
-    properties = group.group_properties or {}
     return OrganizationBridgeInputs(
         clay=ClayBridgeInputs(
             est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
             clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
         ),
-        wizard=WizardBridgeInputs(
-            ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True,
-        ),
+        wizard=wizard,
     )

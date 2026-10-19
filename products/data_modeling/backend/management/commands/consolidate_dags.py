@@ -8,12 +8,14 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
+from django.db.models import QuerySet
 
 import structlog
 from temporalio.client import Client
 
 from posthog.hogql.errors import BaseHogQLError
 
+from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
@@ -29,7 +31,12 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.saved_query_dag_sync import node_type_for, sync_saved_query_to_dag
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
+    move_node_out_of_managed_dag,
+    node_type_for,
+    sync_saved_query_to_dag,
+)
+from products.data_modeling.backend.logic.saved_query_reads import PROXY_SAVED_QUERY_ID_PROPERTY
 from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_dag_schedules,
     delete_v1_saved_query_schedules,
@@ -37,7 +44,8 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     null_saved_query_intervals,
     reconcile_dag_schedules,
 )
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError
@@ -97,11 +105,21 @@ class Command(BaseCommand):
         "with --apply completes a partially-applied consolidation. A query whose SQL fails "
         "dependency resolution normally keeps its source DAG and fails the run; "
         "--adopt-unresolvable instead lands it in the target with no edges and a "
-        "properties.system.degraded_sync marker. Dry run by default; pass --apply to execute."
+        "properties.system.degraded_sync marker. A system-managed DAG (Revenue Analytics) is "
+        "folded in as a source too: its schedules are torn down before its nodes move, and the "
+        "proxy table nodes that stood in for its views are replaced by the real nodes. "
+        "--teams-with-managed-dag runs the fold for every team that still has a managed DAG and "
+        "halts at the first team that fails. Dry run by default; pass --apply to execute."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--team-id", type=int, required=True)
+        teams = parser.add_mutually_exclusive_group(required=True)
+        teams.add_argument("--team-id", type=int)
+        teams.add_argument(
+            "--teams-with-managed-dag",
+            action="store_true",
+            help="Run for every team that still has a system-managed DAG, halting at the first failure",
+        )
         parser.add_argument(
             "--target-dag-id",
             type=str,
@@ -114,6 +132,7 @@ class Command(BaseCommand):
             default=False,
             help="Execute the consolidation. Without this flag the command is a dry run and changes nothing.",
         )
+        parser.add_argument("--yes", action="store_true", default=False, help="Skip the confirmation prompt")
         parser.add_argument(
             "--verbose",
             action="store_true",
@@ -133,15 +152,36 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        team_id: int = options["team_id"]
+        if options["teams_with_managed_dag"]:
+            self._fold_managed_dags_fleet(options)
+            return
+        self._consolidate_team(options["team_id"], options)
+
+    def _fold_managed_dags_fleet(self, options: dict[str, Any]) -> None:
+        team_ids = list(
+            DAG.objects.filter(name=REVENUE_ANALYTICS_DAG_NAME)
+            .order_by("team_id")
+            .values_list("team_id", flat=True)
+            .distinct()
+        )
+        self.stdout.write(f"{len(team_ids)} team(s) have a system-managed DAG")
+        for processed, team_id in enumerate(team_ids):
+            try:
+                self._consolidate_team(team_id, options)
+            except Exception as error:
+                logger.exception("Failed to fold the managed DAG of a team", team_id=team_id)
+                raise CommandError(
+                    f"halted at team {team_id} after {processed} team(s): {error}; "
+                    "fix it and re-run, finished teams no longer have a managed DAG"
+                )
+        self.stdout.write(f"\nProcessed {len(team_ids)} team(s)")
+
+    def _consolidate_team(self, team_id: int, options: dict[str, Any]) -> None:
         apply_changes: bool = options["apply"]
         all_dags = list(DAG.objects.filter(team_id=team_id))
         if not all_dags:
             raise CommandError(f"Team {team_id} has no DAGs")
 
-        # System-managed DAGs (Revenue Analytics) are never consolidated: the managed viewset
-        # re-asserts its nodes' placement on every sync, so a move out is silently undone, and
-        # syncing a query into a managed DAG is refused outright. Exclude them as source and target.
         managed_dags = [dag for dag in all_dags if dag.is_managed]
         dags = [dag for dag in all_dags if not dag.is_managed]
 
@@ -154,20 +194,27 @@ class Command(BaseCommand):
             if any(dag.id == forced_uuid for dag in managed_dags):
                 raise CommandError(f"--target-dag-id {forced_id} is a system-managed DAG and cannot be a merge target")
 
-        if not dags:
-            raise CommandError(f"Team {team_id} has no non-managed DAGs to consolidate")
-
-        target = self._pick_target(dags, forced_id)
-        source_dags = sorted((dag for dag in dags if dag.id != target.id), key=lambda d: d.name)
-
-        self.stdout.write(f"\nTeam {team_id} — {len(dags)} DAG(s)")
+        self.stdout.write(f"\nTeam {team_id} — {len(all_dags)} DAG(s)")
         if managed_dags:
-            excluded = ", ".join(f"{dag.name} ({dag.id})" for dag in managed_dags)
-            self.stdout.write(f"Excluding {len(managed_dags)} system-managed DAG(s): {excluded}")
+            folded = ", ".join(f"{dag.name} ({dag.id})" for dag in managed_dags)
+            self.stdout.write(f"Folding {len(managed_dags)} system-managed DAG(s) into the target: {folded}")
+
+        if not dags and not forced_id:
+            if not apply_changes:
+                self.stdout.write(
+                    "No Default DAG yet — --apply creates it as the merge target (dry run: nothing changed)"
+                )
+                return
+            target = DAG.get_or_create_default(Team.objects.get(id=team_id))
+        else:
+            target = self._pick_target(dags, forced_id)
+        source_dags = sorted(
+            (dag for dag in all_dags if dag.id != target.id), key=lambda dag: (not dag.is_managed, dag.name)
+        )
         self.stdout.write(f"Merge target: {target.name} ({target.id}) — {self._target_reason(target, options)}")
 
         plans = self._build_plan(target, source_dags)
-        self._print_plan(target, plans, team_id=team_id, dags=dags, verbose=options["verbose"])
+        self._print_plan(target, plans, team_id=team_id, dags=all_dags, verbose=options["verbose"])
 
         if not apply_changes:
             self.stdout.write(
@@ -176,7 +223,7 @@ class Command(BaseCommand):
             )
             return
 
-        if not settings.TEST:
+        if not settings.TEST and not options["yes"]:
             confirm = input(
                 f"\n\tWill consolidate {len(source_dags)} source DAG(s) into {target.name} ({target.id}) "
                 f"for team {team_id}, deleting the source DAGs. Proceed? (y/n) "
@@ -199,7 +246,7 @@ class Command(BaseCommand):
             v2_sources = [
                 f"{plan.dag.name} ({plan.dag.id})"
                 for plan in plans
-                if self._list_dag_schedules_or_abort(str(plan.dag.id))
+                if not plan.dag.is_managed and self._list_dag_schedules_or_abort(str(plan.dag.id))
             ]
             if v2_sources:
                 raise CommandError(
@@ -228,7 +275,19 @@ class Command(BaseCommand):
             if kept_reason:
                 kept_dags.append(f"{plan.dag.name} ({plan.dag.id}): {kept_reason}")
 
-        v1_failed_sq_ids = self._finalize_target(target, temporal)
+        if not kept_dags and target.name != DEFAULT_DAG_NAME:
+            self._rename_to_default(target)
+        proxies_left = self._replace_proxy_nodes(target)
+        try:
+            v1_failed_sq_ids = self._finalize_target(target, temporal, bootstrap_tiers=bool(managed_dags))
+        except Exception as error:
+            if not managed_dags or kept_dags:
+                raise
+            # The managed DAG is what makes a run create the first tier schedules, and it is gone now.
+            raise CommandError(
+                f"{error}; re-running will not create the target's first tier schedules because the "
+                f"managed DAG is gone, so run reconcile_freshness_schedules --team-id {team_id} to converge them"
+            ) from error
 
         self.stdout.write(f"\nDone: consolidated {len(consolidated_sq_ids)} saved query(ies) into {target.name}")
         if adopted_names:
@@ -252,6 +311,11 @@ class Command(BaseCommand):
             raise CommandError(
                 f"consolidation incomplete: {len(kept_dags)} source DAG(s) kept; "
                 "resolve the failures above and re-run (the command converges on re-run)"
+            )
+        if proxies_left:
+            raise CommandError(
+                f"consolidation incomplete: proxy node(s) {', '.join(sorted(proxies_left))} still stand in for "
+                "views whose node never reached the target; re-run once those views have moved"
             )
 
     def _pick_target(self, dags: list[DAG], target_dag_id: str | None) -> DAG:
@@ -287,6 +351,12 @@ class Command(BaseCommand):
         """
         target_sq_ids = {str(sq_id) for sq_id in schedulable_nodes(target).values_list("saved_query_id", flat=True)}
         claimed: set[str] = set()  # saved queries a preceding source DAG already moves
+        placed_in_managed_dag = {
+            str(sq_id)
+            for sq_id in Node.objects.filter(
+                team=target.team, dag__name=REVENUE_ANALYTICS_DAG_NAME, saved_query__isnull=False
+            ).values_list("saved_query_id", flat=True)
+        }
         plans: list[SourceDagPlan] = []
         for dag in source_dags:
             moves_by_node: dict[str, MoveItem] = {}
@@ -294,7 +364,7 @@ class Command(BaseCommand):
             floors = self._source_floors(dag) if dag.sync_frequency_interval is not None else {}
             for node in schedulable_nodes(dag).select_related("saved_query"):
                 saved_query = node.saved_query
-                if saved_query is None:
+                if saved_query is None or (not dag.is_managed and str(saved_query.id) in placed_in_managed_dag):
                     continue
                 sq_id = str(saved_query.id)
                 # Query-interval intent survives the move on the saved query itself, and a moved
@@ -419,6 +489,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  moved: {total_moved}, dropped: {total_dropped}")
         self.stdout.write(f"  edges to re-point: {total_repoint_edges}, edges to drop: {total_dedup_edges}")
         self.stdout.write(f"  source DAGs to delete: {len(plans)}")
+        self.stdout.write(f"  proxy nodes to replace: {self._proxy_nodes(target).count()}")
         self.stdout.write(f"  freshness-target conflicts: {len(conflicts)}")
         if cross_dag_edges:
             self.stdout.write(self.style.WARNING(f"  ⚠ anomalous cross-DAG edges found: {cross_dag_edges}"))
@@ -531,14 +602,28 @@ class Command(BaseCommand):
         which re-runs derive from the target's persistent state.
         """
         self.stdout.write(f"\n  Source DAG {plan.dag.name} ({plan.dag.id}):")
+        teardown_before_moves = plan.dag.is_managed
+        if teardown_before_moves and self._has_running_materialization(plan):
+            return "a materialization of one of its views is running; re-run once it finishes"
+        if teardown_before_moves and not self._teardown_execute_dag_schedules(str(plan.dag.id)):
+            return "execute-dag schedule teardown failed before any node moved; re-run to retry it"
         failed_moves: list[str] = []
         moved_sq_ids: list[str] = []
         for item in plan.moves:
             try:
-                node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
+                # Atomic, so a query whose dependencies fail to resolve leaves its node, edges and
+                # marker in the managed DAG and the re-run retries it instead of finding it moved.
+                with transaction.atomic():
+                    if plan.dag.is_managed:
+                        move_node_out_of_managed_dag(item.saved_query, target)
+                    node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
             except Exception as error:
                 adoptable = adopt_unresolvable and isinstance(error, ADOPTABLE_SYNC_ERRORS)
-                node = self._adopt_without_edges(item.saved_query, target, error) if adoptable else None
+                node = (
+                    self._adopt_without_edges(item.saved_query, target, error, from_managed_dag=plan.dag.is_managed)
+                    if adoptable
+                    else None
+                )
                 if node is None:
                     failed_moves.append(item.saved_query.name)
                     logger.exception(
@@ -568,7 +653,10 @@ class Command(BaseCommand):
                 orphaned_drops.append(drop.name)
                 self.stderr.write(f"    NOT dropping {drop.name}: its query never reached the target")
                 continue
-            self._carry_declared_target(node, drop.declared_target, drop.name)
+            if plan.dag.is_managed and drop.declared_target is not None:
+                set_declared_target(node, drop.declared_target)
+            else:
+                self._carry_declared_target(node, drop.declared_target, drop.name)
             self.stdout.write(f"    dropped duplicate {drop.name}")
 
         if failed_moves:
@@ -578,7 +666,7 @@ class Command(BaseCommand):
         if orphaned_drops:
             return f"{len(orphaned_drops)} duplicate(s) never reached the target ({', '.join(orphaned_drops)})"
 
-        if not self._teardown_execute_dag_schedules(str(plan.dag.id)):
+        if not teardown_before_moves and not self._teardown_execute_dag_schedules(str(plan.dag.id)):
             return "execute-dag schedule teardown failed; DAG kept so a re-run can retry it"
 
         plan.dag.delete()
@@ -587,7 +675,9 @@ class Command(BaseCommand):
         consolidated_sq_ids.update(drop.saved_query_id for drop in plan.drops)
         return None
 
-    def _adopt_without_edges(self, saved_query: DataWarehouseSavedQuery, target: DAG, error: Exception) -> Node | None:
+    def _adopt_without_edges(
+        self, saved_query: DataWarehouseSavedQuery, target: DAG, error: Exception, *, from_managed_dag: bool = False
+    ) -> Node | None:
         """Last-resort landing for a query whose SQL will not resolve: create its node in the
         target with no incoming edges so the consolidation can proceed and the source DAG can be
         deleted. The query keeps failing at materialization time exactly as it did in the source
@@ -600,6 +690,9 @@ class Command(BaseCommand):
             # unmarked node would make the re-run classify this query as DROP instead of
             # retrying the move, stranding it edge-less and invisible to the marker sweep.
             with transaction.atomic():
+                if from_managed_dag:
+                    # The failed move rolled back, so bring the managed node over to keep its state.
+                    move_node_out_of_managed_dag(saved_query, target)
                 node, _ = Node.objects.get_or_create(
                     team_id=saved_query.team_id,
                     saved_query=saved_query,
@@ -641,7 +734,7 @@ class Command(BaseCommand):
             self.stderr.write(f"    FAILED to tear down execute-dag schedules for DAG {dag_id}")
         return teardown.ok
 
-    def _finalize_target(self, target: DAG, temporal: Client) -> set[str]:
+    def _finalize_target(self, target: DAG, temporal: Client, *, bootstrap_tiers: bool = False) -> set[str]:
         """Converge the target after the moves: seed declared targets from leftover v1 intervals,
         sweep the v1 per-query schedules, null the consumed intervals, and reconcile the tier
         schedules once. Everything here derives from the target's persistent state — never this
@@ -668,7 +761,8 @@ class Command(BaseCommand):
                 "re-run with --apply to finish the finalize"
             )
         self.stdout.write(f"\n  finalize: target schedule mode {mode}")
-        if mode not in (MODE_TIERED, MODE_LEGACY_V2):
+        creates_first_tiers = mode == MODE_V1 and bootstrap_tiers
+        if mode not in (MODE_TIERED, MODE_LEGACY_V2) and not creates_first_tiers:
             return set()
         self._seed_targets_from_intervals(target)
         nodes = list(schedulable_nodes(target).select_related("saved_query"))
@@ -681,17 +775,63 @@ class Command(BaseCommand):
             f"\n  swept v1 schedules for {len(nodes)} saved query(ies) ({len(v1_failed)} failed), "
             f"cleared sync_frequency_interval on {cleared}"
         )
-        if mode == MODE_TIERED:
-            try:
-                reconcile_dag_schedules(target, require_tiered=True)
-                self.stdout.write(f"  reconciled target DAG {target.id} tier schedules")
-            except Exception as error:
-                logger.exception("Failed to reconcile target DAG after consolidation", dag_id=str(target.id))
-                raise CommandError(
-                    f"consolidation applied but the final reconcile of target {target.id} failed ({error}); "
-                    "run reconcile_freshness_schedules for this team to converge the tier schedules"
-                )
+        if mode == MODE_TIERED or creates_first_tiers:
+            self._reconcile_target(target, require_tiered=not creates_first_tiers)
         return v1_failed
+
+    def _has_running_materialization(self, plan: SourceDagPlan) -> bool:
+        return DataModelingJob.objects.filter(
+            team_id=plan.dag.team_id,
+            status=DataModelingJobStatus.RUNNING,
+            saved_query_id__in=[item.saved_query.id for item in plan.moves]
+            + [drop.saved_query_id for drop in plan.drops],
+        ).exists()
+
+    def _reconcile_target(self, target: DAG, *, require_tiered: bool) -> None:
+        try:
+            reconcile_dag_schedules(target, require_tiered=require_tiered)
+            self.stdout.write(f"  reconciled target DAG {target.id} tier schedules")
+        except Exception as error:
+            logger.exception("Failed to reconcile target DAG after consolidation", dag_id=str(target.id))
+            raise CommandError(
+                f"consolidation applied but the final reconcile of target {target.id} failed ({error}); "
+                "run reconcile_freshness_schedules for this team to converge the tier schedules"
+            )
+
+    def _rename_to_default(self, target: DAG) -> None:
+        """`DAG.get_or_create_default` looks the DAG up by name, so a team's only DAG must carry it."""
+        self.stdout.write(f"\n  renamed target {target.name} ({target.id}) to {DEFAULT_DAG_NAME}")
+        target.name = DEFAULT_DAG_NAME
+        target.save(update_fields=["name"])
+
+    def _proxy_nodes(self, dag: DAG) -> QuerySet[Node]:
+        return Node.objects.filter(dag=dag, type=NodeType.TABLE, properties__has_key=PROXY_SAVED_QUERY_ID_PROPERTY)
+
+    def _replace_proxy_nodes(self, target: DAG) -> list[str]:
+        """Point each proxy's readers at the real node now in the target, then delete the proxy.
+
+        Returns the names of the proxies kept because their view has no node in the target.
+        """
+        kept: list[str] = []
+        for proxy in self._proxy_nodes(target):
+            real = Node.objects.filter(
+                dag=target, saved_query_id=proxy.properties[PROXY_SAVED_QUERY_ID_PROPERTY]
+            ).first()
+            if real is None:
+                kept.append(proxy.name)
+                continue
+            with transaction.atomic():
+                for edge in Edge.objects.filter(dag=target, source=proxy):
+                    Edge.objects.get_or_create(
+                        team_id=target.team_id,
+                        dag=target,
+                        source=real,
+                        target_id=edge.target_id,
+                        defaults={"properties": edge.properties},
+                    )
+                proxy.delete()
+            self.stdout.write(f"    replaced proxy {proxy.name} with its view's node")
+        return kept
 
     def _seed_targets_from_intervals(self, target: DAG) -> None:
         """A query about to lose its v1 sync_frequency_interval must not lose its cadence intent:

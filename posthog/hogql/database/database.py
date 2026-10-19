@@ -2469,6 +2469,13 @@ class Database(BaseModel):
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
+            if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
+                # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
+                # source table. Copying the events join keeps the sessions table version that the team's modifiers chose.
+                database.get_table(["posthog", "flag_evaluations"]).fields["session"] = cast(
+                    LazyJoin, database.get_table("events").fields["session"]
+                ).model_copy()
+
         with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
                 _use_virtual_fields(database, modifiers, timings)
@@ -2653,7 +2660,11 @@ class Database(BaseModel):
                                         table_chain,
                                         table_for_key,
                                         case_insensitive=table.external_data_source.is_direct_query
-                                        and table.external_data_source.direct_engine in {"snowflake", "trino"},
+                                        and (
+                                            table.external_data_source.direct_engine in {"snowflake", "trino"}
+                                            or table.external_data_source.is_managed_warehouse
+                                            and table.url_pattern == "direct://trino"
+                                        ),
                                     ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
@@ -3188,6 +3199,13 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
     poe = cast(VirtualTable, events_table.fields["poe"])
+    # A flag call stores the event and person properties blobs that these fields read. A team's test account filters
+    # can read them.
+    flag_evaluations = (
+        database.get_table(["posthog", "flag_evaluations"])
+        if database.has_table(["posthog", "flag_evaluations"])
+        else None
+    )
 
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
@@ -3208,6 +3226,10 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+    if flag_evaluations is not None:
+        flag_evaluations_poe = cast(VirtualTable, flag_evaluations.fields["poe"])
+        for field_name in ("$virt_initial_referring_domain_type", "$virt_initial_channel_type"):
+            flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
 
     with timings.measure("traffic_type_virtual_fields"):
         from posthog.hogql.database.schema.traffic_type import (
@@ -3226,6 +3248,10 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             ("$virt_bot_operator", create_bot_operator_field),
         ]:
             events_table.fields[field_name] = factory_fn(name=field_name)
+            if flag_evaluations is not None:
+                flag_evaluations.fields[field_name] = events_table.fields[field_name].model_copy(
+                    update={"hidden": True}
+                )
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):

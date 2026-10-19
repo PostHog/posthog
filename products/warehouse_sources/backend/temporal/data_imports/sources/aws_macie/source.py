@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_MACIE|AWSMACIE)_",),
+        npm=("@aws-sdk/client-macie2",),
+        cargo=("aws-sdk-macie2",),
+        go=("github.com/aws/aws-sdk-go-v2/service/macie2",),
+        maven=(
+            "software.amazon.awssdk:macie2",
+            "com.amazonaws:aws-java-sdk-macie2",
+            "com.amazonaws:aws-java-sdk-macie",
+            "software.amazon.awssdk:macie",
+        ),
+        rubygems=("aws-sdk-macie2",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (MACIE_API_VERSION,)
     default_version = MACIE_API_VERSION
@@ -101,11 +116,14 @@ class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Macie",
             caption=(
-                "Sync Amazon Macie findings, S3 bucket inventory, discovery jobs, and member accounts. "
-                "Enable Macie in the region you select.\n\n"
+                "Sync Amazon Macie findings, S3 bucket inventory, bucket sensitivity profiles, discovery jobs, "
+                "member accounts, and usage. Enable Macie in the region you select.\n\n"
                 "Grant these IAM permissions for the tables you select: "
                 "`macie2:ListFindings`, `macie2:GetFindings`, `macie2:DescribeBuckets`, "
-                "`macie2:ListClassificationJobs`, and `macie2:ListMembers`. "
+                "`macie2:ListClassificationJobs`, `macie2:ListMembers`, `macie2:GetResourceProfile`, "
+                "`macie2:ListResourceProfileDetections`, `macie2:ListResourceProfileArtifacts`, and "
+                "`macie2:GetUsageStatistics`. "
+                "The resource profile tables need automated sensitive data discovery turned on. "
                 "Use credentials from the Macie administrator account to sync members."
             ),
             iconPath="/static/services/aws_macie.png",

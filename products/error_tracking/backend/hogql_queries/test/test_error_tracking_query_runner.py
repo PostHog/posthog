@@ -25,6 +25,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    ErrorTrackingQueryIssueSeverity,
     ErrorTrackingSimilarIssuesQuery,
     EventPropertyFilter,
     FilterLogicalOperator,
@@ -57,7 +58,10 @@ from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlat
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
+    SEVERITY_RANKING,
+    search_tokenizer,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
     SimilarFingerprint,
@@ -89,9 +93,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     issue_id_one = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     issue_id_two = "01936e80-5e69-7e70-b837-871f5cdad28b"
     issue_id_three = "01936e80-aa51-746f-aec4-cdf16a5c5332"
+    issue_id_four = "01936e81-1d2c-7bb6-9f2e-2a1a3a0c54c1"
+    issue_id_five = "01936e81-6a73-7f41-8d58-6c0f9e1c7b2a"
     issue_one_fingerprint = "issue_one_fingerprint"
     issue_two_fingerprint = "issue_two_fingerprint"
     issue_three_fingerprint = "issue_three_fingerprint"
+    issue_four_fingerprint = "issue_four_fingerprint"
+    issue_five_fingerprint = "issue_five_fingerprint"
 
     def override_fingerprint(self, fingerprint, issue_id, version=1):
         update_error_tracking_issue_fingerprints(team_id=self.team.pk, issue_id=issue_id, fingerprints=[fingerprint])
@@ -226,6 +234,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         searchQuery=None,
         filterGroup=None,
         orderBy="last_seen",
+        orderDirection=None,
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -249,6 +258,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     searchQuery=searchQuery,
                     filterGroup=filterGroup,
                     orderBy=orderBy,  # pyright: ignore[reportArgumentType]
+                    orderDirection=orderDirection,
                     status=status,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
@@ -691,6 +701,111 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
+
+    def _assign_severities(self):
+        # `sync_issues_to_clickhouse` stamps rows with the wall clock as their ReplacingMergeTree
+        # version, and the test clock is frozen, so two syncs under one frozen instant write the
+        # same version and ClickHouse picks between them arbitrarily. Create at the fixture instant.
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
+            for issue_id, fingerprint in (
+                (self.issue_id_four, self.issue_four_fingerprint),
+                (self.issue_id_five, self.issue_five_fingerprint),
+            ):
+                self.create_events_and_issue(
+                    issue_id=issue_id,
+                    fingerprint=fingerprint,
+                    distinct_ids=[self.distinct_id_one],
+                    timestamp=now() - relativedelta(hours=4),
+                )
+        flush_persons_and_events()
+
+        severities = {
+            self.issue_id_one: ErrorTrackingIssue.Severity.CRITICAL,
+            self.issue_id_two: ErrorTrackingIssue.Severity.LOW,
+            self.issue_id_three: ErrorTrackingIssue.Severity.HIGH,
+            self.issue_id_four: ErrorTrackingIssue.Severity.MEDIUM,
+        }
+        for issue_id, severity in severities.items():
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(severity=severity)
+        sync_issues_to_clickhouse(issue_ids=list(severities), team_id=self.team.pk)
+
+    def _severity_is_set_filter(self) -> PropertyGroupFilter:
+        return PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[ErrorTrackingIssueFilter(key="severity", value=True, operator=PropertyOperator.IS_SET)],
+                )
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("descending", "DESC", False),
+            ("ascending", "ASC", False),
+            ("descending_with_severity_filter", "DESC", True),
+            ("ascending_with_severity_filter", "ASC", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_severity_ordering(self, _name: str, direction: str, with_severity_filter: bool):
+        # A severity filter is an issue-level filter, so it drops the query onto the legacy shape.
+        self._assign_severities()
+        by_descending_severity = [
+            self.issue_id_one,
+            self.issue_id_three,
+            self.issue_id_four,
+            self.issue_id_two,
+            self.issue_id_five,
+        ]
+        filter_group = None
+        if with_severity_filter:
+            filter_group = self._severity_is_set_filter()
+            by_descending_severity = [i for i in by_descending_severity if i != self.issue_id_five]
+
+        expected = by_descending_severity if direction == "DESC" else list(reversed(by_descending_severity))
+
+        results = self._calculate(orderBy="severity", orderDirection=direction, filterGroup=filter_group)["results"]
+
+        self.assertEqual([result["id"] for result in results], expected)
+
+    @parameterized.expand(
+        [
+            ("severity", ["indexOf(['low', 'medium', 'high', 'critical'], severity)", "last_seen", "id"]),
+            ("occurrences", ["occurrences", "last_seen", "id"]),
+            ("users", ["users", "last_seen", "id"]),
+            ("sessions", ["sessions", "last_seen", "id"]),
+            ("first_seen", ["first_seen", "last_seen", "id"]),
+            ("last_seen", ["last_seen", "id"]),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_ordering_is_total(self, order_by: str, expected_keys: list[str]):
+        # Rows share sort values, and the paginator pages with LIMIT/OFFSET, so rows repeat and drop
+        # between pages unless the tiebreakers make the order total in both shapes and directions.
+        primary, *tiebreakers = expected_keys
+        for legacy_shape in (False, True):
+            for direction in ("DESC", "ASC"):
+                builder = ErrorTrackingQueryBuilder(
+                    query=ErrorTrackingQuery(
+                        kind="ErrorTrackingQuery",
+                        dateRange=DateRange(date_from="-7d"),
+                        filterGroup=self._severity_is_set_filter() if legacy_shape else None,
+                        orderBy=order_by,  # pyright: ignore[reportArgumentType]
+                        orderDirection=direction,  # pyright: ignore[reportArgumentType]
+                        volumeResolution=1,
+                    ),
+                    team=self.team,
+                    date_from=datetime(2022, 1, 3, tzinfo=UTC),
+                    date_to=datetime(2022, 1, 10, tzinfo=UTC),
+                )
+                self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+                self.assertEqual(
+                    [(order.expr.to_hogql(), order.order) for order in builder.build_query().order_by or []],
+                    [(primary, direction), *((key, "DESC") for key in tiebreakers)],
+                    f"legacy_shape={legacy_shape} direction={direction}",
+                )
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_status(self):
@@ -1670,6 +1785,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         with self.assertRaises(UserAccessControlError):
             runner.validate_query_runner_access(self.user)
+
+
+class TestSeverityRanking(TestCase):
+    def test_ranking_covers_every_severity_level(self):
+        # A level the ranking omits gets rank 0 from `indexOf` and silently sorts as unset. The
+        # model enum is what reaches the `severity` column, the schema enum is what the API offers.
+        self.assertEqual(set(SEVERITY_RANKING), {severity.value for severity in ErrorTrackingQueryIssueSeverity})
+        self.assertEqual(set(SEVERITY_RANKING), set(ErrorTrackingIssue.Severity.values))
 
 
 class TestSearchTokenizer(TestCase):

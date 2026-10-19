@@ -28,28 +28,24 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import xgboost as xgb
-import pyarrow.compute as pc
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS, REPORT_EMBEDDINGS_FEATURE_SET, Extras
+from products.signals.backend.ranking.features import (
+    EMBEDDING_DIMENSIONS,
+    REPORT_EMBEDDINGS_FEATURE_SET,
+    Extras,
+    project_inputs,
+)
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
-from products.signals.dags.inbox_ranking.dataset.project_vectors import (
-    MIN_HISTORY_REPORTS,
-    VECTOR_KINDS,
-    project_vectors,
-)
-from products.signals.dags.inbox_ranking.multihead.network import (
-    MultiHeadNetwork,
-    NetworkConfig,
-    NetworkInputs,
-    ProjectContext,
-)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS, project_vectors
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
 from products.signals.dags.inbox_ranking.training.calibration import calibration_buckets, expected_calibration_error
 from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_examples, example_moments, holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS
+from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
 
 PROTOTYPE_HEADS: tuple[Head, ...] = tuple(HEADS_BY_NAME[name] for name in ("open", "action", "fixed"))
 FEATURE_SET = REPORT_EMBEDDINGS_FEATURE_SET
@@ -81,12 +77,27 @@ class ExampleTable:
         in_holdout = self.holdout[:, head_index]
         return np.flatnonzero(observed & (in_holdout if holdout else ~in_holdout))
 
+    def team_ids(self, rows: np.ndarray) -> np.ndarray:
+        return self.rows["report_team_id"].to_numpy(dtype=object)[rows]
 
-def example_table(snapshots: Mapping[datetime.date, Snapshot], extras: Extras, *, holdout_days: int) -> ExampleTable:
-    """The moments of every prototype head, joined on the report moment."""
+
+def example_table(
+    snapshots: Mapping[datetime.date, Snapshot],
+    extras: Extras,
+    *,
+    holdout_days: int,
+    head_moments: Mapping[str, pd.DataFrame] | None = None,
+) -> ExampleTable:
+    """The moments of every prototype head, joined on the report moment. `head_moments` holds each
+    head's capped moments by name, when the caller already built them."""
     frames = []
     for head in PROTOTYPE_HEADS:
-        moments = cap_examples(example_moments(snapshots, head, FEATURE_SET, extras), FEATURE_SET.max_examples_per_head)
+        if head_moments is not None:
+            moments = head_moments[head.name]
+        else:
+            moments = cap_examples(
+                example_moments(snapshots, head, FEATURE_SET, extras), FEATURE_SET.max_examples_per_head
+            )
         frames.append(
             moments.assign(holdout=holdout_mask(moments, holdout_days).to_numpy())
             .set_index(["report_id", "snapshot_date"])[["label", "holdout"]]
@@ -117,7 +128,8 @@ def project_context(rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table) 
     """The project vectors each row reads: its team's, as of the start of its snapshot day.
 
     One `project_vectors()` call per snapshot day, and only the needed teams' rows are kept from it,
-    so the context holds a vector per (team, day) rather than one per example row.
+    so the context holds a vector per (team, day) rather than one per example row. `project_inputs`
+    turns a day into vectors, the same function the scoring sweep reads the published day with.
     """
     kinds = len(VECTOR_KINDS)
     pair_keys = rows[["report_team_id", "snapshot_date"]].drop_duplicates().reset_index(drop=True)
@@ -126,28 +138,12 @@ def project_context(rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table) 
     pair_of: dict[tuple[int, datetime.date], int] = {}
     for date, group in pair_keys.groupby("snapshot_date", sort=True):
         as_of, _ = snapshot_bounds(date.isoformat())
-        teams = {int(team_id): int(pair) for pair, team_id in group["report_team_id"].items()}
-        pair_of.update({(team_id, date): pair for team_id, pair in teams.items()})
-        day = project_vectors(labels, embeddings, as_of)
-        day_vectors = (
-            pc.list_flatten(day.column("vector").combine_chunks())
-            .to_numpy(zero_copy_only=False)
-            .reshape(-1, EMBEDDING_DIMENSIONS)
-        )
-        for position, (team_id, kind, n_reports) in enumerate(
-            zip(
-                day.column("team_id").to_numpy(),
-                day.column("kind").to_pylist(),
-                day.column("n_reports").to_numpy(),
-                strict=True,
-            )
-        ):
-            pair = teams.get(int(team_id))
-            if pair is None:
-                continue
-            kind_index = VECTOR_KINDS.index(kind)
-            vectors[pair, kind_index] = day_vectors[position]
-            has_history[pair, kind_index] = float(int(n_reports) >= MIN_HISTORY_REPORTS)
+        pairs = group.index.to_numpy()
+        team_ids = [int(team_id) for team_id in group["report_team_id"]]
+        pair_of.update({(team_id, date): int(pair) for team_id, pair in zip(team_ids, pairs, strict=True)})
+        day = project_inputs(project_vectors(labels, embeddings, as_of).to_pandas(), team_ids)
+        vectors[pairs] = day.vectors
+        has_history[pairs] = day.has_history
     index = np.array(
         [pair_of[(int(team_id), date)] for team_id, date in zip(rows["report_team_id"], rows["snapshot_date"])],
         dtype=np.int64,
@@ -162,6 +158,9 @@ class HeadScore:
     holdout_rows: int
     holdout_positives: int
     auc: float | None
+    # The AUC over pairs inside one team. A model that only learns which teams engage a lot
+    # gains pooled `auc` and none of this.
+    within_team_auc: float | None
     average_precision: float | None
     expected_calibration_error: float | None
 
@@ -172,13 +171,15 @@ class HeadScore:
             "holdout_rows": self.holdout_rows,
             "holdout_positives": self.holdout_positives,
             "auc": self.auc,
+            "within_team_auc": self.within_team_auc,
             "average_precision": self.average_precision,
             "expected_calibration_error": self.expected_calibration_error,
         }
 
 
-def grade(model: str, head: str, outcomes: np.ndarray, scores: np.ndarray) -> HeadScore:
-    """AUC, average precision and ECE, with the same decile cut the training dag grades on."""
+def grade(model: str, head: str, outcomes: np.ndarray, scores: np.ndarray, team_ids: np.ndarray) -> HeadScore:
+    """Pooled and within-team AUC, average precision and ECE, with the same decile cut the training
+    dag grades on."""
     positives = int(outcomes.sum())
     two_classes = 0 < positives < len(outcomes)
     return HeadScore(
@@ -187,6 +188,7 @@ def grade(model: str, head: str, outcomes: np.ndarray, scores: np.ndarray) -> He
         holdout_rows=len(outcomes),
         holdout_positives=positives,
         auc=float(roc_auc_score(outcomes, scores)) if two_classes else None,
+        within_team_auc=within_team_auc(outcomes, scores, team_ids).auc,
         average_precision=float(average_precision_score(outcomes, scores)) if two_classes else None,
         expected_calibration_error=expected_calibration_error(calibration_buckets(outcomes.astype(bool), scores)),
     )
@@ -204,7 +206,15 @@ def champion_recipe_scores(table: ExampleTable, reports: np.ndarray, *, seed: in
             continue
         model = xgb.XGBClassifier(**XGB_PARAMS, random_state=seed)
         model.fit(reports[train], y_train, verbose=False)
-        scores.append(grade(CHAMPION_RECIPE, head.name, y_test, model.predict_proba(reports[test])[:, 1]))
+        scores.append(
+            grade(
+                CHAMPION_RECIPE,
+                head.name,
+                y_test,
+                model.predict_proba(reports[test])[:, 1],
+                table.team_ids(test),
+            )
+        )
     return scores
 
 
@@ -212,8 +222,12 @@ def network_scores(
     name: str, table: ExampleTable, inputs: NetworkInputs, config: NetworkConfig
 ) -> tuple[list[HeadScore], list[float]]:
     """Fit one network on the shared train rows and grade each head on its own holdout."""
+    from products.signals.dags.inbox_ranking.multihead.network import (  # noqa: PLC0415 — keeps torch off the import path
+        MultiHeadNetwork,
+    )
+
     network = MultiHeadNetwork(
-        heads=len(PROTOTYPE_HEADS),
+        heads=[head.name for head in PROTOTYPE_HEADS],
         with_context=inputs.context is not None,
         kinds=len(VECTOR_KINDS),
         config=config,
@@ -225,7 +239,9 @@ def network_scores(
         if len(test) == 0:
             continue
         predicted = network.predict(inputs, test)[:, head_index]
-        scores.append(grade(name, head.name, table.labels[test, head_index].astype(int), predicted))
+        scores.append(
+            grade(name, head.name, table.labels[test, head_index].astype(int), predicted, table.team_ids(test))
+        )
     return scores, losses
 
 
@@ -286,14 +302,14 @@ def format_scores(scores: Sequence[HeadScore]) -> str:
     def number(value: float | None) -> str:
         return "-" if value is None else f"{value:.3f}"
 
-    header = f"{'head':<8}{'model':<20}{'rows':>8}{'pos':>7}{'auc':>8}{'ap':>8}{'ece':>8}"
+    header = f"{'head':<8}{'model':<20}{'rows':>8}{'pos':>7}{'auc':>8}{'team_auc':>10}{'ap':>8}{'ece':>8}"
     lines = [header, "-" * len(header)]
     order = {name: index for index, name in enumerate((CHAMPION_RECIPE, *ABLATIONS))}
     for head in PROTOTYPE_HEADS:
         for score in sorted((s for s in scores if s.head == head.name), key=lambda s: order.get(s.model, 99)):
             lines.append(
                 f"{score.head:<8}{score.model:<20}{score.holdout_rows:>8}{score.holdout_positives:>7}"
-                f"{number(score.auc):>8}{number(score.average_precision):>8}"
+                f"{number(score.auc):>8}{number(score.within_team_auc):>10}{number(score.average_precision):>8}"
                 f"{number(score.expected_calibration_error):>8}"
             )
     return "\n".join(lines)

@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import LoadingBlock, MarkdownBlock
@@ -120,7 +122,7 @@ class TestParseNotebookContentForStreaming(BaseTest):
         assert "More text" in result[2].content
 
 
-class TestStripIncompleteInsightTags(BaseTest):
+class TestStripIncompleteInsightTags(SimpleTestCase):
     @parameterized.expand(
         [
             ("text<i", "text"),
@@ -192,7 +194,7 @@ class TestStripIncompleteInsightTags(BaseTest):
         assert result == ""
 
 
-class TestStripTitleHeading(BaseTest):
+class TestStripTitleHeading(SimpleTestCase):
     @parameterized.expand(
         [
             ("# My Title\n\nContent", "My Title", "Content"),
@@ -226,7 +228,7 @@ class TestStripTitleHeading(BaseTest):
         assert result == content
 
 
-class TestParseNotebookContentForStorageWithTitle(BaseTest):
+class TestParseNotebookContentForStorageWithTitle(SimpleTestCase):
     def test_matching_title_removed_from_first_block(self):
         content = "# My Notebook\n\nHere's the chart:\n\n<insight>chart1</insight>"
         result = parse_notebook_content_for_storage(content, title="My Notebook")

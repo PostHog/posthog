@@ -25,6 +25,7 @@ const buttonVariants = cva(
                 default: 'quill-button--size-default',
                 xs: 'quill-button--size-xs',
                 sm: 'quill-button--size-sm',
+                inline: 'quill-button--size-inline',
                 lg: 'quill-button--size-lg',
                 icon: 'quill-button--size-icon',
                 'icon-xs': 'quill-button--size-icon-xs',

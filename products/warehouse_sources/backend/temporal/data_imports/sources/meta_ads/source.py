@@ -3,6 +3,7 @@ from typing import cast
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -84,6 +86,34 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 
 @SourceRegistry.register
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^META_ADS_", "^FACEBOOK_ADS_", "^FACEBOOK_PIXEL_ID$", "^NEXT_PUBLIC_FACEBOOK_PIXEL_ID$"),
+        npm=(
+            "facebook-nodejs-business-sdk",
+            "capi-param-builder-nodejs",
+            "meta-capi-param-builder-clientjs",
+            "react-facebook-pixel",
+            "@types/facebook-pixel",
+            "gatsby-plugin-facebook-pixel",
+            "nuxt-facebook-pixel-module",
+        ),
+        pypi=("facebook-business", "capi-param-builder-python", "facebookads"),
+        cocoapods=("FBAEMKit", "FBSDKMarketingKit"),
+        composer=(
+            "facebook/php-business-sdk",
+            "facebook/capi-param-builder-php",
+            "facebook/php-ads-sdk",
+            "facebook/facebook-for-magento2",
+        ),
+        maven=(
+            "com.facebook.business.sdk:facebook-java-business-sdk",
+            "com.facebook.capi.sdk:capi-param-builder",
+            "com.facebook.android:facebook-marketing",
+        ),
+        pub=("facebook_app_events",),
+        rubygems=("facebookbusiness", "capi_param_builder_ruby"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26)
@@ -104,7 +134,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            META_TOKEN_REFRESH_ERROR_MESSAGE: None,
             # The data warehouse source still references a `meta_ads_integration_id` whose
             # Integration row no longer exists for the team (the integration was deleted or
             # de-authorized). `get_integration` then raises Django's `Integration.DoesNotExist`

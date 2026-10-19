@@ -3,8 +3,9 @@ import base64
 from typing import cast
 from zipfile import ZipFile
 
-from posthog.test.base import BaseTest
 from unittest import mock
+
+from django.test import SimpleTestCase, override_settings
 
 from posthog.egress.limiter.policies import Priority
 from posthog.plugins.utils import (
@@ -26,7 +27,8 @@ from .plugin_archives import (
 
 @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
 @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-class TestPluginsUtils(BaseTest):
+@override_settings(GITHUB_TOKEN="")
+class TestPluginsUtils(SimpleTestCase):
     def test_parse_github_urls(self, mock_get, mock_github_request):
         parsed_url = parse_url("https://github.com/PostHog/posthog")
         self.assertEqual(parsed_url["type"], "github")

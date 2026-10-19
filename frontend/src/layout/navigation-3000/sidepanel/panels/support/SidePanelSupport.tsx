@@ -5,12 +5,7 @@ import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@p
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
-import {
-    DEFAULT_PAID_RESPONSE_TIME,
-    PAY_AS_YOU_GO_RESPONSE_TIME,
-    getCurrentSupportPlan,
-    getSupportResponseTimeFeature,
-} from 'lib/components/Support/supportResponseTime'
+import { DEFAULT_PAID_RESPONSE_TIME, getSupportPlanRows } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -124,86 +119,28 @@ const SupportResponseTimesTable = ({
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
-    const currentPlan = getCurrentSupportPlan({
+    const plansToDisplay = getSupportPlanRows({
         billing,
         billingPlan,
+        supportPlans,
         organizationId: user?.organization?.id,
     })
-
-    const plansToDisplay: {
-        name: string
-        current_plan: boolean | undefined
-        features: any[]
-        plan_key: string
-        link?: string
-        legacy_product?: boolean | null
-    }[] = [
-        {
-            name: 'Free',
-            current_plan: currentPlan === BillingPlan.Free,
-            features: [{ note: 'Community support only' }],
-            plan_key: BillingPlan.Free,
-            link: 'https://posthog.com/questions',
-        },
-        {
-            name: 'Pay-as-you-go',
-            current_plan: currentPlan === BillingPlan.Paid,
-            features: [{ note: PAY_AS_YOU_GO_RESPONSE_TIME }],
-            plan_key: BillingPlan.Paid,
-        },
-        {
-            name: 'Boost',
-            current_plan: currentPlan === BillingPlan.Boost,
-            features: [getSupportResponseTimeFeature(supportPlans, 'Boost') || { note: DEFAULT_PAID_RESPONSE_TIME }],
-            plan_key: BillingPlan.Boost,
-        },
-        ...(billingPlan === BillingPlan.Teams
-            ? [
-                  {
-                      name: 'Teams',
-                      current_plan: currentPlan === BillingPlan.Teams,
-                      features: [
-                          getSupportResponseTimeFeature(supportPlans, 'Teams') || { note: DEFAULT_PAID_RESPONSE_TIME },
-                      ],
-                      plan_key: BillingPlan.Teams,
-                      legacy_product: true,
-                  },
-              ]
-            : []),
-        {
-            name: 'Scale',
-            current_plan: currentPlan === BillingPlan.Scale,
-            features: [getSupportResponseTimeFeature(supportPlans, 'Scale') || { note: DEFAULT_PAID_RESPONSE_TIME }],
-            plan_key: BillingPlan.Scale,
-        },
-        {
-            name: 'Enterprise',
-            current_plan: currentPlan === BillingPlan.Enterprise,
-            features: [
-                getSupportResponseTimeFeature(supportPlans, 'Enterprise') || { note: DEFAULT_PAID_RESPONSE_TIME },
-            ],
-            plan_key: BillingPlan.Enterprise,
-        },
-    ]
 
     return (
         <div className="grid grid-cols-2 border rounded *:px-2 *:py-0.5 bg-surface-primary mb-2">
             {plansToDisplay.map((plan, index) => {
-                const isBold = plan.current_plan
-
-                const responseNote = plan.features.find((f: any) => f.note)?.note
+                const isBold = plan.isCurrentPlan
+                const responseNote = plan.responseTime
 
                 return (
-                    <React.Fragment key={plan.plan_key}>
+                    <React.Fragment key={plan.key}>
                         <div
                             className={`${index > 0 ? 'border-t' : ''} col-span-1 ${isBold ? 'font-semibold' : ''}`}
                             data-attr="support-plan-name"
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
-                                {plan.legacy_product && (
-                                    <span className="text-muted text-xs font-normal"> (legacy)</span>
-                                )}
+                                {plan.legacy && <span className="text-muted text-xs font-normal"> (legacy)</span>}
                                 {isBold && ' '}
                                 {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                             </span>

@@ -47,6 +47,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 import pandas as pd
@@ -78,6 +79,7 @@ from products.autoresearch.backend.dataset.labeling import (
     rolling_selection,
     scored_lookback_days,
 )
+from products.autoresearch.backend.evaluation.segment_thresholds import TRAINING_POPULATION_KEY, TRAINING_POSITIVES_KEY
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import (
     BATCH_QUERY,
@@ -147,6 +149,7 @@ _FILE_END = "<<<AUTORESEARCH_FILE_END>>>"
 # store accepts, so a model that passes readback also passes persistence.
 _MAX_READBACK_BYTES = MAX_ARTIFACT_BYTES
 _MAX_SCRIPT_LOG_BYTES = 4000
+_READBACK_EXCERPT_CHARS = 80
 # Keys train.py must write into output.json.
 _REQUIRED_METRIC_KEYS = ("holdout_auc", "n_train", "n_features")
 # The worker expands every feature column across every row before the matrix reaches the
@@ -173,6 +176,9 @@ class MaterializedData:
     holdout_rows: list[dict[str, Any]] = field(default_factory=list)
     # The rate the rows were drawn at; the fitted model's scores need its prior correction.
     negative_sample_rate: float = 1.0
+    # The labeled population and its positives before the sample, so the training base rate is not inflated.
+    population: int = 0
+    positives: int = 0
 
 
 @frozen
@@ -225,12 +231,14 @@ def fit_champion_model(
 
     Pass the training run's ``anchor_ts`` so the fit sees the anchor set the agent scored.
     The fit's negative sample rate is saved on the ``model_id`` row before ``model.pkl`` is
-    written, so no scoring run can load the model without the rate its correction needs.
+    written, so no scoring run can load the model without the rate its correction needs. The
+    unsampled training counts go into the row's metrics, so the segment cut points can use the
+    training base rate before any prediction is checked.
 
     ``predict.py`` runs once against the holdout features before the model is persisted,
     so a bundle whose two scripts disagree fails here rather than on the first cadence.
 
-    Returns train.py's metrics (holdout_auc, n_train, n_features). Raises
+    Returns train.py's metrics (holdout_auc, n_train, n_features) and the training counts. Raises
     SandboxInferenceError on any materialization or sandbox failure.
     """
     if bundle is None:
@@ -250,11 +258,10 @@ def fit_champion_model(
         raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
 
     model_bytes, metrics = _run_train_in_sandbox(bundle=bundle, data=data, pipeline=pipeline)
-    metrics = {**metrics, "negative_sample_rate": data.negative_sample_rate}
+    training_counts = {TRAINING_POPULATION_KEY: data.population, TRAINING_POSITIVES_KEY: data.positives}
+    metrics = {**metrics, "negative_sample_rate": data.negative_sample_rate, **training_counts}
     if model_id is not None:
-        AutoresearchModel.objects.for_team(team.pk).filter(pk=model_id).update(
-            negative_sample_rate=data.negative_sample_rate
-        )
+        _record_fit_sample(team_id=team.pk, model_id=model_id, data=data, training_counts=training_counts)
     write_model(prefix, model_bytes)
     write_artifact(prefix, _FEATURE_COLUMNS_JSON, json.dumps(data.feature_cols).encode("utf-8"))
     logger.info(
@@ -266,6 +273,16 @@ def fit_champion_model(
         negative_sample_rate=data.negative_sample_rate,
     )
     return metrics
+
+
+def _record_fit_sample(*, team_id: int, model_id: str, data: MaterializedData, training_counts: dict[str, int]) -> None:
+    with transaction.atomic():
+        model = AutoresearchModel.objects.for_team(team_id).select_for_update().filter(pk=model_id).first()
+        if model is None:
+            return
+        model.negative_sample_rate = data.negative_sample_rate
+        model.metrics = {**(model.metrics or {}), **training_counts}
+        model.save(update_fields=["negative_sample_rate", "metrics"])
 
 
 def score_via_sandbox(
@@ -511,6 +528,8 @@ def materialize_training_data(
         train_rows=train_rows,
         holdout_rows=holdout_rows,
         negative_sample_rate=sample.negative_sample_rate,
+        population=sample.population,
+        positives=sample.positives,
     )
 
 
@@ -1126,10 +1145,7 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
     write_file is the only input channel and execute→stdout the only output channel,
     so we cat the file and slice between sentinels to survive any stray shell output.
     """
-    result = sandbox.execute(_readback_command(rel_path, encode=False), timeout_seconds=60)
-    if result.exit_code != 0:
-        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    body = _between_sentinels(result.stdout)
+    body = _readback(sandbox, rel_path, encode=False, timeout_seconds=60)
     if len(body.encode("utf-8")) > _MAX_READBACK_BYTES:
         raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return body
@@ -1137,10 +1153,7 @@ def _read_file(sandbox: SandboxExecutor, rel_path: str) -> str:
 
 def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
     """Read a binary file (e.g. model.pkl) the bundle wrote, base64-encoded over the sentinel-bracketed cat."""
-    result = sandbox.execute(_readback_command(rel_path, encode=True), timeout_seconds=120)
-    if result.exit_code != 0:
-        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
-    encoded = "".join(_between_sentinels(result.stdout).split())
+    encoded = "".join(_readback(sandbox, rel_path, encode=True, timeout_seconds=120).split())
     try:
         content = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -1150,6 +1163,41 @@ def _read_binary_file(sandbox: SandboxExecutor, rel_path: str) -> bytes:
     if len(content) > _MAX_READBACK_BYTES:
         raise SandboxInferenceError(f"{rel_path} is over the {_MAX_READBACK_BYTES}-byte readback cap")
     return content
+
+
+def _readback(sandbox: SandboxExecutor, rel_path: str, *, encode: bool, timeout_seconds: int) -> str:
+    # An exit 0 without both sentinels means the provider dropped or cut off stdout. The
+    # command only reads a finished file, so one retry is safe.
+    command = _readback_command(rel_path, encode=encode)
+    result = _execute_readback(sandbox, command, rel_path=rel_path, timeout_seconds=timeout_seconds)
+    try:
+        return _between_sentinels(result.stdout)
+    except SandboxInferenceError:
+        logger.warning("autoresearch_readback_retry", rel_path=rel_path, output=_describe_output(result))
+    result = _execute_readback(sandbox, command, rel_path=rel_path, timeout_seconds=timeout_seconds)
+    try:
+        return _between_sentinels(result.stdout)
+    except SandboxInferenceError as exc:
+        raise SandboxInferenceError(f"{exc} reading {rel_path} after a retry: {_describe_output(result)}") from exc
+
+
+def _execute_readback(
+    sandbox: SandboxExecutor, command: str, *, rel_path: str, timeout_seconds: int
+) -> ExecutionResult:
+    result = sandbox.execute(command, timeout_seconds=timeout_seconds)
+    if result.exit_code != 0:
+        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
+    return result
+
+
+def _describe_output(result: ExecutionResult) -> str:
+    # The excerpts are short and show the sentinel ends, enough to tell an empty stdout
+    # from one cut off mid-file without copying the file body into the error.
+    stdout, n = result.stdout, _READBACK_EXCERPT_CHARS
+    return (
+        f"stdout_chars={len(stdout)} begin={_FILE_BEGIN in stdout} end={_FILE_END in stdout} "
+        f"head={stdout[:n]!r} tail={stdout[-n:]!r} stderr={result.stderr[:500]!r}"
+    )
 
 
 def _read_log_tail(sandbox: SandboxExecutor) -> str:

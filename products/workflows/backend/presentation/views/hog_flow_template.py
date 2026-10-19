@@ -29,8 +29,9 @@ from products.workflows.backend.facade.templates import (
     list_templates,
     update_template,
 )
-from products.workflows.backend.facade.workflows import WORKFLOW_SAFE_INTERNAL_EVENTS
+from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, WORKFLOW_SAFE_INTERNAL_EVENTS
 from products.workflows.backend.presentation.views.hog_flow_fields import (
+    HogFlowActionTypeField,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -84,7 +85,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
-    type = serializers.CharField(max_length=100)
+    type = HogFlowActionTypeField(
+        choices=SUPPORTED_ACTION_TYPES,
+        help_text="One of: " + " | ".join(SUPPORTED_ACTION_TYPES) + ".",
+    )
     config = serializers.JSONField()
     output_variable = serializers.JSONField(required=False, allow_null=True)
 
@@ -100,6 +104,9 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif trigger_type == "schedule":
                 # The schedule itself lives on a separate row, so the trigger carries nothing to validate.
+                pass
+            elif trigger_type == "cohort":
+                # The cohort is checked when a workflow made from this template goes live.
                 pass
             elif trigger_type in ["event", "internal-event"]:
                 filters = data.get("config", {}).get("filters", {})

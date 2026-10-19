@@ -11,6 +11,10 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -55,6 +59,36 @@ class TestHogFlowScheduleAPI(APIBaseTest):
 
     def _schedule_detail_url(self, workflow_id, schedule_id):
         return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/schedules/{schedule_id}/"
+
+    @parameterized.expand([("can_view_recordings", "viewer", status.HTTP_201_CREATED), ("cannot", "none", 403)])
+    def test_scheduling_a_replay_vision_step_needs_the_callers_recording_access(
+        self, _name, recording_access, expected
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        workflow = HogFlow.objects.create(
+            team=self.team,
+            name="Scheduled scan",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[
+                {
+                    "id": "vision",
+                    "name": "vision",
+                    "type": "function",
+                    "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+                }
+            ],
+        )
+
+        response = self.client.post(
+            self._schedules_url(workflow.id), {**SCHEDULE_DATA, "variables": {"session": "s1"}}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
 
     def test_create_schedule(self):
         workflow = self._create_batch_workflow()
@@ -171,6 +205,46 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["schedules"] == []
+
+    @parameterized.expand(
+        [
+            ("moving the start", {"starts_at": "2030-01-02T09:00:00Z"}, "changed"),
+            ("changing the repeat rule", {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=TU"}, "changed"),
+            ("changing only the variables", {"variables": {"key": "value"}}, None),
+        ]
+    )
+    def test_update_schedule_logs_changes_to_the_send_times(self, _name, payload, expected_action):
+        workflow = self._create_batch_workflow()
+        schedule_id = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()["id"]
+        logged_before = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).count()
+
+        response = self.client.patch(self._schedule_detail_url(workflow["id"], schedule_id), payload)
+
+        assert response.status_code == status.HTTP_200_OK
+        entries = list(ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).order_by("created_at"))
+        new_changes = [(entry.detail or {})["changes"][0] for entry in entries[logged_before:]]
+        if expected_action is None:
+            assert new_changes == []
+        else:
+            assert [(change["field"], change["action"]) for change in new_changes] == [("schedule", expected_action)]
+            assert new_changes[0]["before"]["starts_at"] == "2030-01-01T09:00:00+00:00"
+            assert new_changes[0]["after"] == {
+                "rrule": payload.get("rrule", SCHEDULE_DATA["rrule"]),
+                "starts_at": payload.get("starts_at", SCHEDULE_DATA["starts_at"]).replace("Z", "+00:00"),
+                "timezone": "UTC",
+            }
+
+    def test_creating_and_deleting_a_schedule_logs_both(self):
+        workflow = self._create_batch_workflow()
+        schedule_id = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()["id"]
+        self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
+
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"], activity="updated")
+        changes = [(entry.detail or {})["changes"][0] for entry in entries.order_by("created_at")]
+        assert [(change["field"], change["action"]) for change in changes] == [
+            ("schedule", "created"),
+            ("schedule", "deleted"),
+        ]
 
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()
@@ -595,6 +669,37 @@ class TestHogFlowRun(APIBaseTest):
             hog_flow_id=str(workflow.id),
             variables={"greeting": "Hello", "name": "Overridden"},
         )
+
+    def _run_replay_vision_workflow(self, mock_invocation, recording_access):
+        self._mock_success(mock_invocation)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        workflow = self._create_workflow()
+        workflow.actions = [
+            {
+                "id": "vision",
+                "name": "vision",
+                "type": "function",
+                "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+            }
+        ]
+        workflow.save()
+        return self.client.post(self._run_url(workflow.id), {"variables": {"session": "s1"}}, format="json")
+
+    def test_run_with_a_replay_vision_step_runs_for_a_caller_who_can_view_recordings(self, mock_invocation):
+        response = self._run_replay_vision_workflow(mock_invocation, "viewer")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_invocation.assert_called_once()
+
+    def test_run_with_a_replay_vision_step_is_refused_without_the_callers_recording_access(self, mock_invocation):
+        response = self._run_replay_vision_workflow(mock_invocation, "none")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_invocation.assert_not_called()
 
     def test_run_rejects_non_schedule_trigger(self, mock_invocation):
         workflow = self._create_workflow(trigger_type="batch")

@@ -8,11 +8,12 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
+
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'

@@ -1,6 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.engage.template_engage import template as template_engage
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateEngageso(BaseHogFunctionTemplateTest):

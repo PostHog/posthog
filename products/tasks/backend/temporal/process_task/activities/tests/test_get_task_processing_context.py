@@ -12,6 +12,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.models import SignalTeamConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
@@ -34,6 +35,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
@@ -226,6 +228,28 @@ class TestIsAgentOtelTelemetryEnabled:
 
 
 class TestGetTaskProcessingContextActivity:
+    @pytest.mark.django_db(transaction=True)
+    def test_internal_research_gets_project_and_role_instructions_at_start(
+        self, activity_environment: ActivityEnvironment, test_task: Task
+    ) -> None:
+        test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        test_task.internal = True
+        test_task.save(update_fields=["origin_product", "internal"])
+        AgentInstructionsStore().set_project(test_task.team_id, "Use pnpm.")
+        SignalTeamConfig.objects.update_or_create(
+            team_id=test_task.team_id,
+            defaults={
+                "research_instructions": "Check the product intent.",
+                "implementation_instructions": "Open draft PRs.",
+            },
+        )
+        run = test_task.create_run(extra_state={"ai_stage": "research"})
+        async_to_sync(_run_context)(activity_environment, GetTaskProcessingContextInput(run_id=str(run.id)))
+        run.refresh_from_db()
+        assert "Use pnpm." in run.state["agent_instructions"]
+        assert "Check the product intent." in run.state["agent_instructions"]
+        assert "Open draft PRs." not in run.state["agent_instructions"]
+
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
             team=team,
@@ -241,8 +265,11 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("subscription,is_trial", [(False, False), (True, False), (False, True)])
-    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial):
+    @pytest.mark.parametrize(
+        "subscription,is_trial,resume",
+        [(False, False, False), (True, False, False), (False, True, False), (False, False, True)],
+    )
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial, resume):
         owner = User.objects.create_user(
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
@@ -253,6 +280,8 @@ class TestGetTaskProcessingContextActivity:
             test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
             test_task.save(update_fields=["origin_product", "origin_key"])
         task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
+        if resume:
+            task_run.prepare_for_cloud_resume()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         with (
@@ -277,6 +306,10 @@ class TestGetTaskProcessingContextActivity:
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
         assert result.run_id == str(task_run.id)
+        assert result.startup_requested_at == (
+            task_run.queued_at.isoformat() if resume else task_run.state["startup_requested_at"]
+        )
+        assert result.stream_generation is not None
         assert result.team_id == test_task.team_id
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"

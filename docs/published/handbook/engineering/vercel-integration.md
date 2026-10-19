@@ -105,7 +105,11 @@ sequenceDiagram
     participant PH as PostHog
 
     User->>VM: Click "Link Existing Account"
-    VM->>PH: GET /connect/vercel/callback (OAuth code)
+    VM->>PH: GET /connect/vercel/callback (OAuth code, no state)
+    PH-->>User: Redirect to Vercel's install page with a state, set a state cookie
+    User->>VM: Continue on the install page
+    VM->>PH: GET /connect/vercel/callback (OAuth code + same state)
+    PH->>PH: Reject unless the state matches this browser's cookie
     PH->>PH: Exchange code for access token
     PH->>PH: Store session in cache (10 min TTL)
 
@@ -165,6 +169,25 @@ graph LR
 | **Feature flags**               | Synced to Vercel Experimentation       | PostHog only             |
 | **SSO**                         | Via Vercel (`/login/vercel`)           | PostHog login            |
 | **Uninstall**                   | Resets to `billing_provider=posthog`   | N/A                      |
+
+The billing page also treats Vercel customers differently:
+
+- A banner says billing for the organization is managed by Vercel. The "View invoices in Vercel" button links to the Vercel invoices page when `external_billing_provider_invoices_url` is set.
+- The "Downgrade to free plan" card is hidden.
+- With an active subscription, add-ons, platform plan switches, and billing limits work as usual.
+- Without an active subscription, the page locks self-serve billing the same way it does for a paying partner, through `selfServeBillingDisabledReason` in `billingLogic`:
+  - The upgrade hero and the add-on upgrade banner are hidden.
+  - `BillingUpgradeCTA`, pay gate, and startup program upgrade buttons are disabled.
+  - `startPaymentEntryFlow` and `handleProductUpgrade` show a toast and stop before they call `api/billing/activate`.
+  - The banner, the toast, and the usage limit alert tell the customer to contact support to change their plan.
+
+The billing service refuses these requests for Vercel customers with a 400 and the code `billing_managed_by_provider`:
+
+- `POST /api/activate` when the customer has no subscription
+- card authorization at `POST /api/activate/authorize`
+- `GET /api/billing/portal`
+
+PostHog's `api/billing/activate` and `api/billing/activate/authorize` pass the refusal on as a 400 with billing's message and the same code. `api/billing/portal` redirects to the Vercel invoices page instead, and returns that 400 only when the organization's Vercel integration has no account URL.
 
 ### The `billing_provider` field
 

@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -1390,7 +1390,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(mock_report.call_count, 0)
 
 
-class TestGithubUserFromCode(APIBaseTest):
+class TestGithubUserFromCode(SimpleTestCase):
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.github.requests.post")
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")

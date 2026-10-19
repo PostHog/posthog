@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LodgifySource(ResumableSource[LodgifySourceConfig, LodgifyResumeConfig]):
+    codebase_detection = detect(env=("^LODGIFY_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

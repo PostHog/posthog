@@ -4,6 +4,8 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonMenu,
+    LemonSwitch,
     LemonSegmentedButton,
     LemonSelect,
     LemonSkeleton,
@@ -17,7 +19,11 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 import { SearchSourceSuggestions } from './SearchSourceSuggestions'
 
-export function SearchPerformanceTab(): JSX.Element {
+export function SearchPerformanceTab({
+    showSourceSuggestions = true,
+}: {
+    showSourceSuggestions?: boolean
+}): JSX.Element {
     const {
         dataWarehouseSources,
         dataWarehouseSourcesLoading,
@@ -27,6 +33,7 @@ export function SearchPerformanceTab(): JSX.Element {
         sourceNotices,
         readySources,
         displayMetrics,
+        wrapText,
         conversionsDisabledReason,
         search,
         query,
@@ -34,9 +41,9 @@ export function SearchPerformanceTab(): JSX.Element {
         channel,
         hasActiveFilters,
     } = useValues(searchPerformanceLogic)
-    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, clearFilters } =
+    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, clearFilters, setWrapText } =
         useActions(searchPerformanceLogic)
-    const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
+    const loading = !sourcesError && !dataWarehouseSources
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -69,13 +76,16 @@ export function SearchPerformanceTab(): JSX.Element {
             </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
-            ) : sourcesError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSources, loading }}>
+            ) : sourcesError && !dataWarehouseSources ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSources, loading: dataWarehouseSourcesLoading }}
+                >
                     Could not load your search sources. Try again to view search performance.
                 </LemonBanner>
             ) : (
                 <>
-                    {!hasActiveFilters && <SearchSourceSuggestions />}
+                    {showSourceSuggestions && !hasActiveFilters && <SearchSourceSuggestions />}
                     {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
                             key={sourceId}
@@ -101,6 +111,28 @@ export function SearchPerformanceTab(): JSX.Element {
                                     data-attr="marketing-search-keyword-filter"
                                 />
                                 <div className="flex flex-wrap items-center gap-3">
+                                    <LemonMenu
+                                        items={[
+                                            {
+                                                custom: true,
+                                                label: (
+                                                    <LemonSwitch
+                                                        label="Wrap text"
+                                                        checked={wrapText}
+                                                        onChange={setWrapText}
+                                                    />
+                                                ),
+                                            },
+                                        ]}
+                                    >
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            data-attr="marketing-search-table-options"
+                                        >
+                                            Table options
+                                        </LemonButton>
+                                    </LemonMenu>
                                     <LemonSegmentedButton
                                         value={displayMetrics}
                                         onChange={setMetrics}
@@ -118,6 +150,7 @@ export function SearchPerformanceTab(): JSX.Element {
                             <SearchPerformanceTable
                                 query={query}
                                 metrics={displayMetrics}
+                                wrapText={wrapText}
                                 onSelect={selectRow}
                                 emptyState={
                                     <div className="flex flex-col items-center gap-2 py-4">

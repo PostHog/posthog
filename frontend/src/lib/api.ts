@@ -68,7 +68,6 @@ import {
     RefreshType,
     SpanTreeNode,
     TileFilters,
-    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -688,11 +687,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # User product list
-    public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
     }
 
     // # Plugins
@@ -2480,17 +2474,6 @@ const api = {
         },
     },
 
-    userProductList: {
-        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().get()
-        },
-        async bulkUpdate(
-            items: { product_path: string; enabled: boolean }[]
-        ): Promise<{ results: UserProductListItem[] }> {
-            return await new ApiRequest().userProductList().withAction('bulk_update').update({ data: { items } })
-        },
-    },
-
     organizationFeatureFlags: {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
@@ -2829,7 +2812,7 @@ const api = {
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
                 .create({ signal, data: { ...query } })
         },
         async sparkline(
@@ -4937,6 +4920,8 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Inbox sort preset, for example `recommended`. The server ignores it when `ordering` is set. */
+            sort?: string
             /** Comma-separated source products. */
             source_product?: string
             /** Comma-separated P0–P4. */

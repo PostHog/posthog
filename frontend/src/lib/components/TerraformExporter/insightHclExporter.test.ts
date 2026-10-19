@@ -1,11 +1,13 @@
 import { generateInsightHCL } from 'lib/components/TerraformExporter/insightHclExporter'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { InsightModel } from '~/types'
+import { DashboardTileBasicType, InsightModel } from '~/types'
 
 // Helper to create test insights without strict query typing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const createTestInsight = (props: Record<string, any>): Partial<InsightModel> => props as Partial<InsightModel>
+const tilesOn = (...dashboardIds: number[]): DashboardTileBasicType[] =>
+    dashboardIds.map((dashboard_id, index) => ({ id: 100 + index, dashboard_id }))
 
 describe('insightHclExporter test', () => {
     describe('sanitizes correctly', () => {
@@ -68,7 +70,7 @@ describe('insightHclExporter test', () => {
                     series: [{ event: '$pageview', kind: NodeKind.EventsNode }],
                 },
                 tags: ['test', 'analytics'],
-                dashboards: [1, 2],
+                dashboard_tiles: [...tilesOn(1, 2), { id: 200, dashboard_id: 3, deleted: true }],
             })
 
             const result = generateInsightHCL(insight)
@@ -214,7 +216,7 @@ describe('insightHclExporter test', () => {
             const insight = createTestInsight({
                 name: 'Test',
                 query: { kind: NodeKind.TrendsQuery },
-                dashboards: [1, 2, 3],
+                dashboard_tiles: tilesOn(1, 2, 3),
             })
 
             const result = generateInsightHCL(insight)
@@ -228,7 +230,7 @@ describe('insightHclExporter test', () => {
             const insight = createTestInsight({
                 name: 'Valid Insight',
                 query: { kind: NodeKind.TrendsQuery },
-                dashboards: [1],
+                dashboard_tiles: tilesOn(1),
             })
 
             const result = generateInsightHCL(insight, {
@@ -244,7 +246,7 @@ describe('insightHclExporter test', () => {
             const insight = createTestInsight({
                 name: 'Multi Dashboard Insight',
                 query: { kind: NodeKind.TrendsQuery },
-                dashboards: [1, 2],
+                dashboard_tiles: tilesOn(1, 2),
             })
 
             const result = generateInsightHCL(insight, {
@@ -264,7 +266,7 @@ describe('insightHclExporter test', () => {
             const insight = createTestInsight({
                 name: 'Multi Dashboard Insight',
                 query: { kind: NodeKind.TrendsQuery },
-                dashboards: [1, 2, 3, 4],
+                dashboard_tiles: tilesOn(1, 2, 3, 4),
             })
 
             const result = generateInsightHCL(insight, {

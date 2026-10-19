@@ -50,21 +50,34 @@ pub(crate) fn split_by_size(
     chunks
 }
 
+/// How a send settled once the worker took it.
+#[derive(Debug)]
+pub enum SendOutcome {
+    Accepted(u32),
+    /// The worker finished every message except `unfinished`, which come back
+    /// in send order.
+    Partial {
+        accepted: u32,
+        unfinished: Vec<SerializedKafkaMessage>,
+    },
+}
+
 /// Failure from a worker stream send, carrying back the sub-batch's messages
-/// so the caller can defer/replay them (the worker may have died mid-send and
-/// the messages were never accepted).
+/// so the caller can requeue and replay them (the worker may have died
+/// mid-send and the messages were never accepted).
 #[derive(Debug)]
 pub struct SendError {
     pub error: TransportError,
     pub messages: Vec<SerializedKafkaMessage>,
-    /// Set on a fenced worker stream send. Hold it until `messages` are stashed: the
-    /// worker stream keeps fencing new arrivals until every guard from that fence is
-    /// dropped, so nothing enqueued before the stash lands can reach the
-    /// worker ahead of the fenced groups on the next stream.
+    /// Set on a fenced worker stream send. Hold it until `messages` are
+    /// requeued: the worker stream keeps fencing new arrivals until every
+    /// guard from that fence is dropped, so nothing enqueued before the
+    /// requeue lands can reach the worker ahead of the fenced messages on the
+    /// next stream.
     pub fence_guard: Option<FenceGuard>,
 }
 
-/// Tells a fencing worker stream that one fenced send's messages are stashed.
+/// Tells a fencing worker stream that one fenced send's messages are requeued.
 pub struct FenceGuard {
     /// One release per fenced send this guard stands for: a split sub-batch
     /// fenced across several chunks merges their guards into one.

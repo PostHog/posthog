@@ -205,7 +205,7 @@ This covers a push to the PR's own branch only. Trunk tearing down its own shado
 
 `state=conflict` or `state=blocked`, or `mergeable_state` is `dirty`/`blocked`, or `draft` is true. A PR that is not mergeable is not admitted to the queue at all, so requeueing changes nothing.
 
-**Verdict: hold — fix the PR first.** Merge `master` in (or let the conflict autoresolver handle it), fix or wait for required checks, request a stamphog review if approval is missing (`/merging-prs` has the MCP-first route), then submit again.
+**Verdict: hold — fix the PR first.** Merge `master` in, fix or wait for required checks, request a stamphog review if approval is missing (`/merging-prs` has the MCP-first route), then submit again.
 
 ### 3. Did a gate fail because its run was cancelled?
 
@@ -286,7 +286,7 @@ One fire is one sweep. The trigger is a schedule; discover the work list yoursel
 
 The marker's second field is the attempt's shadow PR number. It used to be a check run id; both are bare integers, so old markers still parse and still dedupe.
 
-Marker trust mirrors the conflict autoresolver: the helper only reads and updates comments authored by `MQ_TRIAGE_BOT_LOGIN`, the login the sweep's comments are authored by, and fails closed without it. Never derive that login from `GET /user`: the routine sandbox reports a user account there while routing comments through the `claude` GitHub App, so they land as `claude[bot]`. `verify` observes existing markers instead of inferring, and `get` exits 3 when the PR carries a complete marker written under a different bot login, which means `MQ_TRIAGE_BOT_LOGIN` is wrong: stop the sweep and report it, because continuing sends a second `/trunk merge` on a head already requeued and appends a comment per run. The sweep works entirely from the default-branch clone — it never checks out a PR ref — so the helper it invokes is always the checked-in one.
+Marker trust: the helper only reads and updates comments authored by `MQ_TRIAGE_BOT_LOGIN`, the login the sweep's comments are authored by, and fails closed without it. Never derive that login from `GET /user`: the routine sandbox reports a user account there while routing comments through the `claude` GitHub App, so they land as `claude[bot]`. `verify` observes existing markers instead of inferring, and `get` exits 3 when the PR carries a complete marker written under a different bot login, which means `MQ_TRIAGE_BOT_LOGIN` is wrong: stop the sweep and report it, because continuing sends a second `/trunk merge` on a head already requeued and appends a comment per run. The sweep works entirely from the default-branch clone — it never checks out a PR ref — so the helper it invokes is always the checked-in one.
 
 ### The requeue comment
 

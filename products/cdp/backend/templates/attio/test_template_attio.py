@@ -1,6 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.attio.template_attio import template as template_attio
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 def create_inputs(**kwargs):

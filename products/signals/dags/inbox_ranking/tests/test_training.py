@@ -15,6 +15,7 @@ import xgboost as xgb
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
+from sklearn.metrics import roc_auc_score
 
 from posthog import settings
 
@@ -29,33 +30,34 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
-    TITLE_EMBEDDINGS_EXTRA,
-    TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
     feature_set_by_name,
 )
 from products.signals.backend.ranking.model_contract import classification_thresholds, model_mismatch
-from products.signals.backend.ranking.overrides import PromotionOverride, RankingOverrides
+from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
-    DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     PINNED_ROLE,
+    RECENT_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
     model_key,
     serving_manifest_key,
     serving_model_prefix,
+    serving_project_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
     STATE_TABLE,
-    TITLE_EMBEDDINGS_TABLE,
 )
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
@@ -71,6 +73,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _pinned_models,
     _publish_manifest,
     _train_candidate,
+    booster_recipe,
     candidate_metadata,
     champion_object_key,
     embeddings_extras,
@@ -82,6 +85,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     inbox_ranking_unseen_graded,
     load_snapshots,
     model_object_key,
+    served_object_key,
     snapshot_dates,
 )
 from products.signals.dags.inbox_ranking.training.examples import (
@@ -97,20 +101,14 @@ from products.signals.dags.inbox_ranking.training.examples import (
     holdout_mask,
     reports_missing_birth_snapshot,
 )
-from products.signals.dags.inbox_ranking.training.heads import (
-    ACTION_LABEL_COLUMNS,
-    HEADS_BY_NAME,
-    Head,
-    dismissed_as_wrong,
-)
+from products.signals.dags.inbox_ranking.training.heads import ACTION_LABEL_COLUMNS, HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
     PromotionDecision,
-    PromotionOutcome,
-    apply_promotion_override,
     decide_promotion,
 )
+from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, recipe_hash
 from products.signals.dags.inbox_ranking.training.served import (
     event_model_role,
     served_events,
@@ -143,10 +141,10 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     LEGACY_POOL_NAME,
     MODEL_FAMILIES,
+    NN_MODEL_NAME,
     POOL_NAME,
     REPORT_EMBEDDINGS_MODEL_NAME,
     SERVED_SCORES_TABLE,
-    TITLE_EMBEDDINGS_MODEL_NAME,
     ModelFamily,
     calibration_rows,
     chance_band,
@@ -160,11 +158,10 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     unseen_pool,
     with_model_names,
 )
+from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
 EMBEDDINGS_MODEL_NAME = REPORT_EMBEDDINGS_MODEL_NAME
-# The two renderings' sets. Every rule about a vector holds for both, because they are one class
-# parameterized by the input it reads, so the embedding tests below run over the pair.
-EMBEDDING_FEATURE_SETS = (REPORT_EMBEDDINGS_FEATURE_SET, TITLE_EMBEDDINGS_FEATURE_SET)
+EMBEDDING_FEATURE_SETS = (REPORT_EMBEDDINGS_FEATURE_SET,)
 
 
 class _StateFeatureSet(FeatureSet):
@@ -185,7 +182,7 @@ STATE_MODEL_NAME = "state_xgb"
 
 
 EMBEDDING_SET_IDS = [feature_set.name for feature_set in EMBEDDING_FEATURE_SETS]
-_EMBEDDING_EXTRA_KEYS = (REPORT_EMBEDDINGS_EXTRA, TITLE_EMBEDDINGS_EXTRA)
+_EMBEDDING_EXTRA_KEYS = (REPORT_EMBEDDINGS_EXTRA,)
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -254,7 +251,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     open_head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=open_head.horizon_days)
     ids = ["a", "b", "c", "d"]
-    state = _state(ids, report_created_at=[BEFORE_THE_WINDOW] * 4)
+    state = _state(ids, report_created_at=[BEFORE_THE_WINDOW] * 4, report_team_id=[1, 1, 2, None])
     snapshots = {
         # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
         # b: already opened at D0 -> excluded; c: never opened -> negative;
@@ -275,18 +272,19 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     examples = build_examples(snapshots, open_head, _at_grain(STATE_FEATURE_SET, SCORING_MOMENT_GRAIN))
     assert list(examples.columns) == list(example_columns(STATE_FEATURE_SET))
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0, "d": 1}
+    assert examples.set_index("report_id")["team_id"].fillna(-1).to_dict() == {"a": 1, "c": 2, "d": -1}
     assert (examples["snapshot_date"] == D0).all()
     assert (examples["age_hours"] == 12.0).all()
 
 
 def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untrusted_status_rows():
-    head = HEADS_BY_NAME["pr_created"]
-    wrong_head = HEADS_BY_NAME["dismiss_wrong"]
-    assert wrong_head.horizon_days == 21
+    head = HEADS_BY_NAME["open"]
+    fixed_head = HEADS_BY_NAME["fixed"]
+    assert fixed_head.horizon_days == 30
     later = D0 + datetime.timedelta(days=head.horizon_days)
     ids = ["a", "b", "c", "gone"]
     # a: status telemetry names another tenant -> provenance fails; b: no label row at all;
-    # c: trusted, dismissed as wrong by the horizon; gone: hard-deleted before the horizon, so the
+    # c: trusted, fixed by the horizon; gone: hard-deleted before the horizon, so the
     # later snapshot has its label row but no state row.
     state = _state(
         ids,
@@ -294,38 +292,39 @@ def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untru
         status=["ready"] * 4,
         pg_updated_at=[pd.Timestamp("2026-08-09T12:00:00Z")] * 4,
     )
-    labels_now = _labels(["a", "c"], latest_status_event=["suppressed", None], status_event_team_id=[99, None])
+    labels_now = _labels(
+        ["a", "c"], latest_status_event=["suppressed", None], status_event_team_id=[99, None], fixed_count=[0, 0]
+    )
     labels_later = _labels(
         ["a", "c", "gone"],
         latest_status_event=["suppressed", "suppressed", None],
         status_event_team_id=[99, 1, None],
-        wrong_dismissal_count=[1, 1, 0],
-        pr_created_count=[0, 1, 1],
+        fixed_count=[1, 1, 0],
+        open_count=[0, 1, 1],
     )
     state_later = state.drop("gone").assign(status=["ready", "ready", "suppressed"])
     snapshots = {
         D0: assemble_snapshot(D0, state, labels_now),
         later: assemble_snapshot(later, state_later, labels_later),
         # The two heads read different horizons off the same day.
-        D0 + datetime.timedelta(days=wrong_head.horizon_days): assemble_snapshot(
-            D0 + datetime.timedelta(days=wrong_head.horizon_days), state_later, labels_later
+        D0 + datetime.timedelta(days=fixed_head.horizon_days): assemble_snapshot(
+            D0 + datetime.timedelta(days=fixed_head.horizon_days), state_later, labels_later
         ),
     }
 
     assert snapshots[D0].labels.loc["b", "impression_unit_count"] == 0
     assert snapshots[D0].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": True}
     assert snapshots[later].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": False}
-    # pr_created reads the tasks webhook, so a's untrusted status telemetry does not exclude it there.
-    pr = build_examples(snapshots, head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
-    assert pr == {"a": 0, "b": 0, "c": 1, "gone": 1}
-    # dismiss_wrong reads the status stream: a is dropped, b was never impressed but is a negative,
-    # c is a positive.
-    wrong = build_examples(snapshots, wrong_head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
-    assert wrong == {"b": 0, "c": 1}
+    # open reads the open events, so a's untrusted status telemetry does not exclude it there.
+    opened = build_examples(snapshots, head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
+    assert opened == {"a": 0, "b": 0, "c": 1, "gone": 1}
+    # fixed reads the status stream: a is dropped, b has no label row but is a negative, c is a positive.
+    fixed = build_examples(snapshots, fixed_head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
+    assert fixed == {"b": 0, "c": 1}
 
 
 def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     forward_run = pd.Timestamp(D0 + datetime.timedelta(days=1), tz="UTC") + pd.Timedelta(hours=3)
     backfill = pd.Timestamp(D0 + datetime.timedelta(days=1), tz="UTC") + STATE_LAG_LIMIT + pd.Timedelta(hours=1)
@@ -338,32 +337,8 @@ def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
 
 
 @pytest.mark.parametrize(
-    "frame,expected",
-    [
-        # The cumulative count wins: a wrong dismissal later overwritten by already_fixed stays positive.
-        (
-            pd.DataFrame({"wrong_dismissal_count": [1, 0], "dismissal_reason": ["already_fixed", "analysis_wrong"]}),
-            [True, False],
-        ),
-        # Partitions written before the count existed fall back to the latest-wins reason.
-        (pd.DataFrame({"dismissal_reason": ["already_fixed", "analysis_wrong"]}), [False, True]),
-    ],
-)
-def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
-    assert dismissed_as_wrong(frame).tolist() == expected
-
-
-@pytest.mark.parametrize(
     "head_name,frame,expected_cohort,expected_label",
     [
-        # pr_merged: cohort is everyone, label is the merge within the horizon, whether or not the
-        # report already had a PR at the scoring moment.
-        (
-            "pr_merged",
-            pd.DataFrame({"pr_created_count": [1, 1, 0], "pr_merged_count": [1, 0, 1]}),
-            [True, True, True],
-            [True, False, True],
-        ),
         # action: cohort is everyone, so a never-impressed report an agent claimed is a positive.
         # A server-side action and a UI action are the same label.
         (
@@ -386,56 +361,9 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, False],
         ),
-        # discuss: cohort is everyone, so a never-impressed report counts; label is a discuss action.
-        (
-            "discuss",
-            pd.DataFrame({"impression_unit_count": [1, 1, 0], "discuss_count": [2, 0, 1]}),
-            [True, True, True],
-            [True, False, True],
-        ),
-        # refund: cohort is everyone, label is a refund event.
-        (
-            "refund",
-            pd.DataFrame({"refund_count": [1, 0, 0]}),
-            [True, True, True],
-            [True, False, False],
-        ),
-        # thumbs_up: cohort is everyone, so a never-opened report is a negative; label is a positive rating.
-        (
-            "thumbs_up",
-            pd.DataFrame({"open_count": [1, 1, 0], "feedback_positive_count": [1, 0, 0]}),
-            [True, True, True],
-            [True, False, False],
-        ),
-        # reviewer_fix: cohort is everyone, and an add or a remove is the same label.
-        (
-            "reviewer_fix",
-            pd.DataFrame(
-                {
-                    "impression_unit_count": [1, 1, 1, 0],
-                    "reviewer_add_count": [1, 0, 0, 1],
-                    "reviewer_remove_count": [0, 2, 0, 0],
-                }
-            ),
-            [True, True, True, True],
-            [True, True, False, True],
-        ),
-        # dismiss_lowvalue: cohort is everyone, label is a low-value dismissal, never a wrong one.
-        (
-            "dismiss_lowvalue",
-            pd.DataFrame(
-                {
-                    "impression_unit_count": [1, 0, 1],
-                    "lowvalue_dismissal_count": [1, 1, 0],
-                    "wrong_dismissal_count": [0, 0, 1],
-                }
-            ),
-            [True, True, True],
-            [True, True, False],
-        ),
     ],
 )
-def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
+def test_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
     head = HEADS_BY_NAME[head_name]
     assert head.cohort(frame).tolist() == expected_cohort
     assert head.label(frame).tolist() == expected_label
@@ -462,16 +390,11 @@ class _ParquetS3:
 @pytest.mark.parametrize(
     "head_name,positive_column",
     [
-        ("pr_merged", "pr_merged_count"),
         ("fixed", "fixed_count"),
-        ("refund", "refund_count"),
-        ("thumbs_up", "feedback_positive_count"),
-        ("reviewer_fix", "reviewer_add_count"),
-        ("dismiss_lowvalue", "lowvalue_dismissal_count"),
         *(("action", column) for column in ACTION_LABEL_COLUMNS),
     ],
 )
-def test_new_head_label_columns_survive_the_load_snapshots_projection(monkeypatch, head_name, positive_column):
+def test_head_label_columns_survive_the_load_snapshots_projection(monkeypatch, head_name, positive_column):
     # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
     # head whose label column is missing from that list trains on all-zero labels. The cohort/label
     # unit test hand-builds frames that already carry the columns, so it never crosses the projection.
@@ -483,18 +406,7 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(monkeypatc
     )
     head = HEADS_BY_NAME[head_name]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    zeros = {
-        column: [0]
-        for column in (
-            "pr_merged_count",
-            "fixed_count",
-            "refund_count",
-            "feedback_positive_count",
-            "reviewer_add_count",
-            "lowvalue_dismissal_count",
-            *ACTION_LABEL_COLUMNS,
-        )
-    }
+    zeros = {column: [0] for column in ("fixed_count", *ACTION_LABEL_COLUMNS)}
     labels_now = _labels(["a"], open_count=[1], **zeros)
     labels_later = _labels(["a"], open_count=[1], **{**zeros, positive_column: [1]})
     objects: dict[str, bytes] = {}
@@ -507,33 +419,33 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(monkeypatc
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1}
 
 
-def test_build_examples_skips_refund_pairs_when_the_scoring_snapshot_lacks_the_column():
-    # refund_count entered the labels schema after the epoch, so a partition written before it has no
-    # such column. Without the guard _count reads the gap as zero, so the "not refunded yet" filter
-    # passes for a report already refunded before D0, and its cumulative refund in the later snapshot
-    # mints a stale future positive. The whole pair must be skipped, not scored.
-    head = HEADS_BY_NAME["refund"]
+def test_build_examples_skips_pairs_when_the_scoring_snapshot_lacks_a_label_column():
+    # A partition written before a label column existed has no such column. Without the guard _count
+    # reads the gap as zero, so the "not fixed yet" filter passes for a report already fixed before
+    # D0, and its cumulative count in the later snapshot mints a stale future positive. The whole
+    # pair must be skipped, not scored.
+    head = HEADS_BY_NAME["fixed"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     snapshots = {
         D0: Snapshot(date=D0, state=_state(["a"]), labels=_labels(["a"])),
-        later: Snapshot(date=later, state=_state(["a"]), labels=_labels(["a"], refund_count=[1])),
+        later: Snapshot(date=later, state=_state(["a"]), labels=_labels(["a"], fixed_count=[1])),
     }
     assert build_examples(snapshots, head, STATE_FEATURE_SET).empty
 
 
 def test_build_examples_skips_label_only_rows():
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     state = _state(["a", "eu"], signal_count=[3, None])
     snapshots = {
         D0: Snapshot(date=D0, state=state, labels=_labels(["a", "eu"])),
-        later: Snapshot(date=later, state=state, labels=_labels(["a", "eu"], pr_created_count=[1, 1])),
+        later: Snapshot(date=later, state=state, labels=_labels(["a", "eu"], open_count=[1, 1])),
     }
     assert build_examples(snapshots, head, STATE_FEATURE_SET)["report_id"].tolist() == ["a"]
 
 
 def test_build_examples_drops_reports_without_training_consent_at_training_time():
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     # opted_out: its organization opted out after these snapshots were written; no_team: a state row
     # with no readable team; eu: a label-only row with no state.
@@ -541,7 +453,7 @@ def test_build_examples_drops_reports_without_training_consent_at_training_time(
     state = _state(ids, report_team_id=[1, 2, None, None], signal_count=[3, 3, 3, None])
     snapshots = {
         D0: Snapshot(date=D0, state=state, labels=_labels(ids)),
-        later: Snapshot(date=later, state=state, labels=_labels(ids, pr_created_count=[1, 1, 1, 1])),
+        later: Snapshot(date=later, state=state, labels=_labels(ids, open_count=[1, 1, 1, 1])),
     }
 
     kept, excluded = drop_without_training_consent(snapshots, frozenset({1}))
@@ -584,6 +496,7 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     examples.insert(1, "report_id", [f"r{i}" for i in range(n)])
     examples.insert(2, "snapshot_date", D0)
     examples.insert(3, "report_created_at", created)
+    examples.insert(4, "team_id", rng.integers(1, 4, n))
     examples["label"] = (signal_count > 25).astype(int)
 
     trained = train_head(examples, head, feature_names=STATE_FEATURE_SET.feature_names, holdout_days=7)
@@ -607,8 +520,11 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert sum(count or 0 for count in counts) == trained.metrics.holdout_rows
     assert holdout.precision is not None and holdout.precision > 0.8
     assert holdout.recall is not None and holdout.recall > 0.8
+    within_team = trained.metrics.holdout_within_team
+    assert within_team.teams == 3 and within_team.auc is not None and within_team.auc > 0.9
     metadata_head = trained.metrics.as_dict()
     assert metadata_head["holdout_classification_threshold"] == holdout.threshold
+    assert metadata_head.items() >= within_team.as_dict(prefix="holdout_").items()
     assert classification_thresholds({"heads": [metadata_head]}) == {
         head.name: trained.metrics.refit_classification_threshold
     }
@@ -816,8 +732,7 @@ def test_birth_grain_keeps_one_row_per_report_on_the_day_it_was_created(feature_
     ]
     snapshots = _daily_snapshots(ids, head, created, days=3)
     snapshots[D0 + datetime.timedelta(days=head.horizon_days)].labels.loc[:, "open_count"] = 0
-    # Both renderings' inputs, so the parameter that varies is the set under test and not what it
-    # was handed. The state set reads neither.
+    # The state set does not read the vectors, so the same extras serve every set under test.
     extras = {key: _vector_frame({report_id: _embedding() for report_id in ids}) for key in _EMBEDDING_EXTRA_KEYS}
 
     examples = build_examples(snapshots, head, feature_set, extras)
@@ -833,30 +748,9 @@ def test_birth_grain_keeps_one_row_per_report_on_the_day_it_was_created(feature_
     assert moments[moments["report_id"] == "newborn"]["label"].tolist() == [0, 1, 1]
 
 
-def test_pr_merged_is_a_merge_from_birth_rather_than_a_merge_given_a_pr():
-    head = HEADS_BY_NAME["pr_merged"]
-    assert head.horizon_days == 14
-    later = D0 + datetime.timedelta(days=14)
-    merged_day = D0 + datetime.timedelta(days=10)
-    ids = ["merged", "unmerged", "nothing"]
-    snapshots = {
-        D0: assemble_snapshot(D0, _state(ids), _labels(ids, pr_created_count=[0, 1, 0], pr_merged_count=[0, 0, 0])),
-        **{
-            date: assemble_snapshot(
-                date, _state(ids), _labels(ids, pr_created_count=[1, 1, 0], pr_merged_count=[1, 0, 0])
-            )
-            for date in (merged_day, later)
-        },
-    }
-
-    examples = build_examples(snapshots, head, STATE_FEATURE_SET)
-
-    assert examples.set_index("report_id")["label"].to_dict() == {"merged": 1, "unmerged": 0, "nothing": 0}
-
-
 def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_costs(monkeypatch):
     gap = D0 + datetime.timedelta(days=1)
-    dates = [D0 + datetime.timedelta(days=offset) for offset in range(6)]
+    dates = [D0 + datetime.timedelta(days=offset) for offset in range(3 + HEADS_BY_NAME["open"].horizon_days)]
     ids = ["born_in_the_gap", "older", "utc_start", "utc_end", "label_only"]
     created = [
         pd.Timestamp(gap, tz="UTC") + pd.Timedelta(hours=9),
@@ -892,18 +786,18 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
 
 
 def test_build_examples_keeps_an_outcome_that_landed_on_the_reports_birth_day():
-    # Most PRs land the day the report is born. Censoring on the labels of the birth day would
+    # Many outcomes land the day the report is born. Censoring on the labels of the birth day would
     # drop those positives from the head that predicts them.
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     ids = ["newborn", "old"]
     created = [pd.Timestamp("2026-08-10T09:00:00Z"), pd.Timestamp("2026-07-01T00:00:00Z")]
     snapshots = {
-        date: assemble_snapshot(date, _state(ids, report_created_at=created), _labels(ids, pr_created_count=[1, 1]))
+        date: assemble_snapshot(date, _state(ids, report_created_at=created), _labels(ids, open_count=[1, 1]))
         for date in (D0, later)
     }
     examples = build_examples(snapshots, head, STATE_FEATURE_SET)
-    # The old report's PR predates D0, so it belongs to a moment before D0 and stays censored.
+    # The old report's open predates D0, so it belongs to a moment before D0 and stays censored.
     assert examples.set_index("report_id")["label"].to_dict() == {"newborn": 1}
     assert birth_day_positives(examples) == 1
 
@@ -942,16 +836,52 @@ def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
 def test_grading_a_status_label_head_drops_a_newborn_outcome_from_the_scoring_day():
     # build_examples reads label_provenance_ok on the scoring snapshot too, and no scores column
     # carries that verdict, so grading the row would accept a label the builder can still refuse.
-    head = HEADS_BY_NAME["dismiss_wrong"]
+    head = HEADS_BY_NAME["fixed"]
     scores = _scores(["a", "b"], label_at_scoring=[False, True])
     labels = _labels(
         ["a", "b"],
-        wrong_dismissal_count=[1, 1],
+        fixed_count=[1, 1],
         impression_unit_count=[1, 1],
         label_provenance_ok=[True, True],
     )
     graded = graded_rows(scores, labels, head, pool=POOL_NAME).set_index("report_id")
     assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
+
+
+@pytest.mark.parametrize(
+    "outcomes,scores,team_ids,expected",
+    [
+        # Team 3 has no positive, so it adds no team and no pair, whatever its scores.
+        (
+            [1, 0, 0, 0, 0, 0],
+            [0.9, 0.1, 0.1, 0.1, 0.99, 0.0],
+            [1, 1, 1, 1, 3, 3],
+            WithinTeamAuc(auc=1.0, macro=1.0, teams=1, pairs=3),
+        ),
+        # Team 1 ranks its one pair right, team 2 ranks its four pairs wrong.
+        (
+            [1, 0, 1, 1, 0, 0],
+            [0.9, 0.1, 0.1, 0.2, 0.8, 0.9],
+            [1, 1, 2, 2, 2, 2],
+            WithinTeamAuc(auc=0.2, macro=0.5, teams=2, pairs=5),
+        ),
+        # A row without a team is left out, even when it would make a pair.
+        ([1, 0, 0], [0.9, 0.1, 0.95], [1, 1, None], WithinTeamAuc(auc=1.0, macro=1.0, teams=1, pairs=1)),
+        ([1, 0], [0.9, float("nan")], [1, 1], NO_TEAMS),
+    ],
+)
+def test_within_team_auc_counts_only_pairs_inside_one_team(outcomes, scores, team_ids, expected):
+    result = within_team_auc(np.array(outcomes), np.array(scores), np.array(team_ids, dtype=object))
+    assert result.as_dict() == pytest.approx(expected.as_dict())
+
+
+def test_within_team_auc_gives_chance_to_a_team_base_rate_that_pooled_auc_rewards():
+    outcomes = np.array([1, 0, 0, 0, 1, 1, 1, 0])
+    base_rates = np.array([0.25] * 4 + [0.75] * 4)
+    assert roc_auc_score(outcomes, base_rates) > 0.5
+    assert within_team_auc(outcomes, base_rates, np.array([1] * 4 + [2] * 4)) == WithinTeamAuc(
+        auc=0.5, macro=0.5, teams=2, pairs=6
+    )
 
 
 def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
@@ -976,6 +906,8 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     )
     assert newest_first.recency_auc == 1.0
     assert grade.null_auc is not None
+    assert (grade.within_team.auc, grade.within_team.pairs) == (1.0, 1)
+    assert grade.as_dict()["recency_within_team_auc"] == 0.5
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(
         graded_rows(_scores(["e"], model_version=["2026-08-11"]), _labels(["e"], open_count=[0]), head, pool=POOL_NAME),
@@ -998,14 +930,14 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
 
 
 @pytest.mark.parametrize(
-    "observed_days,missing_merge_column",
-    [(0, False), (1, False), (2, False), (3, False), (7, False), (14, False), (15, False), (0, True), (14, True)],
+    "observed_days,missing_fixed_column",
+    [(0, False), (1, False), (2, False), (3, False), (7, False), (30, False), (31, False), (0, True), (30, True)],
 )
 def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
-    monkeypatch, observed_days, missing_merge_column
+    monkeypatch, observed_days, missing_fixed_column
 ):
     ids = ["fast", "slow", "pending"]
-    head_names = ["open", "pr_created", "pr_merged"]
+    head_names = ["open", "fixed"]
     families = [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME]
     scores = pd.concat(
         [
@@ -1018,10 +950,10 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
     day = D0 + datetime.timedelta(days=observed_days)
     partition = day.isoformat()
     outcomes = [1, int(observed_days >= 2), 0]
-    labels = _labels(ids, open_count=outcomes, pr_created_count=outcomes, pr_merged_count=outcomes)
-    if missing_merge_column:
-        labels = labels.drop(columns=["pr_merged_count"])
-        head_names.remove("pr_merged")
+    labels = _labels(ids, open_count=outcomes, fixed_count=outcomes)
+    if missing_fixed_column:
+        labels = labels.drop(columns=["fixed_count"])
+        head_names.remove("fixed")
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     storage = _ParquetS3(
         {
@@ -1082,7 +1014,7 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
 
 @pytest.mark.parametrize("labeled", [0, 1])
 def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(labeled):
-    head = HEADS_BY_NAME["discuss"]
+    head = HEADS_BY_NAME["open"]
     # A report with no labels row is outside every cohort, so the unlabeled case is an empty cohort.
     graded = graded_rows(
         _scores(["pending"], head_readable=[False], classification_threshold=[0.2]),
@@ -1246,16 +1178,14 @@ def test_with_model_names_drops_rows_that_name_no_family(scores, expected):
 
 def test_head_grades_keep_every_family_apart_on_the_same_rows():
     # A grade keyed on version and role alone would pool the families into one meaningless AUC.
-    # Three of them now, and the paired title-against-combined read is a difference of two of these
-    # grades, so a family whose rows leaked into another's would be read as a text effect.
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
     per_family = {
         STATE_MODEL_NAME: [0.9, 0.1],
         EMBEDDINGS_MODEL_NAME: [0.1, 0.9],
-        TITLE_EMBEDDINGS_MODEL_NAME: [0.8, 0.2],
+        NN_MODEL_NAME: [0.8, 0.2],
     }
-    thresholds = {STATE_MODEL_NAME: 0.5, EMBEDDINGS_MODEL_NAME: 0.05, TITLE_EMBEDDINGS_MODEL_NAME: 0.95}
+    thresholds = {STATE_MODEL_NAME: 0.5, EMBEDDINGS_MODEL_NAME: 0.05, NN_MODEL_NAME: 0.95}
     graded = pd.concat(
         [
             graded_rows(
@@ -1275,15 +1205,15 @@ def test_head_grades_keep_every_family_apart_on_the_same_rows():
     )
     grades = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert [(grade.model_name, grade.rows, grade.auc) for grade in grades] == [
+        (NN_MODEL_NAME, 2, 1.0),
         (EMBEDDINGS_MODEL_NAME, 2, 0.0),
         (STATE_MODEL_NAME, 2, 1.0),
-        (TITLE_EMBEDDINGS_MODEL_NAME, 2, 1.0),
     ]
     # Each model keeps the cut it saved, and never borrows another model's.
     assert [(grade.classification.threshold, grade.classification.predicted_positive_rate) for grade in grades] == [
+        (0.95, 0.0),
         (0.05, 1.0),
         (0.5, 0.5),
-        (0.95, 0.0),
     ]
     # And the calibration read follows the grade, so each family has its own deciles.
     assert {row["model_name"] for row in calibration_rows(grades)} == set(per_family)
@@ -1331,9 +1261,9 @@ def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(exist
     "existing,scored,expected",
     [
         (
-            [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME],
             [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
-            [TITLE_EMBEDDINGS_MODEL_NAME],
+            [NN_MODEL_NAME],
         ),
         (
             [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
@@ -1343,8 +1273,8 @@ def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(exist
         ([STATE_MODEL_NAME], [], [STATE_MODEL_NAME]),
         ([], [STATE_MODEL_NAME], []),
         (
-            ["tabular_xgb", EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
-            [EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            ["tabular_xgb", "title_embeddings", EMBEDDINGS_MODEL_NAME],
+            [EMBEDDINGS_MODEL_NAME],
             [],
         ),
     ],
@@ -1464,7 +1394,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ["a"], model_version=["2026-08-25"], score=[0.8], label_at_scoring=[True], classification_threshold=[0.3]
     )
     graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"], pool=POOL_NAME)
-    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-22")
+    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-18")
     events = [
         *candidate_events(metadata),
         *examples_events(
@@ -1492,9 +1422,6 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             decision=PromotionDecision(
                 promote=True, reason="no champion yet", gates_passed=True, skipped_heads=("discuss",)
             ),
-            outcome=PromotionOutcome(promote=True, override=None),
-            promoted=False,
-            champion_version="none",
             incumbent_champion_version="none",
             champion_aucs={"open": 0.6},
             champion_eces={"open": 0.05},
@@ -1519,7 +1446,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ),
         *unseen_report_graded_events(
             run_id="run-1",
-            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=3, scoring_partition="2026-08-22"),
+            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=7, scoring_partition="2026-08-18"),
         ),
     ]
     client = _patch_capture(monkeypatch, cloud=True, debug=False)
@@ -1582,9 +1509,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert {
         "head": "open",
         "model_role": CANDIDATE_ROLE,
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
-        "horizon_days": 3,
+        "horizon_days": 7,
         "rows": 1,
         "positives": 1,
         "birth_day_positives": 1,
@@ -1601,7 +1528,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     calibration_props = by_event["inbox_ranking_unseen_calibration"][0]["properties"]
     assert {
         "head": "open",
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
         "bucket": 1,
         "rows": 1,
@@ -1621,9 +1548,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert {
         "report_id": "a",
         "model_role": CANDIDATE_ROLE,
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
-        "horizon_days": 3,
+        "horizon_days": 7,
         "in_cohort_open": True,
         "outcome_open": True,
         "p_open": 0.8,
@@ -1651,7 +1578,7 @@ def _metadata(version: str, **aucs: float | None) -> dict:
 @pytest.mark.parametrize(
     "candidate,champion,expected_promote,reason_fragment",
     [
-        (_metadata("d2", open=0.65), None, True, "no champion"),
+        (_metadata("d2", open=0.65), None, True, "no served model"),
         (_metadata("d2", open=None), None, False, "no readable head"),
         (
             _metadata("d2", open=0.65),
@@ -1671,6 +1598,13 @@ def _metadata(version: str, **aucs: float | None) -> dict:
             False,
             "action readable on champion but not on candidate",
         ),
+        # A head retired from HEADS is never trained again, so it must not block the champion's successor.
+        (
+            _metadata("d2", open=0.65),
+            {**_metadata("d1", open=0.64, dismiss_wrong=0.7), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            True,
+            "at or above",
+        ),
         # A backfilled older candidate, even a much better one, must not roll the champion backwards.
         (
             _metadata("2026-08-11", open=0.90),
@@ -1688,38 +1622,17 @@ def _metadata(version: str, **aucs: float | None) -> dict:
     ],
 )
 def test_decide_promotion(candidate, champion, expected_promote, reason_fragment):
-    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3)
+    decision = decide_promotion(candidate, champion)
     assert decision.promote is expected_promote
-    assert reason_fragment in decision.reason
-
-
-@pytest.mark.parametrize(
-    "candidate_auc,expected_gates_passed,reason_fragment",
-    [
-        (0.70, True, "candidate passed every gate but champion d1 promoted less than 3d ago"),
-        # The wait must not hide a regression: the reason names the failed gate.
-        (0.65 - AUC_TOLERANCE - 0.01, False, "open regressed"),
-    ],
-)
-def test_decide_promotion_runs_the_quality_gates_before_the_wait(candidate_auc, expected_gates_passed, reason_fragment):
-    candidate = _metadata("d2", open=candidate_auc)
-    champion = {**_metadata("d1", open=0.65), "promoted_at": "2026-08-19T00:00:00+00:00"}
-
-    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3)
-
-    assert not decision.promote
-    assert decision.gates_passed is expected_gates_passed
     assert reason_fragment in decision.reason
 
 
 def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     candidate = _metadata("d2", open=0.66)
     champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
-    assert decide_promotion(candidate, champion, now=NOW, min_days_between=3).promote
+    assert decide_promotion(candidate, champion).promote
     # Paired on this holdout the champion is stronger than its stored number said.
-    paired = decide_promotion(
-        candidate, champion, now=NOW, min_days_between=3, champion_grades={"open": _grade(auc=0.75, positives=50)}
-    )
+    paired = decide_promotion(candidate, champion, champion_grades={"open": _grade(auc=0.75, positives=50)})
     assert not paired.promote and "regressed" in paired.reason
 
 
@@ -1732,28 +1645,28 @@ def _head(name: str, auc: float, *, readable: bool) -> dict:
 
 
 @pytest.mark.parametrize(
-    "candidate_heads,discuss_grade,expected_promote,reason_fragment,expected_skipped",
+    "candidate_heads,fixed_grade,expected_promote,reason_fragment,expected_skipped",
     [
-        # The shared holdout is too thin to read discuss on either model: no evidence, not a regression.
+        # The shared holdout is too thin to read fixed on either model: no evidence, not a regression.
         (
-            [_head("open", 0.70, readable=True), _head("discuss", 0.77, readable=False)],
+            [_head("open", 0.70, readable=True), _head("fixed", 0.77, readable=False)],
             _grade(auc=0.70, positives=26),
             True,
-            "skipped: discuss",
-            ("discuss",),
+            "skipped: fixed",
+            ("fixed",),
         ),
         # A thin holdout must not hide a head the candidate lost.
-        ([_head("open", 0.70, readable=True)], _grade(auc=0.70, positives=0), False, "discuss not trained", ()),
+        ([_head("open", 0.70, readable=True)], _grade(auc=0.70, positives=0), False, "fixed not trained", ()),
         # Enough positives, the candidate sits inside its null and well under the champion: its numbers fail it.
         (
-            [_head("open", 0.70, readable=True), _head("discuss", 0.55, readable=False)],
+            [_head("open", 0.70, readable=True), _head("fixed", 0.55, readable=False)],
             _grade(auc=0.70, positives=40),
             False,
-            "discuss regressed",
+            "fixed regressed",
             (),
         ),
         (
-            [_head("open", 0.70, readable=True), _head("discuss", 0.71, readable=True)],
+            [_head("open", 0.70, readable=True), _head("fixed", 0.71, readable=True)],
             _grade(auc=0.70, positives=40),
             True,
             "every readable head",
@@ -1763,18 +1676,16 @@ def _head(name: str, auc: float, *, readable: bool) -> dict:
     ids=["thin_holdout_skipped", "head_not_trained", "unreadable_regressed", "both_readable"],
 )
 def test_decide_promotion_skips_heads_the_shared_holdout_cannot_read(
-    candidate_heads, discuss_grade, expected_promote, reason_fragment, expected_skipped
+    candidate_heads, fixed_grade, expected_promote, reason_fragment, expected_skipped
 ):
     candidate = {"model_version": "d2", "heads": candidate_heads}
-    champion = {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
+    champion = {**_metadata("d1", open=0.70, fixed=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
     decision = decide_promotion(
         candidate,
         champion,
-        now=NOW,
-        min_days_between=3,
-        champion_grades={"open": _grade(auc=0.70, positives=60), "discuss": discuss_grade},
-        min_holdout_positives={"open": 50, "discuss": 30},
+        champion_grades={"open": _grade(auc=0.70, positives=60), "fixed": fixed_grade},
+        min_holdout_positives={"open": 50, "fixed": 30},
     )
 
     assert decision.promote is expected_promote
@@ -1799,138 +1710,27 @@ def test_decide_promotion_refuses_a_worse_calibrated_candidate(candidate_ece, ch
     champion = {**_metadata("d1", open=0.66), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
     grade = _grade(auc=0.66, ece=(champion_eces or {}).get("open"), positives=50)
-    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_grades={"open": grade})
+    decision = decide_promotion(candidate, champion, champion_grades={"open": grade})
 
     assert decision.promote is expected_promote
     assert expected_promote or "open calibration regressed" in decision.reason
 
 
-_RECENT_CHAMPION = {**_metadata("d1", open=0.70), "promoted_at": "2026-08-19T00:00:00+00:00"}
-
-
-@pytest.mark.parametrize(
-    "gate,candidate,champion,grades,expected_reason",
-    [
-        ("min_days", _metadata("d2", open=0.70), _RECENT_CHAMPION, {}, "less than 3d ago"),
-        (
-            "ece",
-            {
-                "model_version": "d2",
-                "heads": [{**_head("open", 0.70, readable=True), "holdout_expected_calibration_error": 0.3}],
-            },
-            {**_metadata("d1", open=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"},
-            {"open": _grade(auc=0.70, ece=0.05, positives=60)},
-            "open calibration regressed",
-        ),
-        (
-            "min_holdout_positives",
-            {
-                "model_version": "d2",
-                "heads": [
-                    _head("open", 0.70, readable=True),
-                    {**_head("discuss", 0.60, readable=False), "holdout_positives": 4},
-                ],
-            },
-            {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"},
-            {},
-            "discuss readable on champion but not on candidate",
-        ),
-    ],
-)
-def test_a_skipped_gate_waives_only_that_check(gate, candidate, champion, grades, expected_reason):
-    kwargs = {
-        "now": NOW,
-        "min_days_between": 3,
-        "champion_grades": grades,
-        "min_holdout_positives": {"open": 50, "discuss": 30},
-    }
-    refused = decide_promotion(candidate, champion, **kwargs)
-    assert not refused.promote and expected_reason in refused.reason
-
-    assert decide_promotion(candidate, champion, **kwargs, skip_gates={gate}).promote
-    other_gates = {"min_days", "ece", "min_holdout_positives"} - {gate}
-    assert not decide_promotion(candidate, champion, **kwargs, skip_gates=other_gates).promote
-
-
-def test_a_waived_holdout_floor_still_blocks_a_head_the_candidate_lost():
-    candidate = _metadata("d2", open=0.70)
-    champion = {**_metadata("d1", open=0.70, action=0.65), "promoted_at": "2026-08-10T00:00:00+00:00"}
-
-    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3, skip_gates={"min_holdout_positives"})
-
-    assert not decision.promote
-
-
 _REFUSED = PromotionDecision(promote=False, reason="open regressed: 0.600 vs champion 0.700", gates_passed=False)
-_PROMOTED = PromotionDecision(
-    promote=True, reason="candidate at or above champion on every readable head", gates_passed=True
-)
-_OLDER_CHAMPION = {**_metadata("2026-08-10", open=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
 
-@pytest.mark.parametrize(
-    "decision,candidate,override,expected",
-    [
-        (
-            _PROMOTED,
-            _metadata("2026-08-19", open=0.70),
-            PromotionOverride(),
-            PromotionOutcome(promote=True, override=None),
-        ),
-        (
-            _PROMOTED,
-            _metadata("2026-08-19", open=0.70),
-            PromotionOverride(freeze=True),
-            PromotionOutcome(promote=False, override="frozen"),
-        ),
-        (
-            _REFUSED,
-            _metadata("2026-08-19", open=0.60),
-            PromotionOverride(force=True),
-            PromotionOutcome(promote=True, override="forced"),
-        ),
-        # Force never moves the pointer backwards, or onto a model with nothing readable.
-        (
-            _REFUSED,
-            _metadata("2026-08-10", open=0.90),
-            PromotionOverride(force=True),
-            PromotionOutcome(promote=False, override=None),
-        ),
-        (
-            _REFUSED,
-            _metadata("2026-08-19", open=None),
-            PromotionOverride(force=True),
-            PromotionOutcome(promote=False, override=None),
-        ),
-        (
-            _REFUSED,
-            _metadata("2026-08-19", open=0.60),
-            PromotionOverride(skip_gates=frozenset({"ece"})),
-            PromotionOutcome(promote=False, override="skipped_gates"),
-        ),
-    ],
-    ids=["none", "freeze", "force", "force_not_newer", "force_unreadable", "skip_gates"],
-)
-def test_apply_promotion_override(decision, candidate, override, expected):
-    assert apply_promotion_override(decision, candidate, _OLDER_CHAMPION, override) == expected
-
-
-def test_a_forced_promotion_records_the_reason_the_rule_refused_it():
+def test_the_promotion_decided_event_never_reports_a_promotion():
     event = promotion_event(
         partition_key="2026-08-19",
         run_id="run-1",
         model_name=EMBEDDINGS_MODEL_NAME,
-        decision=_REFUSED,
-        outcome=PromotionOutcome(promote=True, override="forced"),
-        promoted=True,
-        champion_version="2026-08-19",
+        decision=PromotionDecision(promote=True, reason="candidate at or above", gates_passed=True),
         incumbent_champion_version="2026-08-10",
         champion_aucs={},
         champion_eces={},
     )
-    assert {"would_promote": False, "promoted": True, "reason": _REFUSED.reason, "override": "forced"}.items() <= (
-        event.properties.items()
-    )
+    assert {"would_promote": True, "gates_passed": True, "promoted": False}.items() <= event.properties.items()
+    assert "override" not in event.properties
 
 
 class _FakeS3:
@@ -2043,10 +1843,9 @@ def _booster_ubj(feature_names: tuple[str, ...]) -> bytes:
 
 
 def test_an_unreadable_scored_head_is_still_graded():
-    # A rare head never clears min_holdout_positives on one day's holdout, so the pooled newborn
-    # grade is the only read that can ever give it a number. The grade carries the flag instead, so
-    # the two populations stay apart.
-    head = HEADS_BY_NAME["thumbs_up"]
+    # A head can miss min_holdout_positives on one day's holdout, and the pooled newborn grade
+    # still gives it a number. The grade carries the flag instead, so the two populations stay apart.
+    head = HEADS_BY_NAME["fixed"]
     scores = _scores(
         ["a", "b"],
         head=[head.name] * 2,
@@ -2054,7 +1853,7 @@ def test_an_unreadable_scored_head_is_still_graded():
         head_readable=[False] * 2,
         classification_threshold=[0.0] * 2,
     )
-    labels = _labels(["a", "b"], open_count=[1, 1], feedback_positive_count=[1, 0])
+    labels = _labels(["a", "b"], open_count=[1, 1], fixed_count=[1, 0])
     graded = graded_rows(scores, labels, head, pool=POOL_NAME)
     (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert (grade.rows, grade.positives, grade.readable) == (2, 1, False)
@@ -2092,14 +1891,6 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(), None),
         # No declared set is left unscored rather than read as a default.
         ({key: value for key, value in _model_metadata().items() if key != "feature_set"}, "this build can produce"),
-        (
-            _model_metadata(
-                feature_set=TITLE_EMBEDDINGS_FEATURE_SET.name,
-                feature_schema_version=TITLE_EMBEDDINGS_FEATURE_SET.schema_version,
-                feature_names=list(TITLE_EMBEDDINGS_FEATURE_SET.feature_names),
-            ),
-            None,
-        ),
         # A set a later build introduced, or one that has been withdrawn.
         (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
@@ -2130,18 +1921,28 @@ def test_candidate_metadata_declares_the_set_it_was_fit_on(family):
     assert metadata["feature_set"] == family.feature_set.name
     assert metadata["feature_schema_version"] == family.feature_set.schema_version
     assert model_mismatch(metadata) is None
+    # The next day's recipe check compares against this hash, so it must be the one the check computes.
+    assert metadata[RECIPE_HASH_KEY] == recipe_hash(booster_recipe(family.feature_set))
 
 
 def test_build_examples_carries_the_columns_of_the_set_it_is_given():
     # The examples Parquet is per feature set, so a second set's object holds its own features.
     ids = ["a"]
-    later = D0 + datetime.timedelta(days=3)
+    later = D0 + datetime.timedelta(days=HEADS_BY_NAME["open"].horizon_days)
     snapshots = {
         D0: Snapshot(date=D0, state=_state(ids), labels=_labels(ids)),
         later: Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[2])),
     }
     examples = build_examples(snapshots, HEADS_BY_NAME["open"], _AgeOnlyFeatureSet())
-    assert list(examples.columns) == ["head", "report_id", "snapshot_date", "report_created_at", "age_hours", "label"]
+    assert list(examples.columns) == [
+        "head",
+        "report_id",
+        "snapshot_date",
+        "report_created_at",
+        "team_id",
+        "age_hours",
+        "label",
+    ]
     assert examples["age_hours"].tolist() == [12.0]
 
 
@@ -2155,14 +1956,10 @@ def test_examples_key_layout_is_per_feature_set():
         examples_object_key("inbox_ranking", REPORT_EMBEDDINGS_FEATURE_SET.name, "2026-08-19")
         == "inbox_ranking/inbox_ranking_training_examples/v1/report_embeddings/dt=2026-08-19/part-00000.parquet"
     )
+    # And one models prefix per family, so one family's booster never lands on another's.
     assert (
-        examples_object_key("inbox_ranking", TITLE_EMBEDDINGS_FEATURE_SET.name, "2026-08-19")
-        == "inbox_ranking/inbox_ranking_training_examples/v1/title_embeddings/dt=2026-08-19/part-00000.parquet"
-    )
-    # And one models prefix per family, so a title booster never lands on the combined family's.
-    assert (
-        model_object_key("inbox_ranking", TITLE_EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/title_embeddings/dt=2026-08-19/open.ubj"
+        model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
     )
 
 
@@ -2171,18 +1968,6 @@ def test_every_registered_set_is_reachable_by_the_name_a_model_records(feature_s
     # A model names its set in `metadata.json`, and a name this build cannot resolve is left
     # unscored, so registering the set is what makes the family's boosters loadable at all.
     assert feature_set_by_name(feature_set.name) is feature_set
-
-
-def test_the_two_embedding_families_share_one_recipe():
-    # The pair measures the text choice, so everything except the input must match. A budget, grain
-    # or width that drifted on one side would make the paired AUC difference read as content.
-    report, title = REPORT_EMBEDDINGS_FEATURE_SET, TITLE_EMBEDDINGS_FEATURE_SET
-    assert report.extras_keys != title.extras_keys
-    for attribute in ("schema_version", "feature_names", "state_columns", "example_grain", "max_examples_per_head"):
-        assert getattr(report, attribute) == getattr(title, attribute)
-    families = {family.name: family.feature_set for family in MODEL_FAMILIES}
-    assert families[TITLE_EMBEDDINGS_MODEL_NAME] is title
-    assert families[EMBEDDINGS_MODEL_NAME] is report
 
 
 # Before every snapshot the tests build, so a vector counts as present unless a test says otherwise.
@@ -2271,33 +2056,25 @@ def test_a_missing_rendering_is_left_out_while_an_empty_one_keeps_its_key():
     # day the family genuinely has nothing to fit, and takes the ordinary thin-input path.
     empty = _vector_frame({}).astype({EMBEDDING_COLUMN: object})
 
-    missing_title = _extras_for(
-        _snapshot_objects(report_embeddings=_vector_frame({"a": _embedding()}), title_embeddings=None)
-    )
-    assert set(missing_title) == {REPORT_EMBEDDINGS_EXTRA}
-    assert TITLE_EMBEDDINGS_FEATURE_SET.missing_extras(missing_title) == (TITLE_EMBEDDINGS_EXTRA,)
-    assert REPORT_EMBEDDINGS_FEATURE_SET.missing_extras(missing_title) == ()
+    missing = _extras_for(_snapshot_objects(report_embeddings=None))
+    assert missing == {}
+    assert REPORT_EMBEDDINGS_FEATURE_SET.missing_extras(missing) == (REPORT_EMBEDDINGS_EXTRA,)
 
-    empty_title = _extras_for(
-        _snapshot_objects(report_embeddings=_vector_frame({"a": _embedding()}), title_embeddings=empty)
-    )
-    assert TITLE_EMBEDDINGS_FEATURE_SET.missing_extras(empty_title) == ()
-    assert TITLE_EMBEDDINGS_FEATURE_SET.buildable(_state(["a"]), empty_title).tolist() == [False]
+    empty_snapshot = _extras_for(_snapshot_objects(report_embeddings=empty))
+    assert REPORT_EMBEDDINGS_FEATURE_SET.missing_extras(empty_snapshot) == ()
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(_state(["a"]), empty_snapshot).tolist() == [False]
 
 
 def test_a_rendering_is_read_only_when_a_set_asks_for_it():
     # The examples asset reads one set's inputs at a time, so a family it is not building must not
     # pull a fleet-wide vector table across the network.
-    objects = _snapshot_objects(
-        report_embeddings=_vector_frame({"a": _embedding()}), title_embeddings=_vector_frame({"a": _embedding()})
-    )
-    assert set(_extras_for(objects, TITLE_EMBEDDINGS_FEATURE_SET.extras_keys)) == {TITLE_EMBEDDINGS_EXTRA}
+    objects = _snapshot_objects(report_embeddings=_vector_frame({"a": _embedding()}))
+    assert set(_extras_for(objects, REPORT_EMBEDDINGS_FEATURE_SET.extras_keys)) == {REPORT_EMBEDDINGS_EXTRA}
     assert _extras_for(objects, ()) == {}
 
 
-def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
-    # One rendering's failed snapshot must cost one family's day. The others have to keep building,
-    # or a title-side gap silently stops the combined family the title is measured against.
+def test_a_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
+    # A failed snapshot must leave the family's examples as they stand, not rebuild them from nothing.
     module = "products.signals.dags.inbox_ranking.training.dag"
     written: list[str] = []
     monkeypatch.setattr(f"{module}.skip_unconfigured", lambda context: False)
@@ -2307,7 +2084,7 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
     monkeypatch.setattr(
         f"{module}.embeddings_extras",
         lambda context, client, bucket, prefix, partition_key, keys: {
-            key: _vector_frame({}) for key in keys if key != TITLE_EMBEDDINGS_EXTRA
+            key: _vector_frame({}) for key in keys if key != REPORT_EMBEDDINGS_EXTRA
         },
     )
 
@@ -2321,31 +2098,15 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
         inbox_ranking_training_examples(context)
         metadata = context.get_output_metadata("result")
 
-    assert written == [REPORT_EMBEDDINGS_FEATURE_SET.name]
-    assert metadata[f"{TITLE_EMBEDDINGS_FEATURE_SET.name}_skipped"].value is True
+    assert written == []
+    assert metadata[f"{REPORT_EMBEDDINGS_FEATURE_SET.name}_skipped"].value is True
 
 
-def test_both_renderings_snapshots_are_upstream_of_the_examples_that_read_them():
+def test_the_embeddings_snapshot_is_upstream_of_the_examples_that_read_it():
     # An asset that reads a snapshot without declaring it can run before the day's snapshot lands
-    # and record the family as having no input. One dependency per rendering, so the two renderings
-    # are scheduled independently rather than as one edge that either family's failure breaks.
+    # and record the family as having no input.
     deps = {key.path[-1] for key in inbox_ranking_training_examples.keys_by_input_name.values()}
-    assert {EMBEDDINGS_TABLE, TITLE_EMBEDDINGS_TABLE} <= deps
-
-
-def test_a_rendering_never_falls_back_to_the_other_renderings_vector():
-    # The families exist to measure the title against the title plus summary, so a row that took
-    # the other rendering's vector would compare the two models on partly the same text. The inputs
-    # also diverge in practice: a summary-only edit re-embeds only the combined rendering, and
-    # either snapshot can hold a report the other does not.
-    rows = _state(["combined_only", "title_only"])
-    extras = {
-        **_report_vectors({"combined_only": _embedding()}, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
-        **_report_vectors({"title_only": _embedding()}, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
-    }
-
-    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, extras).tolist() == [True, False]
-    assert TITLE_EMBEDDINGS_FEATURE_SET.buildable(rows, extras).tolist() == [False, True]
+    assert EMBEDDINGS_TABLE in deps
 
 
 @pytest.mark.parametrize("feature_set", EMBEDDING_FEATURE_SETS, ids=EMBEDDING_SET_IDS)
@@ -2453,14 +2214,6 @@ def test_reading_a_moment_needs_the_vectors_landing_time(feature_set):
         (STATE_FEATURE_SET, NO_EXTRAS, ()),
         (REPORT_EMBEDDINGS_FEATURE_SET, _report_vectors({"a": _embedding()}), ()),
         (REPORT_EMBEDDINGS_FEATURE_SET, NO_EXTRAS, (REPORT_EMBEDDINGS_EXTRA,)),
-        # Each rendering answers for its own input: the other one being present is not its input.
-        (
-            TITLE_EMBEDDINGS_FEATURE_SET,
-            _report_vectors({"a": _embedding()}, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
-            (),
-        ),
-        (TITLE_EMBEDDINGS_FEATURE_SET, NO_EXTRAS, (TITLE_EMBEDDINGS_EXTRA,)),
-        (TITLE_EMBEDDINGS_FEATURE_SET, _report_vectors({"a": _embedding()}), (TITLE_EMBEDDINGS_EXTRA,)),
     ],
 )
 def test_a_set_declares_the_side_inputs_it_needs(feature_set, extras, expected):
@@ -2482,11 +2235,13 @@ def test_a_family_without_examples_keeps_the_partition_it_already_has():
     assert metadata[f"{EMBEDDINGS_MODEL_NAME}_skipped"].value is True
 
 
-def _serving_metadata(model_name: str, version: str, *, heads=("open", "action"), readable=True, **overrides):
+def _serving_metadata(
+    model_name: str, version: str, *, heads=("open", "action"), readable=True, model_file=None, **overrides
+):
     return {
         "model_name": model_name,
         "model_version": version,
-        "heads": [{"head": head, "readable": readable, "file": f"{head}.ubj"} for head in heads],
+        "heads": [{"head": head, "readable": readable, "file": model_file or f"{head}.ubj"} for head in heads],
         **overrides,
     }
 
@@ -2542,99 +2297,126 @@ def test_a_manifest_the_sweep_could_not_act_on_is_refused(models, message):
         ServingManifest(manifest_version="2026-08-19T06:00:00+00:00", models=models)
 
 
-def test_a_manifest_entry_key_must_match_its_model():
-    # The key is the join between a manifest entry, a stored score and a model prefix. A key that
-    # names a different version sends the sweep to the wrong prefix and stores the wrong identity.
-    with pytest.raises(ValidationError, match="does not match its model"):
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        # The key is the join between a manifest entry, a stored score and a model prefix. A key that
+        # names a different version sends the sweep to the wrong prefix and stores the wrong identity.
+        ({"key": "state_xgb@2026-08-18"}, "does not match its model"),
+        # Without the file name the copy step and the store look for per-head boosters that do not exist.
+        ({"model_kind": ONNX_MODEL_KIND}, f"must name {ONNX_MODEL_FILE}"),
+    ],
+)
+def test_a_manifest_entry_the_sweep_could_not_load_is_refused(overrides, message):
+    with pytest.raises(ValidationError, match=message):
         ServingManifestEntry(
-            key="state_xgb@2026-08-18",
-            model_name=STATE_MODEL_NAME,
-            model_version="2026-08-19",
-            model_kind=DEFAULT_MODEL_KIND,
-            roles=[SERVED_ROLE],
-            prefix="inbox_ranking/serving/models/state_xgb@2026-08-19",
-            heads=["open"],
+            **{
+                "key": "state_xgb@2026-08-19",
+                "model_name": STATE_MODEL_NAME,
+                "model_version": "2026-08-19",
+                "model_kind": DEFAULT_MODEL_KIND,
+                "roles": [SERVED_ROLE],
+                "prefix": "inbox_ranking/serving/models/state_xgb@2026-08-19",
+                "heads": ["open"],
+                **overrides,
+            }
         )
 
 
-def _compose(families, served_family=EMBEDDINGS_MODEL_NAME):
+def _compose(families, served, recent=(), recent_versions=3, pinned=()):
     return compose_manifest(
         families,
-        served_family=served_family,
+        served=served,
         prefix="inbox_ranking",
         now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+        recent=recent,
+        recent_versions=recent_versions,
+        pinned=pinned,
     )
 
 
-def test_no_champion_for_the_served_family_publishes_nothing():
-    # Until the first promotion no family has a champion. Composing a manifest off the day's
-    # candidate instead would move the served model every day without a promotion.
+def test_no_served_pointer_publishes_nothing():
+    # Composing a manifest off a champion or a recent version instead would move the served
+    # model without a person choosing it.
+    decision = _compose(
+        [FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"))],
+        served=None,
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19")],
+    )
+    assert decision.manifest is None
+    assert "no served pointer" in decision.reason
+
+
+def test_the_served_pointer_wins_over_the_champion_of_its_own_family():
+    # A rollback names an older version of a family whose champion.json still names a newer one.
     decision = _compose(
         [
             FamilyModels(
                 name=EMBEDDINGS_MODEL_NAME,
-                candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
-                champion=None,
-            )
-        ]
+                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+            ),
+            FamilyModels(name=STATE_MODEL_NAME, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
+        ],
+        served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-01"),
     )
-    assert decision.manifest is None
-    assert "no champion" in decision.reason
-
-
-def test_an_unregistered_served_family_publishes_nothing():
-    decision = _compose([], served_family="not_a_family")
-    assert decision.manifest is None
-    assert "not registered" in decision.reason
+    assert decision.manifest is not None
+    assert [(entry.key, entry.roles) for entry in decision.manifest.models] == [
+        (model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01"), [SERVED_ROLE]),
+        (model_key(STATE_MODEL_NAME, "2026-08-10"), [CROSS_FAMILY_ROLE]),
+    ]
 
 
 @pytest.mark.parametrize(
-    "candidate_version,candidate_readable,expected_roles",
+    "recent,recent_versions,expected_recent",
     [
-        # A distinct, readable candidate is the paired read the sweep exists for.
-        ("2026-08-19", True, {SERVED_ROLE: "2026-08-15", DAILY_CANDIDATE_ROLE: "2026-08-19"}),
-        # The candidate at the champion's own version is the champion: a second entry for it would
-        # spend a result slot on a duplicate score.
-        ("2026-08-15", True, {SERVED_ROLE: "2026-08-15"}),
-        # An unreadable candidate has no holdout number to pair the champion against.
-        ("2026-08-19", False, {SERVED_ROLE: "2026-08-15"}),
+        # The newest versions are the paired reads the sweep exists for, newest first.
+        (
+            [("2026-08-19", True), ("2026-08-18", True), ("2026-08-17", True), ("2026-08-16", True)],
+            3,
+            ["2026-08-19", "2026-08-18", "2026-08-17"],
+        ),
+        # The served version is already an entry, so it gains no second one and frees its slot.
+        (
+            [("2026-08-19", True), ("2026-08-15", True), ("2026-08-14", True), ("2026-08-13", True)],
+            3,
+            ["2026-08-19", "2026-08-14", "2026-08-13"],
+        ),
+        # An unreadable version has no holdout number to pair the served model against.
+        ([("2026-08-19", False), ("2026-08-18", True)], 3, ["2026-08-18"]),
+        # The same version read twice is one entry.
+        ([("2026-08-19", True), ("2026-08-19", True), ("2026-08-18", True)], 3, ["2026-08-19", "2026-08-18"]),
+        ([("2026-08-19", True)], 0, []),
     ],
 )
-def test_the_served_family_candidate_is_paired_only_when_it_is_a_second_model(
-    candidate_version, candidate_readable, expected_roles
-):
+def test_the_served_family_keeps_its_newest_distinct_readable_versions(recent, recent_versions, expected_recent):
     decision = _compose(
-        [
-            FamilyModels(
-                name=EMBEDDINGS_MODEL_NAME,
-                candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, candidate_version, readable=candidate_readable),
-                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-            )
-        ]
+        [],
+        served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, version, readable=readable) for version, readable in recent],
+        recent_versions=recent_versions,
     )
     assert decision.manifest is not None
-    assert {entry.roles[0]: entry.model_version for entry in decision.manifest.models} == expected_roles
+    assert [(entry.roles, entry.model_version) for entry in decision.manifest.models] == [
+        ([SERVED_ROLE], "2026-08-15"),
+        *(([RECENT_ROLE], version) for version in expected_recent),
+    ]
 
 
 def test_a_family_with_no_readable_head_is_left_out():
-    # The title family has no readable head today. A manifest lists only models a store can load
-    # and a reader can judge, so it must not gain an entry the sweep would score blind.
+    # A manifest lists only models a store can load and a reader can judge, so it must not gain an entry the sweep would score blind.
     decision = _compose(
         [
             FamilyModels(
                 name=EMBEDDINGS_MODEL_NAME,
-                candidate=None,
                 champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
             ),
+            FamilyModels(name=STATE_MODEL_NAME, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
             FamilyModels(
-                name=STATE_MODEL_NAME, candidate=None, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")
+                name=NN_MODEL_NAME,
+                champion=_serving_metadata(NN_MODEL_NAME, "2026-08-12", readable=False),
             ),
-            FamilyModels(
-                name=TITLE_EMBEDDINGS_MODEL_NAME,
-                candidate=None,
-                champion=_serving_metadata(TITLE_EMBEDDINGS_MODEL_NAME, "2026-08-12", readable=False),
-            ),
-        ]
+        ],
+        served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
     )
     assert decision.manifest is not None
     assert [entry.model_name for entry in decision.manifest.models] == [EMBEDDINGS_MODEL_NAME, STATE_MODEL_NAME]
@@ -2642,72 +2424,57 @@ def test_a_family_with_no_readable_head_is_left_out():
 
 def test_the_cap_drops_cross_family_entries_before_the_paired_read():
     # `RankingScore` refuses a row over the cap, so the manifest is capped at the same number. The
-    # served entry and its paired candidate are the reads the sweep exists for.
+    # served entry and its recent version are the reads the sweep exists for.
     families = [
-        FamilyModels(
-            name=EMBEDDINGS_MODEL_NAME,
-            candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
-            champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-        ),
+        FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15")),
         *(
-            FamilyModels(
-                name=f"family_{index}", candidate=None, champion=_serving_metadata(f"family_{index}", "2026-08-10")
-            )
+            FamilyModels(name=f"family_{index}", champion=_serving_metadata(f"family_{index}", "2026-08-10"))
             for index in range(5)
         ),
     ]
-    decision = _compose(families)
+    decision = _compose(
+        families,
+        served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19")],
+    )
     assert decision.manifest is not None
     assert [entry.roles[0] for entry in decision.manifest.models] == [
         SERVED_ROLE,
-        DAILY_CANDIDATE_ROLE,
+        RECENT_ROLE,
         *[CROSS_FAMILY_ROLE] * (MAX_RANKING_MODEL_RESULTS - 2),
     ]
 
 
-def test_a_pinned_model_is_kept_and_capped_before_the_paired_read():
+def test_a_pinned_model_is_kept_and_capped_after_the_recent_versions():
     families = [
-        FamilyModels(
-            name=EMBEDDINGS_MODEL_NAME,
-            candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
-            champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-        ),
-        FamilyModels(name=STATE_MODEL_NAME, candidate=None, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
+        FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15")),
+        FamilyModels(name=STATE_MODEL_NAME, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
     ]
     pinned = [_serving_metadata(EMBEDDINGS_MODEL_NAME, f"2026-08-0{day}", readable=False) for day in range(1, 5)]
     # A pin of a model the manifest already names gains no second entry.
-    pinned.append(_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
+    pinned.insert(0, _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
 
-    decision = compose_manifest(
+    decision = _compose(
         families,
-        served_family=EMBEDDINGS_MODEL_NAME,
-        prefix="inbox_ranking",
-        now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+        served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, f"2026-08-{day}") for day in (19, 18, 17)],
         pinned=pinned,
     )
 
     assert decision.manifest is not None
     assert [(entry.roles[0], entry.model_version) for entry in decision.manifest.models] == [
         (SERVED_ROLE, "2026-08-15"),
-        (DAILY_CANDIDATE_ROLE, "2026-08-19"),
+        (RECENT_ROLE, "2026-08-19"),
+        (RECENT_ROLE, "2026-08-18"),
+        (RECENT_ROLE, "2026-08-17"),
         (PINNED_ROLE, "2026-08-01"),
-        (PINNED_ROLE, "2026-08-02"),
-        (PINNED_ROLE, "2026-08-03"),
     ]
 
 
 def test_a_model_published_before_model_kind_existed_reads_as_xgboost():
-    # Every champion promoted so far was written without the field; reading it as missing would
-    # leave the model store with nothing to dispatch on.
-    decision = _compose(
-        [
-            FamilyModels(
-                name=EMBEDDINGS_MODEL_NAME,
-                candidate=None,
-                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-            )
-        ]
-    )
+    # The early models were written without the field; reading it as missing would leave the
+    # model store with nothing to dispatch on.
+    decision = _compose([], served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"))
     assert decision.manifest is not None
     assert decision.manifest.served.model_kind == DEFAULT_MODEL_KIND
 
@@ -2719,6 +2486,7 @@ class _AppObjectStore:
         self.objects = dict(existing or {})
         self.fail_on = fail_on
         self.written: list[str] = []
+        self.extras: dict[str, dict[str, str] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
         return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
@@ -2728,21 +2496,44 @@ class _AppObjectStore:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
         self.written.append(key)
+        self.extras[key] = extras
 
 
-def _serving_dataset_s3(prefix: str, partition_key: str):
-    """The dataset bucket holding one champion and one candidate of the served family."""
-    objects: dict[str, bytes] = {}
-    for version, metadata in (
-        ("2026-08-15", _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))),
-        (partition_key, _serving_metadata(EMBEDDINGS_MODEL_NAME, partition_key, heads=("open",))),
-    ):
-        folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
-        objects[folder + METADATA_FILE] = json.dumps(metadata).encode()
-        objects[folder + "open.ubj"] = f"booster-{version}".encode()
-    objects[champion_object_key(prefix, EMBEDDINGS_MODEL_NAME)] = json.dumps(
-        _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
+_FEATURE_FIELDS: dict[str, Any] = {
+    "feature_set": REPORT_EMBEDDINGS_FEATURE_SET.name,
+    "feature_schema_version": REPORT_EMBEDDINGS_FEATURE_SET.schema_version,
+    "feature_names": list(REPORT_EMBEDDINGS_FEATURE_SET.feature_names),
+}
+
+
+def _served_pointer(model_name: str, version: str) -> bytes:
+    return json.dumps(
+        {"model_key": model_key(model_name, version), "model_name": model_name, "model_version": version}
     ).encode()
+
+
+def _serving_dataset_s3(
+    prefix: str, partition_key: str, model_kind: str = DEFAULT_MODEL_KIND, project_vector_kinds: tuple[str, ...] = ()
+):
+    """The dataset bucket holding the served model, the pointer that names it, and one candidate of
+    the same family. The family's `champion.json` names the candidate, so a publish that read it
+    instead of the pointer would serve the wrong version."""
+    onnx = model_kind == ONNX_MODEL_KIND
+    model_file = ONNX_MODEL_FILE if onnx else "open.ubj"
+
+    def metadata(version: str) -> dict[str, Any]:
+        kind: dict[str, Any] = {"model_kind": model_kind, "model_file": ONNX_MODEL_FILE} if onnx else {}
+        if project_vector_kinds:
+            kind["project_vector_kinds"] = list(project_vector_kinds)
+        return _serving_metadata(EMBEDDINGS_MODEL_NAME, version, heads=("open",), **_FEATURE_FIELDS, **kind)
+
+    objects: dict[str, bytes] = {}
+    for version in ("2026-08-15", partition_key):
+        folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
+        objects[folder + METADATA_FILE] = json.dumps(metadata(version)).encode()
+        objects[folder + model_file] = f"booster-{version}".encode()
+    objects[champion_object_key(prefix, EMBEDDINGS_MODEL_NAME)] = json.dumps(metadata(partition_key)).encode()
+    objects[served_object_key(prefix)] = _served_pointer(EMBEDDINGS_MODEL_NAME, "2026-08-15")
     return _ModelStoreS3(objects)
 
 
@@ -2756,7 +2547,6 @@ def _run_serving_manifest(
     partition_key = "2026-08-19"
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     capture = _patch_capture(monkeypatch, cloud=True, debug=False)
-    monkeypatch.setattr(settings, "INBOX_RANKING_SERVED_FAMILY", EMBEDDINGS_MODEL_NAME)
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
         (ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),),
@@ -2782,26 +2572,38 @@ def _manifest_event(capture: _FakeClient) -> dict[str, Any]:
     return event
 
 
-@pytest.mark.parametrize("mirrored", [False, True])
+@pytest.mark.parametrize(
+    "mirrored,model_kind,model_file",
+    [
+        (False, DEFAULT_MODEL_KIND, "open.ubj"),
+        (True, DEFAULT_MODEL_KIND, "open.ubj"),
+        (False, ONNX_MODEL_KIND, ONNX_MODEL_FILE),
+    ],
+)
 def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(
-    monkeypatch: pytest.MonkeyPatch, mirrored: bool
+    monkeypatch: pytest.MonkeyPatch, mirrored: bool, model_kind: str, model_file: str
 ) -> None:
     # The EU sweep reads the mirror, so it needs the same files, in the same order, as the primary.
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     store = _AppObjectStore()
     mirror = _AppObjectStore() if mirrored else None
-    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror)
+    dataset = _serving_dataset_s3(prefix, "2026-08-19", model_kind=model_kind)
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
-    # Every entry the manifest names has its record and its booster in the store the sweep reads.
+    # Every entry the manifest names has its record and its model file in the store the sweep reads.
     for entry in manifest.models:
+        assert (entry.model_kind, entry.heads, entry.files) == (model_kind, ["open"], [model_file])
         assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
-        assert f"{entry.prefix}/open.ubj" in store.objects
+        assert f"{entry.prefix}/{model_file}" in store.objects
     assert store.written[-1] == serving_manifest_key(prefix)
+    assert all("ACL" not in (extras or {}) for extras in store.extras.values())
     if mirror is not None:
         assert mirror.objects == store.objects
         assert mirror.written[-1] == serving_manifest_key(prefix)
+        # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+        assert all((extras or {}).get("ACL") == "bucket-owner-full-control" for extras in mirror.extras.values())
     assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
 
 
@@ -2818,6 +2620,107 @@ def test_a_failed_mirror_leaves_the_primary_publish_intact(monkeypatch: pytest.M
     assert event["mirror_published"] is False
 
 
+@pytest.mark.parametrize(
+    "source_present,already_published,mirrored",
+    [(True, False, False), (True, True, False), (True, False, True), (False, False, False)],
+)
+def test_project_vectors_are_published_before_the_manifest_that_names_them(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, mirrored: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_project_vectors_key(prefix, partition_key)
+    previous = b'{"manifest_version": "2026-08-18T06:00:00+00:00"}'
+    existing = {serving_manifest_key(prefix): previous}
+    if already_published:
+        existing[target] = b"published before"
+    store = _AppObjectStore(existing)
+    mirror = _AppObjectStore() if mirrored else None
+    dataset = _serving_dataset_s3(
+        prefix, partition_key, model_kind=ONNX_MODEL_KIND, project_vector_kinds=("typical", "open", "action", "dismiss")
+    )
+    if source_present:
+        dataset.objects[partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)] = b"vectors"
+
+    if not source_present:
+        with pytest.raises(dagster.Failure, match="project vectors"):
+            _run_serving_manifest(monkeypatch, store, dataset_client=dataset)
+        assert store.objects[serving_manifest_key(prefix)] == previous
+        return
+    _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.project_vectors == target
+    assert all(entry.reads_project_vectors for entry in manifest.models)
+    assert store.objects[target] == (b"published before" if already_published else b"vectors")
+    assert store.written[-1] == serving_manifest_key(prefix)
+    assert (target in store.written) is not already_published
+    if mirror is not None:
+        # Team-level vectors stay in the deployment that owns the teams, and a served model that
+        # reads them could not score there, so the mirror keeps its previous manifest.
+        assert mirror.objects == {}
+
+
+def test_recent_versions_come_from_the_window_and_skip_a_version_missing_its_booster(monkeypatch):
+    # A booster deleted by a re-run would fail the whole publish, and a version older than the
+    # window would keep a stale model in every pass.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = _serving_dataset_s3(prefix, "2026-08-19")
+    for version, booster in (("2026-08-18", True), ("2026-08-17", False), ("2026-08-13", True)):
+        folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
+        client.objects[folder + METADATA_FILE] = json.dumps(
+            _serving_metadata(EMBEDDINGS_MODEL_NAME, version, heads=("open",), **_FEATURE_FIELDS)
+        ).encode()
+        if booster:
+            client.objects[folder + "open.ubj"] = b"booster"
+    monkeypatch.setattr(settings, "INBOX_RANKING_SERVING_RECENT_VERSIONS", 3)
+    store = _AppObjectStore()
+
+    _run_serving_manifest(monkeypatch, store, dataset_client=client)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert [(entry.model_version, entry.roles) for entry in manifest.models] == [
+        ("2026-08-15", [SERVED_ROLE]),
+        ("2026-08-19", [RECENT_ROLE]),
+        ("2026-08-18", [RECENT_ROLE]),
+    ]
+
+
+class _FailingVersionS3(_ModelStoreS3):
+    def __init__(self, objects: dict[str, bytes], *, failing_prefix: str, code: str):
+        super().__init__(objects)
+        self.failing_prefix = failing_prefix
+        self.code = code
+
+    def get_object(self, *, Bucket, Key):
+        if Key.startswith(self.failing_prefix):
+            raise ClientError({"Error": {"Code": self.code}}, "GetObject")
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+@pytest.mark.parametrize("code,published", [("AccessDenied", True), ("SlowDown", False), ("InternalError", False)])
+def test_a_recent_version_read_error_skips_only_a_missing_key(monkeypatch, code, published):
+    # A throttled read that skipped the version would publish a manifest without it and bypass
+    # the asset retry, so only the 403 S3 gives for a missing key may drop a recent version.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    base = _serving_dataset_s3(prefix, "2026-08-19")
+    client = _FailingVersionS3(
+        base.objects,
+        failing_prefix=model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-08-19", ""),
+        code=code,
+    )
+    store = _AppObjectStore()
+
+    if published:
+        _run_serving_manifest(monkeypatch, store, dataset_client=client)
+        manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+        assert [entry.model_version for entry in manifest.models] == ["2026-08-15"]
+    else:
+        with pytest.raises(ClientError):
+            _run_serving_manifest(monkeypatch, store, dataset_client=client)
+        assert serving_manifest_key(prefix) not in store.objects
+
+
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
     # A model version is immutable, so re-copying it every day would move the boosters of every
     # entry, one of which is 1536 columns wide, for no change.
@@ -2830,28 +2733,32 @@ def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
 
     assert store.objects[f"{champion_prefix}/{METADATA_FILE}"] == b"already here"
     assert f"{champion_prefix}/open.ubj" not in store.objects
-    # The day's candidate was not there, so it was copied and the manifest still names both.
+    # The recent version was not there, so it was copied and the manifest still names both.
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert len(manifest.models) == 2
 
 
-@pytest.mark.parametrize("fail_on,source_present", [("open.ubj", True), (None, False)])
-def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, fail_on, source_present):
+@pytest.mark.parametrize("source_present", [True, False])
+def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, source_present):
     # Writing the manifest before the copies finished would point the sweep at a model whose
     # booster never arrived, which fails every report rather than leaving yesterday's order.
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     previous = b'{"manifest_version": "2026-08-18T06:00:00+00:00"}'
-    store = _AppObjectStore({serving_manifest_key(prefix): previous}, fail_on=fail_on)
-    # Without the source objects the champion pointer still composes a manifest, and the copy then
-    # has nothing to read.
-    champion_only = {
-        champion_object_key(prefix, EMBEDDINGS_MODEL_NAME): json.dumps(
-            _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
-        ).encode()
+    store = _AppObjectStore({serving_manifest_key(prefix): previous}, fail_on="open.ubj" if source_present else None)
+    # Without its booster the served model fails the pin check, so nothing is composed or copied.
+    pointer_only = {
+        served_object_key(prefix): _served_pointer(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-08-15", METADATA_FILE): json.dumps(
+            _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",), **_FEATURE_FIELDS)
+        ).encode(),
     }
 
-    with pytest.raises((dagster.Failure, RuntimeError)):
-        _run_serving_manifest(monkeypatch, store, dataset_objects=None if source_present else champion_only)
+    if source_present:
+        with pytest.raises(RuntimeError):
+            _run_serving_manifest(monkeypatch, store)
+    else:
+        capture = _run_serving_manifest(monkeypatch, store, dataset_objects=pointer_only)
+        assert "missing model files" in _manifest_event(capture)["reason"]
 
     assert store.objects[serving_manifest_key(prefix)] == previous
 
@@ -2862,7 +2769,7 @@ def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, fail_on
         assert store.objects[f"{entry.prefix}/open.ubj"] == f"booster-{entry.model_version}".encode()
 
 
-def test_no_manifest_is_written_when_the_served_family_has_no_champion(monkeypatch):
+def test_no_manifest_is_written_without_a_served_pointer(monkeypatch):
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-08-19", "")
     store = _AppObjectStore()
@@ -2880,12 +2787,7 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     client = _serving_dataset_s3(prefix, "2026-08-19")
     pin_version = "2026-08-01"
-    pin_metadata = {
-        **_serving_metadata(EMBEDDINGS_MODEL_NAME, pin_version, heads=("open",)),
-        "feature_set": REPORT_EMBEDDINGS_FEATURE_SET.name,
-        "feature_schema_version": REPORT_EMBEDDINGS_FEATURE_SET.schema_version,
-        "feature_names": list(REPORT_EMBEDDINGS_FEATURE_SET.feature_names),
-    }
+    pin_metadata = _serving_metadata(EMBEDDINGS_MODEL_NAME, pin_version, heads=("open",), **_FEATURE_FIELDS)
     # The metadata is there, but the booster is not, so a copy of this pin would fail the publish.
     client.objects[model_object_key(prefix, EMBEDDINGS_MODEL_NAME, pin_version, METADATA_FILE)] = json.dumps(
         pin_metadata
@@ -2916,7 +2818,7 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
     _, dropped = _pinned_models(denied_client, "bucket", prefix, pins)
     assert dropped.keys() == set(pins)
-    assert "missing boosters" in dropped[missing_key]
+    assert "missing model files" in dropped[missing_key]
     assert METADATA_FILE in dropped[absent_key]
     assert "AccessDenied" in dropped[denied_key]
     assert "this build can produce" in dropped[retired_key]
@@ -2952,9 +2854,9 @@ _CANDIDATE_EVENT = {
     "model_key": model_key(REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION),
     "model_name": REPORT_EMBEDDINGS_MODEL_NAME,
     "model_version": CANDIDATE_VERSION,
-    "roles": [DAILY_CANDIDATE_ROLE],
+    "roles": [RECENT_ROLE],
 }
-_TITLE_EVENT = {"model_name": TITLE_EMBEDDINGS_MODEL_NAME, "model_version": V1, "roles": [CROSS_FAMILY_ROLE]}
+_NN_EVENT = {"model_name": NN_MODEL_NAME, "model_version": V1, "roles": [CROSS_FAMILY_ROLE]}
 _SERVED_POOL = ["tie", "low", "legacy_low", "legacy_high", "challenger_only", "late"]
 
 
@@ -2970,7 +2872,7 @@ def _served_rows() -> pd.DataFrame:
         # The sweep scores the same report with the daily candidate too, under its own model key.
         _served_event("tie", "2026-08-10T14:00:00Z", p_open=0.7, **_CANDIDATE_EVENT),
         _served_event("tie", "2026-08-10T22:00:00Z", p_open=0.1, **_CANDIDATE_EVENT),
-        _served_event("challenger_only", "2026-08-10T13:00:00Z", p_open=0.5, **_TITLE_EVENT),
+        _served_event("challenger_only", "2026-08-10T13:00:00Z", p_open=0.5, **_NN_EVENT),
         _served_event("challenger_only", "2026-08-10T14:00:00Z", p_open=0.5, status="skipped", **_V1_EVENT),
         # Born before D, so not a newborn of the pool.
         _served_event("older", "2026-08-10T13:00:00Z", p_open=0.5, **_V1_EVENT),
@@ -3018,24 +2920,24 @@ def test_served_score_rows_keep_the_earliest_score_of_each_newborn_per_model_key
     assert sorted(
         zip(others["report_id"], others["model_name"], others["model_version"], others["model_role"], others["score"])
     ) == [
-        ("challenger_only", TITLE_EMBEDDINGS_MODEL_NAME, V1, CROSS_FAMILY_ROLE, 0.5),
-        ("tie", REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, DAILY_CANDIDATE_ROLE, 0.7),
+        ("challenger_only", NN_MODEL_NAME, V1, CROSS_FAMILY_ROLE, 0.5),
+        ("tie", REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, RECENT_ROLE, 0.7),
     ]
     metadata = served_metadata(_state(_SERVED_POOL), rows)
     assert metadata["served_pool_coverage"] == dagster.MetadataValue.float(4 / 6)
     assert metadata["pool_coverage_by_model"].value == {
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{V1}/{SERVED_ROLE}": 2 / 6,
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{V2}/{SERVED_ROLE}": 3 / 6,
-        f"{REPORT_EMBEDDINGS_MODEL_NAME}@{CANDIDATE_VERSION}/{DAILY_CANDIDATE_ROLE}": 1 / 6,
-        f"{TITLE_EMBEDDINGS_MODEL_NAME}@{V1}/{CROSS_FAMILY_ROLE}": 1 / 6,
+        f"{REPORT_EMBEDDINGS_MODEL_NAME}@{CANDIDATE_VERSION}/{RECENT_ROLE}": 1 / 6,
+        f"{NN_MODEL_NAME}@{V1}/{CROSS_FAMILY_ROLE}": 1 / 6,
     }
 
 
 @pytest.mark.parametrize(
     "roles,expected",
     [
-        ([SERVED_ROLE, DAILY_CANDIDATE_ROLE], SERVED_ROLE),
-        ([DAILY_CANDIDATE_ROLE, CROSS_FAMILY_ROLE], DAILY_CANDIDATE_ROLE),
+        ([SERVED_ROLE, RECENT_ROLE], SERVED_ROLE),
+        ([RECENT_ROLE, CROSS_FAMILY_ROLE], RECENT_ROLE),
         ([], CANDIDATE_ROLE),
         (None, CANDIDATE_ROLE),
     ],
@@ -3078,8 +2980,8 @@ def test_served_scores_grade_per_version_at_the_threshold_that_was_served(monkey
     assert set(graded_by_key) == {
         (REPORT_EMBEDDINGS_MODEL_NAME, V1, SERVED_ROLE),
         (REPORT_EMBEDDINGS_MODEL_NAME, V2, SERVED_ROLE),
-        (REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, DAILY_CANDIDATE_ROLE),
-        (TITLE_EMBEDDINGS_MODEL_NAME, V1, CROSS_FAMILY_ROLE),
+        (REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, RECENT_ROLE),
+        (NN_MODEL_NAME, V1, CROSS_FAMILY_ROLE),
     }
     graded = {version: row for (_, version, role), row in graded_by_key.items() if role == SERVED_ROLE}
     # The tie is a positive, at the threshold V1 saved at birth.

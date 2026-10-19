@@ -66,6 +66,10 @@ from posthog.models.integration.google_cloud import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name,
+    normalize_table_column_names,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
@@ -83,6 +87,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -105,7 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "BIGQUERY_API_VERSION_V2",
@@ -1091,6 +1096,29 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+def _get_merge_keys(
+    stored_keys: list[str] | None,
+    detected_keys: list[str] | None,
+    table: bigquery.Table,
+    enabled_columns: list[str] | None,
+    incremental_field: str | None,
+) -> list[str] | None:
+    """The source columns an incremental merge matches rows on, or None when it has none.
+
+    The pipeline picks the key the same way (`resolve_primary_keys`). The Delta writer then keeps only the key
+    columns the read carries, under the names `normalize_table_column_names` gives them.
+    """
+    schema_columns = [field.name for field in table.schema]
+    merge_keys = resolve_merge_keys(stored_keys, detected_keys, schema_columns)
+    if not merge_keys:
+        return None
+    read_columns = compute_projected_columns(enabled_columns, detected_keys, incremental_field) or schema_columns
+    batch_columns = normalize_table_column_names(pa.table({name: pa.nulls(0) for name in read_columns}))
+    read_column_by_batch_name = dict(zip(batch_columns.column_names, read_columns))
+    merge_columns = (read_column_by_batch_name.get(normalize_column_name(key)) for key in merge_keys)
+    return list(dict.fromkeys(column for column in merge_columns if column is not None)) or None
+
+
 # Stable wording BigQuery puts in a `resourcesExceeded` query failure's message. Shared between
 # `_is_bigquery_resource_exceeded` and `BigQuerySource.get_non_retryable_errors` so the two sites
 # stay in lockstep if BigQuery ever adjusts the phrasing.
@@ -1128,19 +1156,28 @@ def _is_bigquery_view_parse_failure(error: BadRequest) -> bool:
     return "failed to parse view" in str(error)
 
 
-def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
+def _has_duplicate_primary_keys(
+    table: bigquery.Table,
+    client: bigquery.Client,
+    primary_keys: list[str] | None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
 
     try:
+        key_columns = ", ".join(_BQ_QUOTER.quote(key) for key in primary_keys)
+        filter_conditions, query_parameters = _bq_row_filter_conditions(row_filters, table)
+        where_clause = f"WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ""
         query = f"""
-            SELECT {", ".join(primary_keys)}
+            SELECT {key_columns}
             FROM `{table.dataset_id}`.`{table.table_id}`
-            GROUP BY {", ".join(primary_keys)}
+            {where_clause}
+            GROUP BY {key_columns}
             HAVING COUNT(*) > 1
         """
 
-        job_config = QueryJobConfig()
+        job_config = QueryJobConfig(query_parameters=query_parameters)
         job = client.query(query, job_config=job_config, project=table.project)
 
         for _ in job.result():
@@ -1872,7 +1909,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             bq_table = bq_client.get_table(fully_qualified_table_name)
             primary_keys = _get_primary_keys_for_table(bq_table, bq_client)
             partition_settings = _get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
-            has_duplicate_keys = _has_duplicate_primary_keys(bq_table, bq_client, primary_keys)
+            # Only an incremental sync merges, so it is the only sync that reads the probe result.
+            merge_keys = (
+                _get_merge_keys(inputs.primary_keys, primary_keys, bq_table, enabled_columns, incremental_field)
+                if inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+                else None
+            )
+            has_duplicate_keys = _has_duplicate_primary_keys(bq_table, bq_client, merge_keys, row_filters)
             rows_to_sync = _get_rows_to_sync(
                 bq_table,
                 bq_client,

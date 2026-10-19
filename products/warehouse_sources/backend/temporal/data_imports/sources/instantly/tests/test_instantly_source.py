@@ -21,11 +21,12 @@ class TestInstantlySource:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == {*ENDPOINTS, WEBHOOK_EVENTS_ENDPOINT}
-        # Only /emails (min_timestamp_created) and /accounts/analytics/daily (start_date) expose a
-        # server-side filter; everything else must ship full refresh.
+        # Only /emails (min_timestamp_created), /accounts/analytics/daily and /audit-logs (start_date)
+        # expose a server-side filter; everything else must ship full refresh.
         assert {schema.name for schema in schemas if schema.supports_incremental} == {
             "emails",
             "account_daily_analytics",
+            "audit_logs",
         }
 
     def test_get_schemas_webhook_events_is_webhook_only(self):

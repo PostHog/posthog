@@ -19,7 +19,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import NonReportableApplicationError, unwrap_temporal_cause
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.alerts_platform.backend.temporal.metrics import increment_deliveries_previewed, safe_record
+from products.alerts_platform.backend.temporal.metrics import (
+    increment_deliveries_previewed,
+    increment_discovery_omitted,
+    safe_record,
+)
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
 
 LOGGER = get_write_only_logger(__name__)
@@ -90,7 +94,11 @@ class AlertsPlatformInputs:
 
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
+    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
+    for source, omitted in demand.omitted_by_source.items():
+        if omitted:
+            safe_record(increment_discovery_omitted, source.value, omitted)
+    return demand
 
 
 @activity.defn
@@ -146,6 +154,7 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         evaluation_key=request.evaluation_key,
         sent=outcome.sent,
         skipped_without_transport=outcome.skipped_without_transport,
+        emitted=outcome.emitted,
     )
 
 
@@ -155,13 +164,31 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
+        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
+
+        A part that fails does not stop the parts after it. The first failure fails the run once
+        every part has had its attempts.
+        """
+        if inputs.parts <= 1:
+            await self._deliver(inputs)
+            return
+        failures: list[ActivityError] = []
+        for part in range(inputs.parts):
+            try:
+                await self._deliver(replace(inputs, part=part))
+            except ActivityError as error:
+                failures.append(error)
+        if failures:
+            raise failures[0]
+
+    async def _deliver(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
             try:
                 await workflow.execute_activity(
                     alerts_platform_deliver_preview_activity,
-                    inputs,
+                    request,
                     start_to_close_timeout=DELIVERY_START_TO_CLOSE,
                     schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -185,6 +212,9 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     key names a window or a slot but not the alert, so two alerts in one slot do not collide. A
     re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
     started does not stop the rest.
+
+    A request split into parts still starts one workflow, which delivers the parts in turn, so its
+    deadline is one part's times the count.
     """
     results = await asyncio.gather(
         *(
@@ -194,7 +224,7 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
                 id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+                execution_timeout=DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts),
             )
             for delivery in deliveries
         ),

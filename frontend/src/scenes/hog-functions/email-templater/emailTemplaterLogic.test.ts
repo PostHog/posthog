@@ -2,9 +2,13 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { Realm } from '~/types'
 
 import * as messagingApi from 'products/messaging/frontend/generated/api'
 import type {
@@ -33,6 +37,7 @@ const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
 const TEMPLATE_METADATA = {
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    transactional_hog_flow_id: null,
     created_by: {
         id: 1,
         uuid: '00000000-0000-0000-0000-000000000001',
@@ -149,6 +154,34 @@ describe('emailTemplaterLogic', () => {
                 revealedAdvancedFields: ['replyTo'],
                 visibleFields: expect.arrayContaining([expect.objectContaining({ key: 'replyTo' })]),
             })
+        })
+    })
+
+    describe('email media library', () => {
+        it.each([
+            {
+                description: 'identifies the project to Unlayer in the native editor',
+                type: 'native_email',
+                flagOn: true,
+                identified: true,
+            },
+            {
+                description: 'leaves Unlayer anonymous with the flag off',
+                type: 'native_email',
+                flagOn: false,
+                identified: false,
+            },
+            { description: 'leaves the destination editor untouched', type: 'email', flagOn: true, identified: false },
+        ] as const)('$description', ({ type, flagOn, identified }) => {
+            preflightLogic.mount()
+            preflightLogic.actions.loadPreflightSuccess({ realm: Realm.Cloud } as any)
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_MEDIA_LIBRARY]: flagOn })
+
+            logic = emailTemplaterLogic(makeProps({ type }))
+            logic.mount()
+
+            expect(logic.values.unlayerEditorUser?.id.startsWith('project-') ?? false).toBe(identified)
         })
     })
 
@@ -679,7 +712,8 @@ describe('emailTemplaterLogic', () => {
             logic.actions.setIsTemplatePickerOpen(true)
 
             const retrieve = jest.spyOn(messagingApi, 'messagingTemplatesRetrieve')
-            await expectLogic(logic, () => logic.actions.pickTemplate(listTemplate)).toDispatchActions([
+            const onPicked = jest.fn()
+            await expectLogic(logic, () => logic.actions.pickTemplate(listTemplate, onPicked)).toDispatchActions([
                 'pickTemplate',
                 'setPickingTemplateId',
                 'applyTemplate',
@@ -688,6 +722,7 @@ describe('emailTemplaterLogic', () => {
             ])
             expect(props.onChange).toHaveBeenCalledWith(expect.objectContaining({ design }))
             expect(retrieve).toHaveBeenCalledWith(String(ApiConfig.getCurrentTeamId()), listTemplate.id)
+            expect(onPicked).toHaveBeenCalledTimes(1)
             expect(logic.values.isTemplatePickerOpen).toBe(false)
             expect(logic.values.pickingTemplateId).toBeNull()
         })

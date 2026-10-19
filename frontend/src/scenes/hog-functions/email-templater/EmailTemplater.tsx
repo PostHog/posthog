@@ -499,10 +499,16 @@ function LiquidSupportedText({
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { templates, pickingTemplateId } = useValues(emailTemplaterLogic)
-    const { pickTemplate } = useActions(emailTemplaterLogic)
+    const { pickTemplate, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
+
+    // Closing from any surface cancels an in-flight pick, including callers that own their open state.
+    const handleClose = (): void => {
+        setIsTemplatePickerOpen(false)
+        onClose()
+    }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose a starting point" width={880}>
             <div className="flex flex-wrap gap-3">
                 <LemonCard
                     className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
@@ -517,7 +523,7 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                         <MessageTemplateCard
                             template={template}
                             index={index}
-                            onClick={() => pickingTemplateId !== template.id && pickTemplate(template)}
+                            onClick={() => pickingTemplateId !== template.id && pickTemplate(template, onClose)}
                             actions={
                                 pickingTemplateId === template.id ? (
                                     <span role="status" aria-label="Loading template">
@@ -540,8 +546,17 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields, emailTemplate } =
-        useValues(emailTemplaterLogic)
+    const {
+        unlayerEditorProjectId,
+        emailMediaLibraryEnabled,
+        unlayerEditorUser,
+        logicProps,
+        templates,
+        mergeTags,
+        activeContentTab,
+        visibleFields,
+        emailTemplate,
+    } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
         useActions(emailTemplaterLogic)
     // With the AI panel integration on, chat sits beside the editor and width is scarce, so the
@@ -739,8 +754,14 @@ function NativeEmailTemplaterForm({
                                             // assistant) default to on; they're third-party AI consuming
                                             // paid credits from our Unlayer workspace, so keep them all off.
                                             ai: false,
+                                            // The identified user is unsigned, so anyone can claim it. Saved
+                                            // blocks are stored per user in Unlayer, so turn them off.
+                                            ...(emailMediaLibraryEnabled
+                                                ? { userUploads: { enabled: true, search: true }, blocks: false }
+                                                : {}),
                                         },
                                         projectId: unlayerEditorProjectId,
+                                        user: unlayerEditorUser,
                                         customJS: sceneIntegrationEnabled
                                             ? [
                                                   unsubscribeLinkToolCustomJs,

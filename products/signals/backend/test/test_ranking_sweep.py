@@ -211,6 +211,8 @@ class TestScoreInboxReports(SimpleTestCase):
         self.served_rendering = self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
         self.due = self._patch(sweep, "reports_due_for_scoring", return_value=[])
         self.score_reports = self._patch(scorer, "score_reports", side_effect=self._outcomes)
+        self.project_vectors = MagicMock()
+        self.pass_project_vectors = self._patch(scorer, "pass_project_vectors", return_value=self.project_vectors)
         self.capture = MagicMock()
         self.capture_scopes = 0
         self._patch(sweep, "ph_scoped_capture", new=self._capture_scope)
@@ -240,6 +242,7 @@ class TestScoreInboxReports(SimpleTestCase):
         now: datetime.datetime,
         serving: Any = None,
         capture: Any = None,
+        project_vectors: Any = None,
     ) -> list:
         if team_id in self.failing_teams:
             raise self.failing_teams[team_id]
@@ -286,10 +289,13 @@ class TestScoreInboxReports(SimpleTestCase):
             (call.args[0], call.args[1], call.kwargs["persist"]) for call in self.score_reports.call_args_list
         ) == [(1, ["a", "novec-c"], True), (2, ["b"], True)]
         assert all(
-            call.kwargs["serving"] is self.serving and call.kwargs["capture"] is self.capture
+            call.kwargs["serving"] is self.serving
+            and call.kwargs["capture"] is self.capture
+            and call.kwargs["project_vectors"] is self.project_vectors
             for call in self.score_reports.call_args_list
         )
         assert (self.load_serving_set.call_count, self.capture_scopes, self.capture.flush.call_count) == (1, 1, 2)
+        self.pass_project_vectors.assert_called_once_with(self.serving, [1, 2])
         self.logger.info.assert_any_call(
             "inbox_ranking_sweep_started", candidates=3, teams=2, manifest_version=MANIFEST, peak_rss_mb=ANY
         )
@@ -412,8 +418,12 @@ class TestParseOverrides(SimpleTestCase):
                 "inbox_ranking_override_invalid",
             ),
             (
-                "unknown_gate",
-                {"expires_at": EXPIRES, "promotion": {"skip_gates": {"report_embeddings": ["auc"]}}},
+                "retired_promotion_block",
+                {
+                    "expires_at": EXPIRES,
+                    "served": "report_embeddings@2026-10-03",
+                    "promotion": {"force": ["report_embeddings"]},
+                },
                 NO_OVERRIDES,
                 "inbox_ranking_override_invalid",
             ),
@@ -435,19 +445,11 @@ class TestParseOverrides(SimpleTestCase):
                     "expires_at": EXPIRES,
                     "served": "report_embeddings@2026-10-03",
                     "pin": ["report_embeddings@2026-09-26"],
-                    "promotion": {
-                        "freeze": ["tabular_xgb"],
-                        "force": ["report_embeddings"],
-                        "skip_gates": {"report_embeddings": ["min_days", "ece"]},
-                    },
                 },
                 RankingOverrides(
                     expires_at=datetime.datetime(2026, 10, 11, tzinfo=datetime.UTC),
                     served="report_embeddings@2026-10-03",
                     pin=("report_embeddings@2026-09-26",),
-                    freeze=frozenset({"tabular_xgb"}),
-                    force=frozenset({"report_embeddings"}),
-                    skip_gates={"report_embeddings": frozenset({"min_days", "ece"})},
                 ),
                 None,
             ),
@@ -457,18 +459,3 @@ class TestParseOverrides(SimpleTestCase):
         with patch("products.signals.backend.ranking.overrides.logger") as logger:
             assert parse_overrides(payload, now=NOW) == expected
         assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])
-
-    def test_freeze_wins_over_force_and_skip_gates(self) -> None:
-        overrides = parse_overrides(
-            {
-                "expires_at": EXPIRES,
-                "promotion": {
-                    "freeze": ["report_embeddings"],
-                    "force": ["report_embeddings"],
-                    "skip_gates": {"report_embeddings": ["ece"]},
-                },
-            },
-            now=NOW,
-        )
-        promotion = overrides.promotion_for("report_embeddings")
-        assert (promotion.freeze, promotion.force, promotion.skip_gates) == (True, False, frozenset())

@@ -89,6 +89,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -621,7 +622,7 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -650,11 +651,11 @@ export interface LogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
@@ -791,7 +792,7 @@ export interface LogsAlertConfigurationDetailApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -820,11 +821,11 @@ export interface LogsAlertConfigurationDetailApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
@@ -893,7 +894,7 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -922,11 +923,11 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures?: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message?: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
@@ -998,6 +999,7 @@ export interface LogsAlertDeleteDestinationApi {
  * * `unsnooze` - Unsnooze
  * * `threshold_change` - Threshold change
  * * `broken_config` - Broken config
+ * * `handback` - Handback
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -1010,6 +1012,7 @@ export const LogsAlertEventKindEnumApi = {
     Unsnooze: 'unsnooze',
     ThresholdChange: 'threshold_change',
     BrokenConfig: 'broken_config',
+    Handback: 'handback',
 } as const
 
 export interface LogsAlertEventApi {
@@ -1070,7 +1073,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minutes to wait after firing before sending another notification.
+     * Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -2025,6 +2028,115 @@ export interface PatchedLogsMetricRuleApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+export interface _LogsNaturalLanguageDateRangeApi {
+    /**
+     * Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the date range. Same format as date_from. Null means "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+export interface LogsNaturalLanguageQueryRequestApi {
+    /**
+     * The plain-language request, for example 'error logs from checkout in the last 2 hours'.
+     * @maxLength 500
+     */
+    query: string
+    /** The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from. */
+    dateRange?: _LogsNaturalLanguageDateRangeApi
+}
+
+/**
+ * * `log` - Log
+ * * `log_attribute` - Log Attribute
+ * * `log_resource_attribute` - Log Resource Attribute
+ */
+export type LogsNaturalLanguageFilterTypeEnumApi =
+    (typeof LogsNaturalLanguageFilterTypeEnumApi)[keyof typeof LogsNaturalLanguageFilterTypeEnumApi]
+
+export const LogsNaturalLanguageFilterTypeEnumApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface _LogsNaturalLanguageCandidateFilterApi {
+    /** Attribute key, or "message" for the log body text. */
+    key: string
+    /** "log" filters the log body. "log_attribute" and "log_resource_attribute" filter attributes.
+     *
+     * * `log` - Log
+     * * `log_attribute` - Log Attribute
+     * * `log_resource_attribute` - Log Resource Attribute */
+    type: LogsNaturalLanguageFilterTypeEnumApi
+    /** Property operator, for example exact, icontains or is_set. */
+    operator: string
+    /** A list of strings for exact and is_not, a string for text operators, absent for is_set. */
+    value?: unknown
+}
+
+export interface _LogsNaturalLanguageCandidateQueryApi {
+    /** Date range of this reading. */
+    dateRange: _LogsNaturalLanguageDateRangeApi
+    /** Severity levels to keep. Empty means all levels. */
+    severityLevels: SeverityLevelsEnumApi[]
+    /** Services to keep. Empty means all services. */
+    serviceNames: string[]
+    /** Attribute and message filters, combined with AND. */
+    filterGroup: _LogsNaturalLanguageCandidateFilterApi[]
+}
+
+export interface _LogsNaturalLanguageCandidateApi {
+    /** Short plain-language summary of this reading of the request. */
+    label: string
+    /** Viewer filters for this reading. */
+    query: _LogsNaturalLanguageCandidateQueryApi
+    /**
+     * How likely the decision model thinks this reading is. Null when not ranked.
+     * @nullable
+     */
+    probability: number | null
+}
+
+/**
+ * * `decision_model` - Decision Model
+ * * `proposal_order` - Proposal Order
+ */
+export type LogsNaturalLanguageRankedByEnumApi =
+    (typeof LogsNaturalLanguageRankedByEnumApi)[keyof typeof LogsNaturalLanguageRankedByEnumApi]
+
+export const LogsNaturalLanguageRankedByEnumApi = {
+    DecisionModel: 'decision_model',
+    ProposalOrder: 'proposal_order',
+} as const
+
+export interface LogsNaturalLanguageQueryResponseApi {
+    /** Readings of the request, best first. Can be empty. */
+    candidates: _LogsNaturalLanguageCandidateApi[]
+    /**
+     * The first candidate's probability from the decision model. Null when it did not rank them.
+     * @nullable
+     */
+    confidence: number | null
+    /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
+     *
+     * * `decision_model` - Decision Model
+     * * `proposal_order` - Proposal Order */
+    ranked_by: LogsNaturalLanguageRankedByEnumApi
+    /** Proposed readings dropped because they named a service or attribute key the project lacks. */
+    dropped_count: number
+}
+
+export interface _LogsNaturalLanguageErrorApi {
+    /** What went wrong. */
+    error: string
 }
 
 export interface _LogsPatternsBodyApi {

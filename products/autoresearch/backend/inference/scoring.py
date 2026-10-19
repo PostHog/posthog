@@ -9,7 +9,10 @@ autoresearch_prediction event per person.
   the scores without the events.
 - After a live champion run completes, every other model in the shadow set scores the
   same people (``_score_shadow_set()``). A shadow model emits person-less events with the
-  ``shadow`` role and no ``$set``, and records its own inference run.
+  ``shadow`` role and no ``$set``, and records its own inference run. The daily sweep defers
+  this to a later activity (``score_shadow_set_for_run()``), so every champion scores first.
+- A live champion event carries ``$set: {output_person_property: p_y}`` only while the
+  pipeline's ``write_person_property`` is on. ``person_property.py`` removes the property again.
 
 Event shape:
     event: autoresearch_prediction
@@ -37,7 +40,7 @@ import hashlib
 import inspect
 import importlib
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -68,7 +71,11 @@ from products.autoresearch.backend.dataset.labeling import (
     rolling_selection,
 )
 from products.autoresearch.backend.evaluation.history import latest_validation_runs
-from products.autoresearch.backend.evaluation.segment_thresholds import BASE_RATE_DATES, segment_thresholds
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    champion_training_base_rate,
+    segment_thresholds,
+)
 from products.autoresearch.backend.inference.failures import classify_failure
 from products.autoresearch.backend.inference.sandbox import (
     _FOLD_COL,
@@ -276,6 +283,8 @@ def run_inference_for_pipeline(
     run: AutoresearchRun | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
     scheduled: bool = False,
+    defer_shadows: bool = False,
+    extra_metrics: Mapping[str, Any] | None = None,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
@@ -300,8 +309,13 @@ def run_inference_for_pipeline(
 
     A live run that completes then scores the rest of the shadow set (``_score_shadow_set()``).
     Shadow scoring never fails this run or changes its outcome; the run records which shadow
-    models completed, failed, or were skipped in ``metrics["shadow_models"]``.
+    models completed, failed, or were skipped in ``metrics["shadow_models"]``. With
+    ``defer_shadows`` the run stops before the shadow set, and ``score_shadow_set_for_run()``
+    scores it later against the people this run recorded in ``metrics["scored_persons_digest"]``.
+
+    ``extra_metrics`` are merged into the run's metrics before scoring starts.
     """
+    started = time.monotonic()
     window = ScoringWindow.for_date(prediction_date)
     if run is None:
         run = create_inference_run(pipeline=pipeline, model=model, window=window, scheduled=scheduled)
@@ -312,6 +326,9 @@ def run_inference_for_pipeline(
         run.metrics.pop("failure_kind", None)
         run.completed_at = None
         run.save(update_fields=["model", "status", "error", "metrics", "completed_at"])
+    if extra_metrics:
+        run.metrics.update(extra_metrics)
+        run.save(update_fields=["metrics"])
 
     try:
         team = pipeline.team
@@ -334,10 +351,12 @@ def run_inference_for_pipeline(
                 "holdout_auc": scored.holdout_auc,
                 # The coverage of a rolling run: rows_scored of rows_eligible were scored today.
                 "rows_eligible": scored.rows_eligible,
+                "scoring_seconds": _elapsed_s(started),
             }
         )
         if not window.is_backfill:
             run.metrics.update(_likely_segment(team_id=team.pk, pipeline=pipeline, scored=scored))
+            run.metrics["scored_persons_digest"] = persons_digest(row["distinct_id"] for row in scored.rows)
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "negative_sample_rate", "metrics", "completed_at"])
 
@@ -359,6 +378,7 @@ def run_inference_for_pipeline(
         run.status = AutoresearchRun.Status.FAILED
         run.error = str(exc)[:2000]
         run.metrics["failure_kind"] = classify_failure(exc)
+        run.metrics["scoring_seconds"] = _elapsed_s(started)
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "error", "metrics", "completed_at"])
         logger.exception(
@@ -368,12 +388,14 @@ def run_inference_for_pipeline(
 
     if not window.is_backfill:
         _record_coverage(team=team, pipeline=pipeline, run=run, scored=scored, window=window, user=acting_user)
+    if not window.is_backfill and not defer_shadows:
         try:
             outcome = _score_shadow_set(
                 team=team,
                 pipeline=pipeline,
                 champion=model,
-                scored=scored,
+                persons=run.metrics["scored_persons_digest"] if scored.rows else None,
+                features=scored.features,
                 window=window,
                 user=acting_user,
                 query_context=query_context,
@@ -388,6 +410,15 @@ def run_inference_for_pipeline(
     return run
 
 
+def persons_digest(person_ids: Iterable[Any]) -> str:
+    """An order-free digest of a set of person ids, so a later query can prove it selected the same people."""
+    return hashlib.sha256("\n".join(sorted({str(person_id) for person_id in person_ids})).encode("utf-8")).hexdigest()
+
+
+def _elapsed_s(started: float) -> float:
+    return round(time.monotonic() - started, 1)
+
+
 def _likely_segment(*, team_id: int, pipeline: AutoresearchPipeline, scored: ScoredPopulation) -> dict[str, Any]:
     """
     The people a live champion run scored at or above the current Likely cut point, and that cut point.
@@ -395,7 +426,10 @@ def _likely_segment(*, team_id: int, pipeline: AutoresearchPipeline, scored: Sco
     The run keeps the count because its score distribution stores only quantiles, and the model
     list must not query the prediction events for every pipeline.
     """
-    threshold = segment_thresholds(latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES)).likely
+    threshold = segment_thresholds(
+        latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES),
+        training_rate=champion_training_base_rate(team_id, pipeline),
+    ).likely
     return {
         "likely_count": sum(1 for row in scored.rows if row["p_y"] >= threshold),
         "likely_threshold": threshold,
@@ -605,18 +639,18 @@ def _emit_predictions(
         _require_still_in_shadow_set(pipeline=pipeline, model=model)
     else:
         _require_still_champion(model)
-    # Live runs attach each prediction to the real person: a real distinct_id, a processed
-    # person profile, and a $set of the output property. Backfills and shadow scores stay
-    # person-less (they exist for online validation, which keys on $autoresearch_person_id)
-    # so a past-dated or shadow $set cannot clobber the champion's live score.
+    # Live runs attach each prediction to the real person: a real distinct_id and a processed
+    # person profile, plus a $set of the output property when the pipeline opts in. Backfills
+    # and shadow scores stay person-less (they exist for online validation, which keys on
+    # $autoresearch_person_id) so a past-dated or shadow $set cannot clobber the champion's live score.
     distinct_id_by_person = (
         {}
         if person_less
         else _resolve_distinct_ids(
-            team=team, pipeline=pipeline, person_ids=[str(row["distinct_id"]) for row in scored.rows], user=user
+            team=team, pipeline_id=str(pipeline.pk), person_ids=[str(row["distinct_id"]) for row in scored.rows]
         )
     )
-    output_property = pipeline.output_person_property
+    output_property = pipeline.output_person_property if _still_writes_person_property(pipeline) else ""
 
     events: list[dict[str, Any]] = []
     for row in scored.rows:
@@ -730,6 +764,18 @@ def _require_still_champion(model: AutoresearchModel) -> None:
         )
 
 
+def _still_writes_person_property(pipeline: AutoresearchPipeline) -> bool:
+    """
+    Re-read the opt-in right before the events go out, so a run that started before someone
+    turned it off, or archived the pipeline, does not write the property after the cleanup started.
+    """
+    return (
+        AutoresearchPipeline.objects.filter(pk=pipeline.pk, write_person_property=True)
+        .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+        .exists()
+    )
+
+
 def _require_still_in_shadow_set(*, pipeline: AutoresearchPipeline, model: AutoresearchModel) -> None:
     """The shadow counterpart of ``_require_still_champion()``: a model that left the set does not emit."""
     shadow_ids = {member.pk for member in shadow_set(pipeline) if member.role != AutoresearchModel.Role.CHAMPION}
@@ -756,7 +802,8 @@ def _score_shadow_set(
     team: Team,
     pipeline: AutoresearchPipeline,
     champion: AutoresearchModel,
-    scored: ScoredPopulation,
+    persons: str | None,
+    features: MaterializedFeatures | None,
     window: ScoringWindow,
     user: User,
     query_context: QueryContext = INTERACTIVE_QUERY,
@@ -764,20 +811,25 @@ def _score_shadow_set(
 ) -> ShadowScoringOutcome | None:
     """
     Score every shadow-set model other than the champion against the people the champion's run
-    scored, so online validation compares the models on the same people on the same date.
+    scored (``persons``, their ``persons_digest()``), so online validation compares the models on
+    the same people on the same date.
 
-    One feature query runs per distinct ``features.sql``: the champion's rows are reused when a
-    shadow model shares its SQL, and each other SQL materializes once for every model that uses
-    it. Each model records its own inference run, and its failure fails only that run. No new
-    model starts after ``SHADOW_TIME_BUDGET_S``. Returns None when there is nothing to score.
+    One feature query runs per distinct ``features.sql``: the champion's rows (``features``) are
+    reused when a shadow model shares its SQL, and each other SQL materializes once for every model
+    that uses it. Each model records its own inference run, and its failure fails only that run. No
+    new model starts after ``SHADOW_TIME_BUDGET_S``. Returns None when there is nothing to score.
     """
-    members = [model for model in shadow_set(pipeline) if model.pk != champion.pk]
-    if not members or not scored.rows:
+    # A model promoted since the champion's run is not a shadow, so it does not score as one.
+    members = [
+        model
+        for model in shadow_set(pipeline)
+        if model.pk != champion.pk and model.role != AutoresearchModel.Role.CHAMPION
+    ]
+    if not members or persons is None:
         return None
-    persons = {str(row["distinct_id"]) for row in scored.rows}
     materialized: dict[str, InferenceRows | Exception] = {}
-    if scored.features is not None:
-        materialized[scored.features.sql_digest] = scored.features.data
+    if features is not None:
+        materialized[features.sql_digest] = features.data
 
     completed: list[str] = []
     failed: list[str] = []
@@ -814,6 +866,53 @@ def _score_shadow_set(
     return ShadowScoringOutcome(completed=completed, failed=failed, skipped=skipped)
 
 
+def score_shadow_set_for_run(
+    run: AutoresearchRun, query_context: QueryContext = INTERACTIVE_QUERY
+) -> ShadowScoringOutcome | None:
+    """
+    Score the shadow set against the people a completed live champion run scored, after that run's
+    activity has ended. The daily sweep calls this once every champion has scored, so a champion's
+    feature rows are freed before any shadow model loads its own.
+
+    The run's ``scored_persons_digest`` stands for the people, so the person list never crosses the
+    Temporal payload. Each feature query binds the run's cutoff and must select exactly those people.
+    Returns None, and scores nothing, when the run did not complete, scored nobody, or its prediction
+    date has passed: a shadow score emitted after that date would not pair with the champion's.
+    """
+    started = time.monotonic()
+    metrics = run.metrics or {}
+    digest = metrics.get("scored_persons_digest")
+    if (
+        run.status != AutoresearchRun.Status.COMPLETED
+        or metrics.get("shadow")
+        or not digest
+        or not run.rows_scored
+        or run.model is None
+    ):
+        return None
+    window = ScoringWindow.for_date(date.fromisoformat(metrics["prediction_date"]))
+    if window.is_backfill:
+        logger.warning("autoresearch_shadow_scoring_after_prediction_date", run_id=str(run.pk))
+        return None
+    pipeline = run.pipeline
+    team = pipeline.team
+    outcome = _score_shadow_set(
+        team=team,
+        pipeline=pipeline,
+        champion=run.model,
+        persons=digest,
+        features=None,
+        window=window,
+        user=_acting_user(team=team, pipeline=pipeline, user=None),
+        query_context=query_context,
+    )
+    if outcome is not None:
+        run.metrics["shadow_models"] = outcome.as_metrics()
+        run.metrics["shadow_seconds"] = _elapsed_s(started)
+        run.save(update_fields=["metrics"])
+    return outcome
+
+
 def _read_shadow_bundle(model: AutoresearchModel) -> ArtifactBundle | Exception:
     """The model's runnable bundle, or the error that fails its run. The error never stops the other models."""
     try:
@@ -830,7 +929,7 @@ def _score_shadow_model(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     bundle: ArtifactBundle | Exception,
-    persons: set[str],
+    persons: str,
     materialized: dict[str, InferenceRows | Exception],
     window: ScoringWindow,
     user: User,
@@ -913,7 +1012,7 @@ def _shadow_score_data(
     team: Team,
     pipeline: AutoresearchPipeline,
     feature_sql: str,
-    persons: set[str],
+    persons: str,
     materialized: dict[str, InferenceRows | Exception],
     window: ScoringWindow,
     user: User,
@@ -938,7 +1037,7 @@ def _shadow_score_data(
                 user=user,
                 query_context=query_context,
             )
-            if {str(row["distinct_id"]) for row in data.rows} != persons:
+            if persons_digest(row["distinct_id"] for row in data.rows) != persons:
                 raise InferenceRunError(
                     "The shadow feature query did not select the people the champion scored; "
                     "refusing to emit scores that do not pair with the champion's"
@@ -1152,9 +1251,7 @@ def _count_population(
     return int(result.rows[0][0])
 
 
-def _resolve_distinct_ids(
-    *, team: Team, pipeline: AutoresearchPipeline, person_ids: list[str], user: User
-) -> dict[str, str]:
+def _resolve_distinct_ids(*, team: Team, pipeline_id: str, person_ids: list[str]) -> dict[str, str]:
     """
     Map each person_id to one of that person's current distinct_ids.
 
@@ -1168,7 +1265,7 @@ def _resolve_distinct_ids(
     if len(resolvable) != len(person_ids):
         logger.warning(
             "autoresearch_unresolvable_person_ids",
-            pipeline_id=str(pipeline.pk),
+            pipeline_id=pipeline_id,
             skipped=len(person_ids) - len(resolvable),
         )
     if not resolvable:
@@ -1176,7 +1273,7 @@ def _resolve_distinct_ids(
     try:
         persons = get_persons_by_uuids(team.pk, resolvable, distinct_id_limit=1)
     except Exception as exc:
-        logger.exception("autoresearch_identity_resolution_failed", pipeline_id=str(pipeline.pk))
+        logger.exception("autoresearch_identity_resolution_failed", pipeline_id=pipeline_id)
         raise InferenceRunError(
             "Identity resolution failed; failing the run rather than emitting every prediction person-less"
         ) from exc
