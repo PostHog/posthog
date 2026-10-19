@@ -121,6 +121,15 @@ describe('metricVariableEditorLogic', () => {
         await expectLogic(logic, () => logic.actions.apply(onSave)).toFinishAllListeners()
         expect(onSave).toHaveBeenCalledTimes(1)
 
+        let pending: (value: { results: string[] }) => void = () => {}
+        mockOptions.mockReturnValueOnce(new Promise((resolve) => (pending = resolve)))
+        logic.actions.updateVariable(0, { regex: 'c(.*)' })
+        logic.actions.apply(onSave)
+        logic.actions.updateVariable(0, { regex: '(' })
+        pending({ results: [] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(onSave).toHaveBeenCalledTimes(1)
+
         let finish: (value: { results: string[] }) => void = () => {}
         mockOptions.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
         logic.actions.updateVariable(0, { regex: 'b(.*)' })
