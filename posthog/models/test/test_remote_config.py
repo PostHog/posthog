@@ -32,11 +32,6 @@ CONFIG_REFRESH_QUERY_COUNT = 6
 SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
 _READABLE_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["purchase"]}}
 _SENT_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": [{"name": "purchase"}]}}
-_FLAG_GROUP_WITH_NULL_EVENTS = {
-    "id": "g3",
-    "sampleRate": 1,
-    "conditions": {"matchType": "any", "events": None, "flag": "k"},
-}
 
 
 def _flag_group(flag: str | dict[str, Any], **conditions: Any) -> dict[str, Any]:
@@ -380,8 +375,8 @@ class TestRemoteConfig(_RemoteConfigBase):
             ),
             (
                 "events_null",
-                {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]},
-                [_FLAG_GROUP_WITH_NULL_EVENTS],
+                {"version": 2, "groups": [_flag_group("k", events=None)]},
+                [_flag_group("k", events=None)],
                 False,
             ),
             (

@@ -172,10 +172,8 @@ class RemoteConfig(UUIDTModel):
         if sample_rate == "1":
             sample_rate = None
 
-        linked_flag = None
-        linked_flag_config = team.session_recording_linked_flag or None
-        if isinstance(linked_flag_config, dict):
-            linked_flag = _flag_for_sdk(linked_flag_config)
+        linked_flag_config = team.session_recording_linked_flag
+        linked_flag = _flag_for_sdk(linked_flag_config) if isinstance(linked_flag_config, dict) else None
 
         v1_fields = {
             "sampleRate": sample_rate,
@@ -212,7 +210,7 @@ class RemoteConfig(UUIDTModel):
                 # A flag object without a non-empty key stays as stored. Its flag condition then never matches.
                 # Converting it would send an empty flag. The SDK reads an empty flag as no flag condition.
                 # A group with no other condition then records every session.
-                if isinstance(flag, dict) and isinstance(flag.get("key"), str) and flag["key"]:
+                if isinstance(flag, dict) and isinstance(key := flag.get("key"), str) and key:
                     conditions = {**conditions, "flag": _flag_for_sdk(flag)}
                 normalized_groups.append({**group, "conditions": conditions})
 
