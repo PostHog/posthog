@@ -322,6 +322,18 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
+        // An absent or unrecognised param turns compare off. Set the baseline first, so that
+        // turning compare on loads one diff, against the linked baseline.
+        const applyCompareParam = (raw: unknown): void => {
+            const baseline = VALID_BASELINE_MODES.find((mode) => mode === raw) ?? null
+            if (baseline && baseline !== values.baselineMode) {
+                actions.setBaselineMode(baseline)
+            }
+            if (!!baseline !== values.compareEnabled) {
+                actions.setCompareEnabled(!!baseline)
+            }
+        }
+
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
@@ -437,17 +449,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (groupBys && !equal(groupBys, values.groupBys)) {
                 actions.setGroupBys(groupBys)
             }
-            // Patterns compare mode: ?compare=<baseline> turns it on with that baseline; absent or
-            // unrecognised means off. The baseline goes first so turning compare on diffs once,
-            // against the linked baseline.
-            const compareParam = params.compare as PatternsBaselineMode | undefined
-            const compareEnabled = !!compareParam && VALID_BASELINE_MODES.includes(compareParam)
-            if (compareEnabled && compareParam !== values.baselineMode) {
-                actions.setBaselineMode(compareParam)
-            }
-            if (compareEnabled !== values.compareEnabled) {
-                actions.setCompareEnabled(compareEnabled)
-            }
+            applyCompareParam(params.compare)
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }

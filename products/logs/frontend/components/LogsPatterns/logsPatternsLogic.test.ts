@@ -235,9 +235,8 @@ describe('logsPatternsLogic', () => {
     })
 
     it('defaults to the preceding baseline: the same-length window ending where the current one starts', async () => {
-        // Locks the default baseline and the window arithmetic: a drift here (wrong length,
-        // overlap, or gap) makes the "vs. preceding period" comparison silently wrong while
-        // still returning results.
+        // Locks the window arithmetic: a drift here (wrong length, overlap, or gap) makes the
+        // "vs. preceding period" comparison silently wrong while still returning results.
         mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
@@ -258,12 +257,11 @@ describe('logsPatternsLogic', () => {
             })
         )
 
-        // 'lastWeek' delegates the -7d default to the backend.
         logic.actions.setBaselineMode('lastWeek')
         await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
         expect(mockDiffCreate).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ baselineDateRange: undefined })
+            expect.objectContaining({ baselineDateRange: undefined }) // the backend applies the -7d default
         )
     })
 
