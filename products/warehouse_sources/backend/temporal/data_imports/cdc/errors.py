@@ -138,7 +138,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (
-        "The replication slot is currently in use by another connection. PostHog will retry shortly.",
+        "Another connection held your replication slot, so this run couldn't read changes. If this keeps "
+        "happening, check that no other tool or PostHog source reads from that slot.",
         True,
     ),
     CDCErrorCategory.PERMISSION_DENIED: (
