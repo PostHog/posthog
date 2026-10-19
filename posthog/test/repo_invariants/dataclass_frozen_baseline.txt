@@ -660,7 +660,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/hyperspell.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/imagga/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/impact/impact.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/incident_io/incident_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/incident_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/infisical/infisical.py
@@ -1376,7 +1375,7 @@
 2 products/warehouse_sources/backend/temporal/data_imports/sources/common/typings.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/grafana/grafana.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/hubspot/settings.py
-2 products/warehouse_sources/backend/temporal/data_imports/sources/impact/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/impact/settings.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/jamf_pro/jamf_pro.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/linkedin_ads/linkedin_ads.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/settings.py

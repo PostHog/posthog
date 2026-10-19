@@ -6180,6 +6180,7 @@ Diffed against: <https://integrations.impact.com/llms-full.txt/4>
 - [ ] `Deals (GET /Advertisers/{AccountSID}/Deals)` — compare promotional offers and their effective dates with conversion performance (medium)
 - [ ] `Catalog Items (GET /Advertisers/{AccountSID}/Catalogs/{CatalogId}/Items)` — analyze affiliate product inventory, pricing, and availability by catalog (medium)
 - [ ] `Campaign Notes (GET /Advertisers/{AccountSID}/Campaigns/{CampaignId}/Notes)` — retain partner management activity and discussion context for campaign analysis (low)
+- [x] `Survey responses (GET /Advertisers/{AccountSID}/Programs/{ProgramId}/Surveys/{SurveyId}/Responses)` — partner answers to program surveys, joinable to partners and campaigns (medium)
 
 Note: Parsed embedded OpenAPI blocks in the official paginated documentation, including Brand API v14 pages and nested collections. Contracts, action updates, and both invoice item tables are already covered. Click and report exports require job polling and downloads; action items and catalog items need parent fan-out. Submissions and configuration are excluded.
 
