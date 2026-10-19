@@ -175,6 +175,11 @@ export type LemonInputSelectProps<T = string> = Pick<
     sortable?: boolean
     /** Render single-mode values as snack pills (matching multi-mode appearance) */
     singleValueAsSnack?: boolean
+    /**
+     * Label a selected value with an option whose key differs only in case. Affects the label only,
+     * never the stored value. Off by default, because most option keys are case-sensitive.
+     */
+    caseInsensitiveOptionMatching?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -212,6 +217,7 @@ export function LemonInputSelect<T = string>({
     action,
     virtualized = false,
     sortable = false,
+    caseInsensitiveOptionMatching = false,
     status = 'default',
     singleValueAsSnack = false,
 }: LemonInputSelectProps<T>): JSX.Element {
@@ -696,6 +702,7 @@ export function LemonInputSelect<T = string>({
                     }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
+                    caseInsensitiveOptionMatching={caseInsensitiveOptionMatching}
                 />
             </PopoverReferenceContext.Provider>
         )
@@ -718,6 +725,7 @@ export function LemonInputSelect<T = string>({
         singleValueAsSnack,
         onChange,
         setInputValue,
+        caseInsensitiveOptionMatching,
     ])
 
     const valuesAndClearButtonSuffix = useMemo(() => {
@@ -752,6 +760,7 @@ export function LemonInputSelect<T = string>({
                     }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
+                    caseInsensitiveOptionMatching={caseInsensitiveOptionMatching}
                 />
                 {isClearButtonVisible && (
                     <div
@@ -793,6 +802,7 @@ export function LemonInputSelect<T = string>({
         size,
         onChange,
         singleValueAsSnack,
+        caseInsensitiveOptionMatching,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -1189,6 +1199,7 @@ function ValueSnacks<T = string>({
     onInitiateEdit,
     sortable = false,
     onDragEnd,
+    caseInsensitiveOptionMatching = false,
 }: {
     values: string[]
     options: LemonInputSelectOption<T>[]
@@ -1196,6 +1207,7 @@ function ValueSnacks<T = string>({
     onInitiateEdit: ((value: string) => void) | null
     sortable?: boolean
     onDragEnd?: (event: DragEndEvent) => void
+    caseInsensitiveOptionMatching?: boolean
 }): JSX.Element {
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -1205,21 +1217,26 @@ function ValueSnacks<T = string>({
         })
     )
 
-    const optionsByKey = useMemo(() => {
-        const indexed = new Map<string, LemonInputSelectOption<T>>()
+    const optionMaps = useMemo(() => {
+        const exact = new Map<string, LemonInputSelectOption<T>>()
+        const caseInsensitive = new Map<string, LemonInputSelectOption<T>>()
         for (const option of options) {
-            if (!indexed.has(option.key)) {
-                indexed.set(option.key, option)
+            if (!exact.has(option.key)) {
+                exact.set(option.key, option)
+            }
+            if (caseInsensitiveOptionMatching && !caseInsensitive.has(option.key.toLowerCase())) {
+                caseInsensitive.set(option.key.toLowerCase(), option)
             }
         }
-        return indexed
-    }, [options])
+        return { exact, caseInsensitive }
+    }, [options, caseInsensitiveOptionMatching])
     const content = values.map((value) => {
-        const option: LemonInputSelectOption<T> = optionsByKey.get(value) ?? {
-            key: value,
-            label: value,
-            labelComponent: null,
-        }
+        const option: LemonInputSelectOption<T> = optionMaps.exact.get(value) ??
+            optionMaps.caseInsensitive.get(value.toLowerCase()) ?? {
+                key: value,
+                label: value,
+                labelComponent: null,
+            }
 
         if (sortable) {
             return (
