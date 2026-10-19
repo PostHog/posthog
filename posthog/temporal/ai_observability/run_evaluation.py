@@ -250,6 +250,17 @@ async def handle_terminal_user_error_result(
     return workflow_result
 
 
+def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:
+    # A backfill waits on its children, so each result lands in the backfill's own history. Hog
+    # output has no size cap, and a page of large results can pass Temporal's history limit.
+    if backfill_id is None:
+        return result
+    compact = result.copy()
+    compact.pop("reasoning", None)
+    compact.pop("message", None)
+    return compact
+
+
 @temporalio.workflow.defn(name="run-evaluation")
 class RunEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
@@ -262,6 +273,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
         # histories for one release, then delete this call (temporal-workflow-versioning rule).
         temporalio.workflow.deprecate_patch("remove-trial-evals")

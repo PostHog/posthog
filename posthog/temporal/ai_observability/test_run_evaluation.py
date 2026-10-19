@@ -95,6 +95,7 @@ from .run_evaluation import (
     RunLocalEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
     WorkflowResult,
+    compact_backfill_result,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -4682,3 +4683,24 @@ class TestRunLocalEvaluationActivity:
         second_uuid = mock_capture.call_args_list[1].kwargs["event_uuid"]
         assert first_uuid is not None
         assert first_uuid == second_uuid
+
+
+@pytest.mark.parametrize(
+    "backfill_id,expected",
+    [
+        pytest.param(
+            None, {"skipped": True, "skip_reason": "parse_error", "reasoning": "x", "message": "y"}, id="live"
+        ),
+        pytest.param("bf-1", {"skipped": True, "skip_reason": "parse_error"}, id="backfill"),
+    ],
+)
+def test_backfill_results_drop_free_text(backfill_id: str | None, expected: dict) -> None:
+    result: WorkflowResult = {
+        "evaluation_id": "e",
+        "evaluation_type": "hog",
+        "skipped": True,
+        "skip_reason": "parse_error",
+        "reasoning": "x",
+        "message": "y",
+    }
+    assert compact_backfill_result(result, backfill_id) == {"evaluation_id": "e", "evaluation_type": "hog", **expected}
