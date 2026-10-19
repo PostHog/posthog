@@ -823,6 +823,7 @@ class TestScanReplayVisionSessionsOutcomes(BaseTest):
         assert "Started 1 scan(s)." in content
         assert "1 recording(s) could not be found" in content
         assert start.call_count == 1
+        assert f"scan_id={artifact['scan_id']}" in content
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

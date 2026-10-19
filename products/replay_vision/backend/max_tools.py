@@ -145,6 +145,24 @@ Cite the matching recordings and synthesize the reasons rather than restating ea
 
 Pass `observation_id` to label_replay_vision_observation and `session_id` to scan_replay_vision_sessions.
 The two ids are not interchangeable.
+
+The results are the closest matches by meaning, capped at `limit`. They are not every recording that
+matches, and they are not the results of a scan you started: a search can return recordings from other
+scans and leave out the ones you asked about. Don't count rates or totals from them. To read the
+recordings a scan_replay_vision_sessions call covered, use get_replay_vision_scan_results with its scan id.
+
+# Using the results
+- Each line's date is when the recording happened. A recording from before a change (a deploy, a
+  campaign, a redesign) shows the old flow. Say so, and don't use it to explain what happens now.
+- `[at m:ss]` is a playback position in that recording. Quote it when you describe a moment, so the user
+  can find it. If a line gives no time, say you don't have one rather than estimate it.
+- Check that each line is about what the user asked before you cite it. A close match by meaning can
+  describe a session that went fine.
+- A snippet is the scanner's summary, not the full recording. Don't rule a cause in or out from snippets
+  alone. Say what the observations show, and call anything beyond that a guess.
+- When you turn results into a recommendation or into instructions for someone else, such as a coding
+  agent, keep the same split. Write what the observations show as findings, and anything you inferred as
+  a hypothesis to check first.
 """
 
 VALID_SCANNER_TYPES = {t.value for t in ScannerType}
@@ -569,7 +587,11 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         if not lines:
             return empty
 
-        header = f'Recordings from {scope_label} most relevant to "{neutralize_markup(query)}" ({len(lines)} matches, best first).'
+        header = (
+            f'Recordings from {scope_label} most relevant to "{neutralize_markup(query)}" ({len(lines)} matches, '
+            "best first). This is a ranked sample, not every matching recording and not one scan's results, "
+            "so don't count rates or totals from it."
+        )
         content = header + "\n\n" + as_untrusted_data("observations", lines)
         return content, {"result_count": len(lines), "observation_ids": matched_ids}
 
@@ -885,7 +907,8 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 )
             scanner, started, scanned = scan.scanner, scan.started, scan.results
         results = scanned + missing_results
-        return _scan_summary(started, results, _unanswered_reused(scanner, scanned)), {
+        summary = _scan_summary(started, results, _unanswered_reused(scanner, scanned))
+        return f"scan_id={scanner.id}\n{summary}", {
             "scan_id": str(scanner.id),
             "results": results,
         }
@@ -936,7 +959,7 @@ class GetReplayVisionScanResultsTool(ReplayVisionGatesMixin, MaxTool):
             observations = observations.filter(session_id__in=session_ids)
         rows = list(
             accessible_observations(self.user_access_control, self._team.id, observations)
-            .only("id", "session_id", "status", "error_reason", "scanner_result", "created_at")
+            .only("id", "session_id", "status", "error_reason", "scanner_result", "created_at", "session_started_at")
             .order_by("-created_at")[:MAX_SESSIONS_PER_SCAN]
         )
 
