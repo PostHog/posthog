@@ -24,7 +24,6 @@ import {
 import { SessionPlayerState } from '~/types'
 
 import { ClipRecording } from './ClipRecording'
-import { FollowLive } from './FollowLive'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -108,8 +107,7 @@ function SkipToStart(): JSX.Element {
 
 function SkipToNext(): JSX.Element | null {
     const timeoutRef = useRef<NodeJS.Timeout>()
-    const { endReached, followLive, playNextAnimationInterrupted, playNextRecording } =
-        useValues(sessionRecordingPlayerLogic)
+    const { endReached, playNextAnimationInterrupted, playNextRecording } = useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered, setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
 
@@ -138,7 +136,7 @@ function SkipToNext(): JSX.Element | null {
     useEffect(() => {
         clearTimeout(timeoutRef.current)
 
-        if (endReached && playNextRecording && !followLive) {
+        if (endReached && playNextRecording) {
             setAnimate(true)
             setPlayNextAnimationInterrupted(false)
             timeoutRef.current = setTimeout(() => {
@@ -147,7 +145,7 @@ function SkipToNext(): JSX.Element | null {
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached, followLive, !!playNextRecording]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [endReached, !!playNextRecording]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (playNextAnimationInterrupted) {
@@ -243,7 +241,6 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                     <SkipToNext />
                     <Timestamp size={size} />
-                    <FollowLive />
                 </div>
                 <div className="flex gap-0.5 justify-end items-center">
                     {ModesWithInteractions.includes(playerMode) && (

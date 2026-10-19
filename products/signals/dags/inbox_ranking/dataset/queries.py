@@ -20,7 +20,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
@@ -101,6 +101,7 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
         settings=HogQLGlobalSettings(max_execution_time=600),
         # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
         bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
     )
     return [tuple(row) for row in response.results or []]
 

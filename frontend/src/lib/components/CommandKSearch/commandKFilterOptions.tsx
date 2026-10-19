@@ -1,7 +1,9 @@
 import { IconArrowRight } from '@posthog/icons'
 
 import { SearchItem } from 'lib/components/Search/searchItems'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, UserType } from '~/types'
@@ -83,7 +85,12 @@ export function buildFilterOptions(
     folders: FileSystemEntry[] | null
 ): FilterOptions {
     return {
-        is: typeOptions(),
+        is: typeOptions().filter((option) =>
+            isFileSystemEntryTypeEnabled(
+                { type: option.value },
+                featureFlagLogic.findMounted()?.values.featureFlags ?? {}
+            )
+        ),
         createdBy: userOptions(members, user),
         in: (folders ?? []).map((folder) => ({ value: folder.path, label: folder.path })),
         name: [],

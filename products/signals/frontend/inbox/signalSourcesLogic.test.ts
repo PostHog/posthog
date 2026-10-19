@@ -82,6 +82,7 @@ describe('signalSourcesLogic', () => {
                     200,
                     { results: warehouseSources, count: warehouseSources.length, next: null, previous: null },
                 ],
+                '/api/projects/:team_id/error_tracking/issues/exists/': { exists: false },
                 '/api/projects/:team_id/signals/source_configs/': () => [
                     200,
                     { results: [], count: 0, next: null, previous: null },
@@ -333,6 +334,15 @@ describe('signalSourcesLogic', () => {
             dataStatus: 'none',
         },
         {
+            name: 'when the issue check fails and no recent exceptions exist',
+            arrange: (mountedLogic: typeof logic) => {
+                mountedLogic.actions.setErrorTrackingHasIssues(null)
+                mountedLogic.actions.loadProductDataEventsSuccess(new Set())
+            },
+            enabled: null,
+            dataStatus: 'error',
+        },
+        {
             name: 'when a successful check finds recent exceptions',
             arrange: (mountedLogic: typeof logic) =>
                 mountedLogic.actions.loadProductDataEventsSuccess(new Set(['$exception'])),
@@ -345,9 +355,50 @@ describe('signalSourcesLogic', () => {
             autocapture_exceptions_opt_in: false,
         })
 
+        logic.actions.setErrorTrackingHasIssues(false)
         arrange(logic)
 
         expect(logic.values.productStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+    })
+
+    it('keeps loaded product statuses visible until a background refresh completes', async () => {
+        const refresh = deferred<void>()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/': async () => {
+                    await refresh.promise
+                    return [200, { results: [], count: 0, next: null }]
+                },
+            },
+        })
+        logic.actions.setErrorTrackingHasIssues(false)
+        logic.actions.loadProductDataEventsSuccess(new Set(['$exception', '$ai_generation', '$pageview']))
+        const statuses = logic.values.productStatusBySource
+
+        logic.actions.loadProductDataEvents()
+        expect(logic.values.productDataEventsLoading).toBe(true)
+        expect(logic.values.productStatusBySource).toEqual(statuses)
+
+        refresh.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.productStatusBySource.llm_analytics?.dataStatus).toBe('none')
+    })
+
+    it('recognizes existing Error tracking issues without recent event definitions or browser autocapture', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/error_tracking/issues/exists/': { exists: true },
+                '/api/projects/:team_id/event_definitions/': { results: [], count: 0, next: null },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: false })
+
+        await expectLogic(logic, () => logic.actions.loadProductDataEvents()).toFinishAllListeners()
+
+        expect(logic.values.productStatusBySource.error_tracking).toMatchObject({
+            enabled: true,
+            dataStatus: 'unavailable',
+        })
     })
 
     it('uses only recently seen event definitions as product data', async () => {
