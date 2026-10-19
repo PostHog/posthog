@@ -125,7 +125,6 @@ impl TopicReader {
                 last_health_report = Instant::now();
             }
             if Instant::now() >= next_metadata_poll {
-                next_metadata_poll = Instant::now() + metadata_poll;
                 match self.assign_new_partitions().await {
                     Ok(Some(partitions)) => {
                         let assigned = Event::Assigned {
@@ -142,6 +141,9 @@ impl TopicReader {
                         metadata_errors.increment(1);
                     }
                 }
+                // Armed after the request, so a slow one cannot leave the
+                // next poll already due and starve the reads between polls.
+                next_metadata_poll = Instant::now() + metadata_poll;
             }
             let message = match tokio::time::timeout(RECV_TIMEOUT, self.consumer.recv()).await {
                 Err(_) => continue,
