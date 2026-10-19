@@ -68,6 +68,10 @@
         transition: none;
     }
 
+    &.dashboard-edit-mode .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
+        visibility: hidden;
+    }
+
     &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
         transition: transform 180ms ease-out;
     }
@@ -122,7 +126,7 @@
     display: none;
 }
 
-@keyframes dashboard-resize-handle-reveal {
+@keyframes DashboardResizeHandle__Reveal {
     from {
         opacity: 0;
     }
@@ -153,7 +157,7 @@
         align-items: flex-end;
         justify-content: center;
         pointer-events: none;
-        animation: dashboard-resize-handle-reveal 300ms step-end;
+        animation: DashboardResizeHandle__Reveal 300ms step-end;
 
         &.horizontal {
             svg {
@@ -197,6 +201,10 @@
 
             svg {
                 transform: translate(0.5rem, 0.5rem);
+            }
+
+            &.bottom-right svg {
+                transform: translate(-0.25rem, -0.25rem);
             }
 
             &.bottom-left {
@@ -243,6 +251,8 @@
     }
 
     & > .react-resizable-handle.react-resizable-handle-se {
+        right: 0;
+        bottom: 0;
         cursor: se-resize;
     }
 
