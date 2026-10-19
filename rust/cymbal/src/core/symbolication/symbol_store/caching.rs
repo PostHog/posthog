@@ -58,7 +58,7 @@ impl ParseLimiter {
             large_parse_bytes,
             memory_multiplier: memory_multiplier.max(1),
             budget_units,
-            min_units: (budget_units / max_concurrent).max(1),
+            min_units: budget_units.div_ceil(max_concurrent),
             permits: Arc::new(Semaphore::new(budget_units as usize)),
         }
     }
@@ -500,6 +500,7 @@ mod tests {
         for (fetched_bytes, max_concurrent, memory_multiplier, expected_max) in [
             (100, 1, 1, 1),
             (99, 1, 1, 3),
+            (100, 2, 1, 1),
             (100, 3, 1, 3),
             (100, 3, 20_000, 1),
         ] {
