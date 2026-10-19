@@ -81,8 +81,12 @@ impl<K: Eq + Hash + Clone, T> KeyedStash<K, T> {
     /// known. Sending new work directly while this holds would let it
     /// race ahead of the key's backlog.
     pub fn is_deferring(&self, key: &K) -> bool {
+        self.has_in_attempt(key) || self.queues.get(key).is_some_and(|q| !q.is_empty())
+    }
+
+    /// Whether `key` has entries taken for an attempt and not yet completed or put back.
+    pub fn has_in_attempt(&self, key: &K) -> bool {
         self.in_attempt.get(key).is_some_and(|n| *n > 0)
-            || self.queues.get(key).is_some_and(|q| !q.is_empty())
     }
 
     /// Take up to `max` entries from the front of `key`'s queue for a
@@ -159,6 +163,12 @@ impl<K: Eq + Hash + Clone, T> KeyedStash<K, T> {
     /// by the outcome of the current one.
     pub fn keys_with_backlog(&self) -> impl Iterator<Item = &K> {
         self.queues.keys()
+    }
+
+    /// Keys for which [`is_deferring`](Self::is_deferring) holds; a key
+    /// with both queued and in-attempt entries may appear twice.
+    pub fn deferring_keys(&self) -> impl Iterator<Item = &K> {
+        self.queues.keys().chain(self.in_attempt.keys())
     }
 
     /// Total queued entries across all keys (in-attempt entries are not

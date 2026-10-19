@@ -11,18 +11,21 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use bytes::Bytes;
 use common::{create_test_person, start_test_leader, start_test_leader_at, TestLeaderService};
 use http::HeaderMap;
 use http_body_util::BodyExt;
+use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::changelog::LiveChangelog;
 use personhog_coordination::routing_table::StashHandler;
+use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::ChangelogConfig;
 use personhog_proto::personhog::types::v1::{
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
     Person, SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
-use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
+use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashDecision, StashTable};
 use personhog_router::config::Http2Windows;
 use personhog_router::stash_handler::RouterStashHandler;
 use prost::Message;
@@ -44,6 +47,21 @@ const TEST_DRAIN_CONCURRENCY: usize = 4;
 
 fn new_test_handler(backend: Arc<LeaderBackend>) -> RouterStashHandler {
     RouterStashHandler::new(backend, TEST_MAX_STASH_WAIT, TEST_DRAIN_CONCURRENCY)
+}
+
+/// A store under a fresh prefix, so no other test's config is visible.
+async fn test_store() -> Arc<PersonhogStore> {
+    let inner = EtcdStore::connect(StoreConfig {
+        endpoints: vec!["http://localhost:2379".to_string()],
+        prefix: format!("/stash-test-{}/", rand::random::<u64>()),
+    })
+    .await
+    .expect("failed to connect to etcd");
+    Arc::new(PersonhogStore::new(inner))
+}
+
+fn changelog() -> LiveChangelog {
+    LiveChangelog::new(ChangelogConfig::new("personhog_updates", NUM_PARTITIONS))
 }
 
 /// Build a `LeaderBackend` whose routing table maps every partition at the
@@ -109,12 +127,10 @@ async fn forward(
     backend: &LeaderBackend,
     req: UpdatePersonPropertiesRequest,
 ) -> http::Response<BoxBody> {
-    let partition = backend.partition_for_person(req.team_id, req.person_id);
     let key = (req.team_id, req.person_id);
     let (response, _call_ms) = backend
         .forward_or_stash(
             "UpdatePersonProperties",
-            partition,
             key,
             HeaderMap::new(),
             encode_frame(&req),
@@ -169,11 +185,9 @@ async fn forward_read(
     buf.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
     buf.extend(encoded);
 
-    let partition = backend.partition_for_person(team_id, person_id);
     let (response, _call_ms) = backend
         .forward_or_stash(
             "GetPerson",
-            partition,
             (team_id, person_id),
             HeaderMap::new(),
             Bytes::from(buf),
@@ -191,7 +205,7 @@ async fn request_during_stash_completes_after_drain() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -241,7 +255,7 @@ async fn multiple_stashed_requests_drain_in_fifo() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -299,7 +313,7 @@ async fn requests_for_unstashed_partition_forward_immediately() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -331,7 +345,7 @@ async fn stash_full_returns_unavailable_via_backend() {
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
     // Tight cap: only one stashed message per partition.
-    let stash = StashTable::with_bounds(1, usize::MAX);
+    let stash = StashTable::with_bounds(1, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -366,7 +380,7 @@ async fn back_to_back_handoffs_use_fresh_queue() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -428,7 +442,7 @@ async fn ordering_preserved_when_request_arrives_during_drain() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -497,7 +511,7 @@ async fn stash_wait_exceeded_returns_unavailable() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     // Tight deadline — any request that ages past ~50ms in the stash
     // gets failed fast on drain.
@@ -537,10 +551,9 @@ async fn stash_wait_exceeded_returns_unavailable() {
 async fn a_semantic_refusal_passes_through_instead_of_bouncing() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash).await;
 
-    let partition = backend.partition_for_person(person.team_id, person.id);
     let req = FoldPersonDocumentRequest {
         team_id: person.team_id,
         person_id: person.id,
@@ -555,7 +568,6 @@ async fn a_semantic_refusal_passes_through_instead_of_bouncing() {
     let (response, _call_ms) = backend
         .forward_or_stash(
             "FoldPersonDocument",
-            partition,
             (person.team_id, person.id),
             HeaderMap::new(),
             encode_frame(&req),
@@ -588,7 +600,7 @@ async fn fence_bounce_parks_requests_until_a_later_drain_delivers() {
     let fence = service.fence_flag();
     let leader_addr = start_test_leader(service).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     // Generous deadline so the deadline path can never produce a client
     // error and mask a bounce that wrongly surfaced one.
@@ -645,7 +657,7 @@ async fn transport_failure_parks_requests_until_a_later_drain_delivers() {
     let leader_addr = reserved.local_addr().unwrap();
     drop(reserved);
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     // Generous deadline so the deadline path can never produce a client
     // error and mask a bounce that wrongly surfaced one.
@@ -704,7 +716,7 @@ async fn a_live_write_rides_out_a_fence_via_router_retry() {
     let fence = service.fence_flag();
     let leader_addr = start_test_leader(service).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
 
     // The fence clears mid-retry, as it does in production once the
@@ -739,7 +751,7 @@ async fn a_live_write_past_the_bounce_budget_fails_unavailable() {
     )
     .await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
 
     let req = mk_request(person.team_id, person.id, "live-wedged@example.com");
@@ -768,7 +780,7 @@ async fn a_bouncing_live_write_parks_once_the_stash_opens() {
     let leader_addr = reserved.local_addr().unwrap();
     drop(reserved);
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_secs(60), 4);
 
@@ -811,7 +823,7 @@ async fn stashed_strong_read_observes_stashed_write() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -861,7 +873,7 @@ async fn stashed_read_past_deadline_returns_unavailable() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_millis(50), 4);
 
@@ -903,7 +915,7 @@ async fn drain_converges_with_concurrent_arrivals() {
     let person = create_test_person();
     let leader_addr = start_test_leader(TestLeaderService::new().with_person(person.clone())).await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash.clone()).await;
     let handler = Arc::new(new_test_handler(Arc::clone(&backend)));
 
@@ -983,7 +995,7 @@ async fn drain_cancellation_returns_promptly_and_puts_the_entry_back() {
         }
     });
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
     let backend = make_backend(leader_addr, stash).await;
     let handler = new_test_handler(Arc::clone(&backend));
 
@@ -1021,4 +1033,76 @@ async fn drain_cancellation_returns_promptly_and_puts_the_entry_back() {
         handler.stash_pending(partition),
         "the abandoned entry must be put back for the next drain"
     );
+}
+
+/// A person whose partition differs between the current and the grown count.
+fn moving_person() -> i64 {
+    (1..)
+        .find(|id| {
+            partition_for_person(1, *id, NUM_PARTITIONS)
+                != partition_for_person(1, *id, NUM_PARTITIONS * 2)
+        })
+        .unwrap()
+}
+
+fn grown_config() -> ChangelogConfig {
+    ChangelogConfig {
+        epoch: 2,
+        ..ChangelogConfig::new("personhog_updates_v2", NUM_PARTITIONS * 2)
+    }
+}
+
+/// The router's config watch adopts a flip from etcd, through the same
+/// function `main` runs, and a parked key then belongs to the drain of its
+/// partition under the new count.
+#[tokio::test]
+async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
+    let store = test_store().await;
+    assert!(store
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .await
+        .unwrap());
+    let changelog = changelog();
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog.clone());
+    let backend = Arc::new(LeaderBackend::new(
+        Arc::new(RwLock::new(HashMap::new())),
+        Arc::new(|_: &str| None),
+        LeaderBackendConfig {
+            changelog: changelog.clone(),
+            timeout: Duration::from_secs(5),
+            num_channels: 1,
+            http2_windows: Http2Windows::default(),
+        },
+        stash.clone(),
+    ));
+    let person_id = moving_person();
+    let new_partition = partition_for_person(1, person_id, NUM_PARTITIONS * 2);
+    stash.begin_stash(partition_for_person(1, person_id, NUM_PARTITIONS));
+    let parked = stash.enqueue_or_forward(
+        "UpdatePersonProperties",
+        &Bytes::from(mk_request(1, person_id, "x@example.com").encode_to_vec()),
+        &HeaderMap::new(),
+        (1, person_id),
+        partition_for_person(1, person_id, NUM_PARTITIONS),
+        false,
+    );
+    assert!(matches!(parked, StashDecision::Stashed(_)));
+
+    store.put_changelog_config(&grown_config()).await.unwrap();
+    let cancel = CancellationToken::new();
+    tokio::spawn(personhog_coordination::changelog::keep_changelog_live(
+        Arc::clone(&store),
+        backend.changelog().clone(),
+        cancel.clone(),
+    ));
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !stash.is_pending(new_partition) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the parked key belongs to its partition under the adopted count");
+    assert_eq!(backend.changelog().partitions(), NUM_PARTITIONS * 2);
+    cancel.cancel();
 }

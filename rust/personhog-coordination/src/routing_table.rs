@@ -42,17 +42,14 @@ pub trait StashHandler: Send + Sync {
         cancel: CancellationToken,
     ) -> Result<()>;
 
-    /// Whether the partition's stash lifecycle is still open — an entry
-    /// exists, holding parked requests or an unflushed (possibly empty)
-    /// stash window. This is the authority the reconcile pass consults
-    /// before re-requesting a drain: a settled partition has no entry
-    /// (the drain's final act evicts it), while a drain that yielded
-    /// early leaves the entry and its backlog behind, so re-requesting
-    /// is exactly the retry mechanism. Entry existence — not backlog
-    /// depth — is the correct predicate, because a completed handoff
-    /// with an empty stash window still needs one drain to settle and
-    /// evict the entry; gating on parked requests would leave that
-    /// window open forever.
+    /// Whether the partition still needs a drain: it is stashing, or
+    /// parked requests map to it. This is the authority the reconcile
+    /// pass consults before re-requesting a drain: a settled partition
+    /// is neither, while a drain that yielded early leaves its backlog
+    /// behind, so re-requesting is exactly the retry mechanism. An open
+    /// freeze counts even with nothing parked, because a completed
+    /// handoff with an empty stash window still needs one drain to end
+    /// the freeze.
     ///
     /// Defaults to `true`, which preserves the always-request behavior
     /// for implementations that don't track stash state.
@@ -68,8 +65,8 @@ pub trait StashHandler: Send + Sync {
 /// on the watch loop, where it would gate freeze acks and routing updates
 /// for every partition. Lanes serialize drains per partition: requesting a
 /// drain toward a different target supersedes the one in flight (its token
-/// is cancelled and it yields at a batch boundary, leaving the stash entry
-/// live), and the new drain starts only after the old one has fully
+/// is cancelled and it yields at a batch boundary, leaving its backlog
+/// parked), and the new drain starts only after the old one has fully
 /// stopped, so two drains can never interleave batches toward different
 /// targets. A request toward the same target is absorbed by the running
 /// drain, whose loop already covers later arrivals. Observing a
@@ -115,8 +112,8 @@ impl DrainLanes {
         let task_token = token.clone();
         let mut lanes = self.lanes.lock().expect("drain lanes lock poisoned");
         // A drain already running toward the same target covers everything
-        // this request would: its loop keeps taking runs until it observes
-        // the queue fully settled, including arrivals after this point.
+        // this request would: its loop keeps taking runs until no key of
+        // the partition remains, including arrivals after this point.
         // Restarting it would only churn — cancel, put back, re-take the
         // same backlog — for no coverage gain.
         if let Some(prev) = lanes.get(&partition) {
@@ -979,7 +976,7 @@ impl RoutingTable {
     /// One level-triggered convergence pass over a fresh snapshot: the
     /// router's equivalent of the coordinator's reconcile tick and the
     /// pod's fresh-read convergence. Every action here is idempotent
-    /// against the event path — `begin_stash` no-ops on a live entry,
+    /// against the event path — `begin_stash` renews a freeze,
     /// freeze acks are id-correlated, table writes are last-writer-wins
     /// from the authority, and drain requests are absorbed by a running
     /// same-target lane.
@@ -1046,8 +1043,8 @@ impl RoutingTable {
                         .write()
                         .await
                         .insert(handoff.partition, handoff.new_owner.clone());
-                    // Only request a drain while the stash lifecycle is
-                    // open. A settled partition has no entry, and its
+                    // Only request a drain while the partition is
+                    // pending. A settled partition is not, and its
                     // finished lane never absorbs (a finished drain may
                     // have yielded with backlog), so an unconditional
                     // request here would respawn a no-op drain every

@@ -127,6 +127,8 @@ Several failure modes are handled explicitly:
 
 `config/changelog` (`{topic, partitions, epoch, writer_group, draining}`) is the one live object every participant reads. Every service loads it at boot; the router and the identity service also follow it through a watch, so the partition count they hash under is the live one.
 
+Routers park requests per key, so a key's requests keep one queue when the partition count changes: a request goes straight to a leader only when its key has nothing parked or in flight and its partition is not stashing, and the live count decides only which partition's drain takes a key. A drain takes the keys that map to its partition under the count the router has adopted.
+
 ## Modules
 
 | Module | Responsibility |
