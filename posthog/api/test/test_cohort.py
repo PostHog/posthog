@@ -7366,6 +7366,42 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.json()["code"] == "cohort_used_by_workflows"
         assert Cohort.objects.get(id=cohort_id).cohort_type == CohortType.REALTIME
 
+    @parameterized.expand(
+        [
+            ("criteria_change", "active", {"value": "@example.com"}, 400),
+            ("criteria_change_with_draft_workflow", "draft", {"value": "@example.com"}, 200),
+            ("rename", "active", {"name": "Renamed"}, 200),
+            ("rename_resending_the_same_criteria", "active", {"name": "Renamed", "value": "@posthog.com"}, 200),
+            (
+                "rename_resending_the_same_criteria_regrouped",
+                "active",
+                {"name": "Renamed", "value": "@posthog.com", "regrouped": True},
+                200,
+            ),
+        ]
+    )
+    def test_criteria_edit_is_blocked_by_active_workflows_using_it(self, _name, status, change, expected_status):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, "trigger", status)
+        payload: dict[str, Any] = {key: value for key, value in change.items() if key not in ("value", "regrouped")}
+        if "value" in change:
+            condition = {"type": "person", "key": "email", "operator": "icontains", "value": change["value"]}
+            if change.get("regrouped"):
+                condition = {"type": "AND", "values": [condition]}
+            payload["filters"] = {"properties": {"type": "AND", "values": [condition]}}
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", payload, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert (
+                "Changing its criteria would send its current members through them again" in response.json()["detail"]
+            )
+            assert response.json()["code"] == "cohort_used_by_workflows"
+            stored_filters = Cohort.objects.get(id=cohort_id).filters
+            assert stored_filters is not None
+            assert stored_filters["properties"]["values"][0]["value"] == "@posthog.com"
+
     def test_edit_that_stops_realtime_is_blocked_by_workflows_on_a_cohort_that_includes_it(self):
         included_id = self._create_realtime_cohort()
         including_id = included_id
