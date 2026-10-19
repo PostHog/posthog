@@ -105,6 +105,7 @@ export type DashboardFilterChangeType =
     | 'test_accounts'
     | 'compare'
     | 'metric_labels'
+    | 'metric_variables'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -569,13 +570,32 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
     }
 }
 
+// Metric variable definitions hold queries and option lists, which do not belong in analytics.
+export function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
+    const { metricVariables, ...rest } = filters
+    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
+}
+
 export function sanitizeInsight(insight: Partial<InsightModel> | null): object | undefined {
     if (!insight) {
         return undefined
     }
 
     // Remove results
-    const { result, ...sanitizedInsight } = insight
+    const { result, ...rest } = insight
+    const context = rest.filter_override_context
+    const sanitizedInsight = context
+        ? {
+              ...rest,
+              filter_override_context: {
+                  ...context,
+                  dashboard: context.dashboard ? filtersForAnalytics(context.dashboard) : context.dashboard,
+                  overridden_dashboard: context.overridden_dashboard
+                      ? filtersForAnalytics(context.overridden_dashboard)
+                      : context.overridden_dashboard,
+              },
+          }
+        : rest
 
     if (sanitizedInsight.query) {
         return {
@@ -609,6 +629,8 @@ export function sanitizeDashboard(dashboard: DashboardType | null): object | nul
     return {
         ...sanitizedDashboard,
         breakdown_colors_count: breakdown_colors?.length ?? 0,
+        filters: filtersForAnalytics(dashboard.filters ?? {}),
+        persisted_filters: dashboard.persisted_filters ? filtersForAnalytics(dashboard.persisted_filters) : null,
         tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
     }
 }

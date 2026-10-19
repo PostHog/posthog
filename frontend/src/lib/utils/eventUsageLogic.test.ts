@@ -26,6 +26,7 @@ import {
     dashboardViewedProperties,
     eventUsageLogic,
     getEventPropertiesForMetric,
+    sanitizeDashboard,
     sanitizeQuery,
 } from './eventUsageLogic'
 
@@ -374,6 +375,16 @@ describe('eventUsageLogic', () => {
         it.each(cases)('describes %s without its filter values', (_, query, expected) => {
             expect(sanitizeQuery(query as Node | null)).toEqual(expected)
         })
+    })
+
+    it('keeps metric variable definitions out of a sanitized dashboard', () => {
+        const metricVariables = [{ name: 'env', source: 'sql', query: 'SELECT private_value' }]
+        const tile = { id: 1, insight: { id: 2, filter_override_context: { dashboard: { metricVariables } } } }
+        const dashboard = { id: 7, tiles: [tile], filters: { metricVariables }, persisted_filters: { metricVariables } }
+
+        const sanitized = sanitizeDashboard(dashboard as unknown as DashboardType)
+
+        expect(JSON.stringify(sanitized)).not.toContain('private_value')
     })
 
     describe('dashboardViewedProperties', () => {
