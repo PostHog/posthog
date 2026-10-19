@@ -201,6 +201,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     PLAID = "Plaid", "Plaid"
     SURVEYMONKEY = "SurveyMonkey", "SurveyMonkey"
     EVENTBRITE = "Eventbrite", "Eventbrite"
+    EVERFLOW = "Everflow", "Everflow"
     RINGCENTRAL = "RingCentral", "RingCentral"
     TWILIO = "Twilio", "Twilio"
     FRESHSALES = "Freshsales", "Freshsales"

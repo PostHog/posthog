@@ -31324,6 +31324,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -32722,6 +32723,7 @@ export namespace Schemas {
       Plaid: 'Plaid',
       SurveyMonkey: 'SurveyMonkey',
       Eventbrite: 'Eventbrite',
+      Everflow: 'Everflow',
       RingCentral: 'RingCentral',
       Twilio: 'Twilio',
       Freshsales: 'Freshsales',
@@ -34134,6 +34136,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -36798,6 +36801,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -48911,6 +48915,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -50343,6 +50348,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -104449,6 +104455,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -105912,6 +105919,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -107342,6 +107350,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -126450,6 +126459,10 @@ export namespace Schemas {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean;
+    /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean;
     /**
      * Number of results to return per page.
      */
