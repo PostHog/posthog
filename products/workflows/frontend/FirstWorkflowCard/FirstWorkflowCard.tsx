@@ -25,7 +25,7 @@ export function FirstWorkflowCard(): JSX.Element {
         <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: FIRST_WORKFLOW_CARD_DISMISS_KEY }}>
             <AdvertisementCard
                 title="Create your first workflow"
-                text="Start from your most-used event, then send an email or a Slack message each time it happens."
+                text="Start from your most-used event, then post to Slack, start an AI task, or send an email each time it happens."
                 hero={getProductPushDisplay(ProductKey.WORKFLOWS)}
                 onClose={() => reportDismissed()}
             />
