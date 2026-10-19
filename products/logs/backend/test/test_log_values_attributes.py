@@ -348,23 +348,40 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
         [
             (
                 "values",
+                "get",
                 "products.logs.backend.presentation.views.api.LogValuesQueryRunner.calculate",
                 {"key": "service.name", "attribute_type": "resource"},
             ),
             (
                 "attributes",
+                "get",
                 "products.logs.backend.presentation.views.api.LogAttributesQueryRunner.calculate",
                 {"attribute_type": "resource"},
             ),
+            (
+                "query",
+                "post",
+                "products.logs.backend.presentation.views.api.time_sliced_results",
+                {
+                    "query": {
+                        "dateRange": {"date_from": "-1h"},
+                        "customColumns": ["attributes['duration'] / 1000"],
+                    }
+                },
+            ),
         ]
     )
-    def test_query_error_returns_400_with_message(self, endpoint, runner_path, params):
+    def test_query_error_returns_400_with_message(self, endpoint, method, runner_path, params):
         # HogQL and ClickHouse failures are disjoint exception hierarchies; both must reach the
-        # service filter as a clean 400, not an opaque 500.
+        # service filter or custom column as a clean 400, not an opaque 500.
         for error in (QueryError("bad log query"), ExposedCHQueryError("bad clickhouse query", code=43)):
             with self.subTest(error=type(error).__name__):
                 with patch(runner_path, side_effect=error):
-                    response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+                    response = getattr(self.client, method)(
+                        f"/api/projects/{self.team.pk}/logs/{endpoint}",
+                        params,
+                        **({"format": "json"} if method == "post" else {}),
+                    )
 
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertEqual(response.json()["error"], str(error))

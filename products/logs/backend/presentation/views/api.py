@@ -1493,8 +1493,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         analytics_props=analytics_props,
                     )
                 )
-        except QueryError as e:
-            # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
+        except (QueryError, ExposedCHQueryError) as e:
+            # A bad custom-column expression fails as QueryError (HogQL) or ExposedCHQueryError (ClickHouse
+            # type checks, e.g. dividing a string attribute); keep both a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
