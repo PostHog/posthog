@@ -1,3 +1,7 @@
+import posthog from 'posthog-js'
+
+import type { Sorting } from '@posthog/lemon-ui'
+
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
 export const HOGQL_METRIC_DEFINITION_KIND = 'HogQLQuery'
@@ -48,6 +52,20 @@ export const METRIC_MARKDOWN_MAX_LENGTH = 20000
 
 // Mirrors METRIC_BULK_MAX enforced in products/data_catalog/backend/logic/metrics.py.
 export const METRIC_BULK_MAX = 100
+
+export type DataCatalogTable = 'metrics' | 'relationships' | 'certifications'
+
+export function compareText(a: string | null | undefined, b: string | null | undefined): number {
+    return (a ?? '').localeCompare(b ?? '')
+}
+
+export function reportCatalogTableSorted(table: DataCatalogTable, sorting: Sorting | null): void {
+    posthog.capture('data catalog table sorted', {
+        table,
+        column: sorting?.columnKey ?? null,
+        order: sorting ? (sorting.order === 1 ? 'asc' : 'desc') : null,
+    })
+}
 
 export function metricCount(count: number): string {
     return `${count} ${count === 1 ? 'metric' : 'metrics'}`
