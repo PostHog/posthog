@@ -744,6 +744,13 @@ class DashboardImporter:
                 key=answer.key, title=title, outcome="failed", reason=error or "The query did not pass the check."
             )
         # The parser maps a Grafana panel's display exactly, so only a screenshot panel takes the agent's display.
+        query = answer.query
+        if spec_panel is not None and any(target.templated_expr for target in spec_panel.targets):
+            unchanged = combine_targets([(target.ref_id, target.expr) for target in spec_panel.targets])
+            if query.language == "promql" and query.promql == unchanged:
+                query = PanelResolver._templated(spec_panel, query)
+            else:
+                reason = " ".join([reason, "The panel keeps the saved values of the dashboard variables."]).strip()
         if spec_panel is not None:
             display = spec_panel.display
         else:
@@ -761,7 +768,7 @@ class DashboardImporter:
             tile=insight_tile(
                 name=title,
                 description=spec_panel.description if spec_panel else "",
-                query=insight_query(answer.query, display, catalog=catalog, validator=validator, date_from=date_from),
+                query=insight_query(query, display, catalog=catalog, validator=validator, date_from=date_from),
                 layout=layout,
             ),
         )

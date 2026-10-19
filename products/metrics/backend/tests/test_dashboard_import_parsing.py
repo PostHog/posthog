@@ -536,10 +536,41 @@ def test_a_listed_all_matches_only_the_listed_values() -> None:
         ),
         pytest.param({"name": "env", "type": "custom", "query": "a," + "b" * 1025}, id="value_over_the_api_limit"),
         pytest.param({"name": "e" * 129, "type": "textbox", "query": "prod"}, id="name_over_the_api_limit"),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/^api-(?!test).*$/"},
+            id="regex_that_re2_cannot_run",
+        ),
+        pytest.param(
+            {"name": "pod", "type": "query", "query": 'label_values({app="api"}, pod)', "datasource": "Loki"},
+            id="other_datasource",
+        ),
+        pytest.param({"name": "job", "type": "textbox", "query": "api-.*"}, id="text_box_regex"),
     ],
 )
 def test_variables_that_cannot_stay_live_keep_their_saved_values(item: dict[str, Any]) -> None:
-    assert TemplateVariables.from_templating([item]).definitions() == []
+    datasource_type = lambda datasource: "loki" if datasource == "Loki" else None  # noqa: E731
+    assert TemplateVariables.from_templating([item], datasource_type).definitions() == []
+
+
+def test_a_text_box_regex_stays_a_regex() -> None:
+    variables = TemplateVariables.from_templating([{"name": "job", "type": "textbox", "query": "api-.*"}])
+
+    assert variables.substitute('up{job=~"$job"}').text == 'up{job=~"api-.*"}'
+
+
+def test_a_variable_whose_query_cannot_resolve_stays_static() -> None:
+    variables = TemplateVariables.from_templating(
+        [
+            {"name": "window", "type": "interval", "current": {}},
+            {"name": "job", "type": "query", "query": "query_result(rate(up[$window]))", "current": {"value": "a"}},
+            {"name": "pod", "type": "query", "query": 'label_values(up{job="$job"}, pod)', "current": {"value": "b"}},
+        ]
+    )
+
+    assert [(definition.name, definition.query) for definition in variables.definitions()] == [
+        ("pod", 'label_values(up{job="a"}, pod)')
+    ]
+    assert variables.template('up{job="$job"}') is None
 
 
 @pytest.mark.parametrize(

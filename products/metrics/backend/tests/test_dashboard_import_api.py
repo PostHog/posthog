@@ -216,6 +216,29 @@ class TestDashboardImportAPI(APIBaseTest):
         assert DashboardTile.objects.filter(dashboard_id=first["dashboard_id"]).count() == 3
         self.storage.delete.assert_called()
 
+    def test_an_agent_panel_without_variable_references_says_so(self) -> None:
+        templating = [{"name": "job", "type": "custom", "query": "api,web", "current": {"value": "api"}}]
+        started = self._start(
+            source="grafana", grafana_json=_grafana('rate(payments_total{job="$job"}[5m])', templating=templating)
+        )
+        answer = {
+            "dashboard_name": "Orders",
+            "panels": [
+                {
+                    "key": "p2",
+                    "title": "Payments",
+                    "outcome": "approximated",
+                    "reason": "Uses orders_total.",
+                    "query": {"language": "promql", "promql": 'sum(rate(orders_total{job="api"}))'},
+                }
+            ],
+        }
+
+        self._finish_run(started["id"], run_status=TaskRun.Status.COMPLETED, output=answer)
+        body = self.client.get(f"{self.url}{started['id']}/").json()
+
+        assert "keeps the saved values" in body["panels"][1]["reason"]
+
     @parameterized.expand(
         [
             ("run_failed", TaskRun.Status.FAILED, None, "stopped before it finished"),
