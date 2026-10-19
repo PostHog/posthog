@@ -175,6 +175,40 @@ Experiment names don't change with the runtime or skill delivery. Each Braintrus
 
 ### Claude and Codex smoke comparison
 
+Run both default models and print one comparison with `--compare`:
+
+```bash
+hogli evals cli_mcp/eval_skill_distribution::eval_skill_distribution \
+  --eval historical_traffic_share_by_type \
+  --provider modal --skill-delivery exec \
+  --trials 3 --max-sandboxes 2 --compare
+```
+
+Both configurations are checked before either agent run starts. The models run in order, in separate processes,
+with the same suite selectors, case filter, provider, skill delivery, trial count, timeout, and concurrency.
+Comparisons use plain text output so each model can finish without waiting for the interactive view to close.
+Ctrl-C stops the comparison after the current child finishes cleanup.
+
+Use repeated `--compare-model claude:MODEL` and `--compare-model codex:MODEL` options to replace the default pair.
+At least two distinct runtime/model pairs and one suite selector are required. Only sandboxed suites are supported;
+one-shot suites select their models internally. Do not combine comparison options with `--agent-model` or `--agent-runtime`.
+
+The command saves `comparison.json`, `comparison.txt`, and each child's run report under `logs/comparisons/<run>/`.
+Use `--comparison-dir PATH` to choose a new directory. Existing directories are rejected to protect previous results.
+Each model retains its own full transcript, and the comparison has a combined transcript whose path prints last.
+Reports retain completed models if a later model fails or the comparison is interrupted.
+
+The table shows named scorer means with scored-trial counts, completed execution coverage, errors, timeouts, and wall time.
+Missing and skipped scores show `n/a`; a real zero shows `0.0%`. Costs show `unavailable` because these results do not contain cost data.
+Case-set, scorer-set, or checkout differences produce a warning and a nonzero exit status.
+Errors, timeouts, incomplete results, and failed score gates also make the comparison exit nonzero.
+The comparison measures model plus runtime. A small smoke case is not a model ranking.
+
+Use `--check` without comparison options to validate a single run without starting services or agents.
+Use `--results-file PATH` on a single run to save its structured scores, coverage, settings, and log locations.
+
+The manual command pair remains available:
+
 Start with one fixed MCP case. It checks skill discovery and tool use for a historical traffic query.
 Both commands below use the same case, provider, skill delivery, concurrency, and scorers.
 Run them in order from the same checkout. Separate harness processes share service ports, so do not run them together.

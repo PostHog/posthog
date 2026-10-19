@@ -386,6 +386,7 @@ class _BaseEvalRun:
             result.summary,
             error_count=error_count,
             trial_stats=trial_stats(result.results, trials=self.ctx.trials),
+            case_results=result.results,
         )
 
         if os.getenv("EXPORT_EVAL_RESULTS"):
@@ -495,7 +496,12 @@ class _BaseEvalRun:
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
         planned_cases = len(eval_cases) * self.ctx.trials
-        await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
+        await self.ctx.reporter.experiment_started(
+            self.experiment_name,
+            planned_cases,
+            self.run_log_dir,
+            case_names=[str(case.input["name"]) for case in eval_cases],
+        )
 
         try:
             result = await self.engine.run_experiment(

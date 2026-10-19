@@ -8,6 +8,33 @@ from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_ar
 
 
 @pytest.mark.parametrize(
+    "arguments,expected",
+    [
+        (["suite", "--compare"], [("claude", "claude-opus-5"), ("codex", "gpt-5.5")]),
+        (
+            ["suite", "--compare-model", "codex:gpt-example", "--compare-model", "codex:gpt-other"],
+            [("codex", "gpt-example"), ("codex", "gpt-other")],
+        ),
+        (["suite", "--compare-model", "codex:gpt-example"], None),
+        (["suite", "--compare-model", "unknown:model"], None),
+        (["suite", "--compare-model", "claude:"], None),
+        (["suite", "--compare-model", "claude:model", "--compare-model", "claude:model"], None),
+        (["--compare"], None),
+        (["suite", "--compare", "--agent-runtime", "codex"], None),
+        (["suite", "--compare", "--tui"], None),
+        (["--comparison-dir", "example"], None),
+    ],
+)
+def test_model_comparison_arguments(arguments: list[str], expected: list[tuple[str, str]] | None) -> None:
+    if expected is None:
+        with pytest.raises(SystemExit) as error:
+            parse_args(arguments)
+        assert error.value.code == 2
+    else:
+        assert [(target.runtime, target.model) for target in parse_args(arguments).comparison_models] == expected
+
+
+@pytest.mark.parametrize(
     "argv,expected_delivery",
     [
         ([], "bundled"),
