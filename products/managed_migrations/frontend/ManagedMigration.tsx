@@ -17,6 +17,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -454,6 +455,17 @@ export function ManagedMigration(): JSX.Element {
     )
 }
 
+function completedLabel(migration: ManagedMigrationData): string {
+    const eventsEmitted = migration.state?.events_emitted
+    if (eventsEmitted === undefined) {
+        return 'Complete'
+    }
+    if (eventsEmitted === 0) {
+        return 'Complete, no events imported'
+    }
+    return `Complete, ${humanFriendlyNumber(eventsEmitted)} events imported`
+}
+
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading, promotingMigrationId } = useValues(managedMigrationLogic)
     const { pauseMigration, resumeMigration, promoteTrial, viewTrialResults } = useActions(managedMigrationLogic)
@@ -465,7 +477,7 @@ export function ManagedMigrations(): JSX.Element {
             const parts = migration.state.parts
             const totalParts = parts.length
             const completedParts = parts.filter(
-                (part) => part.total_size !== null && part.total_size === part.current_offset
+                (part) => part.total_size !== null && part.current_offset >= part.total_size
             ).length
             return {
                 progress: totalParts > 0 ? (completedParts / totalParts) * 100 : 0,
@@ -609,7 +621,7 @@ export function ManagedMigrations(): JSX.Element {
                                             />
                                             <span className="text-xs text-muted">
                                                 {migration.display_status === 'completed'
-                                                    ? 'Complete'
+                                                    ? completedLabel(migration)
                                                     : migration.display_status === 'paused'
                                                       ? 'Paused'
                                                       : migration.display_status === 'waiting_to_start'
