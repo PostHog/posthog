@@ -5,7 +5,7 @@ import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
-import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
+import { redactMetricVariableRequest, redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
@@ -220,6 +220,7 @@ export function loadPostHogJS(): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
+                maskCapturedNetworkRequestFn: redactMetricVariableRequest,
             },
             person_profiles: 'always',
             // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth
