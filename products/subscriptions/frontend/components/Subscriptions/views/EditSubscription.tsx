@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode } from 'react'
 
 import { IconChevronLeft, IconInfo, IconSend } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -271,14 +271,6 @@ export function EditSubscription({
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
     const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
     const slackReconnectRestriction = useIntegrationManagementRestriction()
-
-    const hasEmailRecipients = subscription?.target_type === 'email' && Boolean(subscription.target_value)
-
-    useEffect(() => {
-        if (hasEmailRecipients && !members) {
-            ensureAllMembersLoaded()
-        }
-    }, [hasEmailRecipients, members, ensureAllMembersLoaded])
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt

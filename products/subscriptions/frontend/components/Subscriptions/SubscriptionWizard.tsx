@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconChevronLeft, IconGraph } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -362,14 +362,6 @@ function SubscriptionDeliveryStep({
     const { integrations, slackIntegrations } = useValues(integrationsLogic)
     const { preflight } = useValues(preflightLogic)
     const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
-
-    const hasEmailRecipients = subscription?.target_type === 'email' && Boolean(subscription.target_value)
-
-    useEffect(() => {
-        if (hasEmailRecipients && !members) {
-            ensureAllMembersLoaded()
-        }
-    }, [hasEmailRecipients, members, ensureAllMembersLoaded])
 
     return (
         <div className="flex flex-col gap-4">

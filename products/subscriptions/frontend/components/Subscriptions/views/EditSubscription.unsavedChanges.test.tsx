@@ -166,12 +166,13 @@ describe('EditSubscription unsaved changes', () => {
 
             const name = await screen.findByPlaceholderText('e.g. Weekly team report', {}, { timeout: 10000 })
             expect(isClean()).toBe(true)
-            if (subscription.target_type === 'email' && !subscription.target_value) {
-                expect(listMembers).not.toHaveBeenCalled()
-                await userEvent.click(screen.getByPlaceholderText('Enter an email address'))
-                await userEvent.click(await screen.findByText('<subscriber@example.com>'))
-            }
+            expect(listMembers).not.toHaveBeenCalled()
             if (subscription.target_type === 'email') {
+                const placeholder = subscription.target_value ? 'Add value' : 'Enter an email address'
+                await userEvent.click(screen.getByPlaceholderText(placeholder))
+                if (!subscription.target_value) {
+                    await userEvent.click(await screen.findByText('<subscriber@example.com>'))
+                }
                 expect((await screen.findAllByText('<subscriber@example.com>')).length).toBeGreaterThan(0)
                 expect(listMembers).toHaveBeenCalledTimes(1)
             } else {
