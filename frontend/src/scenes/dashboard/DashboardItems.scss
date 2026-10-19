@@ -80,6 +80,14 @@
     }
 }
 
+.dashboard-container-width-changing .react-grid-layout {
+    transition: none;
+
+    .react-grid-item {
+        transition: none;
+    }
+}
+
 .react-grid-item.cssTransforms {
     transition-property: transform;
 }

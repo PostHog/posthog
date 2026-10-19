@@ -1,8 +1,24 @@
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export function useDashboardContainerWidth(): { width: number; containerRef: RefObject<HTMLDivElement> } {
     const containerRef = useRef<HTMLDivElement>(null)
     const [width, setWidth] = useState(1280)
+
+    useLayoutEffect(() => {
+        const container = containerRef.current
+        if (!container) {
+            return
+        }
+
+        container.classList.add('dashboard-container-width-changing')
+        let frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(() => container.classList.remove('dashboard-container-width-changing'))
+        })
+        return () => {
+            cancelAnimationFrame(frame)
+            container.classList.remove('dashboard-container-width-changing')
+        }
+    }, [width])
 
     useEffect(() => {
         const container = containerRef.current
