@@ -133,6 +133,8 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `SUBSCRIBE_MIN_TICK_MS` | `100` | Lower bound for the Subscribe tick cadence. |
 | `SUBSCRIBE_MAX_TICK_MS` | `10000` | Upper bound for the Subscribe tick cadence. |
 
+All four symbol set parse settings must be positive integers. Invalid values prevent the service from starting.
+
 The server inherits the narrow subset of cymbal's env-var surface needed by `build_symbol_resolver` and internal gRPC authentication: `INTERNAL_API_SECRET`, Postgres, object storage, symbol-store cache/resolver tuning, and outbound HTTP controls. Frame result cache knobs such as `FRAME_RESOLVED_TTL_SECONDS` and `FRAME_UNRESOLVED_TTL_SECONDS` are read through cymbal's shared symbol resolver config, not duplicated in `cymbal-resolution`'s own `Config`. It does not connect to Kafka, Redis, or the signals API.
 
 Shared-secret callers are service-scoped today, so authenticated cymbal pods are permitted to resolve all teams. If future callers carry a team-scoped identity, the `Resolve` handler must reject any `ResolveItem.team_id` outside the caller's allowed team set before scheduling resolution work.
@@ -152,6 +154,7 @@ Shared-secret callers are service-scoped today, so authenticated cymbal pods are
 
 These metric names are exported by the cymbal client unless noted. Definitions live in [`cymbal/src/metric_consts.rs`](../cymbal/src/metric_consts.rs) and the server's Resolve/LoadMonitor modules.
 
+- **Symbol set parse sizes**: `cymbal_symbol_set_parse_input_bytes{kind}` records known sizes before parsing, including decompressed sizes for supported symbol data. Use its byte-sized buckets to inspect the distribution without relying on per-parse logs. Unknown sizes do not enter this histogram. Logs before parsing still identify fetched blobs of at least 10 MB and known parse inputs of at least 50 MB. These sizes do not measure peak memory.
 - **Item attempts and latency**: `cymbal_remote_resolution_requests_total{outcome, reason?}` and `cymbal_remote_resolution_latency_ms`. The counter is emitted on logical item attempts; `reason` is only a bounded transport status tag.
 - **Reroute shape**: `cymbal_remote_resolution_reroute_depth{outcome}` records how many endpoint changes happened before the terminal item result. The legacy attempts histogram may still be emitted for dashboard continuity, but new alerts should use reroute depth.
 - **Protocol error taxonomy**: client-observed `cymbal_remote_resolution_error_kinds_total{kind}` and server-emitted `cymbal_remote_resolution_server_error_kinds_total{kind}` count `ErrorKind` values with bounded labels.

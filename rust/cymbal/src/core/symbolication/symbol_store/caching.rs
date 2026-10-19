@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::metric_consts::{
     STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
-    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS,
+    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS, SYMBOL_SET_PARSE_INPUT_BYTES,
 };
 
 use super::{chunk_id::SymbolSetCacheKey, Fetcher, ParsePermit, Parser, Provider};
@@ -52,11 +52,27 @@ impl ParseLimiter {
         memory_budget_bytes: usize,
         memory_multiplier: usize,
     ) -> Self {
-        let budget_units = units_for_bytes(memory_budget_bytes).max(1);
-        let max_concurrent = u32::try_from(max_concurrent_large_parses.max(1)).unwrap_or(u32::MAX);
+        assert!(
+            large_parse_bytes > 0,
+            "SYMBOL_SET_LARGE_PARSE_BYTES must be positive"
+        );
+        assert!(
+            max_concurrent_large_parses > 0,
+            "SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES must be positive"
+        );
+        assert!(
+            memory_budget_bytes > 0,
+            "SYMBOL_SET_PARSE_MEMORY_BUDGET_BYTES must be positive"
+        );
+        assert!(
+            memory_multiplier > 0,
+            "SYMBOL_SET_PARSE_MEMORY_MULTIPLIER must be positive"
+        );
+        let budget_units = units_for_bytes(memory_budget_bytes);
+        let max_concurrent = u32::try_from(max_concurrent_large_parses).unwrap_or(u32::MAX);
         Self {
             large_parse_bytes,
-            memory_multiplier: memory_multiplier.max(1),
+            memory_multiplier,
             budget_units,
             min_units: budget_units.div_ceil(max_concurrent),
             permits: Arc::new(Semaphore::new(budget_units as usize)),
@@ -152,6 +168,10 @@ where
         let set_type = set_type_name::<P::Set>();
 
         let parse_input_bytes = found.parse_input_bytes();
+        if let Some(bytes) = parse_input_bytes {
+            metrics::histogram!(SYMBOL_SET_PARSE_INPUT_BYTES, "kind" => set_type)
+                .record(bytes as f64);
+        }
         let estimated_parse_bytes = self
             .parse_limiter
             .as_ref()
@@ -168,7 +188,7 @@ where
         }
 
         let log_large_parse = fetched_bytes >= LARGE_FETCHED_BYTES
-            || parse_input_bytes.is_some_and(|bytes| bytes >= LARGE_FETCHED_BYTES);
+            || parse_input_bytes.is_some_and(|bytes| bytes >= LARGE_PARSED_BYTES);
         if log_large_parse {
             info!(
                 team_id,
