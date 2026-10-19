@@ -4,6 +4,10 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
+from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
@@ -28,6 +32,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_supported_reasoning_efforts,
     get_task_run_actor_user,
     get_task_run_credential_user,
+    get_user_github_integration,
     get_user_mcp_server_configs,
     is_bot_authorship_fallback,
     is_caller_token_run,
@@ -959,12 +964,6 @@ class TestSlackTaskRunActorUser(TestCase):
 
 class TestGetUserGithubIntegration(TestCase):
     def test_a_flagged_install_is_skipped_for_a_healthy_one(self) -> None:
-        from posthog.egress.limiter.policies import Priority
-        from posthog.models.user import User
-        from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-
-        from products.tasks.backend.temporal.process_task.utils import get_user_github_integration
-
         user = User.objects.create(email="two-installs@example.com")
         flagged = UserIntegration.objects.create(
             user=user,

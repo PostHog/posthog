@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils.functional import Promise
 
 import requests
@@ -34,6 +34,8 @@ _GITHUB_UNRECOVERABLE_REFRESH_ERRORS = {
 }
 
 NEEDS_REAUTHORIZATION_AT_CONFIG_KEY = "needs_reauthorization_at"
+# A flagged GitHub row keeps its installation token, so `.exclude(sensitive_config={})` does not filter it out.
+NEEDS_REAUTHORIZATION_Q = models.Q(config__has_key=NEEDS_REAUTHORIZATION_AT_CONFIG_KEY)
 
 
 def user_integration_kind_choices() -> list[tuple[str, str | Promise]]:
@@ -579,23 +581,37 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         a different path: the views delete the row themselves.
         """
         token_age_seconds = self._user_token_age_seconds()
+        failed_credential_version = (self.integration.config or {}).get("credential_version")
         logger.info(
             "UserGitHubIntegration: marking integration for reauthorization",
             user_id=self.integration.user_id,
             reason=reason,
         )
-        sensitive_config = dict(self.integration.sensitive_config or {})
-        sensitive_config.pop("user_access_token", None)
-        sensitive_config.pop("user_refresh_token", None)
-        self.integration.sensitive_config = sensitive_config
-        self.integration.config = {
-            **(self.integration.config or {}),
-            "needs_reauthorization_reason": reason,
-            NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: int(time.time()),
-        }
         audit = GitHubAudit.personal(self.integration)
         try:
-            self.integration.save(update_fields=["sensitive_config", "config", "updated_at"])
+            with transaction.atomic():
+                row = UserIntegration.objects.select_for_update().get(pk=self.integration.pk)
+                config = row.config or {}
+                # Another writer changed the row after this wrapper read it. A new credential version
+                # means a reconnect or a refresh stored working tokens, and an existing flag holds the
+                # first failure's reason. Writing the stale copy would erase either one.
+                if (
+                    config.get("credential_version") != failed_credential_version
+                    or NEEDS_REAUTHORIZATION_AT_CONFIG_KEY in config
+                ):
+                    self.integration = row
+                    return
+                sensitive_config = dict(row.sensitive_config or {})
+                sensitive_config.pop("user_access_token", None)
+                sensitive_config.pop("user_refresh_token", None)
+                row.sensitive_config = sensitive_config
+                row.config = {
+                    **config,
+                    "needs_reauthorization_reason": reason,
+                    NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: int(time.time()),
+                }
+                row.save(update_fields=["sensitive_config", "config", "updated_at"])
+            self.integration = row
             audit.record(
                 "credential_reauthorization_required",
                 after_commit=True,

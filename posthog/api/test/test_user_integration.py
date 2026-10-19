@@ -26,6 +26,7 @@ from posthog.api.github_callback.state import (
     store_unified_authorize_state,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
+from posthog.api.user_integration import _has_unlinked_github_installations
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import (
@@ -36,6 +37,7 @@ from posthog.models.integration import (
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.user_integration import (
+    NEEDS_REAUTHORIZATION_AT_CONFIG_KEY,
     GitHubInstallRequest,
     ReauthorizationRequired,
     UserGitHubIntegration,
@@ -200,6 +202,16 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         data = response.json()
         self.assertEqual(data["installation_status"], "unavailable")
         self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
+
+    @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/"), ("GET", "branches/?repo=octocat/repo1")])
+    def test_github_installation_endpoints_reject_a_flagged_link(self, method, path):
+        integration = _create_user_integration(self.user)
+        integration.config = {**integration.config, NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: 1}
+        integration.save()
+
+        response = self.client.generic(method, f"/api/users/@me/integrations/github/12345/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_returns_multiple_github_integrations(self):
         _create_user_integration(self.user, integration_id="12345")
@@ -459,12 +471,25 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("client_id=gh_client_123", url)
         self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
+    @parameterized.expand(
+        [
+            ("healthy_link", {}, "app_install", "github.com/apps/posthog-dev/installations/new"),
+            (
+                "flagged_link",
+                {NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: 1},
+                "oauth_authorize",
+                "github.com/login/oauth/authorize",
+            ),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
         "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
-    def test_github_start_posthog_code_skips_fast_path_when_already_linked(self, _mock_settings):
+    def test_github_start_posthog_code_fast_path_with_an_existing_link(
+        self, _name, link_config, expected_flow, expected_url, _mock_settings
+    ):
         integration = Integration.objects.create(
             team=self.team,
             kind="github",
@@ -477,7 +502,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             user=self.user,
             kind="github",
             integration_id=integration.integration_id,
-            config={},
+            config=link_config,
             sensitive_config={},
         )
         response = self.client.post(
@@ -487,8 +512,20 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data.get("connect_flow"), "app_install")
-        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+        self.assertEqual(data.get("connect_flow"), expected_flow)
+        self.assertIn(expected_url, data["install_url"])
+
+    @parameterized.expand(
+        [("healthy_link", {}, False), ("flagged_link", {NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: 1}, True)]
+    )
+    @patch("posthog.api.user_integration.list_user_github_app_installations", return_value=[{"id": 12345678}])
+    def test_has_unlinked_github_installations_counts_a_flagged_link_as_unlinked(
+        self, _name, link_config, expected, _mock_list
+    ):
+        UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="12345678", config=link_config, sensitive_config={}
+        )
+        self.assertIs(_has_unlinked_github_installations(self.user), expected)
 
     @parameterized.expand([("oauth_discover", "posthog_code"), ("app_install", None)])
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
@@ -1219,6 +1256,8 @@ class TestUserGitHubIntegration(APIBaseTest):
         gh = self._make_integration()
         with self.assertRaises(ReauthorizationRequired):
             gh.refresh_user_access_token()
+        with self.assertRaises(ReauthorizationRequired):
+            gh.get_usable_user_access_token()
 
         row = UserIntegration.objects.get(user=self.user, kind="github")
         self.assertEqual(row.config["needs_reauthorization_reason"], "refresh rejected by GitHub: bad_refresh_token")
@@ -1298,16 +1337,17 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.sensitive_config["user_refresh_token"], "ghr_refresh")
         self.assertEqual(integration.config["identity_verified_at"], 123)
 
-    def test_reconnecting_clears_a_reauthorization_flag(self):
-        flagged = _create_user_integration(self.user)
-        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._mark_needs_reauthorization(
-            "refresh rejected by GitHub: bad_refresh_token"
-        )
+    @parameterized.expand([("failure_before_reconnect", False), ("stale_failure_after_reconnect", True)])
+    def test_a_reconnected_row_stays_usable(self, _name, fail_after_reconnect):
+        row = _create_user_integration(self.user)
+        stale = UserGitHubIntegration(row, source="test", priority=Priority.CRITICAL)
+        if not fail_after_reconnect:
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
 
         integration = user_github_integration_from_installation(
             self.user,
             GitHubInstallationAccess(
-                installation_id=flagged.integration_id,
+                installation_id=row.integration_id,
                 installation_info={"account": {"type": "User", "login": "octocat"}},
                 access_token="ghs_install",
                 token_expires_at="2099-01-01T00:00:00Z",
@@ -1315,6 +1355,9 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
             ),
             _authorization(),
         )
+        if fail_after_reconnect:
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
+            integration.refresh_from_db()
 
         self.assertFalse(
             UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL).needs_reauthorization
