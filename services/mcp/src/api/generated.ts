@@ -13571,7 +13571,7 @@ export namespace Schemas {
       min_count: number | null;
       /** People in the audience with an email address, counted when the suggestion was made. */
       reachable_count: number;
-      /** A dynamic cohort definition for the audience, in the cohorts endpoint's `filters` format. */
+      /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
       cohort_filters: unknown;
     }
 
