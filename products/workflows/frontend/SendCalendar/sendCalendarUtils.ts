@@ -5,9 +5,9 @@ import { dayjs } from 'lib/dayjs'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
-    HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
+    SendCalendarBatchJobApi,
+    SendCalendarFlowApi,
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -21,19 +21,11 @@ import {
     scheduleToText,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
-import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
-import type { HogFlowAction } from '../Workflows/hogflows/types'
 
 export type CalendarView = 'month' | 'week'
 export type CalendarTypeFilter = 'all' | 'broadcasts' | 'workflows'
 export type CalendarSendKind = 'broadcast' | 'workflow'
 export type CalendarSendState = 'planned' | 'paused' | 'sending' | 'sent' | 'failed'
-
-export interface ScheduledEmailFlow {
-    flow: HogFlowMinimalApi
-    schedules: HogFlowScheduleApi[]
-    batchJobs: HogFlowBatchJobApi[]
-}
 
 export interface CalendarSend {
     key: string
@@ -50,7 +42,8 @@ export interface CalendarSend {
     schedule: HogFlowScheduleApi | null
     userAccessLevel: string | null
     audience: SendAudience
-    category: SendCategory
+    /** The message category of the email, which decides who can opt out of it. */
+    categoryId: string | null
 }
 
 /** Who the sends of a flow go to. */
@@ -65,12 +58,6 @@ export interface SendAudience {
     address: string | null
 }
 
-/** The message category of the email, which decides if people who opted out still get it. */
-export interface SendCategory {
-    id: string | null
-    type: 'marketing' | 'transactional' | null
-}
-
 /** From the start of the first day to the start of the day after the last day, in the project time zone. */
 export interface CalendarRange {
     start: dayjs.Dayjs
@@ -81,46 +68,26 @@ export interface CalendarRange {
 // Stop at a number that the grid can still show.
 const MAX_SENDS_PER_SCHEDULE = 200
 
-type EmailAction = Extract<HogFlowAction, { type: 'function_email' }>
-
-function emailAction(flow: Pick<HogFlowMinimalApi, 'actions'>): EmailAction | null {
-    const actions = Array.isArray(flow.actions) ? (flow.actions as (HogFlowAction | null)[]) : []
-    return actions.find((action): action is EmailAction => action?.type === 'function_email') ?? null
-}
-
-export function isScheduledEmailFlow(flow: Pick<HogFlowMinimalApi, 'status' | 'trigger' | 'actions'>): boolean {
-    const triggerType = (flow.trigger as { type?: string } | null)?.type ?? ''
-    return flow.status === 'active' && SCHEDULED_TRIGGER_TYPES.includes(triggerType) && !!emailAction(flow)
-}
-
-export function sendAudience(flow: Pick<HogFlowMinimalApi, 'trigger' | 'actions'>): SendAudience {
-    const trigger = flow.trigger as {
-        type?: string
-        filters?: { properties?: AnyPropertyFilter[]; audience_type?: string }
-    } | null
-    if (trigger?.type !== 'batch') {
-        const email = emailAction(flow)?.config.inputs.email?.value as { to?: { email?: string } } | undefined
-        return { cohortIds: [], filters: [], accounts: false, address: email?.to?.email || null }
+export function sendAudience(
+    flow: Pick<SendCalendarFlowApi, 'trigger_type' | 'audience_properties' | 'audience_type' | 'email_to'>
+): SendAudience {
+    if (flow.trigger_type !== 'batch') {
+        return { cohortIds: [], filters: [], accounts: false, address: flow.email_to || null }
     }
-    const properties = trigger.filters?.properties ?? []
+    const properties = flow.audience_properties as unknown as AnyPropertyFilter[]
     // An excluded cohort is not a recipient list, so it stays a filter with its operator.
     const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
         filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
         filters: properties.filter((filter) => !isCohortInclusion(filter)),
-        accounts: trigger.filters?.audience_type === 'accounts',
+        accounts: flow.audience_type === 'accounts',
         address: null,
     }
 }
 
-export function sendCategory(flow: Pick<HogFlowMinimalApi, 'actions'>): SendCategory {
-    const config = emailAction(flow)?.config
-    return { id: config?.message_category_id ?? null, type: config?.message_category_type ?? null }
-}
-
 export function matchesTypeFilter(
-    flow: Pick<HogFlowMinimalApi, 'origin_product'>,
+    flow: Pick<SendCalendarFlowApi, 'origin_product'>,
     filter: CalendarTypeFilter
 ): boolean {
     if (filter === 'all') {
@@ -187,7 +154,7 @@ export function scheduleSendTimes(
 }
 
 export function calendarSendsForFlow(
-    { flow, schedules, batchJobs }: ScheduledEmailFlow,
+    flow: SendCalendarFlowApi,
     range: CalendarRange,
     now: dayjs.Dayjs
 ): CalendarSend[] {
@@ -198,14 +165,14 @@ export function calendarSendsForFlow(
         createdBy: flow.created_by ?? null,
         userAccessLevel: flow.user_access_level ?? null,
         audience: sendAudience(flow),
-        category: sendCategory(flow),
+        categoryId: flow.message_category_id,
     }
     const sends: CalendarSend[] = []
     // A schedule shows only the sends still to come. An occurrence in the past is not proof that a send
     // went out, so past sends come from the batch jobs instead.
     const future: CalendarRange = { start: now.isAfter(range.start) ? now : range.start, end: range.end }
     if (future.start.isBefore(future.end)) {
-        for (const schedule of schedules) {
+        for (const schedule of flow.schedules) {
             if (schedule.status === 'completed') {
                 continue
             }
@@ -224,7 +191,7 @@ export function calendarSendsForFlow(
             }
         }
     }
-    for (const job of batchJobs) {
+    for (const job of flow.batch_jobs) {
         const at = dayjs(job.created_at)
         if (at.isBefore(range.start) || !at.isBefore(range.end)) {
             continue
@@ -242,7 +209,7 @@ export function calendarSendsForFlow(
     return sends
 }
 
-function batchJobState(status: HogFlowBatchJobApi['status']): CalendarSendState {
+function batchJobState(status: SendCalendarBatchJobApi['status']): CalendarSendState {
     if (status === 'completed') {
         return 'sent'
     }
