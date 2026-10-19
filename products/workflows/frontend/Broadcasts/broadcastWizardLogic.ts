@@ -79,9 +79,20 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import {
+    REALTIME_COHORT_STATUS_POLL_MS,
+    isRealtimeCohortUnresolved,
+    keepOnlyRealtimeCohort,
+} from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
-import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from './audience/audienceList'
+import {
+    type AudienceCohortLaunchError,
+    audienceCohortIds,
+    audienceCohortLaunchError,
+    blockingCohortLaunchErrors,
+    toAudienceCohort,
+} from './audience/audienceList'
 import {
     AUDIENCE_PREFILL_PARAM,
     type BroadcastPrefill,
@@ -254,7 +265,7 @@ export interface broadcastWizardLogicValues {
     aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
-    audienceCohortLaunchErrors: string[]
+    audienceCohortLaunchErrors: AudienceCohortLaunchError[]
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
@@ -490,8 +501,8 @@ export interface broadcastWizardLogicActions {
     sendToEveryoneAfterRejectedLink: () => {
         value: true
     }
-    setAudienceCohortLaunchErrors: (errors: string[]) => {
-        errors: string[]
+    setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => {
+        errors: AudienceCohortLaunchError[]
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
@@ -612,7 +623,8 @@ export interface broadcastWizardLogicMeta {
             integrationsLoading: boolean,
             linkAudienceRejected: boolean,
             audienceProperties: AnyPropertyFilter[],
-            audienceCohortLaunchErrors: string[]
+            audienceCohortLaunchErrors: AudienceCohortLaunchError[],
+            blastRadius: BlastRadiusApi | null
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -673,7 +685,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
-        setAudienceCohortLaunchErrors: (errors: string[]) => ({ errors }),
+        setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -803,6 +815,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     reducers(({ props }) => ({
+        blastRadius: {
+            // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
+            loadBlastRadiusFailure: () => null,
+        },
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,
@@ -875,7 +891,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         audienceCohortLaunchErrors: [
-            [] as string[],
+            [] as AudienceCohortLaunchError[],
             {
                 setAudienceCohortLaunchErrors: (_, { errors }) => errors,
             },
@@ -1205,6 +1221,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.linkAudienceRejected,
                 s.audienceProperties,
                 s.audienceCohortLaunchErrors,
+                s.blastRadius,
             ],
             (
                 goalEnabled: boolean,
@@ -1217,7 +1234,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 integrationsLoading: boolean,
                 linkAudienceRejected: boolean,
                 audienceProperties: AnyPropertyFilter[],
-                audienceCohortLaunchErrors: string[]
+                audienceCohortLaunchErrors: AudienceCohortLaunchError[],
+                blastRadius: BlastRadiusApi | null
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -1269,7 +1287,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     errors.review.push(senderError)
                 }
                 // Only launch waits for a list to match. Editing the other steps can go on meanwhile.
-                errors.review.push(...audienceCohortLaunchErrors)
+                errors.review.push(
+                    ...blockingCohortLaunchErrors(audienceCohortLaunchErrors, blastRadius?.realtime_cohort?.id)
+                )
 
                 return errors
             },
@@ -1350,6 +1370,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        loadBlastRadiusSuccess: ({ blastRadius }) => {
+            // A realtime cohort has to be the only condition, so picking one replaces the others.
+            const mixed = blastRadius?.realtime_cohort_with_other_conditions
+            const onlyCohort = mixed ? keepOnlyRealtimeCohort(values.audienceProperties, mixed.id) : null
+            if (onlyCohort) {
+                actions.setAudienceProperties(onlyCohort)
+            }
+        },
         applyDefaultSender: () => {
             // Only fills an empty sender on a broadcast that is still being written. It is not an
             // edit, so it does not autosave; the next save or launch carries it.
@@ -1784,8 +1812,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             const cohortErrors = await loadAudienceCohortLaunchErrors(projectId, values.audienceProperties)
             breakpoint()
             actions.setAudienceCohortLaunchErrors(cohortErrors)
-            if (cohortErrors.length > 0) {
-                lemonToast.error(cohortErrors[0])
+            const blockingErrors = blockingCohortLaunchErrors(cohortErrors, values.blastRadius?.realtime_cohort?.id)
+            if (blockingErrors.length > 0) {
+                lemonToast.error(blockingErrors[0])
                 actions.launchBroadcastFinished()
                 return
             }
@@ -1861,12 +1890,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
                     }
                     activated = await activate()
-                    await hogFlowsBatchJobsCreate(projectId, broadcastId, {
+                    const batchJob = await hogFlowsBatchJobsCreate(projectId, broadcastId, {
                         hog_flow: broadcastId,
                         variables: {},
                         confirm_token: blastRadius.confirm_token,
                     } as any)
-                    lemonToast.success('Broadcast is sending')
+                    lemonToast.success(
+                        batchJob.status === 'waiting'
+                            ? 'Broadcast will send once its cohort finishes calculating'
+                            : 'Broadcast is sending'
+                    )
                 } else {
                     await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
                     for (const id of oldScheduleIds) {
@@ -2114,6 +2147,30 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
         },
+        loadBlastRadiusSuccess: async ({ blastRadius }, breakpoint) => {
+            // The send button reads the realtime cohort's status from the audience size, and the cohort can
+            // finish or recover while the page stays open. Only the size is refreshed, not the recipient check.
+            if (!values.currentProjectId || !isRealtimeCohortUnresolved(blastRadius?.realtime_cohort)) {
+                return
+            }
+            for (;;) {
+                await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
+                let refreshed: BlastRadiusApi | null = null
+                try {
+                    refreshed = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
+                        filters: { properties: values.audienceProperties },
+                        dedupe_key: 'email',
+                    })
+                } catch {
+                    // A failed check tries again on the next interval.
+                }
+                breakpoint()
+                if (refreshed) {
+                    actions.loadBlastRadiusSuccess(refreshed)
+                    return
+                }
+            }
+        },
         setEmail: () => {
             if (
                 values.currentStep === 'review' &&
@@ -2238,15 +2295,15 @@ async function createDraft(projectId: string, values: broadcastWizardLogicType['
 async function loadAudienceCohortLaunchErrors(
     projectId: string,
     audienceProperties: AnyPropertyFilter[]
-): Promise<string[]> {
+): Promise<AudienceCohortLaunchError[]> {
     const ids = audienceCohortIds(audienceProperties)
     const results = await Promise.allSettled(ids.map((id) => cohortsRetrieve(projectId, id)))
     // A cohort that fails to load doesn't block launch, so a lookup error can't stop every send.
-    return results.flatMap((result, index) =>
-        result.status === 'fulfilled'
-            ? (audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) ?? [])
-            : []
-    )
+    return results.flatMap((result, index) => {
+        const message =
+            result.status === 'fulfilled' ? audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) : null
+        return message ? [{ cohortId: ids[index], message }] : []
+    })
 }
 
 function captureLaunchFailed(
@@ -2368,9 +2425,10 @@ export function buildBroadcastPayload(values: {
     broadcast?: HogFlowApi | null
 }): Record<string, any> {
     const existing = values.broadcast
-    if (existing && existing.origin_product !== 'broadcasts') {
-        // A workflow shaped like a broadcast keeps its own steps: its ids, names and any setting the
-        // wizard does not manage survive, and origin_product stays as it was created.
+    if (existing) {
+        // A saved broadcast keeps its own steps: its ids, names and any setting the wizard does not manage
+        // survive, such as step conditions or a test-account exclusion on a workflow moved to broadcasts.
+        // origin_product and the exit condition stay as they were.
         return {
             name: values.name,
             conversion: values.goalEnabled ? values.conversion : null,

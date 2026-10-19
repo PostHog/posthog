@@ -41,6 +41,7 @@ import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDril
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
+import { BIPaneCharts } from 'products/business_intelligence/frontend/BIPaneCharts'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
@@ -233,7 +234,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         variablesOverride: props.variablesOverride,
     }
     const { inspect } = useActions(biDrilldownLogic(drilldownProps))
-    const canDrill = query.kind === NodeKind.BIVisualizationNode && !props.inSharedMode
+    const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
+    const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -254,7 +256,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             deferInitialAlertsLoad: !insight?.id,
         })
     )
-    const alertThresholdLines = insight?.id ? alertsToThresholdGoalLines(alerts) : []
+    const alertThresholdLines = useMemo(
+        () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
+        [insight?.id, alerts]
+    )
+    const paneGoalLines = useMemo(() => [...alertThresholdLines, ...goalLines], [alertThresholdLines, goalLines])
+    const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
+    const paneConfig = useMemo(
+        () => (biConfig ? { ...biConfig, chartType: effectiveVisualizationType } : undefined),
+        [biConfig, effectiveVisualizationType]
+    )
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
@@ -274,6 +285,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query.kind === NodeKind.BIVisualizationNode &&
         (xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME') &&
         dateBucket !== 'year' &&
+        !chartSettings.xAxisDateFormat &&
         effectiveVisualizationType !== ChartDisplayType.ActionsBarValue &&
         chartSettings.showXAxisTicks !== false
     const dateAxis = useMemo(
@@ -291,7 +303,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
-    const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
     const sqlChartData = useMemo(() => {
         if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
             return null
@@ -427,6 +438,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 The returned columns do not match this worksheet. Run the query again or check the selected fields.
             </LemonBanner>
         )
+    } else if (isQuerySnapshot && effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        component = (
+            <LemonBanner type="info">Query snapshots do not support pivots. Choose another chart type.</LemonBanner>
+        )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
         (query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
@@ -451,6 +466,21 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     card={effectiveVisualizationType !== ChartDisplayType.ActionsTable}
                 />
             )
+    } else if (
+        query.kind === NodeKind.BIVisualizationNode &&
+        query.config.panes?.fields.length &&
+        isSqlChartVisualizationType(effectiveVisualizationType)
+    ) {
+        component = (
+            <BIPaneCharts
+                config={paneConfig!}
+                settings={chartSettings}
+                columns={columns}
+                rows={'results' in response && Array.isArray(response.results) ? response.results : []}
+                goalLines={paneGoalLines}
+                onInspect={canDrill ? inspect : undefined}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
@@ -638,6 +668,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <AddVariableButton buttonProps={{ size: controlSize }} />
 
                             {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                                query.kind !== NodeKind.BIVisualizationNode &&
                                 !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                     <DateRange
                                         key="date-range"
@@ -652,7 +683,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 )}
 
                             <div className={props.context?.chartTypeSelectorClassName}>
-                                <TableDisplay size={controlSize} />
+                                <TableDisplay
+                                    size={controlSize}
+                                    disabledReasonFor={(chartType) =>
+                                        isQuerySnapshot && chartType === ChartDisplayType.TwoDimensionalHeatmap
+                                            ? 'Query snapshots do not support pivots'
+                                            : undefined
+                                    }
+                                />
                             </div>
 
                             <LemonButton

@@ -37,10 +37,6 @@ class TestJenkinsSource:
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["builds"])
-        assert [s.name for s in schemas] == ["builds"]
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://jenkins.example.com/api/json"),

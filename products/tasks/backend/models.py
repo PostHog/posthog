@@ -41,7 +41,12 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import (
+    DEFAULT_TRUSTED_DOMAINS,
+    GITHUB_PR_URL_PREFIX,
+    PR_LOOP_ENABLED_STATE_KEY,
+    is_same_run_resume_state,
+)
 from products.tasks.backend.dev_stack_image_models import (
     DevStackImageAttempt as DevStackImageAttempt,
     DevStackImageTarget as DevStackImageTarget,
@@ -936,6 +941,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         # under an unclobbered name too — as TaskRun.capture_event already does.
                         "run_environment": task_run.environment,
                         "is_resume": is_resume,
+                        "started_by_agent_sandbox": "agent_parent_task_id" in (state or {}),
                         "has_pending_message": has_pending,
                         "startup_requested_at": startup_requested_at.isoformat(),
                         "startup_run_created_at": task_run.created_at.isoformat(),
@@ -2931,6 +2937,13 @@ class TaskRun(models.Model):
                 )
         return props
 
+    @property
+    def startup_requested_at(self) -> str | None:
+        if is_same_run_resume_state(self.state):
+            return self.queued_at.isoformat() if self.queued_at else None
+        value = (self.state or {}).get("startup_requested_at")
+        return value if isinstance(value, str) else None
+
     def analytics_properties(self) -> dict:
         """Run context shared by run events and GitHub PR attribution."""
         return {
@@ -2949,8 +2962,9 @@ class TaskRun(models.Model):
             # client's deployment-region super-property, so ship the run's
             # local/cloud value under an unclobbered name too.
             "run_environment": self.environment,
-            "startup_requested_at": (self.state or {}).get("startup_requested_at"),
+            "startup_requested_at": self.startup_requested_at,
             "mode": self.mode,
+            "started_by_agent_sandbox": "agent_parent_task_id" in (self.state or {}),
             "slack_session_id": self._slack_session_id(),
             **self._analytics_usage_properties(),
         }

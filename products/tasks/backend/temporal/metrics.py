@@ -752,21 +752,24 @@ class StepTimer(ContextDecorator):
             self._span = None
         delta = dt.timedelta(milliseconds=delta_ms)
 
+        context = posthoganalytics.get_tags()
+        used_snapshot = self.used_snapshot if self.used_snapshot is not None else context.get("used_snapshot")
         attributes: Attributes = {
             "step": self.step,
-            "used_snapshot": _bool_label(self.used_snapshot),
+            "used_snapshot": _bool_label(used_snapshot if isinstance(used_snapshot, bool) else None),
             "status": "FAILED" if exc_value is not None else "COMPLETED",
         }
         if self.status_tag is not None and exc_value is None:
-            attributes["status"] = str(posthoganalytics.get_tags().get(self.status_tag, "FAILED"))
-        if self.boot_path is not None:
-            attributes["boot_path"] = self.boot_path
-        if self.origin_product is not None:
-            attributes["origin_product"] = self.origin_product
-        if self.runtime is not None:
-            attributes["runtime"] = self.runtime
-        if self.sandbox_backend is not None:
-            attributes["sandbox_backend"] = self.sandbox_backend
+            attributes["status"] = str(context.get(self.status_tag, "FAILED"))
+        for key, explicit in (
+            ("boot_path", self.boot_path),
+            ("origin_product", self.origin_product),
+            ("runtime", self.runtime),
+            ("sandbox_backend", self.sandbox_backend),
+        ):
+            value = explicit if explicit is not None else context.get(key)
+            if isinstance(value, str):
+                attributes[key] = value
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(

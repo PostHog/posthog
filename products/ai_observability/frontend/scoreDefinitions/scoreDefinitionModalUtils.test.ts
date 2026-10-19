@@ -2,6 +2,7 @@ import type { ScoreDefinitionApi, ScoreDefinitionConfigApi } from '../generated/
 import { buildConfigFromDraft, createDraft, validateDraft } from './scoreDefinitionModalUtils'
 
 const definition: ScoreDefinitionApi = {
+    tags: [],
     id: 'scorer-example',
     name: 'Answer quality',
     description: '',

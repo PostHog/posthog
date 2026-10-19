@@ -112,6 +112,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'hog_flow:write',
     'hog_function:read',
     'hog_function:write',
+    'inbox:read',
+    'inbox:write',
     'ingestion_warning:read',
     'ingestion_warning:write',
     'insight:read',

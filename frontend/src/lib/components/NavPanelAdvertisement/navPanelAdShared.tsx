@@ -19,7 +19,6 @@ import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 export const NAV_PANEL_CARD_TYPE = {
     BROADCAST: 'broadcast',
     PRODUCT_PUSH: 'product_push',
-    STARRED_SETUP: 'starred_setup',
 } as const
 
 export interface BroadcastPayload {

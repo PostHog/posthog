@@ -3825,6 +3825,22 @@ class TestHeartbeatLoop:
         await asyncio.sleep(0.2)
         assert health.is_healthy() is False
 
+    @pytest.mark.asyncio
+    async def test_stalled_heartbeat_dumps_stacks_but_shutdown_does_not(self, capfd):
+        consumer = _make_consumer(heartbeat_interval_seconds=0.01, stall_dump_after_seconds=0.1)
+        consumer._health_reporter = lambda: None
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.03)
+        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
+        assert "most recent call first" in capfd.readouterr().err
+
+        await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+        await asyncio.sleep(0.3)
+        assert "most recent call first" not in capfd.readouterr().err
+
 
 class TestOwnershipVerification:
     @pytest.mark.asyncio

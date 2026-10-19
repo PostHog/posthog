@@ -16,7 +16,7 @@ PAGE_SIZE = 100
 DEFAULT_LOOKBACK_DAYS = 730
 
 
-@dataclass
+@dataclass(frozen=True)
 class DocusignEndpointConfig:
     name: str
     # Path under `/restapi/v2.1/accounts/{accountId}`.
@@ -40,6 +40,11 @@ class DocusignEndpointConfig:
     # Candidate keys the inline child collection arrives under on each envelope. DocuSign is not
     # consistent between the list and per-envelope shapes, so we accept either spelling.
     envelope_child_keys: tuple[str, ...] = ()
+    # Per-envelope sub-resource (`/envelopes/{envelopeId}/<this>`) that the envelope listing has
+    # no `include` for. Each listed envelope costs one extra request against the account's hourly
+    # API quota, so these endpoints should be synced incrementally.
+    envelope_sub_resource: Optional[str] = None
+    envelope_sub_resource_params: dict[str, str] = field(default_factory=dict)
     # False for endpoints that return everything in one response and ignore `start_position` —
     # re-requesting with an advanced offset would replay the same rows forever.
     supports_pagination: bool = True
@@ -103,6 +108,45 @@ DOCUSIGN_ENDPOINTS: dict[str, DocusignEndpointConfig] = {
         derived_from_envelopes="documents",
         envelope_child_keys=("envelopeDocuments", "documents"),
     ),
+    "envelope_form_data": DocusignEndpointConfig(
+        name="envelope_form_data",
+        path="/envelopes",
+        data_key="envelopes",
+        primary_key=["envelopeId"],
+        # DocuSign only releases form data to the sender (or a full admin), so received envelopes
+        # would fail the per-envelope request.
+        params={"order_by": "status_changed", "order": "asc", "user_filter": "sender"},
+        date_filter_param="from_date",
+        incremental_fields=_DERIVED_INCREMENTAL_FIELDS,
+        partition_key="envelopeCreatedDateTime",
+        envelope_sub_resource="form_data",
+    ),
+    "envelope_audit_events": DocusignEndpointConfig(
+        name="envelope_audit_events",
+        path="/envelopes",
+        data_key="envelopes",
+        # Audit events carry no id of their own. The log is append-only and returned oldest
+        # first, so an event's position in its envelope's log is stable.
+        primary_key=["envelopeId", "eventIndex"],
+        params={"order_by": "status_changed", "order": "asc"},
+        date_filter_param="from_date",
+        incremental_fields=_DERIVED_INCREMENTAL_FIELDS,
+        partition_key="envelopeCreatedDateTime",
+        envelope_sub_resource="audit_events",
+    ),
+    "envelope_templates": DocusignEndpointConfig(
+        name="envelope_templates",
+        path="/envelopes",
+        data_key="envelopes",
+        primary_key=["envelopeId", "templateId"],
+        params={"order_by": "status_changed", "order": "asc"},
+        date_filter_param="from_date",
+        incremental_fields=_DERIVED_INCREMENTAL_FIELDS,
+        partition_key="envelopeCreatedDateTime",
+        envelope_sub_resource="templates",
+        # Without a filter DocuSign can also return templates that merely match the documents.
+        envelope_sub_resource_params={"include": "applied"},
+    ),
     "templates": DocusignEndpointConfig(
         name="templates",
         path="/templates",
@@ -134,6 +178,17 @@ DOCUSIGN_ENDPOINTS: dict[str, DocusignEndpointConfig] = {
         data_key="folders",
         primary_key=["folderId"],
         supports_pagination=False,
+    ),
+    "bulk_send_batches": DocusignEndpointConfig(
+        name="bulk_send_batches",
+        path="/bulk_send_batch",
+        data_key="bulkBatchSummaries",
+        primary_key=["batchId"],
+        # Without `from_date` DocuSign returns one account-wide status report instead of the
+        # batch list. Full refresh only: the sent/failed/queued counts keep changing after a
+        # batch is submitted, and `from_date` filters on submission time.
+        date_filter_param="from_date",
+        partition_key="submittedDate",
     ),
 }
 

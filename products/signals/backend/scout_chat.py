@@ -28,9 +28,9 @@ from posthog.permissions import APIScopePermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.suggestions import find_suggestion
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import usage_limit_response
 

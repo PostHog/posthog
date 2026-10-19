@@ -89,6 +89,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -621,7 +622,7 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -650,11 +651,11 @@ export interface LogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
@@ -719,6 +720,8 @@ export interface LogsAlertDestinationConfigApi {
     type: LogsAlertDestinationTypeEnumApi
     /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
     enabled: boolean
+    /** Whether any HogFunction in the group sends something other than the stock message, such as an edited body, headers, method or code. A customized destination sends exactly what its HogFunctions build. */
+    message_customized: boolean
     slack_workspace_id?: number
     slack_channel_id?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
@@ -791,7 +794,7 @@ export interface LogsAlertConfigurationDetailApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -820,11 +823,11 @@ export interface LogsAlertConfigurationDetailApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
@@ -893,7 +896,7 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -922,11 +925,11 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures?: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message?: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
@@ -998,6 +1001,7 @@ export interface LogsAlertDeleteDestinationApi {
  * * `unsnooze` - Unsnooze
  * * `threshold_change` - Threshold change
  * * `broken_config` - Broken config
+ * * `handback` - Handback
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -1010,6 +1014,7 @@ export const LogsAlertEventKindEnumApi = {
     Unsnooze: 'unsnooze',
     ThresholdChange: 'threshold_change',
     BrokenConfig: 'broken_config',
+    Handback: 'handback',
 } as const
 
 export interface LogsAlertEventApi {
@@ -1070,7 +1075,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minutes to wait after firing before sending another notification.
+     * Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number

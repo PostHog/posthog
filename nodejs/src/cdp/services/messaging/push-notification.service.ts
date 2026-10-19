@@ -647,20 +647,27 @@ export class PushNotificationService {
                 { apnsHost, bundleId, jwt, templateId },
                 addLog
             )
-            if (!tokenRefreshed && outcome.error?.code && APNS_REJECTED_TOKEN_CODES.has(outcome.error.code)) {
+            // Apple rejects a small share of requests with a token it accepts on the next one. Retry each device
+            // here, because a person whose other device delivered is never rescheduled.
+            if (outcome.error?.code && APNS_REJECTED_TOKEN_CODES.has(outcome.error.code)) {
+                const refreshed = tokenRefreshed ? null : await this.refreshApnsJwt(appleTeamId, keyId, signingKey, jwt)
                 tokenRefreshed = true
-                const refreshed = await this.refreshApnsJwt(appleTeamId, keyId, signingKey, jwt)
                 if (refreshed) {
                     jwt = refreshed
-                    addLog('warn', 'APNs rejected the provider token. Retrying once with a new token.')
-                    outcome = await this.sendOneApns(
-                        result,
-                        params,
-                        subscription,
-                        { apnsHost, bundleId, jwt, templateId },
-                        addLog
-                    )
                 }
+                addLog(
+                    'warn',
+                    refreshed
+                        ? 'APNs rejected the provider token. Retrying once with a new token.'
+                        : 'APNs rejected the provider token. Retrying once.'
+                )
+                outcome = await this.sendOneApns(
+                    result,
+                    params,
+                    subscription,
+                    { apnsHost, bundleId, jwt, templateId },
+                    addLog
+                )
             }
             if (outcome.sent) {
                 delivered++
