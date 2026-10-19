@@ -1676,6 +1676,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 placeholders={"person_id": ast.Constant(value=str(person.uuid))},
             ),
             team=self.team,
+            # A property rule can hide the email from this user. Without the user, only the team-wide rules apply.
+            user=self.request.user,
             query_type="person_message_assets_email",
         ).results
         email = results[0][0] if results else None

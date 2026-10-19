@@ -146,7 +146,9 @@ def fetch_message_assets_for_person(
     if distinct_ids:
         owners.append("(person_id = '' AND distinct_id IN %(distinct_ids)s)")
     if email:
-        owners.append("(person_id = '' AND lower(recipient) = %(email)s)")
+        # A plain IN keeps the bloom index on recipient usable. Inside the OR, a function of recipient would stop every
+        # branch from skipping granules.
+        owners.append("(person_id = '' AND recipient IN %(emails)s)")
     where = [
         "team_id = %(team_id)s",
         f"({' OR '.join(owners)})",
@@ -162,7 +164,7 @@ def fetch_message_assets_for_person(
         "team_id": team_id,
         "person_id": person_id,
         "distinct_ids": list(distinct_ids),
-        "email": (email or "").strip().lower(),
+        "emails": sorted({(email or "").strip(), (email or "").strip().lower()}),
         "kind": kind,
         "limit": limit,
         "offset": offset,

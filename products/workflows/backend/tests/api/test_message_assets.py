@@ -7,10 +7,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, PropertyDefinition
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.message_assets_sql import INSERT_MESSAGE_ASSET_SQL
 
@@ -226,7 +230,7 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
 class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.person = create_person(team=self.team, distinct_ids=["distinct-1"], properties={"email": "p@example.com"})
+        self.person = create_person(team=self.team, distinct_ids=["distinct-1"], properties={"email": "P@Example.com"})
         self.hog_flow = HogFlow.objects.create(team=self.team, name="Welcome flow")
 
     def _emails(self, params=None):
@@ -285,6 +289,11 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
                 True,
             ),
             (
+                "unlinked_send_to_their_email_lowercased",
+                {"person_id": "", "distinct_id": "p@example.com", "recipient": "p@example.com"},
+                True,
+            ),
+            (
                 "unlinked_send_to_someone_else",
                 {"person_id": "", "distinct_id": "other", "recipient": "other@example.com"},
                 False,
@@ -306,6 +315,31 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         rows = self._emails().json()
 
         assert [r["invocation_id"] for r in rows] == (["inv"] if expected else [])
+
+    def test_an_email_hidden_from_the_user_does_not_match_unlinked_sends(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=email,
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        create_message_asset(
+            team_id=self.team.pk,
+            function_id=str(self.hog_flow.pk),
+            invocation_id="inv",
+            person_id="",
+            distinct_id="someone-else",
+            recipient="P@Example.com",
+        )
+
+        assert self._emails().json() == []
 
     def test_isolated_from_other_persons(self):
         self._seed("mine")
