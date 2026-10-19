@@ -364,6 +364,43 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             cell.status = latest.status
 
 
+def upstream_hogql_queries(team_id: int, notebook: Any, node_id: str) -> list[str]:
+    """The ClickHouse queries a cell's result comes from, for data lineage.
+
+    Walks the cell's upstream cells in the notebook. A SQL cell whose last done run went to
+    ClickHouse gives its run code, which already has its own upstream SQL inlined. A Python
+    cell, or a SQL cell that ran in DuckDB, reads other cells, so the walk goes on through it.
+    A cell on another connection reads nothing PostHog tracks, so it adds nothing.
+    """
+    cells = extract_cells(notebook.content)
+    build_dependency_edges(cells)
+    cells_by_node = {cell.node_id: cell for cell in cells}
+    if node_id not in cells_by_node:
+        return []
+    latest_done_by_node = {
+        run.node_id: run
+        for run in NotebookNodeRun.objects.for_team(team_id)
+        .filter(notebook=notebook, node_id__in=list(cells_by_node), status=NotebookNodeRun.Status.DONE)
+        .order_by("node_id", "-created_at")
+        .distinct("node_id")
+    }
+    queries: list[str] = []
+    seen = {node_id}
+    pending = list(cells_by_node[node_id].depends_on)
+    while pending:
+        upstream_id = pending.pop()
+        if upstream_id in seen:
+            continue
+        seen.add(upstream_id)
+        run = latest_done_by_node.get(upstream_id)
+        if run is not None and run.node_type == NotebookNodeRun.NodeType.HOGQL:
+            if run.connection_id is None and run.code.strip():
+                queries.append(run.code)
+            continue
+        pending.extend(cells_by_node[upstream_id].depends_on)
+    return queries
+
+
 def build_notebook_cell_state(team_id: int, notebook: Any) -> list[NotebookCellState]:
     cells = extract_cells(notebook.content)
     build_dependency_edges(cells)

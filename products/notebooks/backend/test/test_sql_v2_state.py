@@ -21,6 +21,7 @@ from products.notebooks.backend.sql_v2_state import (
     build_notebook_cell_state,
     extract_cells,
     get_dataframe_owners,
+    upstream_hogql_queries,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import (
@@ -457,6 +458,19 @@ class TestNotebookCellState(APIBaseTest):
         # The upstream re-runs after this cell's run: the input frame changed underneath it.
         self._run(notebook, "s", "select 1", NotebookNodeRun.Status.DONE)
         assert build_notebook_cell_state(self.team.id, notebook)[1].status == "stale"
+
+    def test_upstream_hogql_queries_walk_through_python_cells(self) -> None:
+        notebook = self._notebook(
+            '<SQLV2 nodeId="s" code="select 1 as x" returnVariable="df" />\n\n'
+            '<SQLV2 nodeId="ignored" code="select 2" returnVariable="unused" />\n\n'
+            '<PythonV2 nodeId="p1" code="mid = df.head()" returnVariable="mid" />\n\n'
+            '<PythonV2 nodeId="p2" code="out = mid.head()" returnVariable="out" />'
+        )
+        self._run(notebook, "s", "select 0 as x", NotebookNodeRun.Status.DONE)
+        self._run(notebook, "s", "select 1 as x", NotebookNodeRun.Status.DONE)
+        self._run(notebook, "ignored", "select 2", NotebookNodeRun.Status.DONE)
+        self._run(notebook, "p1", "mid = df.head()", NotebookNodeRun.Status.DONE, node_type="python")
+        assert upstream_hogql_queries(self.team.id, notebook, "p2") == ["select 1 as x"]
 
     def test_sql_cell_goes_stale_when_resolution_diverges_from_last_run(self) -> None:
         notebook = self._notebook(

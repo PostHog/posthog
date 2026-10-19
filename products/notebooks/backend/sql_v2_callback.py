@@ -18,12 +18,14 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_modeling.backend.facade.api import sync_notebook_table_to_dag
 from products.data_warehouse.backend.facade.api import NotebookTableError, save_notebook_table
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
+from products.notebooks.backend.sql_v2_state import upstream_hogql_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -150,12 +152,24 @@ def _save_warehouse_table(run: NotebookNodeRun, team_id: int, upload: Any) -> di
         error = upload.get("error") if isinstance(upload, dict) else None
         return {"name": name, "error": str(error or "The sandbox didn't upload the dataframe.")}
     try:
-        save_notebook_table(team_id, name, run.user_id)
+        table_id = save_notebook_table(team_id, name, run.user_id)
     except NotebookTableError as e:
         return {"name": name, "error": str(e)}
     except Exception as e:
         capture_exception(e)
         return {"name": name, "error": "The warehouse table couldn't be saved."}
+    try:
+        sync_notebook_table_to_dag(
+            team_id,
+            name,
+            table_id,
+            upstream_hogql_queries(team_id, run.notebook, run.node_id),
+            run.notebook.short_id,
+            run.node_id,
+        )
+    except Exception as e:
+        # The table is saved. Lineage is extra, so a failure here must not report the save as failed.
+        capture_exception(e)
     return {"name": name, "error": None}
 
 

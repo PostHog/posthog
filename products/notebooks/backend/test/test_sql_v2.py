@@ -320,7 +320,14 @@ class TestSQLV2Callback(APIBaseTest):
         NotebookNodeRun.objects.for_team(self.team.id).filter(id=self.node_run.id).update(warehouse_table_name="scores")
         token = mint_callback_token(str(self.node_run.id), self.team.id)
         envelope = {**self.envelope, "warehouse_upload": upload} if upload is not None else self.envelope
-        with patch("products.notebooks.backend.sql_v2_callback.save_notebook_table", side_effect=save_error) as save:
+        with (
+            patch(
+                "products.notebooks.backend.sql_v2_callback.save_notebook_table",
+                side_effect=save_error,
+                return_value="table-id",
+            ) as save,
+            patch("products.notebooks.backend.sql_v2_callback.sync_notebook_table_to_dag") as sync_to_dag,
+        ):
             self._post(token, envelope=envelope)
         run = self._reload_run()
         self.assertEqual(run.envelope["warehouse_table"], expected)
@@ -329,6 +336,10 @@ class TestSQLV2Callback(APIBaseTest):
             save.assert_called_once_with(self.team.id, "scores", self.user.id)
         else:
             save.assert_not_called()
+        if expected["error"] is None:
+            sync_to_dag.assert_called_once_with(self.team.id, "scores", "table-id", [], "nbcb123", "node-1")
+        else:
+            sync_to_dag.assert_not_called()
 
     def test_skips_the_warehouse_table_when_the_run_asked_for_none(self):
         token = mint_callback_token(str(self.node_run.id), self.team.id)

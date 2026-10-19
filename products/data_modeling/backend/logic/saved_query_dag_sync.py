@@ -226,11 +226,14 @@ def lock_dag_placements_shared(team_id: int, dag_id: UUID) -> None:
 
 
 def orphaned_table_nodes() -> QuerySet[Node]:
+    # A table a notebook saves has incoming edges from what the notebook read. It keeps that
+    # lineage when its last reader goes away.
     return Node.objects.filter(
         type=NodeType.TABLE,
         saved_query__isnull=True,
         metric_id__isnull=True,
         outgoing_edges__isnull=True,
+        incoming_edges__isnull=True,
     )
 
 
