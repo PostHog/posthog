@@ -143,7 +143,7 @@ catalog:
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
-    kea-router: ^3.4.1
+    kea-router: ^3.4.2
     kea-subscriptions: ^3.0.1
     kea-test-utils: ^0.2.4
     kea-waitfor: ^0.2.1
@@ -197,6 +197,7 @@ minimumReleaseAgeExclude:
     - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.6
+    - kea-router@3.4.2
     - kea-typegen@3.8.3
     - '@earendil-works/*'
     - typebox

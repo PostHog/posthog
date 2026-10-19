@@ -418,6 +418,7 @@ export namespace Schemas {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -539,6 +540,7 @@ export namespace Schemas {
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
       HogFunction: 'hog_function',
+      Inbox: 'inbox',
       IngestionWarning: 'ingestion_warning',
       Insight: 'insight',
       InsightVariable: 'insight_variable',
@@ -660,6 +662,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -904,6 +907,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -1311,6 +1315,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -3404,6 +3409,41 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface MetricsDashboardVariableSelection {
+      all?: boolean | null;
+      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+      values: string[];
+    }
+
+    export type MetricsDashboardVariableSource = typeof MetricsDashboardVariableSource[keyof typeof MetricsDashboardVariableSource];
+
+
+    export const MetricsDashboardVariableSource = {
+      Custom: 'custom',
+      Promql: 'promql',
+      Sql: 'sql',
+      Textbox: 'textbox',
+    } as const;
+
+    export interface MetricsDashboardVariable {
+      /** The text that All puts in a PromQL query. `.*` when it is empty. */
+      allValue?: string | null;
+      current?: MetricsDashboardVariableSelection | null;
+      /** The options when `source` is `custom`. */
+      customValues?: string[] | null;
+      includeAll?: boolean | null;
+      /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+      label?: string | null;
+      multi?: boolean | null;
+      /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+      name: string;
+      /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+      query?: string | null;
+      /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+      regex?: string | null;
+      source: MetricsDashboardVariableSource;
+    }
+
     export interface EventPropertyFilter {
       key: string;
       label?: string | null;
@@ -3689,6 +3729,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
       metricFilters?: MetricsQueryFilter[] | null;
+      /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+      metricVariables?: MetricsDashboardVariable[] | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
@@ -16267,6 +16309,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `APPEND` - Append
+     * * `MERGE` - Merge
+     */
+    export type IncrementalModeEnum = typeof IncrementalModeEnum[keyof typeof IncrementalModeEnum];
+
+
+    export const IncrementalModeEnum = {
+      Append: 'APPEND',
+      Merge: 'MERGE',
+    } as const;
+
+    /**
      * Serializer for a BatchExport model.
      */
     export interface BatchExport {
@@ -16322,6 +16376,21 @@ export namespace Schemas {
       hogql_query?: string | null;
       /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'.
+         * @nullable
+         */
+      primary_key?: string[] | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+         * @nullable
+         */
+      version_key?: string[] | null;
+      /** How this batch export handles incremental updates.
+       *
+       * * `APPEND` - Append
+       * * `MERGE` - Merge */
+      incremental_mode?: IncrementalModeEnum;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -17171,6 +17240,21 @@ export namespace Schemas {
       hogql_query?: string | null;
       /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+         * @nullable
+         */
+      primary_key?: string[] | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+         * @nullable
+         */
+      version_key?: string[] | null;
+      /** How this batch export handles incremental updates.
+       *
+       * * `APPEND` - Append
+       * * `MERGE` - Merge */
+      incremental_mode?: IncrementalModeEnum;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -44570,6 +44654,7 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44586,6 +44671,7 @@ export namespace Schemas {
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
     } as const;
 
     /**
@@ -44644,7 +44730,8 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
-       * * `split_changed_mid_run` - Split Changed Mid Run */
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45263,34 +45350,60 @@ export namespace Schemas {
       before: ExperimentHealthInputsVariant[];
       /** The split after the change. */
       after: ExperimentHealthInputsVariant[];
-      /** Whether the split-change check counts this change: it and every later change count from the first with an exposure before it, or an unknown answer. False for every change when not checked. */
+      /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
       counted: boolean;
     }
 
-    export interface ExperimentHealthInputsSplitHistory {
-      /** Whether the split changes were compared with the exposures. False when not_checked_reason is set. */
+    export interface ExperimentHealthInputsBucketingChange {
+      /** When the setting changed. */
+      changed_at: string;
+      /** The flag setting that decides the variant draw: 'key', 'aggregation' (the group type the flag matches by), 'bucketing_identifier' or 'experience_continuity' (persist the flag across authentication steps). */
+      setting: string;
+      /**
+         * The value before the change: the key, the group type index, 'distinct_id' or 'device_id', or 'true' or 'false'. Null for an aggregation by persons, or an unreadable key.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * The value after the change, in the same form.
+         * @nullable
+         */
+      after: string | null;
+      /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
+      counted: boolean;
+    }
+
+    export interface ExperimentHealthInputsFlagHistory {
+      /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
       checked: boolean;
       /**
-         * Why the split changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
          * @nullable
          */
       not_checked_reason: string | null;
       /** When the experiment launched. */
       launched_at: string;
-      /** The project's time zone, which the finding uses for times. */
+      /** The project's time zone, which the findings use for times. */
       team_timezone: string;
       /** Every split change since launch. Empty for 'no_history_access', which does not read them. */
-      changes: ExperimentHealthInputsSplitChange[];
+      split_changes: ExperimentHealthInputsSplitChange[];
+      /** Every change since launch of a setting that decides the variant draw, one per setting and save. Empty for 'no_history_access'. */
+      bucketing_changes: ExperimentHealthInputsBucketingChange[];
       /**
          * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
          * @nullable
          */
       exposed_before_first: boolean | null;
       /**
-         * Whether anyone was exposed between the first and the last change. Asked only when the last change restores the split from before the first. Null when not asked or unknown.
+         * Whether anyone was exposed between the first and the last counted split change. Asked only when the last restores the split from before the first. Null when not asked or unknown.
          * @nullable
          */
-      exposed_between: boolean | null;
+      split_exposed_between: boolean | null;
+      /**
+         * Whether anyone was exposed between the first and the last counted bucketing change. Asked only when every setting was set back. Null when not asked or unknown.
+         * @nullable
+         */
+      bucketing_exposed_between: boolean | null;
     }
 
     /**
@@ -45334,9 +45447,9 @@ export namespace Schemas {
     }
 
     export interface ExperimentHealthInputsReaderAccess {
-      /** Whether the reader may read the flag's history, which the split-change check needs. */
+      /** Whether the reader may read the flag's history, which the flag-change checks need. */
       can_read_flag_history: boolean;
-      /** Whether the reader may query events, which the split-change and forced-variant checks need. */
+      /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
       can_query_events: boolean;
       /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
       denied_event_properties: string[];
@@ -45611,8 +45724,8 @@ export namespace Schemas {
       secondary_metric_count: number;
       /** The experiment's feature flag. Null when it has none. */
       flag: ExperimentHealthInputsFlag | null;
-      /** The changes of the flag's split since launch. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
-      split_history: ExperimentHealthInputsSplitHistory | null;
+      /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
+      flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
        *
        * * `read` - Read
@@ -58269,6 +58382,18 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export interface MetricsVariableValue {
+      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`. */
+      all?: boolean | null;
+      allValue?: string | null;
+      values: string[];
+    }
+
+    /**
+     * Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.
+     */
+    export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
+
     export interface MetricsQuery {
       /** Empty when `language` is `promql` or `sql`. */
       clauses: MetricsQueryClause[];
@@ -58291,6 +58416,8 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
+      /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+      variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -58323,6 +58450,11 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    /**
+     * Values of the dashboard variables that the filters refer to as `$name`.
+     */
+    export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
+
     export interface MetricsHistogramQuery {
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
@@ -58339,6 +58471,8 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
+      /** Values of the dashboard variables that the filters refer to as `$name`. */
+      variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -67078,6 +67212,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -79224,6 +79359,21 @@ export namespace Schemas {
       hogql_query?: string | null;
       /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+         * @nullable
+         */
+      primary_key?: string[] | null;
+      /**
+         * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+         * @nullable
+         */
+      version_key?: string[] | null;
+      /** How this batch export handles incremental updates.
+       *
+       * * `APPEND` - Append
+       * * `MERGE` - Merge */
+      incremental_mode?: IncrementalModeEnum;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -96813,6 +96963,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt
+     */
+    export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
+
+
+    export const ReportTaskActionKindEnum = {
+      GetItMerged: 'get_it_merged',
+      SuggestedPrompt: 'suggested_prompt',
+    } as const;
+
+    /**
      * * `ready` - Ready
      * * `warming` - Warming
      */
@@ -102732,6 +102894,77 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+    }
+
+    /**
+     * One report action that starts an agent run, with whether the report offers it now.
+     */
+    export interface SignalReportTaskAction {
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+       *
+       * * `get_it_merged` - Get it merged
+       * * `suggested_prompt` - Suggested prompt */
+      action: ReportTaskActionKindEnum;
+      /** Whether a run of this action can start now. */
+      available: boolean;
+      /**
+         * Why the action cannot start now. Null when `available` is true.
+         * @nullable
+         */
+      disabled_reason: string | null;
+      /**
+         * Position of the prompt in the report's suggested prompts. Null for other actions.
+         * @nullable
+         */
+      suggested_prompt_index: number | null;
+      /** The message the run gets as its first request. */
+      text: string;
+    }
+
+    export interface SignalReportTaskActionError {
+      /** Machine-readable error code. */
+      code: string;
+      /** Human-readable error message. */
+      detail: string;
+      /** For `report_action_run_active`: the task of the run that is still working. */
+      task_id?: string;
+      /** For `report_action_run_active`: the run that is still working. */
+      run_id?: string;
+    }
+
+    export interface SignalReportTaskActionListResponse {
+      /** Every action the report has, available or not, in a stable order. */
+      results: SignalReportTaskAction[];
+    }
+
+    export interface SignalReportTaskActionRunRequest {
+      /** The action to run. Use a value from the actions list.
+       *
+       * * `get_it_merged` - Get it merged
+       * * `suggested_prompt` - Suggested prompt */
+      action: ReportTaskActionKindEnum;
+      /**
+         * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
+         * @minimum 0
+         */
+      suggested_prompt_index?: number;
+    }
+
+    export interface SignalReportTaskActionRunResponse {
+      /** The task the action created. It is linked to the report. */
+      task_id: string;
+      /**
+         * The background run that started, if one did.
+         * @nullable
+         */
+      run_id: string | null;
+      /** Link to the task in PostHog. */
+      task_url: string;
+      /**
+         * Why the run did not start. Null when it started. The task exists either way.
+         * @nullable
+         */
+      run_error: string | null;
     }
 
     export interface SignalReportsForYouResponse {
