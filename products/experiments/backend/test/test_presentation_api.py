@@ -89,6 +89,17 @@ _REBALANCED = {
         },
     }
 }
+_WITH_A_SECOND_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]},
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     team_timezone="UTC",
@@ -759,6 +770,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 None,
                 [_HEALTH_PAUSED, ("bucketing_changed_mid_run", "key_changed")],
                 (timedelta(days=1), {"key": "health-findings-renamed"}),
+            ),
+            (
+                "condition_added_after_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
+                (timedelta(days=1), _WITH_A_SECOND_CONDITION),
             ),
         ]
     )

@@ -10627,9 +10627,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.4ddea1c7537af9d50c57b4b9a76d4bcba39f743a23b4715683c0ce59d4c24f57.0ueR8XMLqRby_u6I0EyNIiUwXkbjmWMH3vBdoFNYmII
     scenes-app-experiments--experiment-health-debug-tab--dark:
-        hash: v1.k794b7964.d5684a998e1dc7b37b7fe5db45432053b75fae05ca0538c87e0de6ce3c9dc8ca.2Qe4patz9tyjmFAEZsVCkjjqcrNyTbOAZ3aXHr2mg7g
+        hash: v1.k794b7964.89ba753555a9fc78822e75cf52e6783de7ea60c3046eed95150180b32ade9d41.P2cGRvwPp8IuU2bohVDvyURVapAxcTMO7RUmRE0WhjY
     scenes-app-experiments--experiment-health-debug-tab--light:
-        hash: v1.k794b7964.3f5dc6355429b4f0fb060a12d6cdbcee422a7a5d31b95fe77450bebe223b5bf8.F_WmHTt3NUbhkJF8UDfZZ_uET6EuHmF6mYZtGXMHBV4
+        hash: v1.k794b7964.879c2f4f4ad7a1d61402af628b5a578f0e88761c284a1e5bf7f7ef64aa438219.ehJIFQobltKAPwR0e0UXYsAY5pt95g_t-6kui8yerfM
     scenes-app-experiments--experiment-recordings-dropped-metric--dark:
         hash: v1.k794b7964.e0e7181f2c9e61a8324eff9aa7a9230fef25b3cf37e0b24ef875780186ed25dc.9VEvZ4iVieVJwmDol0gwtAsr3wgZYW5gj2KXAGZJfiw
     scenes-app-experiments--experiment-recordings-dropped-metric--light:
