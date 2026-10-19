@@ -8,7 +8,6 @@ from .edge import CycleDetectionError, DAGMismatchError, DataModelingEdgeManager
 from .github_sync_config import GitHubSyncConfig, GitHubSyncStatus
 from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
-from .modeling import DataWarehouseModelPath
 from .node import Node, NodeType
 
 __all__ = [
@@ -24,7 +23,6 @@ __all__ = [
     "DataModelingJobEngine",
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
-    "DataWarehouseModelPath",
     "DataWarehouseSavedQuery",
     "DataWarehouseSavedQueryColumnAnnotation",
     "DataWarehouseSavedQueryDraft",

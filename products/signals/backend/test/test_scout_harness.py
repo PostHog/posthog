@@ -716,14 +716,16 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
 
 
 class TestRunNotePromptSection(SimpleTestCase):
-    def _prompt(self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE) -> str:
+    def _prompt(
+        self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE, allowed_tools: list[str] | None = None
+    ) -> str:
         return build_run_prompt(
             LoadedSkill(
                 name="signals-scout-errors",
                 version=1,
                 body="watch",
                 description="d",
-                allowed_tools=[],
+                allowed_tools=allowed_tools or [],
                 files=[],
                 skill_id="skill-1",
                 origin="canonical",
@@ -759,15 +761,33 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert "do not record it in the scratchpad as a durable memory" in prompt
         assert "# Notes left for you" in prompt
 
-    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_report_tools", [], False, False),
+            ("emit_only", ["emit_report"], True, False),
+            ("emit_and_edit", ["emit_report", "edit_report"], True, True),
+            ("edit_only", ["edit_report"], False, False),
+        ]
+    )
+    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(
+        self, _name: str, allowed_tools: list[str], files_follow_up: bool, edits_live_report: bool
+    ) -> None:
         # Framed as a person's nudge, a check run reads its assignment as optional steering and is
-        # never told about the one tool that closes the check.
-        prompt = self._prompt("Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK)
+        # never told about the one tool that closes the check. A failed verdict lands on a resolved
+        # report nobody reads, so a lane that can author must file the linked follow-up first, and
+        # a lane that cannot must not be told to, because the harness re-surfaces it instead.
+        prompt = self._prompt(
+            "Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK, allowed_tools=allowed_tools
+        )
 
         assert "# The check this run must answer" in prompt
         assert "<check>\nCheck id: abc. Did the exception stop?\n</check>" in prompt
         assert "scout-check-record-result" in prompt
         assert "# A note for this run" not in prompt
+        check_section = prompt[prompt.index("# The check this run must answer") :]
+        assert ('"kind": "follow_up_of"' in check_section) is files_follow_up
+        assert ("re-surfaces without you" in check_section) is not files_follow_up
+        assert ("scout-edit-report" in check_section) is edits_live_report
 
 
 class TestPrecheckResultPromptSection(SimpleTestCase):
