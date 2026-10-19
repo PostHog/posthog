@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 
 from parameterized import parameterized
 
@@ -251,11 +252,22 @@ def test_first_relevant_tool_turn_skips_a_missing_slice() -> None:
     assert "No turn 9 log slice" in result.metadata["reason"]
 
 
-_TRENDS_RESULT = ("mcp__posthog__query-trends", {"series": []}, "rows")
-_TRENDS_INLINE_RESULT = ("mcp__posthog__query-trends", {"series": []}, f"rows\n\nThe user {INLINE_VIEW_NOTE}.")
+_TRENDS_RESULT: tuple[str, dict[str, list[str]], str] = ("mcp__posthog__query-trends", {"series": []}, "rows")
+_TRENDS_INLINE_RESULT: tuple[str, dict[str, list[str]], str] = (
+    "mcp__posthog__query-trends",
+    {"series": []},
+    f"rows\n\nThe user {INLINE_VIEW_NOTE}.",
+)
 _BASE = "https://us.example.com/project/1"
 _SQL_CHART = f"[Weekly signups]({_BASE}/sql?open_query=SELECT%20toStartOfWeek(timestamp)%2C%20count()%20FROM%20events)"
 _INSIGHT_CHART = f"[Weekly signups]({_BASE}/insights/9pQx3)"
+_HOGQL_NODE = '{"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}}'
+_TRENDS_NODE = '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}'
+_PROJECT_RESULT: tuple[str, dict[str, list[str]], str] = (
+    "mcp__posthog__query-trends",
+    {"series": []},
+    f"rows\n{_BASE}/insights/new",
+)
 _UNSAVED_INSIGHT_LINK = f"[Weekly signups]({_BASE}/insights/new#q=%7B%7D)"
 
 
@@ -280,6 +292,29 @@ def _chart_output(calls: list[tuple], answer: str = "Signups rose.") -> dict:
         ("sql_link_after_typed_query", [_TRENDS_RESULT], f"Signups rose.\n\n{_SQL_CHART}", 1.0, 0.0),
         ("sql_link_inside_sentence", [_TRENDS_RESULT], f"See {_SQL_CHART} for details.", 0.0, None),
         ("unsaved_insight_link", [_TRENDS_RESULT], f"Signups rose.\n\n{_UNSAVED_INSIGHT_LINK}", 0.0, None),
+        (
+            "unsaved_trends_link",
+            [_TRENDS_RESULT],
+            f"Up.\n\n[Signups]({_BASE}/insights/new#q={quote(_TRENDS_NODE)})",
+            0.0,
+            None,
+        ),
+        (
+            "unsaved_hogql_link",
+            [_TRENDS_RESULT],
+            f"Up.\n\n[Signups]({_BASE}/insights/new#q={quote(_HOGQL_NODE)})",
+            1.0,
+            0.0,
+        ),
+        ("short_insight_link", [_TRENDS_RESULT], f"Up.\n\n[Signups]({_BASE}/i/9pQx3)", 1.0, 1.0),
+        ("same_project_link", [_PROJECT_RESULT], f"Up.\n\n{_INSIGHT_CHART}", 1.0, 1.0),
+        (
+            "other_project_link",
+            [_PROJECT_RESULT],
+            "Up.\n\n[Signups](https://us.example.com/project/2/insights/9pQx3)",
+            0.0,
+            None,
+        ),
         ("failed_render", [_TRENDS_RESULT, _render("query-trends", status="failed")], "Signups rose.", 0.0, None),
         ("rendered_other_tool", [_TRENDS_RESULT, _render("experiment-list")], "Signups rose.", 0.0, None),
         (

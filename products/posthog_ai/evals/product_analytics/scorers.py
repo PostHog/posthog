@@ -982,24 +982,29 @@ _NON_VALUE_RES = (
     re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}\b", re.IGNORECASE),
     re.compile(r"\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b", re.IGNORECASE),
 )
-_VALUE_RE = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\w])|(?<![\w.])\d+(?:\.\d+)?(?![\w])")
+# A minus sign counts only at the start of a value, so the range "6-16" reads as 6 and 16, not 6 and -16.
+_VALUE_RE = re.compile(r"(?<![\w.])[-\u2212]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\w])")
 
 
-def reported_values(text: str, ignore: frozenset[str] = frozenset()) -> set[str]:
+def reported_values(text: str, ignore: frozenset[str] = frozenset(), *, skip_years: bool = True) -> set[str]:
     """Data values in ``text``, normalized so ``1,234``, ``1234`` and ``1234.0`` compare equal.
 
-    Single-digit integers and years are dropped because they also appear as window sizes,
-    step numbers, and dates, so they cannot show where a value came from.
+    Single-digit integers and years written without a thousands separator are dropped, because they
+    also appear as window sizes, step numbers, and dates, so they cannot show where a value came from.
+    An answer whose only values are of this kind gets no score rather than a wrong one. Result tables
+    pass ``skip_years=False``, because a year-like value there is a data cell.
     """
     for pattern in _NON_VALUE_RES:
         text = pattern.sub(" ", text)
     values: set[str] = set()
     for raw in _VALUE_RE.findall(text):
         try:
-            number = Decimal(raw.replace(",", ""))
+            number = Decimal(raw.replace(",", "").replace("\u2212", "-"))
         except InvalidOperation:
             continue
-        if number == number.to_integral_value() and (number < 10 or 1900 <= number <= 2100):
+        if number == number.to_integral_value() and (
+            abs(number) < 10 or (skip_years and "," not in raw and 1900 <= number <= 2100)
+        ):
             continue
         value = format(number.normalize(), "f")
         if value not in ignore:
@@ -1008,17 +1013,20 @@ def reported_values(text: str, ignore: frozenset[str] = frozenset()) -> set[str]
 
 
 def _result_text(call: ToolCall) -> str:
+    """The result rows of a query tool call, without the notes and examples the tool adds after them."""
+    text = call.output
     try:
         payload = json.loads(call.output)
     except (TypeError, ValueError):
-        return call.output
+        payload = None
     if isinstance(payload, dict) and isinstance(payload.get("content"), list):
-        return "\n".join(
+        text = "\n".join(
             block.get("text", "")
             for block in payload["content"]
             if isinstance(block, dict) and block.get("type") == "text"
         )
-    return call.output
+    rows = [line for line in text.splitlines() if "|" in line]
+    return "\n".join(rows) if rows else text
 
 
 class AnswerFromTypedQuery(Scorer):
@@ -1054,8 +1062,9 @@ class AnswerFromTypedQuery(Scorer):
 
         ignore = frozenset(reported_values(user_prompt(output)))
         answer = reported_values(assistant_text(output), ignore)
-        typed = set().union(*(reported_values(_result_text(call)) for call in typed_calls))
-        sql_only = set().union(*(reported_values(_result_text(call)) for call in sql_calls)) - typed
+        typed = set().union(*(reported_values(_result_text(call), skip_years=False) for call in typed_calls))
+        sql = set().union(*(reported_values(_result_text(call), skip_years=False) for call in sql_calls))
+        sql_only = sql - typed
         typed_hits = sorted(answer & typed)
         sql_hits = sorted(answer & sql_only)
         metadata = {"typed_values_reported": typed_hits, "sql_only_values_reported": sql_hits}

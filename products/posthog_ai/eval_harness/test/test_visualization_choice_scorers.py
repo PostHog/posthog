@@ -298,6 +298,17 @@ _SQL_LINK = "[Uploads](https://us.example.com/project/1/sql?open_query=SELECT%20
             0.0,
         ),
         ([_TYPED, _SQL], "Uploads rose by a third.", None),
+        ([_result("query-trends", "Net|-42"), _result("execute-sql", "net\n42")], "Net upgrades: 42.", 0.0),
+        ([_result("query-trends", "Net|-42"), _result("execute-sql", "net\n42")], "Net upgrades: -42.", 1.0),
+        (
+            [
+                _result("query-funnel", "Step|Conversion\nUploaded file|45\n\nExample: 90% of users convert."),
+                _result("execute-sql", "rate\n90"),
+            ],
+            "Conversion is 90%.",
+            0.0,
+        ),
+        ([_result("query-trends", "Signups|2026")], "There were 2,026 signups.", 1.0),
     ],
 )
 def test_answer_from_typed_query_traces_reported_values(calls, answer, score) -> None:

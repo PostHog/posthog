@@ -41,6 +41,8 @@ unrelated cases don't drag the rollup down.
 from __future__ import annotations
 
 import re
+import json
+from urllib.parse import parse_qs, urlsplit
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
@@ -1115,8 +1117,7 @@ _CHART_LINK_RE = re.compile(r'^\[[^\]]+\]\((https?://\S+?)(?:\s+"[^"]*")?\)$')
 _CHART_TAG_RE = re.compile(r"^<(insight|hogql)\b([^>]*?)/?>(.*?)(?:</\1>)?$", re.IGNORECASE | re.DOTALL)
 _TAG_ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
 _CODE_FENCE_RE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
-# Desktop chart cards resolve a saved insight by short ID; an unsaved ``/insights/new#q=`` link is not a chart.
-_SAVED_INSIGHT_URL_RE = re.compile(r"/insights/(?!new\b)[A-Za-z0-9]+")
+_PROJECT_URL_RE = re.compile(r"/project/(\d+)/")
 
 
 def assistant_text(output: dict | None) -> str:
@@ -1157,11 +1158,12 @@ def _chart_tag_kind(paragraph: str) -> str | None:
     return "sql" if body else None
 
 
-def chart_references(text: str) -> list[str]:
+def chart_references(text: str, project_ids: frozenset[str] = frozenset()) -> list[str]:
     """Kinds of the full-size charts in ``text``: ``insight`` (a typed query) or ``sql``, in order.
 
     Only a paragraph that holds nothing but a chart link or a block tag counts, and code blocks are
-    skipped, because Desktop draws nothing else as a chart card.
+    skipped, because Desktop draws nothing else as a chart card. When ``project_ids`` is not empty, a link
+    to any other project is skipped.
     """
     kinds: list[str] = []
     for paragraph in re.split(r"\n\s*\n", _CODE_FENCE_RE.sub("", text)):
@@ -1172,12 +1174,51 @@ def chart_references(text: str) -> list[str]:
             if tag_kind is not None:
                 kinds.append(tag_kind)
             continue
-        url = match.group(1)
-        if _SAVED_INSIGHT_URL_RE.search(url):
-            kinds.append("insight")
-        elif "/sql?" in url and "open_query=" in url:
-            kinds.append("sql")
+        link_kind = _chart_link_kind(match.group(1), project_ids)
+        if link_kind is not None:
+            kinds.append(link_kind)
     return kinds
+
+
+def _hogql_from_query_node(raw: str) -> str | None:
+    try:
+        node = json.loads(raw)
+    except ValueError:
+        return None
+    for _ in range(3):
+        if not isinstance(node, dict):
+            return None
+        if node.get("kind") == "HogQLQuery" and isinstance(node.get("query"), str):
+            return node["query"]
+        node = node.get("source")
+    return None
+
+
+def _chart_link_kind(url: str, project_ids: frozenset[str]) -> str | None:
+    """Mirror ``parsePostHogObjectUrl`` in ``products/desktop/packages/core/src/posthog-objects/objectUrls.ts``.
+
+    A saved insight (``/insights/<id>``, ``/i/<id>``) is a typed chart. ``/sql?open_query=`` and an
+    ``/insights/new#q=`` link that holds a ``HogQLQuery`` are SQL charts; an unsaved typed query is no
+    chart. Desktop also requires the app host, which the eval cannot know because the agent's links
+    and the tool results use different hosts, so only the project is checked.
+    """
+    parts = urlsplit(url)
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if segments[:1] == ["project"]:
+        if len(segments) < 2 or (project_ids and segments[1] not in project_ids):
+            return None
+        segments = segments[2:]
+    if segments == ["sql"]:
+        query = parse_qs(parts.query).get("open_query", [""])[0].strip()
+        if query.startswith("{"):
+            query = (_hogql_from_query_node(query) or "").strip()
+        return "sql" if query else None
+    if segments == ["insights", "new"]:
+        node = parse_qs(parts.fragment).get("q", [""])[0]
+        return "sql" if (_hogql_from_query_node(node) or "").strip() else None
+    if len(segments) >= 2 and segments[0] in ("insights", "i") and segments[1] != "new":
+        return "insight"
+    return None
 
 
 # Inputs the exec wrapper accepts that are not part of the query, so a render that leaves them out still matches.
@@ -1216,7 +1257,8 @@ def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> lis
     for call in calls:
         if not call.is_error and call.name in tools and INLINE_VIEW_NOTE in call.output:
             paths.append("inline")
-    paths.extend(chart_references(assistant_text(output)))
+    project_ids = frozenset(match for call in calls for match in _PROJECT_URL_RE.findall(call.output))
+    paths.extend(chart_references(assistant_text(output), project_ids))
     return paths
 
 
