@@ -252,7 +252,7 @@ impl DistinctIdLookup for PostgresStorage {
         if distinct_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let pool_label = PostgresStorage::pool_label(consistency);
+        let pool_label = PostgresStorage::bulk_pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_distinct_id_rows".to_string()),
             ("pool".to_string(), pool_label.to_string()),
@@ -261,7 +261,7 @@ impl DistinctIdLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let pool = self.pool_for_consistency(consistency);
+        let pool = self.bulk_pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
         // LEFT JOIN: the mapping foreign key is NOT VALID, so an orphan row can outlive its person.
         let rows = sqlx::query!(
