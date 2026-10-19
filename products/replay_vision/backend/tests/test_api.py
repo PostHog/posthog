@@ -5620,6 +5620,27 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             resp = self.client.get(self.feed_url)
         self.assertEqual([item["observation"]["session_id"] for item in resp.json()["results"]], ["open-sess"])
 
+    def test_not_useful_hides_a_row_for_that_user_only_until_undone(self) -> None:
+        scanner = self._create_scanner(name="m")
+        dismissed = self._succeeded_observation(scanner, "dismissed-sess", 1, self._monitor_result("yes"))
+        self._succeeded_observation(scanner, "kept-sess", 2, self._monitor_result("yes"))
+        dismissal_url = f"/api/projects/{self.team.id}/vision/observations/{dismissed.id}/feed_dismissal/"
+
+        def feed_sessions() -> list[str]:
+            return [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]
+
+        self.assertEqual(self.client.post(dismissal_url, {"reason": "nonsense"}).status_code, 400)
+        self.assertEqual(self.client.post(dismissal_url, {"reason": "already_known"}).status_code, 204)
+        self.assertEqual(feed_sessions(), ["kept-sess"])
+
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        self.client.force_login(other)
+        self.assertEqual(sorted(feed_sessions()), ["dismissed-sess", "kept-sess"])
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.delete(dismissal_url).status_code, 204)
+        self.assertEqual(sorted(feed_sessions()), ["dismissed-sess", "kept-sess"])
+
     def test_requires_session_recording_read(self) -> None:
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
