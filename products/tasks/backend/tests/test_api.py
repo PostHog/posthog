@@ -25,6 +25,7 @@ from django.utils.html import escape
 import jwt
 import posthoganalytics
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
@@ -49,7 +50,7 @@ from posthog.temporal.oauth import (
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
-from posthog.token_bucket import BucketDecision
+from posthog.token_bucket import BucketDecision, BucketUnavailable
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -2406,6 +2407,10 @@ class TestTaskAPI(BaseTaskAPITest):
             send_feature_flag_events=False,
         )
 
+    def _sandbox_start_count(self, endpoint: str, outcome: str) -> float:
+        labels = {"endpoint": endpoint, "outcome": outcome}
+        return REGISTRY.get_sample_value("posthog_tasks_sandbox_run_start_total", labels) or 0.0
+
     def _sandbox_start(self, client: APIClient, path: str, target: Task | None = None, target_id: str | None = None):
         if path == "create":
             return client.post(
@@ -2427,10 +2432,12 @@ class TestTaskAPI(BaseTaskAPITest):
         parent_run = parent.create_run(environment=TaskRun.Environment.CLOUD)
         client = self._sandbox_oauth_client(parent.id, internal_scope=True)
         target = self.create_task(title="Existing task")
+        started_before = self._sandbox_start_count(path, "started")
 
         response = self._sandbox_start(client, path, target)
 
         self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json())
+        self.assertEqual(self._sandbox_start_count(path, "started"), started_before + 1)
         child = Task.objects.get(id=response.json()["id"])
         run = child.runs.get()
         state = run.state or {}
@@ -2480,20 +2487,22 @@ class TestTaskAPI(BaseTaskAPITest):
         target = parent if case.startswith("own_task") else self.create_task(title="Existing task")
         task_count = Task.objects.count()
         target_run_count = target.runs.count()
-
-        response = self._sandbox_start(
-            client, path, target, target_id=str(target.id).upper() if case == "own_task_uppercase" else None
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         expected_code = {
             "nested": "nested",
             "own_task": "nested",
             "own_task_uppercase": "nested",
             "not_internal": None,
         }.get(case, "no_actor")
+        refused_before = self._sandbox_start_count(path, expected_code) if expected_code else 0.0
+
+        response = self._sandbox_start(
+            client, path, target, target_id=str(target.id).upper() if case == "own_task_uppercase" else None
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         if expected_code is not None:
             self.assertEqual(response.json()["code"], expected_code)
+            self.assertEqual(self._sandbox_start_count(path, expected_code), refused_before + 1)
         self.assertEqual(Task.objects.count(), task_count)
         self.assertEqual(target.runs.count(), target_run_count)
         mock_workflow.assert_not_called()
@@ -2511,6 +2520,7 @@ class TestTaskAPI(BaseTaskAPITest):
         client = self._sandbox_oauth_client(parent.id, internal_scope=True)
         target = self.create_task(title="Existing task")
         task_count = Task.objects.count()
+        limited_before = self._sandbox_start_count(path, limit)
 
         with patch(
             "products.tasks.backend.presentation.views.api.consume_token_bucket",
@@ -2522,12 +2532,34 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.json()["code"], limit)
+        self.assertEqual(self._sandbox_start_count(path, limit), limited_before + 1)
         self.assertEqual(Task.objects.count(), task_count)
         self.assertFalse(target.runs.exists())
         mock_workflow.assert_not_called()
         parent_run.refresh_from_db()
         expected_count = 10 if limit == "agent_run_fanout_cap" else None
         self.assertEqual((parent_run.state or {}).get("agent_started_run_count"), expected_count)
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_sandbox_oauth_unavailable_buckets_fail_open_and_count_once(self, mock_workflow, _mock_internal_team):
+        parent = self.create_task()
+        parent.create_run(environment=TaskRun.Environment.CLOUD)
+        client = self._sandbox_oauth_client(parent.id, internal_scope=True)
+        target = self.create_task(title="Existing task")
+        unavailable_before = self._sandbox_start_count("run", "bucket_unavailable")
+        started_before = self._sandbox_start_count("run", "started")
+
+        with patch(
+            "products.tasks.backend.presentation.views.api.consume_token_bucket",
+            return_value=BucketUnavailable(error="redis down"),
+        ):
+            response = self._sandbox_start(client, "run", target)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(self._sandbox_start_count("run", "bucket_unavailable"), unavailable_before + 1)
+        self.assertEqual(self._sandbox_start_count("run", "started"), started_before + 1)
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
     def test_sandbox_oauth_failed_run_start_gives_back_its_fanout_slot(self, _mock_internal_team):

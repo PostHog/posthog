@@ -63,6 +63,7 @@ from posthog.security.outbound_proxy import internal_requests_session
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
 from posthog.token_bucket import (
     BucketDecision,
+    BucketUnavailable,
     Budget,
     consume as consume_token_bucket,
     refund as refund_token_bucket,
@@ -951,8 +952,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
         finally:
-            if sandbox_starter is not None and not run_started:
-                tasks_agent_run_starts.release_agent_run_slot(sandbox_starter.parent_run_id)
+            if sandbox_starter is not None:
+                if run_started:
+                    tasks_agent_run_starts.observe_sandbox_run_start(endpoint="create", outcome="started")
+                else:
+                    tasks_agent_run_starts.release_agent_run_slot(sandbox_starter.parent_run_id)
         self._forward_signals_discussion_note(request, task, relationship, discussion_question)
         response_data = TaskSerializer(task).data
         if run_error:
@@ -1584,8 +1588,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
         finally:
-            if sandbox_starter is not None and not run_started:
-                tasks_agent_run_starts.release_agent_run_slot(sandbox_starter.parent_run_id)
+            if sandbox_starter is not None:
+                if run_started:
+                    tasks_agent_run_starts.observe_sandbox_run_start(endpoint="run", outcome="started")
+                else:
+                    tasks_agent_run_starts.release_agent_run_slot(sandbox_starter.parent_run_id)
         if result is None:
             raise NotFound()
         if result.error is not None:
@@ -1634,6 +1641,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_agent_run_starts.capture_sandbox_run_start_refused(
                 self.team_id, sandbox_task_id=sandbox_task_id, reason=starter.value, endpoint=endpoint
             )
+            tasks_agent_run_starts.observe_sandbox_run_start(endpoint=endpoint, outcome=starter.value)
             return _sandbox_run_start_denied_response(starter)
         return starter
 
@@ -1641,9 +1649,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self, request, starter: tasks_contracts.SandboxRunStarter, *, endpoint: str
     ) -> Response | None:
         charged: list[tuple[str, Budget]] = []
+        bucket_unavailable = False
         for scope, budget in SANDBOX_AGENT_RUN_START_BUDGETS:
             key = f"{scope}:{request.user.id}"
             decision = consume_token_bucket(key, budget)
+            if isinstance(decision, BucketUnavailable) and not bucket_unavailable:
+                bucket_unavailable = True
+                tasks_agent_run_starts.observe_sandbox_run_start(endpoint=endpoint, outcome="bucket_unavailable")
             # Fail open when Redis cannot answer, because the fan-out cap below is the durable bound.
             if isinstance(decision, BucketDecision) and not decision.allowed:
                 for charged_key, charged_budget in charged:
@@ -1671,6 +1683,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         tasks_agent_run_starts.capture_sandbox_run_start_refused(
             self.team_id, sandbox_task_id=starter.parent_task_id, reason=code, endpoint=endpoint
         )
+        tasks_agent_run_starts.observe_sandbox_run_start(endpoint=endpoint, outcome=code)
         return _agent_run_rate_limited_response(code, detail)
 
     @staticmethod
