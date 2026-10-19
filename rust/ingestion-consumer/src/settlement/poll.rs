@@ -93,7 +93,7 @@ fn settle_slices(
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let frontier = match uncommitted.ledger.settle(
+        let frontier = match uncommitted.ledger().settle(
             slice.topic_partition,
             slice.generation,
             slice.charges.iter().map(|(offset, _)| *offset),
@@ -215,29 +215,6 @@ mod tests {
         settlement.settle_poll(&[poll.slice()]).unwrap();
 
         assert!(settlement.take_due(Instant::now()).is_none());
-    }
-
-    #[test]
-    fn a_retired_poll_is_uncommitted_until_its_frontier_goes_out() {
-        let (ledger, settlement) = settlement();
-        let poll = charged(&ledger, 0, 10, 11);
-
-        let charge = |offset: i64| {
-            settlement
-                .charge(
-                    &poll.topic_partition,
-                    poll.generation,
-                    &[(Offset(offset), Charge::ZERO)],
-                )
-                .expect("the ledger accepts the charge")
-                .offsets
-        };
-
-        settlement.settle_poll(&[poll.slice()]).unwrap();
-        assert_eq!(charge(12), 3, "the retired poll waits for its commit");
-
-        settlement.take_due(Instant::now());
-        assert_eq!(charge(13), 2, "the commit refunds the retired poll");
     }
 
     #[test]

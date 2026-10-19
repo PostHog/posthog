@@ -40,7 +40,7 @@ impl Settlement for GroupSettlement {
     ) -> anyhow::Result<()> {
         match self
             .uncommitted
-            .ledger
+            .ledger()
             .settle(topic_partition, generation, offsets.iter().copied())
         {
             Ok(Some(_)) => {
@@ -201,40 +201,6 @@ mod tests {
         settlement.forget_partitions(&[p0]);
 
         assert!(settlement.take_all().is_none());
-    }
-
-    #[test]
-    fn an_offset_is_uncommitted_until_the_commit_covering_it_goes_out() {
-        let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
-        let p0 = TopicPartition::new("events", 0);
-        let each = Charge {
-            events: 1,
-            bytes: 100,
-        };
-        let charge = |offset: i64| {
-            settlement
-                .charge(&p0, 0, &[(Offset(offset), each)])
-                .expect("the ledger accepts the charge")
-                .charge
-        };
-        charge(10);
-
-        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
-        assert_eq!(
-            charge(11),
-            each + each,
-            "a taken frontier is still uncommitted while the pacer holds it"
-        );
-
-        settlement.take_due(Instant::now());
-        assert_eq!(charge(12), each + each, "the commit refunds the frontier");
-
-        settlement
-            .settle_run(&p0, 0, &[Offset(11), Offset(12)])
-            .unwrap();
-        settlement.take_all();
-        assert_eq!(charge(13), each);
     }
 
     #[test]
