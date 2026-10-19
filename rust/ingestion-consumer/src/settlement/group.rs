@@ -49,6 +49,9 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
         generation: u64,
         offsets: &[Offset],
     ) -> anyhow::Result<()> {
+        let (Some(first), Some(last)) = (offsets.first(), offsets.last()) else {
+            return Ok(());
+        };
         if let Err(rejection) =
             self.accounting
                 .settled(topic_partition, generation, offsets.iter().copied())
@@ -58,8 +61,8 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
                 topic_partition,
                 rejection,
                 RejectedSlice::settled(&OffsetSpan {
-                    first: offsets[0].0,
-                    last: offsets[offsets.len() - 1].0,
+                    first: first.0,
+                    last: last.0,
                 }),
             )?;
         }
@@ -206,6 +209,15 @@ mod tests {
                 offsets: vec![Offset(10), Offset(11)],
             }]
         );
+    }
+
+    #[test]
+    fn an_empty_run_settles_nothing() {
+        let (settlement, accounting, _) = settlement();
+
+        settlement.settle_run(&p(0), 0, &[]).unwrap();
+
+        assert!(accounting.settles_seen().is_empty());
     }
 
     struct RejectedRun {
