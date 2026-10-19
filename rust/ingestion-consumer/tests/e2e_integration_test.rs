@@ -886,6 +886,25 @@ impl Harness {
         worker_count: usize,
         partition_budget: BudgetLimits,
     ) -> Self {
+        Self::start_with_partition_budget_committing_every(
+            pack_targets,
+            topic,
+            partitions,
+            worker_count,
+            partition_budget,
+            COMMIT_INTERVAL,
+        )
+        .await
+    }
+
+    async fn start_with_partition_budget_committing_every(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        partition_budget: BudgetLimits,
+        commit_interval: Duration,
+    ) -> Self {
         Self::start_inner(
             topic,
             partitions,
@@ -898,7 +917,7 @@ impl Harness {
             pack_targets,
             None,
             CompletionGranularity::Group,
-            COMMIT_INTERVAL,
+            commit_interval,
             partition_budget,
         )
         .await
@@ -2911,6 +2930,74 @@ async fn a_partition_at_its_budget_does_not_pause_another() {
         Duration::from_secs(10),
         "the stalled partition to resume and drain",
         || harness.committed_offset(stalled) == Some(10),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_returns_it() {
+    let topic = format!("e2e-partition-budget-rebalance-{}", Uuid::new_v4());
+    let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    let harness = Harness::start_with_partition_budget_committing_every(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        budget,
+        Duration::from_secs(20),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let producer = make_producer();
+
+    produce(&producer, &topic, 0, "tok", "user-a", 0).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the first frontier to commit",
+        || harness.committed_offset(0) == Some(1),
+    )
+    .await;
+    for seq in 1..6usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "the interval to hold the budget's worth of settled offsets",
+        || harness.workers[0].count() == 6 && harness.ledger.held(&p0).offsets == 0,
+    )
+    .await;
+
+    let generation_before = harness.ledger.generation(&p0);
+    let second = harness.join_second_consumer().await;
+    wait_until(
+        Duration::from_secs(15),
+        "the rebalance to revoke the partition",
+        || harness.ledger.generation(&p0) > generation_before,
+    )
+    .await;
+    assert_eq!(
+        harness.committed_offset(0),
+        Some(1),
+        "the partition must still be at its budget when it is revoked"
+    );
+    second.stop().await;
+
+    for seq in 6..10usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(40),
+        "the returned partition to fetch again",
+        || {
+            let delivered: HashSet<usize> = harness
+                .workers
+                .iter()
+                .flat_map(|w| w.seqs_for("user-a"))
+                .collect();
+            (6..10).all(|seq| delivered.contains(&seq))
+        },
     )
     .await;
 
