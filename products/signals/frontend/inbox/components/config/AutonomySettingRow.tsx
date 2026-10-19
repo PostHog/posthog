@@ -19,7 +19,6 @@ export function AutonomySettingRow({
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-3 py-3">
-            {/* basis-48 leaves room for a switch beside the text in the 320px legacy rail. */}
             <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
                 <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
                     <span className="text-sm font-medium text-default">{title}</span>

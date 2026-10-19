@@ -286,17 +286,17 @@ Note: Parsed collection GET operations from the official OpenAPI spec, including
 
 ## Ahrefs — **thin**
 
-Today (7): `backlinks`, `domain_rating_history`, `metrics_history`, `projects`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`
+Today (14): `backlinks`, `brand_radar_web_pages`, `domain_rating_history`, `domain_rating_top_domains`, `link_intersect_refdomains`, `link_intersect_refpages`, `metrics_history`, `organic_keywords`, `projects`, `rank_tracker_overview`, `referring_domains`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`
 
 Diffed against: <https://docs.ahrefs.com/openapi.json>
 
 - [x] `Projects (GET /v3/management/projects)` — provides project metadata for joining audit project IDs to target websites (high)
-- [ ] `Organic keywords (GET /v3/site-explorer/organic-keywords)` — tracks search positions, traffic, and keyword value for SEO reports (high)
+- [x] `Organic keywords (GET /v3/site-explorer/organic-keywords)` — tracks search positions, traffic, and keyword value for SEO reports (high)
 - [x] `Backlinks (GET /v3/site-explorer/all-backlinks)` — supports link acquisition, loss, and link quality analysis (high)
 - [x] `Metrics history (GET /v3/site-explorer/metrics-history)` — measures organic traffic and traffic value trends over time (high)
 - [x] `Domain Rating history (GET /v3/site-explorer/domain-rating-history)` — tracks the vendor's core authority metric alongside audit health (high)
-- [ ] `Rank Tracker overview (GET /v3/rank-tracker/overview)` — measures tracked keyword rankings and visibility by project (high)
-- [ ] `Referring domains (GET /v3/site-explorer/refdomains)` — measures unique linking domains and their authority (medium)
+- [x] `Rank Tracker overview (GET /v3/rank-tracker/overview)` — measures tracked keyword rankings and visibility by project (high)
+- [x] `Referring domains (GET /v3/site-explorer/refdomains)` — measures unique linking domains and their authority (medium)
 - [ ] `Top pages (GET /v3/site-explorer/top-pages)` — identifies pages that drive organic traffic and revenue opportunities (medium)
 - [ ] `Brand Radar mentions history (GET /v3/brand-radar/mentions-history)` — measures brand visibility trends across AI search platforms (medium)
 - [x] `Link intersect referring domains (POST /v3/competitive-analysis/link-intersect-refdomains)` — finds domains that link to competitors, for link building (medium)
@@ -11573,8 +11573,8 @@ Today (9): `Accounts`, `Activities`, `Campaigns`, `Cases`, `Contacts`, `Document
 
 Diffed against: <https://support.reallysimplesystems.com/api-v4/>
 
-- [ ] `campaignstages` — lookup table resolving the stage a campaign or campaign member sits in (high)
-- [ ] `campaigndetails` — the per-campaign membership/detail rows linking contacts to campaigns (high)
+- [x] `campaignstages` — lookup table resolving the stage a campaign or campaign member sits in (high)
+- [x] `campaigndetails` — the per-campaign membership/detail rows linking contacts to campaigns (high)
 
 Note: The v4 API documents exactly 11 CRUD objects; PostHog exposes 9 of them, so coverage is nearly complete. The two missing ones are both marketing-tool objects. Also available but not table-shaped: GET /datadictionary/{object} and GET /lookup/{object}/{field} for dropdown values.
 
