@@ -146,6 +146,10 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
         assert [element["tag_name"] for element in element_dicts] == expected_tag_names
         assert all(element["text"] is None for element in element_dicts)
 
+    def test_chain_to_element_dicts_finds_the_tag_past_a_newline_in_a_value(self) -> None:
+        element_dicts = chain_to_element_dicts('text="' + "a" * 200_000 + '\nb:href="/a"')
+        assert [element["tag_name"] for element in element_dicts] == ["b"]
+
     @parameterized.expand(
         [
             ("value never closes", 'href="/a"text="' + '\\"' * 2000, [ElementAttribute(key="href", value="/a")]),
