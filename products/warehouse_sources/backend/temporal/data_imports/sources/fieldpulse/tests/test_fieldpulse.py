@@ -95,7 +95,7 @@ def test_requests_and_pagination(
     ]
 
 
-@pytest.mark.parametrize("endpoint", ["users", "job_status_workflows", "job_status_workflow_statuses"])
+@pytest.mark.parametrize("endpoint", ["users", "job_status_workflows", "job_status_workflow_statuses", "timesheets"])
 @pytest.mark.parametrize(
     "pages,expected_items,expected_pages",
     [
