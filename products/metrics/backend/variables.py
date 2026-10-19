@@ -54,6 +54,8 @@ class Variable:
     all_value_as_written: bool = False
     # True once All has the values of every option, which can be none.
     loaded: bool = False
+    # The format of a reference that names none, such as `raw` for a Grafana text box that holds a regex.
+    default_format: str | None = None
 
 
 @frozen
@@ -351,7 +353,8 @@ def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Col
             unresolved.append(name)
             return match.group(0)
         # In a regex matcher, a dot in a selected value such as an IP address must stay a dot.
-        return format_promql(variable, match.group("braced_format") or match.group("bracketed_format"), context=context)
+        value_format = match.group("braced_format") or match.group("bracketed_format") or variable.default_format
+        return format_promql(variable, value_format, context=context)
 
     return Substitution(text=REFERENCE.sub(replace, expr), unresolved=tuple(dict.fromkeys(unresolved)))
 
