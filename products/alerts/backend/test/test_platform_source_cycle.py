@@ -44,6 +44,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceEvaluationInputs,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
 # A Wednesday, so no weekend rule applies.
@@ -170,16 +171,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowlisted", True, False),
-            ("not_allowlisted", False, False),
-            ("allowlisted_resolve", True, True),
+            ("allowlisted", True, False, False),
+            ("not_allowlisted", False, False, False),
+            ("allowlisted_resolve", True, True, False),
+            ("platform_owned", False, False, True),
+            ("platform_owned_resolve", False, True, True),
         ]
     )
-    def test_only_an_allowlisted_firing_or_failure_asks_for_a_delivery(
-        self, _name: str, allowlisted: bool, was_firing: bool
+    def test_only_an_allowlisted_or_platform_owned_firing_or_failure_asks_for_a_delivery(
+        self, _name: str, allowlisted: bool, was_firing: bool, owned: bool
     ) -> None:
         alert = self._alert()
-        configuration = self._copy(alert)
+        configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
         allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
         if was_firing:
             fired, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
@@ -199,12 +202,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 str(configuration.id),
                 str(alert.id),
                 {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
+                owned,
             )
         ]
         assert [
-            (delivery.configuration_id, delivery.destination_alert_id, delivery.event_ids_by_kind)
+            (
+                delivery.configuration_id,
+                delivery.destination_alert_id,
+                delivery.event_ids_by_kind,
+                delivery.owned_by_platform,
+            )
             for delivery in self.deliveries
-        ] == (expected if allowlisted and not was_firing else [])
+        ] == (expected if (allowlisted or owned) and not was_firing else [])
 
     @parameterized.expand(
         [
