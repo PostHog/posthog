@@ -11,6 +11,7 @@ from posthog.schema import ErrorTrackingOrderBy
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
 from products.error_tracking.backend.facade import contracts
+from products.error_tracking.backend.facade.query_utils import IssueTrendDirection
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -349,6 +350,27 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     repo_name = serializers.CharField(required=False, help_text="Git repository name.")
 
 
+class ErrorTrackingIssueTrendSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=IssueTrendDirection.choices,
+        help_text=(
+            "Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means "
+            "a change of at least 25%. 'new' means first_seen is in the second half. 'stable' means a smaller change."
+        ),
+    )
+    current_occurrences = serializers.IntegerField(help_text="Occurrences in the second half of dateRange.")
+    previous_occurrences = serializers.IntegerField(help_text="Occurrences in the first half of dateRange.")
+    change_percent = serializers.IntegerField(
+        required=False,
+        help_text="Percent change from the first half to the second half. Absent when the first half has no occurrences.",
+    )
+    previous_from = serializers.CharField(help_text="Start of the first half.")
+    previous_to = serializers.CharField(help_text="End of the first half.")
+    current_from = serializers.CharField(
+        help_text="Start of the second half. The second half ends at the end of dateRange."
+    )
+
+
 class ErrorTrackingBreakdownValueSerializer(serializers.Serializer):
     value = serializers.CharField(help_text="Property value.")
     count = serializers.IntegerField(help_text="Number of matching events with this value.")
@@ -403,6 +425,13 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
         ),
     )
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
+    trend = ErrorTrackingIssueTrendSerializer(
+        required=False,
+        help_text=(
+            "Whether the issue is getting worse or better: occurrences in the second half of dateRange against the "
+            "first half. Absent when the issue has no occurrences in dateRange or volumeResolution is 1."
+        ),
+    )
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
     )

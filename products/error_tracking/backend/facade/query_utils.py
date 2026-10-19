@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from posthog.hogql.escape_sql import escape_hogql_string
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.utils import relative_date_parse
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
@@ -661,6 +662,69 @@ def build_sparkline(issue: dict[str, object]) -> list[float] | None:
                 numeric_values.append(value)
         return numeric_values or None
     return None
+
+
+class IssueTrendDirection(LabeledStrEnum):
+    NEW = "new"
+    INCREASING = "increasing"
+    DECREASING = "decreasing"
+    STABLE = "stable"
+
+
+# The fewest volume buckets that split the date range into two halves.
+TREND_VOLUME_RESOLUTION = 2
+TREND_CHANGE_RATIO = 1.25
+
+
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def trend_direction(previous: int, current: int, first_seen: object, current_from: object) -> IssueTrendDirection:
+    first_seen_at = parse_timestamp(first_seen)
+    current_from_at = parse_timestamp(current_from)
+    if previous == 0 and current > 0 and first_seen_at and current_from_at and first_seen_at >= current_from_at:
+        return IssueTrendDirection.NEW
+    if current > previous and current >= previous * TREND_CHANGE_RATIO:
+        return IssueTrendDirection.INCREASING
+    if current < previous and current * TREND_CHANGE_RATIO <= previous:
+        return IssueTrendDirection.DECREASING
+    return IssueTrendDirection.STABLE
+
+
+def build_trend(issue: dict[str, object]) -> dict[str, object] | None:
+    aggregations = as_record(issue.get("aggregations")) or {}
+    raw_buckets = aggregations.get("volume_buckets")
+    buckets = (
+        [record for bucket in raw_buckets if (record := as_record(bucket)) is not None]
+        if isinstance(raw_buckets, list)
+        else []
+    )
+    half = len(buckets) // 2
+    if half == 0:
+        return None
+    # With an odd bucket count the middle bucket is left out, so both halves cover the same time.
+    previous_buckets, current_buckets = buckets[:half], buckets[-half:]
+    previous = int(sum(to_number(bucket.get("value")) or 0 for bucket in previous_buckets))
+    current = int(sum(to_number(bucket.get("value")) or 0 for bucket in current_buckets))
+    return compact_dict(
+        {
+            "direction": trend_direction(
+                previous, current, issue.get("first_seen"), current_buckets[0].get("label")
+            ).value,
+            "current_occurrences": current,
+            "previous_occurrences": previous,
+            "change_percent": round((current - previous) / previous * 100) if previous else None,
+            "previous_from": previous_buckets[0].get("label"),
+            "previous_to": buckets[half].get("label"),
+            "current_from": current_buckets[0].get("label"),
+        }
+    )
 
 
 def build_issue_where(issue_id: str) -> list[str]:

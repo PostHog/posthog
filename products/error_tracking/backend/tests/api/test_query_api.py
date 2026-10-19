@@ -31,6 +31,7 @@ from products.error_tracking.backend.facade.query_utils import (
     build_issue_filters,
     build_search_query,
     build_sparkline,
+    build_trend,
     dedupe_repeated_stacktraces,
     map_issue_breakdown,
     normalize_stacktrace,
@@ -80,6 +81,26 @@ def test_release_filter_adds_substring_prefilter() -> None:
 
 def test_build_sparkline_accepts_float_values() -> None:
     assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
+
+
+@parameterized.expand(
+    [
+        ("increasing", [2, 2, 5, 5], "2026-04-01T00:00:00+00:00", {"direction": "increasing", "change_percent": 150}),
+        ("decreasing", [5, 5, 2, 2], "2026-04-01T00:00:00+00:00", {"direction": "decreasing", "change_percent": -60}),
+        ("small change is stable", [4, 4, 5, 4], "2026-04-01T00:00:00+00:00", {"direction": "stable"}),
+        ("first seen in the current half", [0, 0, 1, 3], "2026-04-23T06:00:00+00:00", {"direction": "new"}),
+        ("quiet before the current half", [0, 0, 1, 3], "2026-04-01T00:00:00+00:00", {"direction": "increasing"}),
+        ("odd bucket count leaves the middle out", [1, 9, 1], "2026-04-01T00:00:00+00:00", {"direction": "stable"}),
+    ]
+)
+def test_build_trend(_name: str, values: list[int], first_seen: str, expected: dict[str, object]) -> None:
+    start = datetime(2026, 4, 21, tzinfo=UTC)
+    buckets = [
+        {"label": (start + timedelta(days=index)).isoformat(), "value": value} for index, value in enumerate(values)
+    ]
+    trend = build_trend({"first_seen": first_seen, "aggregations": {"volume_buckets": buckets}})
+    assert trend is not None
+    assert {key: trend.get(key) for key in expected} == expected
 
 
 def test_normalize_stacktrace_keeps_the_frames_closest_to_the_error() -> None:
@@ -540,7 +561,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200
-        assert observed_volume_resolutions == [1]
+        assert observed_volume_resolutions == [2]
         assert observed_filter_groups == [None]
 
     def test_issue_detail_without_fingerprints_has_no_filter_group(self) -> None:
@@ -657,6 +678,14 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
         assert data["first_seen"] == "2026-04-10T12:00:00Z"
+        assert data["trend"] == {
+            "direction": "increasing",
+            "current_occurrences": 1,
+            "previous_occurrences": 0,
+            "previous_from": "2026-04-23T00:00:00+00:00",
+            "previous_to": "2026-04-24T00:00:00+00:00",
+            "current_from": "2026-04-24T00:00:00+00:00",
+        }
         assert data["first_release"] == {
             "version": "2026.04.10",
             "project": "posthog-js",
