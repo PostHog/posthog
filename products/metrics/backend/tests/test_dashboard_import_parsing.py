@@ -410,6 +410,10 @@ def test_rewrites_grafana_ranges_to_the_query_step(expr: str, expected: str, cha
         ('up{job=~".*", env="prod"}', 'up{env="prod"}'),
         ('up{job=~".*"}', "up"),
         ('up{job=~".+"}', 'up{job=~".+"}'),
+        ('{__name__=~".*"}', '{__name__=~".+"}'),
+        ('up or {job=~".*"}', 'up or {__name__=~".+"}'),
+        ('{job=~".*", env!="dev"}', '{__name__=~".+", env!="dev"}'),
+        ('{job=~".*", env="prod"}', '{env="prod"}'),
     ],
 )
 def test_drops_matchers_that_match_everything(expr: str, expected: str) -> None:
