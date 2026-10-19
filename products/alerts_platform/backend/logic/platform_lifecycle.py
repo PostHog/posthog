@@ -579,6 +579,9 @@ _ADMISSION_LOCK_SQL: Final = {
 def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
+    A copy the platform owns is left as it is. Every edit writes both of its rows, and a caller here
+    reads its source row without a lock, so its snapshot can predate such an edit.
+
     Keyed on the row it came from, so a second run updates rather than duplicates.
 
     `next_check_at` is copied into a new row, into a disabled copy, into a copy with no schedule
@@ -601,9 +604,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             PlatformAlertConfiguration.objects.unscoped()
             .select_for_update()
             .filter(legacy_configuration_id=upsert.legacy_configuration_id)
-            .values("enabled", "next_check_at", *_CADENCE_FIELDS)
+            .values("enabled", "next_check_at", "owner", *_CADENCE_FIELDS)
             .first()
         )
+        if existing is not None and existing["owner"] == PlatformAlertOwner.PLATFORM:
+            return False
         defaults = {
             "team_id": upsert.team_id,
             "name": upsert.name,
@@ -705,9 +710,9 @@ def write_edit(
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A copy the platform owns is the production alert, so it always follows its source, including
-    back on after the source turns it off. Otherwise a team runs a source here while any of its
-    parallel-run copies of that source is enabled. A team the backfill left out of its sample, or one
+    A copy the platform owns gets nothing, because every edit already writes both of its rows.
+    Otherwise a team runs a source here while any of its parallel-run copies of that source is
+    enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
     """
@@ -718,7 +723,6 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
         )
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
-            upsert_configuration(upsert, revive=revive)
             return
         running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
         switched_off = existing is not None and existing.switched_off_at is not None

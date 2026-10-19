@@ -17,6 +17,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog import redis
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 from posthog.temporal.alerts.admission import admit_evaluation_slots
 
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -616,6 +617,34 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert copy.enabled is still_runs
         # History and messages read the stored copy, so it has to state what the check evaluated.
         assert copy.source_config["condition"]["threshold_count"] == stored_threshold
+
+    def test_a_copy_the_platform_owns_runs_as_stored_whatever_its_logs_row_says(self) -> None:
+        configuration = self._configuration(owner="platform")
+        # Stored as "above 10", which 500 logs breach. The logs row now says otherwise, and is off.
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(
+            threshold_count=1000, enabled=False
+        )
+
+        evaluation, query = self._run(configuration)
+
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.FIRING]
+        assert query.called
+
+    def test_a_copy_the_platform_owns_stops_when_its_logs_row_is_in_an_environment(self) -> None:
+        configuration = self._configuration(owner="platform")
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        # The environment's logs live under its own team, which the project's query would not read.
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(team=environment)
+
+        evaluation, query = self._run(configuration)
+        self._record(evaluation)
+
+        assert query.called is False
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert copy.enabled is False
 
     def test_a_redispatched_batch_does_not_share_the_slot_its_earlier_run_still_holds(self) -> None:
         configuration = self._configuration()

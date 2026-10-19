@@ -20,7 +20,7 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
 from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_source_config import logs_source_config
@@ -36,6 +36,20 @@ class BackfillCounts:
     failed: int
 
 
+# The settings a logs alert shares with its platform copy. The schedule stays the platform's own once
+# the copy exists, and `enabled` follows its own rules on each side.
+SETTINGS_FIELDS: Final = (
+    "name",
+    "source_config",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "cooldown_minutes",
+    "schedule_restriction",
+)
+# The logs alert's columns that make up `source_config["condition"]` on the copy.
+CONDITION_FIELDS: Final = ("threshold_count", "threshold_operator", "window_minutes")
+
+
 def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
     """The platform copy of a logs alert, which the backfill writes and every check reads again.
 
@@ -48,14 +62,7 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         name=alert.name,
         enabled=alert.enabled,
         source_kind=SourceKind.LOGS,
-        source_config=logs_source_config(
-            alert.filters,
-            {
-                "threshold_count": alert.threshold_count,
-                "threshold_operator": alert.threshold_operator,
-                "window_minutes": alert.window_minutes,
-            },
-        ),
+        source_config=logs_source_config(alert.filters, {field: getattr(alert, field) for field in CONDITION_FIELDS}),
         check_interval_minutes=alert.check_interval_minutes,
         evaluation_periods=alert.evaluation_periods,
         datapoints_to_alarm=alert.datapoints_to_alarm,
@@ -123,7 +130,8 @@ def backfill_platform_alert_configurations(
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
-    source = LogsAlertConfiguration.objects.all()
+    # The platform owns these, and every edit writes both rows already.
+    source = LogsAlertConfiguration.objects.exclude(owner=PlatformAlertOwner.PLATFORM)
     if team_id is not None:
         source = source.filter(team_id=team_id)
     if alert_ids is not None:

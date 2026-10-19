@@ -12,6 +12,7 @@ import * as zod from 'zod'
 export const platformAlertsUpdateBodyOneNameMax = 255
 
 export const platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdCountMin = 0
+export const platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdCountMax = 2147483647
 
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesMax = 100
@@ -66,6 +67,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod
                         threshold_count: zod
                             .number()
                             .min(platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdCountMin)
+                            .max(platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdCountMax)
                             .describe(
                                 'Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.'
                             ),
@@ -160,6 +162,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdCountMin = 0
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdCountMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
@@ -218,6 +221,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod
                         threshold_count: zod
                             .number()
                             .min(platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdCountMin)
+                            .max(platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdCountMax)
                             .describe(
                                 'Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.'
                             ),
