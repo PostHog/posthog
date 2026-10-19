@@ -81,17 +81,22 @@ pub(crate) trait Accounting: Send + Sync {
         offsets: impl IntoIterator<Item = Offset>,
     ) -> Result<Option<Offset>, Rejection>;
 
-    /// Hands out the frontiers due for commit, and their charge stops
-    /// counting: the consumer submits their commit right after.
-    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
+    /// Hands out the frontiers due for commit, each with what its partition
+    /// still holds after it. Their charge stops counting: the consumer submits
+    /// their commit right after.
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, HandedOut>>;
 
     /// Like `take_due`, without waiting for the interval.
-    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>>;
+    fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>>;
 
     /// Drops everything the partitions hold.
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+}
 
-    fn held(&self, topic_partition: &TopicPartition) -> Held;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HandedOut {
+    pub(crate) offset: Offset,
+    pub(crate) remaining: Held,
 }
 
 /// Pause and resume decisions from a partition's uncommitted charge.
@@ -119,12 +124,33 @@ pub(crate) struct Commit {
 }
 
 impl Commit {
-    fn without_resumes(offsets: HashMap<TopicPartition, Offset>) -> Self {
+    fn new(handed_out: HashMap<TopicPartition, HandedOut>, admission: &impl Admission) -> Self {
+        let mut resume = Vec::new();
+        for (topic_partition, handed_out) in &handed_out {
+            if let Some(Resume) = admission.handed_out(topic_partition, handed_out.remaining.charge)
+            {
+                resume.push(topic_partition.clone());
+            }
+        }
         Self {
-            offsets,
+            offsets: offsets(handed_out),
+            resume,
+        }
+    }
+
+    fn without_resumes(handed_out: HashMap<TopicPartition, HandedOut>) -> Self {
+        Self {
+            offsets: offsets(handed_out),
             resume: Vec::new(),
         }
     }
+}
+
+fn offsets(handed_out: HashMap<TopicPartition, HandedOut>) -> HashMap<TopicPartition, Offset> {
+    handed_out
+        .into_iter()
+        .map(|(topic_partition, handed_out)| (topic_partition, handed_out.offset))
+        .collect()
 }
 
 pub(crate) fn for_granularity(

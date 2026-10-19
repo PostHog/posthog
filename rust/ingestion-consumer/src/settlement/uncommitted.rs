@@ -5,7 +5,7 @@ use std::time::Instant;
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::gauge;
 
-use super::Accounting;
+use super::{Accounting, HandedOut};
 use crate::commit_pacer::CommitPacer;
 
 const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
@@ -31,10 +31,14 @@ impl Uncommitted {
         }
     }
 
-    fn publish_window(&self, due: &HashMap<TopicPartition, Offset>) {
-        for topic_partition in due.keys() {
-            publish(topic_partition, self.ledger.held(topic_partition));
-        }
+    fn hand_out(&self, due: HashMap<TopicPartition, Offset>) -> HashMap<TopicPartition, HandedOut> {
+        due.into_iter()
+            .map(|(topic_partition, offset)| {
+                let remaining = self.ledger.held(&topic_partition);
+                publish(&topic_partition, remaining);
+                (topic_partition, HandedOut { offset, remaining })
+            })
+            .collect()
     }
 }
 
@@ -71,16 +75,14 @@ impl Accounting for Uncommitted {
         Ok(frontier)
     }
 
-    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, HandedOut>> {
         let due = self.pacer.lock().unwrap().take_due(now)?;
-        self.publish_window(&due);
-        Some(due)
+        Some(self.hand_out(due))
     }
 
-    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>> {
         let due = self.pacer.lock().unwrap().take_all()?;
-        self.publish_window(&due);
-        Some(due)
+        Some(self.hand_out(due))
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -96,10 +98,6 @@ impl Accounting for Uncommitted {
         for topic_partition in topic_partitions {
             publish(topic_partition, Held::default());
         }
-    }
-
-    fn held(&self, topic_partition: &TopicPartition) -> Held {
-        self.ledger.held(topic_partition) + self.pacer.lock().unwrap().pending(topic_partition)
     }
 }
 
@@ -193,7 +191,17 @@ mod tests {
 
         assert_eq!(charge(&uncommitted, 0, 11), held(2));
 
-        uncommitted.take_due(Instant::now()).expect("due");
+        let handed_out = uncommitted.take_due(Instant::now()).expect("due");
+        assert_eq!(
+            handed_out,
+            HashMap::from([(
+                p0(),
+                HandedOut {
+                    offset: Offset(11),
+                    remaining: held(1),
+                }
+            )])
+        );
         assert_eq!(charge(&uncommitted, 0, 12), held(2));
     }
 

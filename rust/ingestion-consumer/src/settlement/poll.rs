@@ -131,6 +131,7 @@ mod tests {
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
     use super::super::fakes::{FakeAccounting, Settled};
+    use super::super::HandedOut;
     use super::*;
     use crate::order_sentinel::OffsetSpan;
 
@@ -309,9 +310,13 @@ mod tests {
     #[test]
     fn a_hand_out_commits_without_resuming() {
         let settlement = settlement();
-        settlement
-            .uncommitted
-            .take_hands_out(HashMap::from([(p(0), Offset(12))]));
+        settlement.uncommitted.take_hands_out(HashMap::from([(
+            p(0),
+            HandedOut {
+                offset: Offset(12),
+                remaining: Held::default(),
+            },
+        )]));
 
         let commit = settlement.take_due(Instant::now()).expect("handed out");
 

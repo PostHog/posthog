@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicPartition};
 
-use super::{Accounting, Admission, Pause, Resume};
+use super::{Accounting, Admission, HandedOut, Pause, Resume};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Settled {
@@ -35,8 +35,7 @@ impl<T> Script<T> {
 pub(super) struct FakeAccounting {
     charges: Script<Result<Held, Rejection>>,
     settles: Script<Result<Option<Offset>, Rejection>>,
-    takes: Script<HashMap<TopicPartition, Offset>>,
-    held: Mutex<HashMap<TopicPartition, Held>>,
+    takes: Script<HashMap<TopicPartition, HandedOut>>,
     settled: Mutex<Vec<Settled>>,
     forgotten: Mutex<Vec<TopicPartition>>,
 }
@@ -50,15 +49,8 @@ impl FakeAccounting {
         self.settles.push(result);
     }
 
-    pub(super) fn take_hands_out(&self, offsets: HashMap<TopicPartition, Offset>) {
-        self.takes.push(offsets);
-    }
-
-    pub(super) fn holds(&self, topic_partition: &TopicPartition, held: Held) {
-        self.held
-            .lock()
-            .unwrap()
-            .insert(topic_partition.clone(), held);
+    pub(super) fn take_hands_out(&self, handed_out: HashMap<TopicPartition, HandedOut>) {
+        self.takes.push(handed_out);
     }
 
     pub(super) fn settled(&self) -> Vec<Settled> {
@@ -94,11 +86,11 @@ impl Accounting for FakeAccounting {
         self.settles.next().unwrap_or(Ok(None))
     }
 
-    fn take_due(&self, _now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_due(&self, _now: Instant) -> Option<HashMap<TopicPartition, HandedOut>> {
         self.takes.next()
     }
 
-    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>> {
         self.takes.next()
     }
 
@@ -107,15 +99,6 @@ impl Accounting for FakeAccounting {
             .lock()
             .unwrap()
             .extend_from_slice(topic_partitions);
-    }
-
-    fn held(&self, topic_partition: &TopicPartition) -> Held {
-        self.held
-            .lock()
-            .unwrap()
-            .get(topic_partition)
-            .copied()
-            .unwrap_or_default()
     }
 }
 

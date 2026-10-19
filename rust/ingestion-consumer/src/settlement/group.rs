@@ -1,12 +1,10 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use super::{
-    Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Resume, Settlement,
-    Uncommitted,
+    Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted,
 };
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
@@ -28,19 +26,6 @@ impl GroupSettlement {
             accounting: Uncommitted::new(ledger, CommitPacer::every(commit_interval)),
             admission: PartitionBudget::new(limits),
         }
-    }
-}
-
-impl<A: Accounting, D: Admission> GroupSettlement<A, D> {
-    fn commit(&self, offsets: HashMap<TopicPartition, Offset>) -> Commit {
-        let mut resume = Vec::new();
-        for topic_partition in offsets.keys() {
-            let uncommitted = self.accounting.held(topic_partition).charge;
-            if let Some(Resume) = self.admission.handed_out(topic_partition, uncommitted) {
-                resume.push(topic_partition.clone());
-            }
-        }
-        Commit { offsets, resume }
     }
 }
 
@@ -85,11 +70,13 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
     }
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
-        Some(self.commit(self.accounting.take_due(now)?))
+        let handed_out = self.accounting.take_due(now)?;
+        Some(Commit::new(handed_out, &self.admission))
     }
 
     fn take_all(&self) -> Option<Commit> {
-        Some(self.commit(self.accounting.take_all()?))
+        let handed_out = self.accounting.take_all()?;
+        Some(Commit::new(handed_out, &self.admission))
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -109,6 +96,7 @@ mod tests {
     use common_kafka_consumer::{Held, LedgerError};
 
     use super::super::fakes::{FakeAccounting, FakeAdmission, Settled};
+    use super::super::{HandedOut, Resume};
     use super::*;
 
     fn p(partition: i32) -> TopicPartition {
@@ -123,6 +111,13 @@ mod tests {
         Held {
             offsets: events as usize,
             charge: Charge { events, bytes: 0 },
+        }
+    }
+
+    fn handed_out(offset: i64, remaining_events: u64) -> HandedOut {
+        HandedOut {
+            offset: Offset(offset),
+            remaining: uncommitted_events(remaining_events),
         }
     }
 
@@ -161,10 +156,10 @@ mod tests {
     #[test]
     fn a_hand_out_asks_the_admission_for_each_partition_with_what_it_still_holds() {
         let settlement = settlement();
-        settlement
-            .accounting
-            .take_hands_out(HashMap::from([(p(0), Offset(11)), (p(1), Offset(21))]));
-        settlement.accounting.holds(&p(0), uncommitted_events(3));
+        settlement.accounting.take_hands_out(HashMap::from([
+            (p(0), handed_out(11, 3)),
+            (p(1), handed_out(21, 0)),
+        ]));
         settlement.admission.handed_out_returns(&p(0), Resume);
 
         let commit = settlement.take_due(Instant::now()).expect("handed out");
@@ -184,7 +179,7 @@ mod tests {
         let settlement = settlement();
         settlement
             .accounting
-            .take_hands_out(HashMap::from([(p(0), Offset(11))]));
+            .take_hands_out(HashMap::from([(p(0), handed_out(11, 0))]));
         settlement.admission.handed_out_returns(&p(0), Resume);
 
         assert_eq!(
