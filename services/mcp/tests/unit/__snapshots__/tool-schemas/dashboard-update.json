@@ -85,6 +85,7 @@
             "type": "boolean"
         },
         "description": {
+            "description": "Describe what the dashboard shows for the person who reads it. Use one sentence, normally 25 words or fewer. Add a second sentence only for a limitation that changes interpretation. Exclude query construction, tool names, maintenance notes, and reasons for creating the dashboard. Keep technical terms only when the reader needs them. Omit this field unless the user asks to change the description. Omission preserves the existing description.",
             "type": "string"
         },
         "filters": {

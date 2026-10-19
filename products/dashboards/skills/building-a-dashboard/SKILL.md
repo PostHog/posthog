@@ -21,6 +21,23 @@ maintain the dashboard.
 PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there. Never use `agent_context` as
 a substitute for a Data Catalog metric.
 
+## Write descriptions for readers
+
+- State what the dashboard or insight shows. Use one sentence, normally 25 words or fewer.
+- Add a second sentence only when a limitation changes how the reader must interpret the data.
+- If the title gives enough information, omit the description. Use an empty string if the tool requires the field.
+- Exclude query construction, tool names, maintenance instructions, and reasons for creating the object.
+- Keep technical terms only when the reader needs them. Preserve required metric definitions and limitations.
+- Put agent maintenance notes in a text tile's `agent_context` when needed. Do not create a tile only to store unnecessary notes.
+- During unrelated edits, omit the description field to preserve existing text. Do not shorten existing descriptions without a request.
+- Treat 25 words as a target. Never truncate a description to meet a length target or field limit.
+
+Examples:
+
+- Insight: "Percentage of visitors who complete signup." A required limitation can follow: "Excludes test accounts."
+- Dashboard: "Signup completion and drop-off at each step."
+- Avoid: "Provides comprehensive visibility into signup performance through aggregated funnel analysis for future agent maintenance."
+
 ## Create vs update
 
 First work out whether you're creating a new dashboard or changing an existing one.
@@ -83,7 +100,7 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 
 ## Assemble the dashboard
 
-- New dashboard: `dashboard-create` with a short (3–7 word) name and a concise description, then add the insight tiles.
+- New dashboard: `dashboard-create` with a short (3–7 word) name, then add the insight tiles. Add a description only when it helps the reader.
 - Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
   remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
   To replace an insight tile, add the new insight and delete the old tile.

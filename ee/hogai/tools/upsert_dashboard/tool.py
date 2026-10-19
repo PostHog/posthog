@@ -52,7 +52,17 @@ class CreateDashboardToolArgs(BaseModel):
     name: str = Field(
         description="A short and concise (3-7 words) name of the dashboard. It will be displayed as a header in the dashboard tile."
     )
-    description: str = Field(description="A short and concise description of the dashboard.")
+    description: str = Field(
+        default="",
+        description=(
+            "Describe what the dashboard shows for the person who reads it. "
+            "Use one sentence, normally 25 words or fewer. "
+            "Add a second sentence only for a limitation that changes interpretation. "
+            "Exclude query construction, tool names, maintenance notes, and reasons for creating the dashboard. "
+            "Keep technical terms only when the reader needs them. "
+            "Use an empty string if the title is sufficient."
+        ),
+    )
 
 
 class UpdateDashboardToolArgs(BaseModel):
@@ -73,7 +83,14 @@ class UpdateDashboardToolArgs(BaseModel):
         default=None,
     )
     description: str | None = Field(
-        description="A short and concise description of the dashboard. If not provided, the dashboard description will not be updated.",
+        description=(
+            "Describe what the dashboard shows for the person who reads it. "
+            "Use one sentence, normally 25 words or fewer. "
+            "Add a second sentence only for a limitation that changes interpretation. "
+            "Exclude query construction, tool names, maintenance notes, and reasons for creating the dashboard. "
+            "Keep technical terms only when the reader needs them. "
+            "Omit this field unless the user asks to change the description. Omission preserves the existing description."
+        ),
         default=None,
     )
 

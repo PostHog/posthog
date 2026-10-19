@@ -73,6 +73,25 @@ Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
 It does not retry these requests automatically.
 
+## Dashboard and insight descriptions
+
+Description fields are text for the person who reads the dashboard or chart.
+Include these rules in create and update tools, as well as the dashboard skill:
+
+- State what the object shows in one sentence, normally 25 words or fewer.
+- Add a second sentence only when a limitation changes interpretation.
+- If the title gives enough information, omit the description.
+- Exclude query construction, tool names, maintenance instructions, and reasons for creating the object.
+- Keep technical terms only when the reader needs them. Preserve required metric definitions and limitations.
+- During unrelated edits, omit the description field to preserve existing text.
+
+Keep field guidance brief. Put detailed rules in the tool description when the input schema approaches a client size limit.
+
+The word count is a target, not an API limit. Keep the existing 400-character limit for insights.
+Do not truncate descriptions to meet a length target or field limit.
+For example, use "Percentage of visitors who complete signup. Excludes test accounts."
+Store necessary agent maintenance notes in a dashboard text tile's `agent_context`.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface

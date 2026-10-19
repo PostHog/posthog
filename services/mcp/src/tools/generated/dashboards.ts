@@ -23,6 +23,9 @@ const DashboardCreateSchema = () => {
     return DashboardsCreateQueryParams.omit({ format: true })
         .extend(DashboardsCreateBody.shape)
         .extend({
+            description: DashboardsCreateBody.shape['description'].describe(
+                'Describe what the dashboard shows for the person who reads it. Use one sentence, normally 25 words or fewer. Add a second sentence only for a limitation that changes interpretation. Exclude query construction, tool names, maintenance notes, and reasons for creating the dashboard. Keep technical terms only when the reader needs them. Omit this field if the title is sufficient.'
+            ),
             restriction_level: DashboardsCreateBody.shape['restriction_level'].describe(
                 'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
             ),
@@ -575,6 +578,9 @@ const DashboardUpdateSchema = () => {
         .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
         .extend(DashboardsPartialUpdateBody.shape)
         .extend({
+            description: DashboardsPartialUpdateBody.shape['description'].describe(
+                'Describe what the dashboard shows for the person who reads it. Use one sentence, normally 25 words or fewer. Add a second sentence only for a limitation that changes interpretation. Exclude query construction, tool names, maintenance notes, and reasons for creating the dashboard. Keep technical terms only when the reader needs them. Omit this field unless the user asks to change the description. Omission preserves the existing description.'
+            ),
             id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
             restriction_level: DashboardsPartialUpdateBody.shape['restriction_level'].describe(
                 'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'

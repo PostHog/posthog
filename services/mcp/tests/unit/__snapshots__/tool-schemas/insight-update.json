@@ -18,7 +18,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected)."
+            "description": "For readers: what the chart shows. Normally one sentence, 25 words or fewer. Keep essential caveats. No agent notes. Omit unless asked to edit the description. Max 400 characters."
         },
         "favorited": {
             "type": "boolean"

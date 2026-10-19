@@ -58,7 +58,15 @@ class ExecuteSQLToolArgs(BaseModel):
         description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
     )
     viz_description: str = Field(
-        description="Short, concise summary of the SQL query (1 sentence) that will be displayed as a description in the visualization."
+        default="",
+        description=(
+            "Describe what the chart shows for the person who reads it. "
+            "Use one sentence, normally 25 words or fewer. "
+            "Add a second sentence only for a limitation that changes interpretation. "
+            "Use an empty string if the title is sufficient. "
+            "Exclude query construction, tool names, maintenance notes, and reasons for creating the chart. "
+            "Keep technical terms only when the reader needs them."
+        ),
     )
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,

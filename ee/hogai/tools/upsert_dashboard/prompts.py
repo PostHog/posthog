@@ -71,6 +71,11 @@ Assistant: I'll search for existing dashboards. I didn't find any relevant dashb
 - The user wants to save a single insight.
 
 # Guidelines
+- Write descriptions for the person who reads the dashboard or insight. State what it shows in one sentence, normally 25 words or fewer.
+- Add a second sentence only for a limitation that changes interpretation. Keep technical terms only when the reader needs them.
+- If the title is sufficient, omit the description. Exclude query construction, tool names, maintenance notes, and creation rationale.
+- During unrelated edits, omit description fields to preserve existing text. Never truncate descriptions to meet a length target.
+- Example description: "Percentage of visitors who complete signup. Excludes test accounts."
 - Use a minimal set of insights to reflect the changes the user requested.
 - When updating dashboard or insight names or descriptions, use the original insight names or descriptions as a reference.
 """.strip()

@@ -326,7 +326,7 @@ const InsightCreateSchema = () => {
             'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
         ),
         description: InsightsCreateBody.shape['description'].describe(
-            'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+            'For readers: what the chart shows. Normally one sentence, 25 words or fewer. Keep essential caveats. No agent notes. Omit if the title is sufficient. Max 400 characters.'
         ),
     })
 }
@@ -472,7 +472,7 @@ const InsightUpdateSchema = () => {
                     'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
                 ),
                 description: InsightsPartialUpdateBody.shape['description'].describe(
-                    'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+                    'For readers: what the chart shows. Normally one sentence, 25 words or fewer. Keep essential caveats. No agent notes. Omit unless asked to edit the description. Max 400 characters.'
                 ),
             })
     )

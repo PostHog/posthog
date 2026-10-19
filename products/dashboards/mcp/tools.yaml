@@ -61,6 +61,13 @@ tools:
             - persisted_variables
             - _create_in_folder
         param_overrides:
+            description:
+                description: >
+                    Describe what the dashboard shows for the person who reads it. Use one sentence, normally 25
+                    words or fewer. Add a second sentence only for a limitation that changes interpretation. Exclude
+                    query construction, tool names, maintenance notes, and reasons for creating the dashboard. Keep
+                    technical terms only when the reader needs them.
+                    Omit this field if the title is sufficient.
             restriction_level:
                 description: >
                     Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
@@ -479,6 +486,13 @@ tools:
             - persisted_variables
             - _create_in_folder
         param_overrides:
+            description:
+                description: >
+                    Describe what the dashboard shows for the person who reads it. Use one sentence, normally 25
+                    words or fewer. Add a second sentence only for a limitation that changes interpretation. Exclude
+                    query construction, tool names, maintenance notes, and reasons for creating the dashboard. Keep
+                    technical terms only when the reader needs them.
+                    Omit this field unless the user asks to change the description. Omission preserves the existing description.
             id:
                 cast: string-int
             restriction_level:
