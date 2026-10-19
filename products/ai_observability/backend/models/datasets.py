@@ -210,3 +210,9 @@ class DatasetItemVersion(UUIDModel, CreatedMetaFields):
                 name="llma_dataset_item_ver_v2_source_ref",
             ),
         ]
+        indexes = [
+            models.Index(
+                fields=["team", "dataset", "archived"],
+                name="llma_ds_item_ver_v2_list_idx",
+            )
+        ]
