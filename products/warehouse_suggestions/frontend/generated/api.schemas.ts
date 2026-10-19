@@ -55,6 +55,28 @@ export type WarehouseSuggestionPayloadApi =
     | WarehouseSuggestionDeprecatePayloadApi
     | WarehouseSuggestionMaterializePayloadApi
 
+/**
+ * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
+ */
+export type WarehouseSuggestionEvidenceApiRequestsBySurface = { [key: string]: number }
+
+export interface WarehouseSuggestionEvidenceApi {
+    /** Days of read history the daily job had for the whole project, up to 30. */
+    days_with_data?: number
+    /** Queries people ran that read the subject in that history. */
+    human_requests?: number
+    /** Distinct people who ran those queries. */
+    human_users?: number
+    /** Days on which people read the subject. */
+    human_days?: number
+    /** Queries PostHog ran on its own that read the subject, such as cache warming and alerts. */
+    background_requests?: number
+    /** Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp. */
+    requests_by_surface?: WarehouseSuggestionEvidenceApiRequestsBySurface
+    /** When a person last read the subject. */
+    last_read_at?: string
+}
+
 export interface WarehouseSuggestionReviewerApi {
     /** User id. */
     id: number
@@ -137,11 +159,6 @@ export const WarehouseSuggestionAssetOutcomeEnumApi = {
 } as const
 
 /**
- * The usage numbers that led to this suggestion.
- */
-export type WarehouseSuggestionApiEvidence = { [key: string]: unknown }
-
-/**
  * What accepting this suggestion created. Null until accepted.
  * @nullable
  */
@@ -150,8 +167,8 @@ export type WarehouseSuggestionApiCreatedAsset = { [key: string]: unknown } | nu
 export interface WarehouseSuggestionApi {
     /** What accepting this suggestion would create or change. Shape depends on kind. */
     readonly payload: WarehouseSuggestionPayloadApi
-    /** The usage numbers that led to this suggestion. */
-    evidence: WarehouseSuggestionApiEvidence
+    /** The read counts that led to this suggestion. A field is missing when the subject had no reads. */
+    evidence: WarehouseSuggestionEvidenceApi
     /**
      * What accepting this suggestion created. Null until accepted.
      * @nullable
@@ -202,8 +219,6 @@ export interface WarehouseSuggestionApi {
     evidence_window_end: string
     /** When the daily job last found evidence for this suggestion. */
     last_seen_at: string
-    /** How strongly the evidence supports the suggestion. Higher comes first. */
-    score: number
     /**
      * When the suggestion was first shown. Null while it waits for a slot.
      * @nullable
