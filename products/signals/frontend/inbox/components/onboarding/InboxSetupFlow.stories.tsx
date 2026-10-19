@@ -69,7 +69,11 @@ const meta: Meta<typeof InboxSetupFlow> = {
     parameters: {
         layout: 'fullscreen',
         mockDate: '2026-10-14',
-        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui', [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SELF_DRIVING_UBP]: true,
+        },
     },
     decorators: [
         (Story) => (
@@ -187,6 +191,17 @@ export const Github: Story = {
             },
         }),
     ],
+}
+
+export const GithubWithoutAutomaticImplementation: Story = {
+    ...Github,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SELF_DRIVING_UBP]: false,
+        },
+    },
 }
 
 export const NoProductsEnabled: Story = {
