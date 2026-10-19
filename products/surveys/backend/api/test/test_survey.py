@@ -2965,7 +2965,7 @@ class TestSurvey(APIBaseTest):
                             "question": "What would you want to improve from notebooks?",
                         }
                     ],
-                    "appearance": None,
+                    "appearance": DEFAULT_SURVEY_APPEARANCE,
                     "created_at": ANY,
                     "created_by": ANY,
                     "targeting_flag": None,
@@ -3958,6 +3958,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             },
         ]
         assert response_data["appearance"] == {
+            **DEFAULT_SURVEY_APPEARANCE,
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
@@ -4120,6 +4121,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["questions"] == []
         assert response_data["appearance"] == {
+            **DEFAULT_SURVEY_APPEARANCE,
             "thankYouMessageHeader": " ",
             "thankYouMessageDescription": "",
         }
@@ -4393,6 +4395,41 @@ class TestSurveyQuestionValidation(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["questions"][0]["branching"]["type"] == "end"
+
+    @parameterized.expand(
+        [
+            ("popover_without_appearance", "popover", None, {"backgroundColor": "#eeeded"}),
+            ("api_without_appearance", "api", None, {"backgroundColor": "#eeeded"}),
+            ("hosted_without_appearance", "external_survey", None, {}),
+            (
+                "partial_appearance_keeps_author_values",
+                "popover",
+                {"backgroundColor": "#123456", "displayThankYouMessage": False},
+                {"backgroundColor": "#123456", "displayThankYouMessage": False},
+            ),
+        ]
+    )
+    def test_create_survey_applies_default_appearance(
+        self, _name: str, survey_type: str, appearance: dict | None, expected: dict
+    ) -> None:
+        self.team.survey_config = {"appearance": {"thankYouMessageHeader": "Thanks from the team"}}
+        self.team.save()
+        data: dict = {"name": f"Survey {_name}", "type": survey_type}
+        if appearance is not None:
+            data["appearance"] = appearance
+
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/", data=data, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        saved_appearance = Survey.objects.get(id=response.json()["id"]).appearance
+        assert saved_appearance == {
+            **saved_appearance,
+            "displayThankYouMessage": True,
+            "thankYouMessageHeader": "Thanks from the team",
+            **expected,
+        }
+        if survey_type == "external_survey":
+            assert "backgroundColor" not in saved_appearance
 
     def test_create_survey_sanitizes_html_in_appearance_text(self) -> None:
         appearance_fields = [

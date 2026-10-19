@@ -45,7 +45,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -675,6 +675,32 @@ def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
     if replacement is None:
         return appearance
     return {**appearance, "position": replacement}
+
+
+# The hosted survey page has its own color defaults. Leave these keys out of a hosted survey's
+# default appearance, so that the page keeps its colors unless the author sets them.
+HOSTED_SURVEY_STYLE_KEYS = (
+    "backgroundColor",
+    "borderColor",
+    "borderRadius",
+    "submitButtonColor",
+    "submitButtonTextColor",
+    "ratingButtonColor",
+    "ratingButtonActiveColor",
+    "inputBackground",
+    "textSubtleColor",
+)
+
+
+def build_default_survey_appearance(team: Team, survey_type: str | None) -> dict[str, Any]:
+    appearance = dict(DEFAULT_SURVEY_APPEARANCE)
+    if survey_type == Survey.SurveyType.EXTERNAL_SURVEY:
+        for key in HOSTED_SURVEY_STYLE_KEYS:
+            appearance.pop(key, None)
+    team_appearance = (team.survey_config or {}).get("appearance")
+    if isinstance(team_appearance, dict):
+        appearance.update(team_appearance)
+    return appearance
 
 
 class SurveyAppearanceSchemaSerializer(serializers.Serializer):
@@ -1865,6 +1891,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        team = Team.objects.get(id=self.context["team_id"])
+        # SDKs show the confirmation screen only when the appearance enables it, so a survey
+        # saved without an appearance never shows one.
+        validated_data["appearance"] = {
+            **build_default_survey_appearance(team, validated_data.get("type")),
+            **(validated_data.get("appearance") or {}),
+        }
         if validated_data.get("targeting_flag_id"):
             # Attaching an existing flag takes write control of it: its active state is later
             # synced to the survey's lifecycle (start/stop/archive). Require feature_flag:write
@@ -1902,7 +1935,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             self._associate_actions(instance, validated_data.get("conditions"))
             self._add_internal_response_sampling_filters(instance)
 
-        team = Team.objects.get(id=self.context["team_id"])
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],

@@ -1673,8 +1673,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     try {
                         const survey = await api.surveys.get(props.id)
-                        // patch surveys with a potentially null appearance...
-                        // pending root cause on _how_ these get to be null
+                        // Surveys created through the API before it applied a default appearance can have a null one
                         if (!survey.appearance) {
                             survey.appearance = defaultSurveyAppearance
                         }
