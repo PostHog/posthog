@@ -153,8 +153,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="error_tracking_query_issue_create",
         summary="Get compact error tracking issue details",
         description=(
-            "Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional "
-            "sparkline and event breakdown."
+            "Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and "
+            "optional sparkline and event breakdown."
         ),
     )
     @action(methods=["POST"], detail=False, url_path="issue", required_scopes=["error_tracking:read"])

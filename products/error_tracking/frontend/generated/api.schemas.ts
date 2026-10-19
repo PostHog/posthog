@@ -1211,6 +1211,43 @@ export interface ErrorTrackingImpactApi {
     sessions?: number
 }
 
+/**
+ * * `new` - New
+ * * `increasing` - Increasing
+ * * `decreasing` - Decreasing
+ * * `stable` - Stable
+ */
+export type IssueTrendDirectionEnumApi = (typeof IssueTrendDirectionEnumApi)[keyof typeof IssueTrendDirectionEnumApi]
+
+export const IssueTrendDirectionEnumApi = {
+    New: 'new',
+    Increasing: 'increasing',
+    Decreasing: 'decreasing',
+    Stable: 'stable',
+} as const
+
+export interface ErrorTrackingIssueTrendApi {
+    /** Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means a change of at least 25%. 'new' means first_seen is in the second half. 'stable' means a smaller change.
+     *
+     * * `new` - New
+     * * `increasing` - Increasing
+     * * `decreasing` - Decreasing
+     * * `stable` - Stable */
+    direction: IssueTrendDirectionEnumApi
+    /** Occurrences in the second half of dateRange. */
+    current_occurrences: number
+    /** Occurrences in the first half of dateRange. */
+    previous_occurrences: number
+    /** Percent change from the first half to the second half. Absent when the first half has no occurrences. */
+    change_percent?: number
+    /** Start of the first half. */
+    previous_from: string
+    /** End of the first half. */
+    previous_to: string
+    /** Start of the second half. The second half ends at the end of dateRange. */
+    current_from: string
+}
+
 export interface ErrorTrackingBreakdownValueApi {
     /** Property value. */
     value: string
@@ -1302,8 +1339,12 @@ export interface ErrorTrackingIssueDetailApi {
     top_in_app_frame?: ErrorTrackingTopFrameApi
     /** Latest release metadata. */
     latest_release?: ErrorTrackingLatestReleaseApi
+    /** Release metadata from the issue's first event, found near first_seen and not limited by dateRange. Compare it with latest_release to see which release introduced the issue. Absent when the first event has no release metadata. */
+    first_release?: ErrorTrackingLatestReleaseApi
     /** Compact impact counts. */
     impact?: ErrorTrackingImpactApi
+    /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange or volumeResolution is 1. */
+    trend?: ErrorTrackingIssueTrendApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
