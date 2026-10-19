@@ -234,6 +234,30 @@ describe('dashboardMetricVariablesLogic', () => {
         ])
     })
 
+    it('reloads the dependents of a staged definition when its parent changes', async () => {
+        mockOptions.mockImplementation(async (_team, body) => ({
+            results: body.variables?.some((other) => other.values.includes('worker')) ? ['/b'] : ['/a'],
+        }))
+        const independent: MetricsDashboardVariable[] = [
+            variables[0],
+            { name: 'route', source: 'sql', query: 'SELECT route', current: { values: ['/a'] } },
+        ]
+        const logic = dashboardMetricVariablesLogic({
+            dashboardId: 1,
+            variables: independent,
+            onSelectionsChange: jest.fn(),
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setPendingVariables(variables)
+        mockOptions.mockClear()
+
+        logic.actions.select('service', { values: ['worker'] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockOptions.mock.calls.map(([, body]) => body.query)).toEqual([variables[1].query])
+    })
+
     it('runs at most four option requests at once', async () => {
         const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
             name: `v${index}`,

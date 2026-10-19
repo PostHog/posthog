@@ -317,7 +317,8 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
         select: ({ name, current }) => {
             const base = values.pendingVariables ?? props.variables
             const next = base.map((variable) => (variable.name === name ? { ...variable, current } : variable))
-            actions.stage(next, dependentsOf(props.variables, [name]))
+            // Staged definitions can differ from the dashboard's, and they decide what depends on the change.
+            actions.stage(next, dependentsOf(base, [name]))
         },
         stage: ({ variables, names }) => {
             if (!names.length && !values.pendingVariables) {
@@ -330,7 +331,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
         },
         retry: ({ name }) => {
             // The variables that depend on a failed variable kept options that its new values can change.
-            actions.loadOptions([name, ...dependentsOf(props.variables, [name])], true)
+            actions.loadOptions([name, ...dependentsOf(values.pendingVariables ?? props.variables, [name])], true)
         },
     })),
     propsChanged(({ actions, values, props, cache }, oldProps) => {
