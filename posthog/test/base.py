@@ -1615,6 +1615,9 @@ def snapshot_postgres_queries_context(
     or a test-client request that clears `connection.queries` does not drop any
     query from the capture.
 
+    Before it records, it fills Django's ContentType cache for every model. An
+    enclosing `assertNumQueries` does not count the query that the fill runs.
+
     NOTE: it requires specifically that a `QueryMatchingTest` is used as the
     testcase argument.
 

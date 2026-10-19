@@ -66,10 +66,12 @@ def test_events_schema_setting_controls_legacy_table_availability(django_db_setu
 
 
 class TestSnapshotPostgresQueriesContext(TestCase, QueryMatchingTest):
-    def test_content_type_lookup_with_cold_cache_is_not_captured(self) -> None:
+    def test_cold_content_type_cache_fill_is_neither_captured_nor_counted(self) -> None:
         ContentType.objects.clear_cache()
 
-        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
-            ContentType.objects.get_for_model(Team)
+        with self.assertNumQueries(1):
+            with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
+                ContentType.objects.get_for_model(Team)
+                Team.objects.exists()
 
-        assert context.captured_queries == []
+        assert [query["sql"] for query in context.captured_queries] == ['SELECT 1 AS "a" FROM "posthog_team" LIMIT 1']
