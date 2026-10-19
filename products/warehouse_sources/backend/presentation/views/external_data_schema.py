@@ -1150,6 +1150,25 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if column_names and unknown_keys:
                 raise ValidationError(f"'{instance.name}' has no column named {', '.join(unknown_keys)} to merge on.")
 
+        # An incremental or append sync saves its progress as the latest value of the incremental
+        # field. Without a field no run saves progress, so every run reads the full history again.
+        # Only the request that switches the sync type, or clears the field, is judged, so a table
+        # already in that state still takes unrelated edits, such as a disable.
+        if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            stored_incremental_field = (instance.sync_type_config or {}).get("incremental_field")
+            clears_incremental_field = (
+                "incremental_field" in data and not data.get("incremental_field") and bool(stored_incremental_field)
+            )
+            switches_sync_type = resulting_sync_type != instance.sync_type
+            resulting_incremental_field = (
+                data.get("incremental_field") if "incremental_field" in data else stored_incremental_field
+            )
+            if (switches_sync_type or clears_incremental_field) and not resulting_incremental_field:
+                raise ValidationError(
+                    f"'{instance.name}' needs an incremental field to sync with {resulting_sync_type}. "
+                    "Choose the field that tracks when rows change, or switch it to full table replication."
+                )
+
         trigger_refresh = False
         # Update the validated_data with incremental fields
         if resulting_sync_type in incremental_style_types:
