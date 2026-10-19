@@ -39,7 +39,9 @@ describe('broadcastLifecycle', () => {
         ])('with $offered.length other workflows, $button resolves to $choice', async ({ offered, button, choice }) => {
             const result = confirmCreateAsBroadcast(offered)
             await screen.findByText(TITLE)
-            for (const name of offered.length ? ['September newsletter', 'Untitled workflow'] : []) {
+            for (const name of offered.length
+                ? ['Also move these 2 workflows to broadcasts?', 'September newsletter', 'Untitled workflow']
+                : []) {
                 expect(screen.getByText(name)).toBeInTheDocument()
             }
 

@@ -163,8 +163,8 @@ export function confirmCreateAsBroadcast(
                 <>
                     <p className="mb-2">{overview}</p>
                     <p className="mb-1">
-                        {others.length === 1 ? 'This workflow does' : `These ${others.length} workflows do`} the same.
-                        Move {others.length === 1 ? 'it' : 'them'} too and keep the past sends:
+                        Also move {others.length === 1 ? 'this workflow' : `these ${others.length} workflows`} to
+                        broadcasts?
                     </p>
                     <ul className="list-disc pl-5 mb-0 max-h-40 overflow-y-auto">
                         {others.map((other) => (
