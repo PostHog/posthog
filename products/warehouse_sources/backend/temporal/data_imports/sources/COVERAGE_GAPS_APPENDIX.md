@@ -12625,7 +12625,7 @@ Note: No OpenAPI spec is published; the full endpoint inventory was read from th
 
 ## TwelveLabs — gaps
 
-Today (4): `asset_transcriptions`, `indexes`, `tasks`, `videos`
+Today (5): `asset_transcriptions`, `indexes`, `knowledge_store_item_tags`, `tasks`, `videos`
 
 Diffed against: <https://docs.twelvelabs.io/openapi.json>
 
@@ -12639,6 +12639,7 @@ Diffed against: <https://docs.twelvelabs.io/openapi.json>
 - [x] `asset transcriptions (GET /assets/{asset_id}/transcription)` — per-asset speech transcription with status and timestamped sentences and speaker turns (medium)
 - [ ] `knowledge-stores, item-collections, items (GET /knowledge-stores, .../item-collections, .../items)` — the retrieval corpus objects; items resolve ids used by search (medium)
 - [ ] `connection imports (GET /connections/{connection_id}/imports)` — per-import job records for bulk ingestion runs (low)
+- [x] `knowledge store item tags (GET /knowledge-stores/{knowledge_store_id}/items/{item_id}/tags)` — moment and range tags with custom metadata on knowledge store video items (medium)
 
 Note: Fetched the live OpenAPI (server https://api.twelvelabs.io/v1.3 — same version the PostHog source targets). The API has grown well past indexes/tasks/videos: assets, analysis tasks/batches, embeddings, entity collections and knowledge stores are all listable.
 
