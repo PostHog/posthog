@@ -261,15 +261,20 @@ class TestSESProvider(TestCase):
             }
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
             mock_mail_from_attrs.return_value = {
-                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
+                "MailFromDomainAttributes": {
+                    TEST_DOMAIN: {"MailFromDomainStatus": "Success", "MailFromDomain": f"mail.{TEST_DOMAIN}"}
+                }
             }
             mock_list_tenants.return_value = {"ResourceTenants": [{"TenantName": "team-1"}]}
 
-            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+            with patch("products.workflows.backend.providers.ses.sleep") as mock_sleep:
+                result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+                provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
             # Should return verified status with DNS records
             assert result["status"] == "success"
             assert len(result["dnsRecords"]) > 0  # Records are now always returned
+            mock_sleep.assert_not_called()
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_pending_when_dmarc_missing(self, mock_resolver_cls):
@@ -285,7 +290,9 @@ class TestSESProvider(TestCase):
             mock_verif_attrs.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Success"}}}
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
             mock_mail_from_attrs.return_value = {
-                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
+                "MailFromDomainAttributes": {
+                    TEST_DOMAIN: {"MailFromDomainStatus": "Success", "MailFromDomain": f"mail.{TEST_DOMAIN}"}
+                }
             }
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)

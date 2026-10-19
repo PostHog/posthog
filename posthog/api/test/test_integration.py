@@ -659,6 +659,7 @@ class TestEmailIntegration:
             "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
+            "verification_requested_at": ANY,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
@@ -717,7 +718,9 @@ class TestEmailIntegration:
             created_by=self.user,
         )
         email_integration = EmailIntegration(integration)
-        verification_result = email_integration.verify()
+        clicked_at = timezone.now() + timedelta(hours=2)
+        with time_machine.travel(clicked_at, tick=False):
+            verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
@@ -734,6 +737,7 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": False,
             "provider": "ses",
+            "verification_requested_at": int(clicked_at.timestamp()),
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -771,6 +775,7 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": True,
             "provider": "ses",
+            "verification_requested_at": ANY,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -795,7 +800,13 @@ class TestEmailIntegration:
             created_by=self.user,
         )
         integration2 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
+            {**self.valid_config, "email": "other@posthog.com", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+        integrationOtherMailFrom = EmailIntegration.create_native_integration(
+            {**self.valid_config, "email": "bounces@posthog.com", "mail_from_subdomain": "mail", "provider": "ses"},
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,
@@ -822,10 +833,12 @@ class TestEmailIntegration:
 
         integration1.refresh_from_db()
         integration2.refresh_from_db()
+        integrationOtherMailFrom.refresh_from_db()
         integrationOtherDomain.refresh_from_db()
 
         assert integration1.config["verified"]
         assert integration2.config["verified"]
+        assert not integrationOtherMailFrom.config["verified"]
         assert not integrationOtherDomain.config["verified"]
 
 
