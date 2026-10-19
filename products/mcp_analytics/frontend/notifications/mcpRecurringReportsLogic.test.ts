@@ -1,22 +1,35 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import posthog from 'lib/posthog-typed'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationType, UserType } from '~/types'
+import { IntegrationType, OrganizationType, UserType } from '~/types'
 
 import { toggleSubscriptionEnabled } from 'products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled'
-import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
+import { subscriptionsCreate, subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { isMCPRecurringReport, mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
-import { MCP_RECURRING_REPORTS } from './recurringReportDefinitions'
+import { MCP_RECURRING_REPORTS, TOOL_HEALTH_REPORT } from './recurringReportDefinitions'
 
+jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { success: jest.fn(), error: jest.fn() } }))
 jest.mock('lib/utils/deleteWithUndo', () => ({ deleteWithUndo: jest.fn() }))
+jest.mock('lib/posthog-typed', () => ({ __esModule: true, default: { capture: jest.fn(), captureRaw: jest.fn() } }))
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
     subscriptionsList: jest.fn(),
+    subscriptionsCreate: jest.fn(),
 }))
 jest.mock('products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled', () => ({
     toggleSubscriptionEnabled: jest.fn(),
@@ -24,6 +37,8 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/toggleSubscr
 
 const mockedDeleteWithUndo = jest.mocked(deleteWithUndo)
 const mockedList = jest.mocked(subscriptionsList)
+const mockedCreate = jest.mocked(subscriptionsCreate)
+const mockedCaptureRaw = jest.mocked(posthog.captureRaw)
 const mockedToggle = jest.mocked(toggleSubscriptionEnabled)
 
 const MCP_PROMPT = 'Summarize $mcp_intent on $mcp_tool_call events this week.'
@@ -53,6 +68,8 @@ describe('mcpRecurringReportsLogic', () => {
         mockedDeleteWithUndo.mockReset().mockResolvedValue()
         mockedToggle.mockReset().mockResolvedValue(true)
         mockedList.mockReset()
+        mockedCreate.mockReset()
+        mockedCaptureRaw.mockClear()
         listReturns([])
 
         logic = mcpRecurringReportsLogic()
@@ -242,5 +259,179 @@ describe('mcpRecurringReportsLogic', () => {
         undoFirst?.()
 
         expect(logic.values.reports.map((report) => report.id)).toEqual([first.id])
+    })
+
+    describe('creating the weekly report', () => {
+        const SAVED = makeReport(9, {
+            title: TOOL_HEALTH_REPORT.title,
+            target_type: 'email',
+        } as Partial<SubscriptionApi>)
+        const FALLBACK_MESSAGE = "Couldn't create the report. Try again, or set it up from the Notifications tab."
+
+        async function becomeReadyToCreate(): Promise<void> {
+            // Let the mounted preflight request land first, so it cannot overwrite the answer set here.
+            await expectLogic(preflightLogic).toFinishAllListeners()
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true, is_debug: false } as any)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT], {
+                [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+            })
+            userLogic.actions.loadUserSuccess({ uuid: 'user-me', email: 'me@example.com' } as UserType)
+            await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+        }
+
+        it('is ready once everything it depends on has loaded', async () => {
+            await becomeReadyToCreate()
+
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'ready', email: 'me@example.com' })
+        })
+
+        it('creates one report when clicked twice while the first request is in flight', async () => {
+            await becomeReadyToCreate()
+            let finishCreate: (report: SubscriptionApi) => void = () => {}
+            mockedCreate.mockReturnValue(new Promise((resolve) => (finishCreate = resolve)))
+
+            logic.actions.createWeeklyReport()
+            logic.actions.createWeeklyReport()
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'creating', email: 'me@example.com' })
+            finishCreate(SAVED)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockedCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'created', report: SAVED })
+        })
+
+        it('sends the tool health report to the user, weekly, with no immediate send', async () => {
+            await becomeReadyToCreate()
+            mockedCreate.mockResolvedValue(SAVED)
+
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+
+            expect(mockedCreate).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    title: TOOL_HEALTH_REPORT.title,
+                    prompt: TOOL_HEALTH_REPORT.prompt,
+                    target_type: 'email',
+                    target_value: 'me@example.com',
+                    frequency: 'weekly',
+                    send_test_now: false,
+                })
+            )
+        })
+
+        it('files the new report under its template and reports the creation', async () => {
+            await becomeReadyToCreate()
+            mockedCreate.mockResolvedValue(SAVED)
+
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+
+            expect(logic.values.reportsByTemplateTitle[TOOL_HEALTH_REPORT.title]).toEqual([SAVED])
+            expect(mockedCaptureRaw).toHaveBeenCalledWith('subscription created', {
+                creation_source: 'mcp_analytics_one_click',
+                resource_type: 'ai',
+                subscription_id: 9,
+                target_type: 'email',
+                mcp_report_template: 'tool-health',
+            })
+        })
+
+        it.each([
+            [
+                'the server explains',
+                new ApiError('Bad Request', 400, undefined, { detail: 'Your plan is limited to 5 subscriptions.' }),
+                'Your plan is limited to 5 subscriptions.',
+                false,
+            ],
+            ['the server fails', new ApiError('Server Error', 500), FALLBACK_MESSAGE, true],
+            ['the network fails', new TypeError('Failed to fetch'), FALLBACK_MESSAGE, true],
+        ])('fails with a message and allows a retry when %s', async (_name, error, message, reloadsList) => {
+            await becomeReadyToCreate()
+            const listCallsBefore = mockedList.mock.calls.length
+            mockedCreate.mockRejectedValueOnce(error).mockResolvedValueOnce(SAVED)
+
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'failed', email: 'me@example.com', message })
+            expect(logic.values.reports).toEqual([])
+            expect(mockedList).toHaveBeenCalledTimes(listCallsBefore + (reloadsList ? 1 : 0))
+            expect(mockedCaptureRaw).toHaveBeenCalledWith(
+                'mcp analytics weekly report failed',
+                expect.objectContaining({ mcp_report_template: 'tool-health', error_message: message })
+            )
+
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'created', report: SAVED })
+        })
+
+        it('resolves to has-report, not a duplicate retry, when the request landed despite the failure', async () => {
+            await becomeReadyToCreate()
+            mockedCreate.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+            listReturns([SAVED])
+
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'hidden', reason: 'has-report' })
+        })
+
+        it('creates the report once the organization approves AI processing', async () => {
+            useMocks({
+                patch: {
+                    '/api/organizations/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_ORGANIZATION, ...((await request.json()) as object) },
+                    ],
+                },
+            })
+            await becomeReadyToCreate()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...organizationLogic.values.currentOrganization,
+                is_ai_data_processing_approved: false,
+            } as OrganizationType)
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'needs-ai-consent', email: 'me@example.com' })
+            mockedCreate.mockResolvedValue(SAVED)
+            const consent = aiConsentLogic.build()
+            consent.mount()
+
+            // The order the consent popover runs on approve: the approval resolves, then the report is created.
+            await consent.asyncActions.acceptDataProcessing()
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+            consent.unmount()
+
+            expect(mockedCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'created', report: SAVED })
+        })
+
+        it.each([
+            [
+                'the project already has an MCP report',
+                async () => {
+                    listReturns([makeReport(1)])
+                    await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+                },
+                'hidden',
+            ],
+            [
+                'the organization has not approved AI processing',
+                () =>
+                    organizationLogic.actions.loadCurrentOrganizationSuccess({
+                        ...organizationLogic.values.currentOrganization,
+                        is_ai_data_processing_approved: false,
+                    } as OrganizationType),
+                'needs-ai-consent',
+            ],
+            [
+                'the instance is self-hosted',
+                () => preflightLogic.actions.loadPreflightSuccess({ cloud: false, is_debug: false } as any),
+                'hidden',
+            ],
+            ['the feature flag is off', () => featureFlagLogic.actions.setFeatureFlags([], {}), 'hidden'],
+        ])('does not create when %s', async (_name, block, expectedState) => {
+            await becomeReadyToCreate()
+            await block()
+
+            await expectLogic(logic, () => logic.actions.createWeeklyReport()).toFinishAllListeners()
+
+            expect(mockedCreate).not.toHaveBeenCalled()
+            expect(logic.values.weeklyReportOffer.state).toBe(expectedState)
+        })
     })
 })

@@ -40,6 +40,8 @@ import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
 import type { HarnessRow, ModelRow } from '../mcpDashboardOverviewLogic'
 import { mcpAnalyticsNotificationsLogic } from '../notifications/mcpAnalyticsNotificationsLogic'
+import { mcpRecurringReportsLogic } from '../notifications/mcpRecurringReportsLogic'
+import { type WeeklyReportOffer, weeklyReportOfferLabel } from '../notifications/weeklyReportOffer'
 import { ActivitySummary, buildActivitySummary } from './activitySummary'
 import { EarlyStats, NextStep, NextStepInteraction, NextStepKey, buildNextSteps } from './nextSteps'
 
@@ -75,6 +77,7 @@ export interface mcpEarlyDataLogicValues {
     sharedQueryFilters: MCPSharedQueryFilters // mcpAnalyticsFiltersLogic
     notifications: HogFunctionType[] // mcpAnalyticsNotificationsLogic
     signals: MCPOnboardingSignals | null // mcpAnalyticsOnboardingLogic
+    weeklyReportOffer: WeeklyReportOffer // mcpRecurringReportsLogic
     currentProjectId: number | string // teamLogic
     activityQuery: DataTableNode
     harnessRows: HarnessRow[]
@@ -124,6 +127,21 @@ export interface mcpEarlyDataLogicActions {
         payload?: any
     } // mcpAnalyticsNotificationsLogic
     loadSignals: (_?: void | undefined) => void // mcpAnalyticsOnboardingLogic
+    loadReports: () => any // mcpRecurringReportsLogic
+    loadReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // mcpRecurringReportsLogic
+    loadReportsSuccess: (
+        reports: import('products/subscriptions/frontend/generated/api.schemas').SubscriptionApi[],
+        payload?: any
+    ) => {
+        payload?: any
+        reports: import('products/subscriptions/frontend/generated/api.schemas').SubscriptionApi[]
+    } // mcpRecurringReportsLogic
     loadHarnessRows: (_: void) => void
     loadHarnessRowsFailure: (
         error: string,
@@ -212,7 +230,8 @@ export interface mcpEarlyDataLogicMeta {
             overview: MCPActivityOverviewApi | null,
             stats: EarlyStats,
             notificationsResolved: boolean,
-            hasFailureNotification: boolean | null
+            hasFailureNotification: boolean | null,
+            weeklyReportOffer: WeeklyReportOffer
         ) => NextStep[] | null
         hasModelData: (modelRows: ModelRow[]) => boolean
     }
@@ -237,6 +256,8 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             ['queryFilters as sharedQueryFilters'],
             mcpAnalyticsNotificationsLogic,
             ['notifications'],
+            mcpRecurringReportsLogic,
+            ['weeklyReportOffer'],
         ],
         actions: [
             // Refresh the lifetime signal with the overview so first-call copy can
@@ -247,6 +268,8 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             ['hydrateFilters', 'setFilterTestAccounts', 'setPropertyFilters'],
             mcpAnalyticsNotificationsLogic,
             ['loadNotifications', 'loadNotificationsSuccess', 'loadNotificationsFailure'],
+            mcpRecurringReportsLogic,
+            ['loadReports', 'loadReportsSuccess', 'loadReportsFailure'],
             dataNodeCollectionLogic({ key: MCP_ACTIVITY_DATA_COLLECTION_ID }),
             ['reloadAll as reloadActivityQuery'],
         ],
@@ -352,16 +375,19 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             (resolved: boolean, notifications: HogFunctionType[]): boolean | null =>
                 resolved ? notifications.some((notification) => notification.enabled) : null,
         ],
-        // Null until the overview and the notification list both resolve, so steps never reorder under the reader.
+        // Null until the overview, the notification list and the report offer all resolve, so steps never reorder under the reader.
         nextSteps: [
-            (s) => [s.overview, s.stats, s.notificationsResolved, s.hasFailureNotification],
+            (s) => [s.overview, s.stats, s.notificationsResolved, s.hasFailureNotification, s.weeklyReportOffer],
             (
                 overview: MCPActivityOverviewApi | null,
                 stats: EarlyStats,
                 notificationsResolved: boolean,
-                hasFailureNotification: boolean | null
+                hasFailureNotification: boolean | null,
+                weeklyReportOffer: WeeklyReportOffer
             ): NextStep[] | null =>
-                overview && notificationsResolved ? buildNextSteps(stats, hasFailureNotification) : null,
+                overview && notificationsResolved && weeklyReportOffer.state !== 'loading'
+                    ? buildNextSteps({ stats, hasFailureNotification, weeklyReport: weeklyReportOffer })
+                    : null,
         ],
         hasModelData: [
             (s) => [s.modelRows],
@@ -382,6 +408,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             if (stepKeys.length > 0) {
                 posthog.captureRaw('mcp analytics next steps shown', {
                     step_keys: stepKeys,
+                    weekly_report: weeklyReportOfferLabel(values.weeklyReportOffer),
                     total_calls: values.stats.totalCalls,
                     error_calls: values.stats.errorCalls,
                 })
@@ -392,11 +419,14 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         loadOverviewSuccess: sharedListeners.captureNextStepsShown,
         loadNotificationsSuccess: sharedListeners.captureNextStepsShown,
         loadNotificationsFailure: sharedListeners.captureNextStepsShown,
+        loadReportsSuccess: sharedListeners.captureNextStepsShown,
+        loadReportsFailure: sharedListeners.captureNextStepsShown,
         nextStepClicked: ({ stepKey, interaction }) => {
             posthog.captureRaw('mcp analytics next step clicked', {
                 step_key: stepKey,
                 interaction,
                 position: values.nextSteps?.findIndex((step) => step.key === stepKey) ?? -1,
+                weekly_report: weeklyReportOfferLabel(values.weeklyReportOffer),
             })
         },
         refreshAll: () => {
@@ -424,6 +454,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         )
         actions.loadOverview()
         actions.loadNotifications()
+        actions.loadReports()
         actions.loadHarnessRows()
         actions.loadModelRows()
         cache.disposables.add(() => {
