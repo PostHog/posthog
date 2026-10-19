@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class AutumnResumeConfig:
     next_cursor: str | None = None
     # Customer fan-out tables resume inside a customers page: next_cursor is then the cursor that

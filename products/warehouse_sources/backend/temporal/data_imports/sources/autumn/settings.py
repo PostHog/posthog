@@ -16,7 +16,7 @@ AUTUMN_V2_4_MAX_PAGE_SIZE = 200
 PARTITION_BUCKET_MILLISECONDS = 7 * 24 * 60 * 60 * 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class AutumnEndpointConfig:
     name: str
     path: str
