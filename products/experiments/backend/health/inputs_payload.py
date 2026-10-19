@@ -1,4 +1,6 @@
+import json
 from dataclasses import asdict
+from datetime import datetime
 from typing import Any
 
 from products.experiments.backend.facade.contracts import ExperimentHealthInputsTrafficStatus
@@ -6,10 +8,10 @@ from products.experiments.backend.health.checks.forced_variant import needs_cond
 from products.experiments.backend.health.condition_set_traffic import denied_scanned_properties
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
+    FlagHistory,
+    FlagHistoryNotChecked,
     FlagState,
     Split,
-    SplitHistory,
-    SplitHistoryNotChecked,
 )
 from products.experiments.backend.health.exposure_inputs import ExposureInputs
 from products.experiments.backend.health.loader import HealthInputs
@@ -38,30 +40,54 @@ def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
     }
 
 
-def _health_inputs_split_history(history: SplitHistory | SplitHistoryNotChecked) -> dict[str, Any]:
-    if isinstance(history, SplitHistory):
-        # The counted changes are the tail of every change, so their count marks where counting starts.
-        first_counted = len(history.changes) - len(history.counted_changes)
-        reason, exposed_before_first, exposed_between = None, history.exposed_before_first, history.exposed_between
+def _health_inputs_bucketing_value(value: str | int | bool | None) -> str | None:
+    if value is None or isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
+def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) -> dict[str, Any]:
+    if isinstance(history, FlagHistory):
+        counted_since: datetime | None = history.counted_since
+        reason = None
+        exposed_before_first = history.exposed_before_first
+        exposed_between = {
+            "split_exposed_between": history.split_exposed_between,
+            "bucketing_exposed_between": history.bucketing_exposed_between,
+        }
     else:
-        first_counted = len(history.changes)
-        reason, exposed_before_first, exposed_between = history.reason.value, None, None
+        counted_since, reason, exposed_before_first = None, history.reason.value, None
+        exposed_between = dict.fromkeys(("split_exposed_between", "bucketing_exposed_between"))
+
+    def counted(changed_at: datetime) -> bool:
+        return counted_since is not None and changed_at >= counted_since
+
     return {
         "checked": reason is None,
         "not_checked_reason": reason,
         "launched_at": history.launched_at,
         "team_timezone": history.team_timezone,
-        "changes": [
+        "split_changes": [
             {
                 "changed_at": change.changed_at,
                 "before": _health_inputs_split(change.before),
                 "after": _health_inputs_split(change.after),
-                "counted": index >= first_counted,
+                "counted": counted(change.changed_at),
             }
-            for index, change in enumerate(history.changes)
+            for change in history.split_changes
+        ],
+        "bucketing_changes": [
+            {
+                "changed_at": change.changed_at,
+                "setting": change.setting.value,
+                "before": _health_inputs_bucketing_value(change.before),
+                "after": _health_inputs_bucketing_value(change.after),
+                "counted": counted(change.changed_at),
+            }
+            for change in history.bucketing_changes
         ],
         "exposed_before_first": exposed_before_first,
-        "exposed_between": exposed_between,
+        **exposed_between,
     }
 
 
@@ -127,7 +153,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "primary_metric_count": ctx.primary_metric_count,
         "secondary_metric_count": ctx.secondary_metric_count,
         "flag": _health_inputs_flag(ctx.flag) if ctx.flag else None,
-        "split_history": _health_inputs_split_history(ctx.split_history) if ctx.split_history else None,
+        "flag_history": _health_inputs_flag_history(ctx.flag_history) if ctx.flag_history else None,
         "condition_set_traffic_status": _health_inputs_traffic_status(inputs),
         "condition_set_traffic": _health_inputs_traffic(ctx.condition_set_traffic)
         if ctx.condition_set_traffic
