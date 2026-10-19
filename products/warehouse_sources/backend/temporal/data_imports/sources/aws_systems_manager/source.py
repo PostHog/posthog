@@ -111,11 +111,13 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
             name=ExternalDataSourceType.AWSSYSTEMSMANAGER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Systems Manager",
-            caption="""Sync fleet inventory, compliance summaries, associations, and patch baselines from one AWS region.
+            caption="""Sync fleet inventory, compliance, associations, documents, and patch baselines from one AWS region.
 
 Grant these IAM permissions for the tables you select:
-`ssm:DescribeInstanceInformation`, `ssm:GetInventory`, `ssm:ListResourceComplianceSummaries`,
-`ssm:ListAssociations`, and `ssm:DescribePatchBaselines`.
+`ssm:DescribeInstanceInformation`, `ssm:GetInventory`, `ssm:GetInventorySchema`, `ssm:ListInventoryEntries`,
+`ssm:ListResourceComplianceSummaries`, `ssm:ListComplianceItems`, `ssm:ListAssociations`,
+`ssm:DescribeAssociationExecutions`, `ssm:DescribeAssociationExecutionTargets`, `ssm:ListDocuments`,
+and `ssm:DescribePatchBaselines`.
 
 Enter an access key ID and secret access key. Include a session token for temporary credentials.
 All tables use full refresh. Create a separate source for each region.""",

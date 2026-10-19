@@ -11,6 +11,9 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.presentation.views.view_link import NO_MATCHING_ROWS_MSG
 from products.warehouse_sources.backend.facade.models import (
@@ -323,11 +326,13 @@ class TestViewLinkQuery(APIBaseTest):
             configuration=None,
         )
 
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
+
         # Test that listing joins uses efficient querying
 
-        with self.assertNumQueries(
-            FuzzyInt(19, 21)
-        ):  # depends when the team revenue analytics config cache and instance-setting caches are hit in a test
+        with self.assertNumQueries(FuzzyInt(20, 21)):  # depends when the instance-setting caches are hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 
         self.assertEqual(response.status_code, 200)

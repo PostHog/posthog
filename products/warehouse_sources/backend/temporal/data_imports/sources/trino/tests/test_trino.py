@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+from requests.exceptions import ConnectTimeout, ReadTimeout
 from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
 from trino.types import NamedRowTuple
 
@@ -27,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
     TRINO_AUTHENTICATION_ERROR,
+    TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
+    TRINO_DISCOVERY_TIMEOUT_ERROR,
+    TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
     TrinoImplementation,
@@ -197,6 +201,47 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
 )
 def test_trino_error_to_message_explains_access_failures(raw_error: str, expected: str) -> None:
     assert trino_error_to_message(RuntimeError(raw_error)) == expected
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (
+            ConnectTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Max retries exceeded"),
+            TRINO_CONNECT_TIMEOUT_ERROR,
+        ),
+        (
+            ReadTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Read timed out."),
+            TRINO_READ_TIMEOUT_ERROR,
+        ),
+    ],
+    ids=["connect_timeout", "read_timeout"],
+)
+def test_validate_credentials_hides_the_host_when_the_driver_times_out(timeout: Exception, expected: str) -> None:
+    with patch("trino.client.TrinoRequest.post", side_effect=timeout):
+        assert TrinoSource().validate_credentials(_config(), team_id=1) == (False, expected)
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (ReadTimeout("Read timed out. (read timeout=60)"), TRINO_DISCOVERY_TIMEOUT_ERROR),
+        (ConnectTimeout("Max retries exceeded"), TRINO_CONNECT_TIMEOUT_ERROR),
+    ],
+    ids=["read_timeout", "connect_timeout"],
+)
+def test_get_schemas_explains_a_timeout_the_driver_wrapped(timeout: Exception, expected: str) -> None:
+    source = TrinoSource()
+
+    with (
+        patch("trino.client.TrinoRequest.post", side_effect=timeout),
+        pytest.raises(TrinoSchemaDiscoveryError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert message == expected
+    assert is_expected_source_error is True
 
 
 def _trino_external_error(message: str) -> TrinoExternalError:
@@ -638,6 +683,16 @@ def test_build_pipeline_fails_permanently_when_the_table_is_gone() -> None:
         _run_pipeline(_config(schema="s"), _inputs("t"), cursor)
 
     assert error_message_matches(str(raised.value), TrinoSource().get_non_retryable_errors())
+
+
+def test_worker_node_communication_failures_are_classified_as_retryable() -> None:
+    message = (
+        "Encountered too many errors talking to a worker node. The node may have crashed or be "
+        "under too much load. This is probably a transient issue, so please retry your query in a "
+        "few minutes. (getting task status http://10.0.0.5:8080/v1/task/x - 38 failures)"
+    )
+
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
 
 
 def test_build_pipeline_refuses_a_disallowed_host_before_connecting() -> None:

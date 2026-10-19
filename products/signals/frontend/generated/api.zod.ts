@@ -160,6 +160,26 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
+
+export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
+    action: zod
+        .enum(['get_it_merged', 'suggested_prompt'])
+        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+        ),
+    suggested_prompt_index: zod
+        .number()
+        .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
+        .optional()
+        .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+})
+
+/**
  * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */

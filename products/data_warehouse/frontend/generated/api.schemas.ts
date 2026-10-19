@@ -3741,6 +3741,10 @@ export interface CredentialApi {
  * * `Northbeam` - Northbeam
  * * `NaverAds` - NaverAds
  * * `ChannelIO` - ChannelIO
+ * * `Airship` - Airship
+ * * `Creem` - Creem
+ * * `Leantime` - Leantime
+ * * `Testomatio` - Testomatio
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5134,6 +5138,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Northbeam: 'Northbeam',
     NaverAds: 'NaverAds',
     ChannelIO: 'ChannelIO',
+    Airship: 'Airship',
+    Creem: 'Creem',
+    Leantime: 'Leantime',
+    Testomatio: 'Testomatio',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
