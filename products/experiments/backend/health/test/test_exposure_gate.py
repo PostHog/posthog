@@ -16,12 +16,14 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
+    BucketingChange,
     BucketingSetting,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
+    SplitChange,
 )
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
@@ -134,7 +136,7 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load([False, True])
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual([change.changed_at for change in history.counted_split_changes], changed_at[1:])
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[1:])
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(
             [(call.kwargs["window_start"], call.kwargs["window_end"]) for call in query.call_args_list],
@@ -157,10 +159,10 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load([False, True])
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual([change.changed_at for change in history.split_changes], [changed_at[0], changed_at[2]])
-        self.assertEqual([change.changed_at for change in history.counted_split_changes], changed_at[2:])
+        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], [changed_at[0], changed_at[2]])
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[2:])
         self.assertEqual(
-            [(change.changed_at, change.setting) for change in history.counted_bucketing_changes],
+            [(change.changed_at, change.setting) for change in history.counted(BucketingChange)],
             [
                 (changed_at[1], BucketingSetting.BUCKETING_IDENTIFIER),
                 (changed_at[2], BucketingSetting.AGGREGATION),
@@ -178,7 +180,7 @@ class TestLoadFlagHistory(BaseTest):
 
         assert isinstance(history, FlagHistory)
         self.assertEqual([call.kwargs["flag_key"] for call in query.call_args_list], ["first-key", "second-key"])
-        self.assertEqual([change.changed_at for change in history.counted_bucketing_changes], changed_at[1:])
+        self.assertEqual([change.changed_at for change in history.counted(BucketingChange)], changed_at[1:])
 
     def test_a_key_set_back_asks_between_with_the_key_in_between(self) -> None:
         first_at = self.launched_at + timedelta(days=1)
@@ -189,7 +191,7 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load([True, False])
 
         assert isinstance(history, FlagHistory)
-        self.assertIs(history.bucketing_exposed_between, False)
+        self.assertIs(history.exposed_between.get(ExperimentHealthFlagChangeKind.BUCKETING), False)
         self.assertEqual(
             (query.call_args.kwargs["flag_key"], query.call_args.kwargs["window_start"]), ("renamed", changed_at[0])
         )
@@ -200,7 +202,7 @@ class TestLoadFlagHistory(BaseTest):
         history, _ = self._load([False, False])
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual(history.counted_split_changes, ())
+        self.assertEqual(history.counted(SplitChange), ())
 
     @parameterized.expand(
         [
@@ -274,7 +276,7 @@ class TestLoadFlagHistory(BaseTest):
         assert isinstance(history, FlagHistoryNotChecked)
         self.assertEqual(history.reason, expected_reason)
         expected_changes = changed_at if can_read_flag_history else []
-        self.assertEqual([change.changed_at for change in history.split_changes], expected_changes)
+        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], expected_changes)
         self.assertEqual(query.call_count, 0)
 
     @parameterized.expand(
@@ -298,7 +300,7 @@ class TestLoadFlagHistory(BaseTest):
         history, _ = self._load([], reader_access=reader_access)
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual(history.counted_split_changes, ())
+        self.assertEqual(history.counted(SplitChange), ())
 
     @parameterized.expand(
         [
@@ -314,7 +316,7 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load([True, False])
 
         assert isinstance(history, FlagHistory)
-        self.assertIs(history.split_exposed_between, False)
+        self.assertIs(history.exposed_between.get(ExperimentHealthFlagChangeKind.SPLIT), False)
         self.assertEqual(
             query.call_args.kwargs,
             {
@@ -343,7 +345,7 @@ class TestLoadFlagHistory(BaseTest):
         next_load, next_query = self._load([True])
 
         assert isinstance(history, FlagHistory) and isinstance(next_load, FlagHistory)
-        self.assertEqual([change.changed_at for change in history.counted_split_changes], changed_at[1:])
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[1:])
         self.assertIsNone(history.exposed_before_first)
         self.assertIsNone(next_load.exposed_before_first)
         self.assertEqual(next_query.call_count, 0)
@@ -373,7 +375,7 @@ class TestLoadFlagHistory(BaseTest):
 
         assert isinstance(history, FlagHistory)
         self.assertEqual(query.call_count, expected_queries)
-        self.assertEqual(history.counted_split_changes[0].changed_at, changed_at[expected_queries])
+        self.assertEqual(history.counted(SplitChange)[0].changed_at, changed_at[expected_queries])
         self.assertIsNone(history.exposed_before_first)
 
     def test_cached_walk_reads_the_cache_once(self) -> None:
@@ -384,7 +386,7 @@ class TestLoadFlagHistory(BaseTest):
             history, query = self._load([])
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual(history.counted_split_changes, ())
+        self.assertEqual(history.counted(SplitChange), ())
         self.assertEqual(query.call_count, 0)
         self.assertEqual((cache_spy.get_many.call_count, cache_spy.get.call_count), (1, 0))
 
@@ -418,7 +420,7 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load([True])
 
         assert isinstance(history, FlagHistory)
-        self.assertIsNone(history.split_exposed_between)
+        self.assertIsNone(history.exposed_between.get(ExperimentHealthFlagChangeKind.SPLIT))
         self.assertEqual(query.call_count, 1)
 
 
