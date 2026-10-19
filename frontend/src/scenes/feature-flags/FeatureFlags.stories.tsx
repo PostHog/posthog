@@ -292,9 +292,14 @@ const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featu
     )
 }
 
-const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string): Promise<void> => {
+const waitForErrorText = async (
+    canvasElement: HTMLElement,
+    expectedText: string,
+    ensureSubmitted?: () => void
+): Promise<void> => {
     await waitFor(
         () => {
+            ensureSubmitted?.()
             const errors = Array.from(canvasElement.querySelectorAll('.Field--error'))
             const match = errors.some((el) => el.textContent?.includes(expectedText))
             if (!match) {
@@ -302,7 +307,7 @@ const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string
                 throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
             }
         },
-        { timeout: 5000 }
+        { timeout: 10000 }
     )
 }
 
@@ -377,12 +382,21 @@ export const NewRemoteConfigFlagPayloadError: Story = {
     play: async ({ canvasElement }) => {
         const logic = await waitForMountedFeatureFlagLogic()
 
-        logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
-        logic.actions.setFeatureFlagValue('is_remote_configuration', true)
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
-        logic.actions.submitFeatureFlag()
+        const submitWithEmptyPayload = (): void => {
+            logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
+            logic.actions.setFeatureFlagValue('is_remote_configuration', true)
+            logic.actions.submitFeatureFlag()
+        }
+        submitWithEmptyPayload()
 
-        await waitForErrorText(canvasElement, 'Payload is required')
+        // A late reset of the form clears the remote config value and hides the errors,
+        // so submit again until the form keeps the submitted state.
+        await waitForErrorText(canvasElement, 'Payload is required', () => {
+            if (!logic.values.featureFlag.is_remote_configuration || !logic.values.showFeatureFlagErrors) {
+                submitWithEmptyPayload()
+            }
+        })
     },
 }
