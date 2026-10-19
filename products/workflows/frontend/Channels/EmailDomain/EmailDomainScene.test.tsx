@@ -265,6 +265,16 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
     })
 
+    it('says the records are in place when automatic checks stop while the provider is still confirming', async () => {
+        seedSender()
+        backend.publishRecords(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+
+        await flush(31 * 60_000)
+        expectStep('Your records are in place')
+        expect(screen.queryByText(/still missing/)).not.toBeInTheDocument()
+    })
+
     it('falls back to the generic manual setup when host detection fails', async () => {
         seedSender()
         backend.fail('domain_connect_check', { status: 500, body: { detail: 'DNS lookup timed out' } })

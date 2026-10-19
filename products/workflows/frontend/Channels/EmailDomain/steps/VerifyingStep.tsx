@@ -31,6 +31,15 @@ function Heading(): JSX.Element {
             />
         )
     }
+    if (pollingStopped && missingRecords.length === 0) {
+        return (
+            <StepHeading
+                Hoggie={HedgehogHourglass}
+                title="Your records are in place"
+                lead="The email provider is still confirming them. This can take up to 72 hours. Check again to ask it now."
+            />
+        )
+    }
     if (pollingStopped) {
         const missing = missingRecords.length
         return (
@@ -65,7 +74,8 @@ function SecondaryActions(): JSX.Element {
 }
 
 function Actions(): JSX.Element {
-    const { status, pollingStopped, statusLoading, restartResultLoading } = useValues(emailDomainStatusLogic)
+    const { status, pollingStopped, missingRecords, rechecking, restartResultLoading } =
+        useValues(emailDomainStatusLogic)
     const { checkAgain, restartVerification } = useActions(emailDomainStatusLogic)
     if (status?.status === 'failed') {
         return (
@@ -86,15 +96,17 @@ function Actions(): JSX.Element {
     if (pollingStopped) {
         return (
             <div className="flex flex-col items-center gap-2">
-                <LemonBanner type="warning" className="w-full">
-                    Still waiting on DNS. We stopped checking automatically, so check again once you have added the
-                    missing settings.
-                </LemonBanner>
+                {missingRecords.length > 0 && (
+                    <LemonBanner type="warning" className="w-full">
+                        Still waiting on DNS. We stopped checking automatically, so check again once you have added the
+                        missing settings.
+                    </LemonBanner>
+                )}
                 <BigAction
                     icon={<IconRefresh />}
                     onClick={checkAgain}
-                    loading={statusLoading}
-                    disabledReason={statusLoading ? 'Checking' : undefined}
+                    loading={rechecking || restartResultLoading}
+                    disabledReason={rechecking || restartResultLoading ? 'Checking' : undefined}
                     data-attr="email-domain-check-again"
                 >
                     Check again
@@ -109,7 +121,7 @@ function Actions(): JSX.Element {
 export function VerifyingStep(): JSX.Element {
     const { status, pollingStopped, missingRecords, foundCount, records } = useValues(emailDomainStatusLogic)
     const { verificationSteps } = useValues(emailDomainLogic)
-    const stuck = pollingStopped || status?.status === 'failed'
+    const stuck = (pollingStopped && missingRecords.length > 0) || status?.status === 'failed'
     const temporaryFailure = status?.status === 'temporary_failure'
     return (
         <div className="flex flex-col gap-8">
@@ -121,9 +133,7 @@ export function VerifyingStep(): JSX.Element {
                     strokeColor={stuck ? 'var(--danger)' : 'var(--success)'}
                     bgColor="var(--border-primary)"
                 />
-                <span className="text-sm text-secondary text-center">
-                    {foundCount} of {records.length} found
-                </span>
+                <span className="text-sm text-secondary text-center">{`${foundCount} of ${records.length} found`}</span>
             </div>
             <VerificationStepsStrip steps={verificationSteps} />
             {temporaryFailure && (

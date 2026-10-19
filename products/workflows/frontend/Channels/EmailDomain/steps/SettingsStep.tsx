@@ -26,15 +26,15 @@ function Gotcha(): JSX.Element {
 }
 
 function AddedThemButton({ primary }: { primary?: boolean }): JSX.Element {
-    const { statusLoading } = useValues(emailDomainStatusLogic)
+    const { rechecking } = useValues(emailDomainStatusLogic)
     const { markRecordsAdded } = useActions(emailDomainManualSetupLogic)
     const Button = primary ? BigAction : LemonButton
     return (
         <Button
             type={primary ? 'primary' : 'secondary'}
             onClick={markRecordsAdded}
-            loading={statusLoading}
-            disabledReason={statusLoading ? 'Checking' : undefined}
+            loading={rechecking}
+            disabledReason={rechecking ? 'Checking' : undefined}
             data-attr="email-domain-records-added"
         >
             I've added them
