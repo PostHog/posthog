@@ -397,13 +397,18 @@ def _build_event_workflows(
             stage="other",
             step_outline=outline,
         )
-        _, validated = _plan_and_build(
-            team=team, user=user, suggestion=suggestion, events=planning_events, validate_draft=validate_draft
-        )
-        # A task that outlived its lock would save drafts next to the newer run's drafts.
-        if validated is None or not still_owns_lock():
-            continue
-        workflow_ids.append(save_draft(team, user, validated))
+        try:
+            _, validated = _plan_and_build(
+                team=team, user=user, suggestion=suggestion, events=planning_events, validate_draft=validate_draft
+            )
+            # A task that outlived its lock would save drafts next to the newer run's drafts.
+            if validated is None or not still_owns_lock():
+                continue
+            workflow_ids.append(save_draft(team, user, validated))
+        except Exception as error:
+            # The drafts saved for earlier events stay in the result, so a retry does not save them a second time.
+            logger.exception("workflows.data_suggestions.event_build_item_failed", team_id=team.id)
+            capture_exception(error, {"team_id": team.id})
     return EventWorkflowsBuild(status="ready" if workflow_ids else "failed", workflow_ids=tuple(workflow_ids))
 
 

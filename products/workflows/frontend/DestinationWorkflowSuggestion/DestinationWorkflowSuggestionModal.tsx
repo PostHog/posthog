@@ -18,7 +18,7 @@ const ADVANTAGES: { title: string; detail: string }[] = [
 const AI_BUILD_ADVANTAGE = { title: 'Free to set up.', detail: 'Building these workflows with AI costs you nothing.' }
 
 export function DestinationWorkflowSuggestionModal(): JSX.Element {
-    const { template, events, selectedEvents, buildState, canBuildWorkflows } = useValues(
+    const { template, events, selectedEvents, buildState, canBuildWorkflows, buildUnavailable } = useValues(
         destinationWorkflowSuggestionLogic
     )
     const { closeSuggestion, continueWithDestination, createWorkflows, openWorkflowEditor, toggleEvent } = useActions(
@@ -111,8 +111,13 @@ export function DestinationWorkflowSuggestionModal(): JSX.Element {
                             You need a verified email domain to send. Your workflow stays off until you turn it on.
                         </p>
                     )}
+                    {buildUnavailable ? (
+                        <LemonBanner type="info">
+                            We can't build workflows for your organization, but you can create one yourself.
+                        </LemonBanner>
+                    ) : null}
                     {building ? (
-                        <LemonBanner type="info">Building your workflows. This can take a minute or two.</LemonBanner>
+                        <LemonBanner type="info">Building your workflows. This can take a few minutes.</LemonBanner>
                     ) : buildState === 'failed' ? (
                         <LemonBanner type="error">
                             We couldn't build these workflows. Try again, or continue with {toolName}.

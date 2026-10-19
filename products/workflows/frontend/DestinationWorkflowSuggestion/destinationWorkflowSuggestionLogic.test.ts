@@ -120,20 +120,26 @@ describe('destinationWorkflowSuggestionLogic', () => {
     it.each([
         [
             'opens the built draft and remembers the answer',
-            { status: 'ready', workflow_ids: ['workflow-1'] },
+            () => Promise.resolve({ status: 'ready', workflow_ids: ['workflow-1'] }),
             /\/workflows\/workflow-1\/workflow$/,
-            true,
+            { dismissed: true, buildState: null },
         ],
         [
             'keeps the modal open to retry when the build fails',
-            { status: 'failed', workflow_ids: [] },
+            () => Promise.resolve({ status: 'failed', workflow_ids: [] }),
             /\/pipeline$/,
-            false,
+            { dismissed: false, buildState: 'failed', canBuildWorkflows: true },
         ],
-    ] as const)('%s', async (_label, response, path, built) => {
+        [
+            'offers the manual workflow when the API refuses to build',
+            () => Promise.reject({ status: 403 }),
+            /\/pipeline$/,
+            { dismissed: false, buildState: null, canBuildWorkflows: false },
+        ],
+    ] as const)('%s', async (_label, response, path, values) => {
         setUp()
         router.actions.push('/pipeline')
-        jest.mocked(workflowDataSuggestionsBuildForEvents).mockResolvedValue(response as any)
+        jest.mocked(workflowDataSuggestionsBuildForEvents).mockImplementation(response as any)
         logic.actions.openSuggestion(template('template-customerio'), ['signed_up', 'trial_started'], jest.fn())
         logic.actions.toggleEvent('trial_started')
 
@@ -141,7 +147,7 @@ describe('destinationWorkflowSuggestionLogic', () => {
             logic.actions.createWorkflows()
         })
             .toFinishAllListeners()
-            .toMatchValues({ dismissed: built, buildState: built ? null : 'failed' })
+            .toMatchValues(values)
 
         expect(jest.mocked(workflowDataSuggestionsBuildForEvents)).toHaveBeenCalledWith(expect.any(String), {
             events: ['signed_up'],

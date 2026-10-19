@@ -160,7 +160,12 @@ class DataSuggestionBuildResponseSerializer(serializers.Serializer):
 
 class EventWorkflowsBuildRequestSerializer(serializers.Serializer):
     events = serializers.ListField(
-        child=serializers.CharField(max_length=400, help_text="An event name, exactly as the project sends it."),
+        child=serializers.CharField(
+            max_length=400,
+            # Event names keep their spaces, so a trimmed name would start a workflow on a different event.
+            trim_whitespace=False,
+            help_text="An event name, exactly as the project sends it.",
+        ),
         min_length=1,
         max_length=MAX_PICKED_EVENTS,
         help_text=f"The events to build email workflows for, at most {MAX_PICKED_EVENTS}. Each event gets at most "

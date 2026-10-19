@@ -29,6 +29,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
+    StepsContext,
     WorkflowIdea,
 )
 from products.workflows.backend.services.data_suggestions.service import (
@@ -484,13 +485,23 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
-        suggest_ideas.return_value = [_idea("signed_up"), _idea("query executed"), _idea("signed_up")]
-        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggest_ideas.return_value = [
+            _idea("signed_up"),
+            _idea("query executed"),
+            _idea("signed_up"),
+            _idea("trial_started"),
+        ]
+
+        def plan(*, context: StepsContext, **_: object) -> PlannedWorkflow:
+            # The later event fails, and the draft already saved for the first one must still be returned.
+            if context.idea.trigger_event == "trial_started":
+                raise RuntimeError("planner timed out")
+            return PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+
+        plan_steps.side_effect = plan
         url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
 
-        responses = [
-            self.client.post(url, {"events": ["signed_up", "trial_started"]}, format="json") for _ in range(2)
-        ]
+        responses = [self.client.post(url, {"events": ["signed_up", "trial_started"]}, format="json") for _ in range(2)]
 
         assert [response.status_code for response in responses] == [status, status]
         if not approved:
@@ -498,7 +509,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             assert not HogFlow.objects.filter(team_id=self.team.id).exists()
             return
         assert responses[0].json() == responses[1].json()
-        assert plan_steps.call_count == 1
+        assert plan_steps.call_count == 2
         workflow_ids = responses[0].json()["workflow_ids"]
         assert responses[0].json()["status"] == "ready"
         drafts = HogFlow.objects.filter(team_id=self.team.id, id__in=workflow_ids)

@@ -22,9 +22,10 @@ import { isMessagingDestinationTemplate } from './messagingDestinations'
 // pinned: key into user.has_seen_product_intro_for - renaming shows the modal again to everyone who answered it
 export const DESTINATION_WORKFLOW_SUGGESTION_SEEN_KEY = 'workflows_destination_suggestion'
 
-// A build plans one workflow per event with the stronger model, so it can take a minute or two.
+// A build plans up to five workflows one after another, each with its own model calls, so it can take minutes.
+// The budget matches how long the backend holds the build lock.
 const POLL_INTERVAL_MS = 2000
-const POLL_DEADLINE_MS = 5 * 60 * 1000
+const POLL_DEADLINE_MS = 15 * 60 * 1000
 
 export type WorkflowBuildState = 'building' | 'failed' | null
 
@@ -40,6 +41,7 @@ export interface destinationWorkflowSuggestionLogicValues {
     user: UserType | null // userLogic
     answered: boolean
     buildState: WorkflowBuildState
+    buildUnavailable: boolean
     canBuildWorkflows: boolean
     dismissed: boolean
     events: string[]
@@ -87,6 +89,9 @@ export interface destinationWorkflowSuggestionLogicActions {
     setBuildState: (buildState: WorkflowBuildState) => {
         buildState: WorkflowBuildState
     }
+    setBuildUnavailable: () => {
+        value: true
+    }
     toggleEvent: (event: string) => {
         event: string
     }
@@ -97,7 +102,11 @@ export interface destinationWorkflowSuggestionLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dismissed: (user: UserType | null, answered: boolean) => boolean
         shouldSuggestWorkflow: (dismissed: boolean) => (template: HogFunctionTemplateType) => boolean
-        canBuildWorkflows: (events: string[], currentOrganization: OrganizationType | null) => boolean
+        canBuildWorkflows: (
+            events: string[],
+            currentOrganization: OrganizationType | null,
+            buildUnavailable: boolean
+        ) => boolean
     }
 }
 
@@ -126,6 +135,7 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
         createWorkflows: true,
         openWorkflowEditor: true,
         setBuildState: (buildState: WorkflowBuildState) => ({ buildState }),
+        setBuildUnavailable: true,
         rememberAnswer: true,
         resetSuggestion: true,
     }),
@@ -160,6 +170,14 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                 resetSuggestion: () => null,
             },
         ],
+        // The API refuses to build, for example in privacy mode, which the frontend cannot see in advance.
+        buildUnavailable: [
+            false,
+            {
+                setBuildUnavailable: () => true,
+                resetSuggestion: () => false,
+            },
+        ],
         // The saved answer only reaches `user` after a reload, so the save that follows "Continue" must not ask again.
         answered: [
             false,
@@ -185,9 +203,9 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
         ],
         // Without custom events, or without AI approval, the modal only points to Workflows instead of building them.
         canBuildWorkflows: [
-            (s) => [s.events, s.currentOrganization],
-            (events: string[], currentOrganization: OrganizationType | null): boolean =>
-                events.length > 0 && !!currentOrganization?.is_ai_data_processing_approved,
+            (s) => [s.events, s.currentOrganization, s.buildUnavailable],
+            (events: string[], currentOrganization: OrganizationType | null, buildUnavailable: boolean): boolean =>
+                events.length > 0 && !!currentOrganization?.is_ai_data_processing_approved && !buildUnavailable,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -270,6 +288,12 @@ export const destinationWorkflowSuggestionLogic = kea<destinationWorkflowSuggest
                     ...properties,
                     status: error?.status,
                 })
+                if (error?.status === 403) {
+                    // Retrying cannot help, so the modal offers the manual workflow instead.
+                    actions.setBuildState(null)
+                    actions.setBuildUnavailable()
+                    return
+                }
                 actions.setBuildState('failed')
             }
         },
