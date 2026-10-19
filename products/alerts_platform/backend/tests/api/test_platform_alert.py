@@ -12,8 +12,10 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
@@ -99,6 +101,37 @@ class TestPlatformAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == str(configuration.id)
+
+    @parameterized.expand(
+        [
+            ("key_for_the_environment_only", False, status.HTTP_403_FORBIDDEN),
+            ("key_for_the_environment_and_its_project", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_a_project_scoped_key_reaches_a_child_environments_alerts_only_with_the_parent(
+        self, _name: str, scoped_to_parent: bool, expected: int
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Environment key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["alert:read", "alert:write", "logs:read", "logs:write"],
+            scoped_teams=[child_environment.id, self.team.id] if scoped_to_parent else [child_environment.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        url = f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/"
+
+        edit = self.client.patch(url, {"name": "Renamed"}, format="json")
+        read = self.client.get(url)
+
+        assert (edit.status_code, read.status_code) == (expected, expected), (edit.json(), read.json())
+        configuration.refresh_from_db()
+        assert configuration.name == ("Renamed" if expected == status.HTTP_200_OK else "API errors")
 
     def test_another_teams_configuration_is_not_found(self) -> None:
         self._set_flag(True)

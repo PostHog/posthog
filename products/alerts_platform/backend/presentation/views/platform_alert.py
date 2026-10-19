@@ -12,7 +12,11 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
-from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
+from posthog.permissions import (
+    PostHogFeatureFlagPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
 from posthog.scopes import APIScopeObject, scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -292,6 +296,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             return self.team
         parent_team = self.team.parent_team
         assert parent_team is not None
+        # The scope check before the view ran saw only the URL's team, so a key confined to some
+        # projects must reach the parent as well.
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(self.request, "successful_authenticator", None))
+        if scoped_teams is not None and parent_team.id not in scoped_teams:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {parent_team.id}.")
         return parent_team
 
     @cached_property
