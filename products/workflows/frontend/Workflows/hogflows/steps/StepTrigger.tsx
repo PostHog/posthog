@@ -733,10 +733,12 @@ function StepTriggerConfigurationBatch({
     const logicProps: BatchTriggerLogicProps = {
         ...batchTriggerLogicProps(action.id, config.filters, workflow),
         // A realtime cohort has to be the only condition, so picking one replaces the others.
-        onRealtimeCohortWithOtherConditions: (cohortId) =>
-            partialSetWorkflowActionConfig(action.id, {
-                filters: { properties: keepOnlyRealtimeCohort(config.filters.properties ?? [], cohortId) },
-            }),
+        onRealtimeCohortWithOtherConditions: (cohortId) => {
+            const onlyCohort = keepOnlyRealtimeCohort(config.filters.properties ?? [], cohortId)
+            if (onlyCohort) {
+                partialSetWorkflowActionConfig(action.id, { filters: { properties: onlyCohort } })
+            }
+        },
     }
     const { blastRadius } = useValues(batchTriggerLogic(logicProps))
 

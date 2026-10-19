@@ -149,8 +149,17 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert size.realtime_cohort is not None
         assert (size.realtime_cohort.id, size.realtime_cohort.state) == (cohort.pk, expected_state)
 
-    @parameterized.expand([("realtime", True), ("not_realtime", False)])
-    def test_audience_size_flags_a_realtime_cohort_mixed_with_other_conditions(self, _name, realtime):
+    @parameterized.expand(
+        [
+            ("realtime", True, False, True),
+            ("not_realtime", False, False, False),
+            # The pickers can only show and clear top-level conditions, so a nested cohort isn't flagged.
+            ("realtime_nested_in_a_group", True, True, False),
+        ]
+    )
+    def test_audience_size_flags_a_realtime_cohort_mixed_with_other_conditions(
+        self, _name, realtime, nested, expect_flagged
+    ):
         self._create_audience(["a@x.com"])
         cohort = Cohort.objects.create(
             team=self.team,
@@ -173,14 +182,13 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             },
         )
 
+        conditions = [
+            {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"},
+            {"key": "email", "type": "person", "value": "x.com", "operator": "icontains"},
+        ]
         size = get_audience_size(
             team_id=self.team.pk,
-            filters={
-                "properties": [
-                    {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"},
-                    {"key": "email", "type": "person", "value": "x.com", "operator": "icontains"},
-                ]
-            },
+            filters={"properties": [{"type": "AND", "values": conditions}] if nested else conditions},
             group_type_index=None,
             dedupe_key=None,
             sends_email=True,
@@ -188,4 +196,4 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert size.realtime_cohort is None
         mixed = size.realtime_cohort_with_other_conditions
-        assert (mixed.id if mixed else None) == (cohort.pk if realtime else None)
+        assert (mixed.id if mixed else None) == (cohort.pk if expect_flagged else None)
