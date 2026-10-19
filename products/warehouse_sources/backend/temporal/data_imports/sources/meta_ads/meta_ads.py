@@ -704,6 +704,21 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
+def _is_refused_node(node_id: str, node: typing.Any, fields: tuple[str, ...]) -> bool:
+    """Return True for a node in a successful multi-id lookup that carries Meta's creative refusal.
+
+    Meta can report an error per node inside an HTTP 200 lookup. Any error other than the refusal
+    raises, so a transient or permission failure is not stored as empty fields.
+    """
+    error = node.get("error") if isinstance(node, dict) else None
+    if not isinstance(error, dict):
+        return False
+    if error.get("error_subcode") != META_INVALID_DOF_CREATIVE_ERROR_SUBCODE:
+        raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error)}")
+    logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
+    return True
+
+
 def _fetch_refusable_fields(
     node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
 ) -> dict[str, dict]:
@@ -712,11 +727,20 @@ def _fetch_refusable_fields(
     A multi-id lookup fails as a whole when Meta refuses one node, so a refused batch is split in
     half until the refused node is alone. Only that node then misses the fields.
     """
-    response = _get_initial_request(
-        node_lookup_url, {"ids": ",".join(ids), "fields": ",".join(fields), "access_token": access_token}
-    )
-    if response.status_code == 200:
-        return response.json()
+    params = {"ids": ",".join(ids), "fields": ",".join(fields), "access_token": access_token}
+    malformed_json_attempts = 0
+    while True:
+        response = _get_initial_request(node_lookup_url, params)
+        if response.status_code != 200:
+            break
+        try:
+            nodes = response.json()
+        except RequestsJSONDecodeError:
+            malformed_json_attempts += 1
+            if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                raise
+            continue
+        return {node_id: node for node_id, node in nodes.items() if not _is_refused_node(node_id, node, fields)}
     if not _is_invalid_dof_creative_error(response):
         _raise_meta_api_error(response)
     if len(ids) == 1:

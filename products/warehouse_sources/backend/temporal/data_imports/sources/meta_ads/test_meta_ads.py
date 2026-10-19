@@ -395,6 +395,25 @@ class TestSimplePaginationRefusedFields:
         saved = manager.save_state.call_args.args[0]
         assert saved.next_url is not None and "fields=id%2Cname%2Ccreative" in saved.next_url
 
+    def test_lookup_node_error_other_than_refusal_raises(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+            _mock_response(200, {"1": {"error": {"message": "Service temporarily unavailable", "code": 2}}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
     def test_refusal_without_refusable_fields_raises(self) -> None:
         manager = _build_manager()
         responses = [_mock_response(400, self.REFUSED_BODY), _mock_response(400, self.REFUSED_BODY)]
