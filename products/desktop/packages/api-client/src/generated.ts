@@ -6386,6 +6386,33 @@ export namespace Schemas {
         scope?: (MetricsAttributeScope | null) | undefined;
         value: string;
     };
+    export type MetricsDashboardVariableSelection = {
+        all?: (boolean | null) | undefined;
+        /**
+         * The selected values. Empty when `all` is true: All stands for every option of the variable.
+         */
+        values: Array<string>;
+    };
+    export type MetricsDashboardVariableSource =
+        | "custom"
+        | "promql"
+        | "sql"
+        | "textbox";
+    export type MetricsDashboardVariable = {
+        allValue?: (string | null) | undefined;
+        current?: (MetricsDashboardVariableSelection | null) | undefined;
+        customValues?: (Array<string> | null) | undefined;
+        includeAll?: (boolean | null) | undefined;
+        label?: (string | null) | undefined;
+        multi?: (boolean | null) | undefined;
+        /**
+         * Letters, digits and underscores. Tiles refer to it as `$name`.
+         */
+        name: string;
+        query?: (string | null) | undefined;
+        regex?: (string | null) | undefined;
+        source: MetricsDashboardVariableSource;
+    };
     export type DashboardFilter = Partial<{
         breakdown_filter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -6395,6 +6422,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         interval: IntervalType | null;
         metricFilters: Array<MetricsQueryFilter> | null;
+        metricVariables: Array<MetricsDashboardVariable> | null;
         properties: Array<
             | EventPropertyFilter
             | PersonPropertyFilter
