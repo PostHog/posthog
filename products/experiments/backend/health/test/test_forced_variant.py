@@ -9,7 +9,7 @@ from parameterized import parameterized
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.condition_changes import parse_release_conditions
-from products.experiments.backend.health.condition_set_traffic import needs_condition_set_traffic
+from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
 from products.experiments.backend.health.context import (
     ConditionsChange,
     ConditionSetTraffic,
@@ -45,6 +45,14 @@ IOS: dict[str, Any] = {
 }
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
+
+
+def _property_is(key: str, value: str, *, group_type_index: int | None = None) -> dict[str, Any]:
+    source = {"type": "person"} if group_type_index is None else {"type": "group", "group_type_index": group_type_index}
+    return {
+        "properties": [{"key": key, "value": [value], "operator": "exact", **source}],
+        "rollout_percentage": 100,
+    }
 
 
 def _context(
@@ -88,6 +96,7 @@ def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) 
         people_by_set=people_by_set,
         calls=calls,
         remotely_evaluated_calls=round(calls * remotely_evaluated),
+        people_assigned_outside=0,
     )
 
 
@@ -114,6 +123,51 @@ class TestForcedVariantReleaseCondition(TestCase):
                 "cohorts_forced_into_both_variants",
                 _context([{**IOS, "variant": "test"}, {**STAFF, "variant": "control"}]),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test, control", None),
+            ),
+            (
+                "variants_mapped_from_a_property",
+                _context(
+                    [
+                        {**_property_is("arm", "Control"), "variant": "control"},
+                        {**_property_is("arm", "test"), "variant": "test"},
+                    ]
+                ),
+                ("assigned_by_property", ExperimentHealthFindingSeverity.INFO, "1, 2", "control, test", None),
+            ),
+            (
+                "segments_mapped_onto_variants",
+                _context(
+                    [
+                        {**_property_is("plan", "free"), "variant": "control"},
+                        {**_property_is("plan", "pro"), "variant": "test"},
+                    ]
+                ),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
+            ),
+            (
+                "variants_mapped_from_a_person_and_a_group_property_of_one_key",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("arm", "test", group_type_index=0), "variant": "test"},
+                    ]
+                ),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
+            ),
+            (
+                "one_variant_mapped_from_a_property",
+                _context([{**_property_is("arm", "control"), "variant": "control"}]),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
+            ),
+            (
+                "variants_mapped_from_two_properties",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("cell", "test"), "variant": "test"},
+                    ]
+                ),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
             ),
             ("override_after_a_catch_all_is_unreachable", _context([EVERYONE, {**STAFF, "variant": "test"}]), None),
             (
@@ -313,8 +367,8 @@ class TestForcedVariantReleaseCondition(TestCase):
             ),
         ]
     )
-    def test_needs_condition_set_traffic(self, _name: str, ctx: HealthContext, expected: bool) -> None:
-        self.assertIs(needs_condition_set_traffic(ctx), expected)
+    def test_grades_by_pinned_share(self, _name: str, ctx: HealthContext, expected: bool) -> None:
+        self.assertIs(grades_by_pinned_share(ctx), expected)
 
     @parameterized.expand(
         [
@@ -343,4 +397,28 @@ class TestForcedVariantReleaseCondition(TestCase):
                 if set_after_launch
                 else "Then reset the experiment, or move its start date to after the removal."
             )
+        )
+
+    def test_variants_mapped_from_a_property_say_who_assigns_them(self) -> None:
+        finding = forced_variant_release_condition(
+            _context(
+                [
+                    {**_property_is("checkout_arm", "control"), "variant": "control"},
+                    {**_property_is("checkout_arm", "test"), "variant": "test"},
+                ]
+            )
+        )
+
+        assert finding is not None
+        self.assertEqual(
+            (finding.title, finding.detail, finding.evidence["variant_property"]),
+            (
+                "Variants are assigned outside PostHog",
+                'Each release condition that includes users matches the users whose property "checkout_arm" holds a '
+                'variant key, and serves them that variant. So the code that sets "checkout_arm" assigns the '
+                "variants, not PostHog. If it assigns at random, each variant gets similar users. If it assigns by "
+                "who the users are, for example by plan or country, a difference in the results can come from those "
+                "users and not from the variant.",
+                "checkout_arm",
+            ),
         )
