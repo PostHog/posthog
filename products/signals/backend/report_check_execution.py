@@ -440,6 +440,7 @@ def resurface_failed_check(
 def _monitoring_metric_filter(disabled_organizations: frozenset[UUID], *, started_before: datetime | None = None) -> Q:
     reports = SignalReport.objects.filter(
         id=OuterRef("report_id"),
+        team_id=OuterRef("team_id"),
         status=SignalReport.Status.MONITORING,
         monitoring_started_at__isnull=False,
     ).exclude(team__organization_id__in=disabled_organizations)
@@ -699,7 +700,10 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
         start = check.report.monitoring_started_at
         assert start is not None
         period = SignalReport.objects.filter(
-            id=OuterRef("report_id"), status=SignalReport.Status.MONITORING, monitoring_started_at=start
+            id=OuterRef("report_id"),
+            team_id=OuterRef("team_id"),
+            status=SignalReport.Status.MONITORING,
+            monitoring_started_at=start,
         )
         SignalReportCheck.objects.for_team(check.team_id).filter(
             Exists(period),

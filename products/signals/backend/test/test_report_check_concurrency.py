@@ -4,6 +4,7 @@ from datetime import timedelta
 from queue import Queue
 from time import monotonic
 
+import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ from products.signals.backend.report_checks import MAX_CHECK_HORIZON
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
+@time_machine.travel("2026-10-01T12:00:00Z", tick=False)
 class TestReportCheckConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
