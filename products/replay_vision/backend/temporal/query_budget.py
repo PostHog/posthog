@@ -69,22 +69,17 @@ def _capped(connection: BaseDatabaseWrapper, deadline: float) -> Iterator[None]:
                 _set_statement_timeout(connection, previous)
 
 
-def query_deadline(attempt_timeout: dt.timedelta, *, from_attempt_start: bool = True) -> float:
-    """The wall-clock time at which `bounded_queries` with the same arguments starts to cancel statements."""
-    started = _attempt_started_at() if from_attempt_start else time.time()
-    return started + attempt_timeout.total_seconds() * _BUDGET_SHARE
-
-
 @contextmanager
-def bounded_queries(attempt_timeout: dt.timedelta, *, from_attempt_start: bool = True) -> Iterator[None]:
+def bounded_queries(attempt_timeout: dt.timedelta, *, from_attempt_start: bool = True) -> Iterator[float]:
     """Cancel Postgres work in the block once it runs past most of the timeout that ends the attempt.
 
     A timed-out attempt leaves its thread and query running, so each retry would add another copy holding locks.
     Every block in one attempt shares the budget counted from the attempt's start; pass `from_attempt_start=False`
-    to give each block its own. No connection opens until a statement runs on it.
+    to give each block its own. No connection opens until a statement runs on it. Yields the wall-clock deadline.
     """
-    deadline = query_deadline(attempt_timeout, from_attempt_start=from_attempt_start)
+    started = _attempt_started_at() if from_attempt_start else time.time()
+    deadline = started + attempt_timeout.total_seconds() * _BUDGET_SHARE
     with ExitStack() as stack:
         for alias in _aliases():
             stack.enter_context(_capped(connections[alias], deadline))
-        yield
+        yield deadline

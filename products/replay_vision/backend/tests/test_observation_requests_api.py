@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -436,22 +437,10 @@ class TestCompleteSettledRequests(APIBaseTest):
         assert ReplayObservationRequest.objects.for_team(self.team.id).filter(completed_at__isnull=True).count() == 0
         assert cache.get(_SWEEP_CURSOR_KEY) is None
 
-    @parameterized.expand(
-        [
-            ("query_canceled", psycopg.errors.QueryCanceled, False),
-            ("admin_shutdown", psycopg.errors.AdminShutdown, True),
-        ]
-    )
-    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
-    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
-    def test_a_failed_second_page_read(
-        self, _name: str, cause: type[Exception], raises: bool, _produce: MagicMock
-    ) -> None:
-        first = self._request({"s1": "skipped_quota"})
-        second = self._request({"s2": "skipped_quota"})
+    def _fail_second_page_read(self, cause: type[Exception]) -> Any:
         page_reads = 0
 
-        def fail_second_page_read(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+        def wrapper(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
             nonlocal page_reads
             if sql.startswith("SELECT") and '"completed_at" IS NULL' in sql and "LIMIT" in sql:
                 page_reads += 1
@@ -459,17 +448,41 @@ class TestCompleteSettledRequests(APIBaseTest):
                     raise OperationalError("statement failed") from cause()
             return execute(sql, params, many, context)
 
-        with connection.execute_wrapper(fail_second_page_read):
-            if raises:
-                with pytest.raises(OperationalError):
-                    complete_settled_requests()
-                return
+        return connection.execute_wrapper(wrapper)
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_nearly_spent_query_budget_announces_nothing(self, produce: MagicMock) -> None:
+        request = self._request({"s1": "skipped_quota"})
+
+        assert complete_settled_requests(query_deadline=time.time() + 5) == 0
+
+        produce.assert_not_called()
+        request.refresh_from_db()
+        assert request.completed_at is None
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_canceled_statement_ends_the_tick_and_keeps_its_cursor(self, _produce: MagicMock) -> None:
+        first = self._request({"s1": "skipped_quota"})
+        second = self._request({"s2": "skipped_quota"})
+
+        with self._fail_second_page_read(psycopg.errors.QueryCanceled):
             assert complete_settled_requests() == 1
 
         first.refresh_from_db()
         second.refresh_from_db()
-        assert (first.completed_at is not None, second.completed_at is None) == (True, True)
+        assert first.completed_at is not None
+        assert second.completed_at is None
         assert cache.get(_SWEEP_CURSOR_KEY) == (first.created_at.isoformat(), str(first.id))
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_other_database_errors_still_fail_the_sweep(self, _produce: MagicMock) -> None:
+        self._request({"s1": "skipped_quota"})
+        self._request({"s2": "skipped_quota"})
+
+        with self._fail_second_page_read(psycopg.errors.AdminShutdown), pytest.raises(OperationalError):
+            complete_settled_requests()
 
     @parameterized.expand(
         [
