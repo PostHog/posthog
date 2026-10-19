@@ -1021,6 +1021,14 @@ def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
 
 
+def _parses_as_number(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
 def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantType:
     """The backing column's physical ClickHouse type as a ConstantType; an untyped column is the string default."""
     return constant_type_from_runtime_type(parse_sql_runtime_type(source.column_type or "String"))
@@ -2043,6 +2051,23 @@ class ClickHousePropertyResolver(CloningVisitor):
             source=source,
         )
 
+    def _numeric_dynamic_json_property_compared_to_text(
+        self, expr: ast.Expr, values: list[str]
+    ) -> _OptimizableProperty | None:
+        if all(_parses_as_number(value) for value in values):
+            return None
+        single = self._single_key_property(expr)
+        if single is None:
+            return None
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or not _is_dynamic_json_source(source):
+            return None
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        if not isinstance(property_type.resolve_constant_type(self.context), ast.FloatType):
+            return None
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
+
     def _materialized_property_for_op(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key materialized-column property (any resolved type), for IN comparisons that don't need a string."""
         single = self._single_key_property(expr)
@@ -2417,7 +2442,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if self._is_boolean_conversion(property_expr):
             return None
-        prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
+        prop = self._materialized_string_property(
+            property_expr, allow_dynamic_json=True
+        ) or self._numeric_dynamic_json_property_compared_to_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
             return None
 
