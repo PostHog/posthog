@@ -140,9 +140,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         : () => loadDashboard({ action: DashboardLoadAction.Update })
     const refreshDashboardTile = isSharedView() ? undefined : refreshDashboardItem
 
-    // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
-    // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
-    const [resizingTileId, setResizingTileId] = useState<string | null>(null)
+    const [isResizing, setIsResizing] = useState(false)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
@@ -392,13 +390,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [startInteraction]
     )
 
-    const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
-        setResizingTileId(newItem.i)
+    const handleResize = useCallback(() => {
+        setIsResizing(true)
     }, [])
 
     const handleResizeStop = useCallback(() => {
-        setResizingTileId(null)
+        setIsResizing(false)
         flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
@@ -618,7 +615,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         showDetailsControls={showDetailsControls}
                                         placement={placement}
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                        isResizing={resizingTileId === tile.id.toString()}
+                                        isResizing={isResizing}
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={currentDashboardVariables}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render

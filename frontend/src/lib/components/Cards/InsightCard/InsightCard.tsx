@@ -84,66 +84,29 @@ const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
-const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
-
-/**
- * Throttles a canvas chart's redraws while its dashboard tile is resized, instead of repainting on every frame.
- * Pinning the inner wrapper to a fixed size means the chart's own ResizeObserver only fires when we push a new
- * size, which we do at most once per {@link RESIZE_REDRAW_THROTTLE_MS}. Unpinning on resize-stop redraws once
- * at the exact final size.
- */
-function ResizeThrottledViz({ throttled, children }: { throttled: boolean; children: React.ReactNode }): JSX.Element {
+function ResizeDeferredViz({ deferred, children }: { deferred: boolean; children: React.ReactNode }): JSX.Element {
     const outerRef = useRef<HTMLDivElement>(null)
     const innerRef = useRef<HTMLDivElement>(null)
 
     useLayoutEffect(() => {
         const outer = outerRef.current
         const inner = innerRef.current
-        if (!throttled || !outer || !inner) {
+        if (!deferred || !outer || !inner) {
             return
         }
 
-        let lastPush = 0
-        let trailing: ReturnType<typeof setTimeout> | undefined
-
-        const pushSize = (): void => {
-            lastPush = performance.now()
-            const rect = outer.getBoundingClientRect()
-            inner.style.width = `${rect.width}px`
-            inner.style.height = `${rect.height}px`
-        }
-        pushSize()
-
-        const onOuterResize = (): void => {
-            const elapsed = performance.now() - lastPush
-            if (elapsed >= RESIZE_REDRAW_THROTTLE_MS) {
-                if (trailing) {
-                    clearTimeout(trailing)
-                    trailing = undefined
-                }
-                pushSize()
-            } else if (!trailing) {
-                trailing = setTimeout(() => {
-                    trailing = undefined
-                    pushSize()
-                }, RESIZE_REDRAW_THROTTLE_MS - elapsed)
-            }
-        }
-        const observer = new ResizeObserver(onOuterResize)
-        observer.observe(outer)
+        const rect = outer.getBoundingClientRect()
+        inner.style.width = `${rect.width}px`
+        inner.style.height = `${rect.height}px`
 
         return () => {
-            observer.disconnect()
-            if (trailing) {
-                clearTimeout(trailing)
-            }
             inner.style.width = ''
             inner.style.height = ''
         }
-    }, [throttled])
+    }, [deferred])
 
     return (
-        <div ref={outerRef} className={clsx('InsightCard__viz', throttled && 'InsightCard__viz--resizing')}>
+        <div ref={outerRef} className={clsx('InsightCard__viz', deferred && 'InsightCard__viz--resizing')}>
             <div ref={innerRef} className="InsightCard__vizInner">
                 {children}
             </div>
@@ -451,8 +414,7 @@ function InsightCardInternal(
         return null
     })()
 
-    // Excludes isResizing from the deps so the element stays referentially stable across resize toggles — that's
-    // what lets ResizeThrottledViz throttle the live chart instead of remounting (and reloading) it.
+    // Keep the Query element stable so resize state does not remount the chart.
     const vizInner = useMemo(() => {
         if (BlockingEmptyState) {
             return BlockingEmptyState
@@ -475,7 +437,7 @@ function InsightCardInternal(
 
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
-        <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
+        <ResizeDeferredViz deferred={!!isResizing && rendersToCanvas}>{vizInner}</ResizeDeferredViz>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />
     )

@@ -59,7 +59,6 @@
         min-height: var(--insight-viz-min-height);
     }
 
-    // Clip while the JS-throttled pinned size lags the growing/shrinking tile mid-resize.
     &--resizing {
         overflow: hidden;
     }
