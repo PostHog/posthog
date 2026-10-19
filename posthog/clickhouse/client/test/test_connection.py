@@ -16,6 +16,7 @@ from posthog.clickhouse.client.connection import (
     RefreshingChPool,
     Workload,
     default_client,
+    default_workload_from_settings,
     get_clickhouse_creds,
     get_http_client,
     get_http_kwargs,
@@ -74,6 +75,21 @@ def test_connection_pool_creation_with_offline_cluster(settings):
 
     set_default_clickhouse_workload_type(Workload.OFFLINE)
     assert get_pool(Workload.DEFAULT) is offline_pool
+
+
+@pytest.mark.parametrize("value,expected", [("ONLINE", Workload.ONLINE), ("OFFLINE", Workload.OFFLINE)])
+def test_default_workload_from_settings(settings, value, expected):
+    settings.CLICKHOUSE_DEFAULT_WORKLOAD = value
+
+    assert default_workload_from_settings() == expected
+
+
+@pytest.mark.parametrize("value", ["LOGS", "ENDPOINTS", "DEFAULT", "offline-ish"])
+def test_default_workload_from_settings_rejects_other_workloads(settings, value):
+    settings.CLICKHOUSE_DEFAULT_WORKLOAD = value
+
+    with pytest.raises(ValueError):
+        default_workload_from_settings()
 
 
 def test_connection_pool_creation_with_team_id(settings):
