@@ -1059,7 +1059,7 @@ fn grown_config() -> ChangelogConfig {
 async fn a_flip_in_etcd_moves_a_parked_key_to_its_new_partition() {
     let store = test_store().await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
     let changelog = changelog();
