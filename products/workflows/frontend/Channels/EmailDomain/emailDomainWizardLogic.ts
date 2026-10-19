@@ -146,7 +146,7 @@ export interface emailDomainWizardLogicMeta {
         selectedIsInferred: (selectedDomain: string | null, inferredDomains: InferredDomain[]) => boolean
         sendingDomain: (selectedDomain: string | null, sendPrefix: 'mail') => string | null
         fromAddress: (sendingDomain: string | null, localPart: 'hello') => string | null
-        existingSender: (integrations: IntegrationType[] | null, sendingDomain: string | null) => IntegrationType | null
+        existingSender: (integrations: IntegrationType[] | null, fromAddress: string | null) => IntegrationType | null
     }
 }
 
@@ -313,10 +313,10 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
                 sendingDomain ? `${localPart || DEFAULT_LOCAL_PART}@${sendingDomain}` : null,
         ],
         existingSender: [
-            (s) => [s.integrations, s.sendingDomain],
-            (integrations: IntegrationType[] | null, sendingDomain: string | null): IntegrationType | null =>
+            (s) => [s.integrations, s.fromAddress],
+            (integrations: IntegrationType[] | null, fromAddress: string | null): IntegrationType | null =>
                 integrations?.find(
-                    (integration) => integration.kind === 'email' && integration.config?.domain === sendingDomain
+                    (integration) => integration.kind === 'email' && integration.config?.email === fromAddress
                 ) ?? null,
         ],
     }),

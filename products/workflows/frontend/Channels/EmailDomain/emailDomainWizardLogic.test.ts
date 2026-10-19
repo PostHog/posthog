@@ -1,3 +1,7 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -5,8 +9,11 @@ import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
 import { emailDomainWizardLogic } from './emailDomainWizardLogic'
 
 describe('emailDomainWizardLogic', () => {
+    let backend: FakeEmailDomainBackend
+
     beforeEach(() => {
-        useMocks(new FakeEmailDomainBackend().mocks())
+        backend = new FakeEmailDomainBackend()
+        useMocks(backend.mocks())
         initKeaTests()
     })
 
@@ -65,5 +72,19 @@ describe('emailDomainWizardLogic', () => {
 
         expect(logic.values.sendPrefix).toBe(expected)
         expect(logic.values.sendingDomain).toBe(`${expected}.acme.com`)
+    })
+
+    it.each([
+        ['billing@acme.com', false],
+        ['hello@acme.com', true],
+    ])('lets %s join a domain that already has hello@ (blocked: %s)', async (input, blocked) => {
+        backend.addSender({ email: 'hello@mail.acme.com' })
+        const logic = mountWizard()
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+        logic.actions.setCustomDomainInput(input)
+        logic.actions.useCustomDomain()
+
+        expect(logic.values.existingSender?.config.email ?? null).toBe(blocked ? 'hello@mail.acme.com' : null)
     })
 })
