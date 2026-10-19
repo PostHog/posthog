@@ -5,7 +5,21 @@ import { AttachmentUploadError, uploadAttachments } from './uploadAttachments'
 
 const S3_URL = 'https://uploads.example.com/bucket'
 
-/** Node's `FormData` refuses React Native's `{ uri, name, type }` file part, so the test records the parts instead. */
+jest.mock('expo-file-system', () => ({
+    File: class {
+        readonly uri: string
+
+        constructor(uri: string) {
+            this.uri = uri
+        }
+
+        async bytes(): Promise<Uint8Array> {
+            return new TextEncoder().encode(`contents of ${this.uri}`)
+        }
+    },
+}))
+
+/** Node's `FormData` takes only a real `Blob` as a file part, so the test records the parts instead. */
 class RecordingFormData {
     readonly parts: [string, unknown][] = []
 
@@ -80,11 +94,14 @@ describe('uploadAttachments', () => {
         ])
         const [first, second] = calls.slice(1, 3)
         expect(first?.init.headers).toBeUndefined()
-        expect((first?.init.body as RecordingFormData).parts).toEqual([
+        const parts = (first?.init.body as RecordingFormData).parts
+        expect(parts).toEqual([
             ['key', 'staged/art-1'],
             ['policy', 'policy-art-1'],
-            ['file', { uri: 'file:///picked/notes.md', name: 'notes.md', type: 'text/markdown' }],
+            ['file', expect.objectContaining({ name: 'notes.md', type: 'text/markdown', bytes: expect.any(Function) })],
         ])
+        const filePart = parts[2]?.[1] as { bytes: () => Promise<Uint8Array> }
+        expect(new TextDecoder().decode(await filePart.bytes())).toBe('contents of file:///picked/notes.md')
         expect((second?.init.body as RecordingFormData).parts.at(-1)?.[0]).toBe('file')
         expect(JSON.parse(calls[3]?.init.body as string)).toEqual({
             artifacts: [

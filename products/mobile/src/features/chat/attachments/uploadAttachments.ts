@@ -1,3 +1,4 @@
+import { File } from 'expo-file-system'
 import { Platform } from 'react-native'
 
 import {
@@ -26,12 +27,14 @@ export class AttachmentUploadError extends Error {
     }
 }
 
-/** React Native's `FormData` reads a file part from `{ uri, name, type }`. A browser needs the bytes as a `Blob`. */
+/** The global `fetch` is `expo/fetch`, which encodes only a `Blob`-like part and reads its file name and type from the
+ * part, not from `append`, so the part carries the attachment's name and type instead of the on-disk ones. */
 async function filePart(file: PendingAttachment): Promise<Blob> {
     if (Platform.OS === 'web') {
         return file.webFile ?? (await fetch(file.uri)).blob()
     }
-    return { uri: file.uri, name: file.name, type: file.contentType } as unknown as Blob
+    const onDisk = new File(file.uri)
+    return { name: file.name, type: file.contentType, bytes: () => onDisk.bytes() } as unknown as Blob
 }
 
 async function postToS3(prepared: PreparedArtifactApi, file: PendingAttachment, signal?: AbortSignal): Promise<void> {
