@@ -22,6 +22,15 @@ def _exception_type_name(exc: BaseException) -> str:
     return f"{exc_type.__module__}.{exc_type.__qualname__}"
 
 
+def _exception_message(exc: BaseException) -> str:
+    try:
+        return str(exc)
+    except Exception:
+        # Same fallback as `traceback.format_exception`. A raising processor drops the record, and in the
+        # Temporal chain the error escapes into the caller's error handling.
+        return "<exception str() failed>"
+
+
 def add_otel_exception_attributes(
     logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
 ) -> structlog.types.EventDict:
@@ -32,6 +41,6 @@ def add_otel_exception_attributes(
         return event_dict
 
     event_dict["exception.type"] = _exception_type_name(exc)
-    event_dict["exception.message"] = str(exc)
+    event_dict["exception.message"] = _exception_message(exc)
     event_dict["exception.stacktrace"] = "".join(traceback.format_exception(exc))
     return event_dict

@@ -39,8 +39,8 @@ def test_json_formatter_renders_otel_exception_attributes(from_structlog: bool) 
 
     if from_structlog:
         record = _record({"event": "payment failed", "exc_info": exc_info}, None)
-        record._logger = logging.getLogger("test")  # type: ignore[attr-defined]
-        record._name = "error"  # type: ignore[attr-defined]
+        record._logger = logging.getLogger("test")
+        record._name = "error"
     else:
         record = _record("payment failed", exc_info)
 
@@ -54,3 +54,19 @@ def test_json_formatter_renders_otel_exception_attributes(from_structlog: bool) 
     assert "KeyError: 'card'" in stacktrace
     assert "The above exception was the direct cause of the following exception" in stacktrace
     assert stacktrace.endswith(f"{__name__}.PaymentDeclined: card declined\n")
+
+
+class UnprintableError(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("no str")
+
+
+def test_json_formatter_survives_exception_with_raising_str() -> None:
+    try:
+        raise UnprintableError()
+    except UnprintableError:
+        rendered = json.loads(_json_formatter().format(_record("payment failed", sys.exc_info())))
+
+    assert rendered["exception.type"] == f"{__name__}.UnprintableError"
+    assert rendered["exception.message"] == "<exception str() failed>"
+    assert "Traceback (most recent call last):" in rendered["exception.stacktrace"]
