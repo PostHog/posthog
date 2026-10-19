@@ -237,6 +237,20 @@ class MeetingView:
 
 
 @dataclass(frozen=True)
+class SyncedMeeting:
+    """A synced calendar meeting in a team-wide time window, regardless of account."""
+
+    id: UUID
+    title: str
+    start_time: datetime
+    end_time: datetime | None
+    organizer_email: str
+    status: str
+    meet_code: str
+    participants: list[MeetingParticipantView]
+
+
+@dataclass(frozen=True)
 class AccountRef:
     """Lightweight account reference for search/list result rows.
 

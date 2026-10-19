@@ -11,7 +11,11 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from ..logic import contact_check, sessions, sources
+from django.utils import timezone
+
+from posthog.models.scoping import team_scope
+
+from ..logic import calendar_scout, contact_check, sessions, source_discovery, sources
 from ..models import ResearchSession, ResearchSource
 from . import contracts
 from .enums import SessionOrigin, SessionStatus, SourceKind, SourceOrigin
@@ -77,3 +81,17 @@ def upsert_session(data: contracts.UpsertResearchSessionInput) -> tuple[contract
 
 def check_contact(data: contracts.ContactCheckInput) -> contracts.ContactCheckResult:
     return contact_check.check_contact(data)
+
+
+def run_calendar_scout(team_id: int) -> contracts.CalendarScoutResult:
+    with team_scope(team_id):
+        counts = calendar_scout.sync_sessions_from_calendar(team_id, now=timezone.now())
+    return contracts.CalendarScoutResult(
+        meetings=counts.meetings, sessions_created=counts.sessions_created, sessions_updated=counts.sessions_updated
+    )
+
+
+def run_source_discovery(team_id: int) -> contracts.SourceDiscoveryResult:
+    with team_scope(team_id):
+        created = source_discovery.register_discovered_sources(team_id, now=timezone.now())
+        return contracts.SourceDiscoveryResult(sources_created=[_source_to_dto(s) for s in created])

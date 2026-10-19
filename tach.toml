@@ -1809,7 +1809,7 @@ from = [
 
 [[modules]]
 path = "products.research_desk"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.cohorts", "products.customer_analytics"]
 layer = "modules"
 
 [[interfaces]]
