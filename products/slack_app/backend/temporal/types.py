@@ -310,6 +310,11 @@ class SlackRepoSelectionOutcome:
 
     `repo_research_task_id`/`repo_research_run_id` point at the internal sandbox
     run the repo discovery agent spun up to make this call.
+
+    `usage_limited` marks a `failed` outcome where the team has no AI credits left.
+    The activity already told the thread, so the workflow stops instead of offering
+    the picker. It defaults to False, so histories recorded before it existed decode
+    to the picker path.
     """
 
     status: Literal["found", "no_match", "failed"]
@@ -317,6 +322,7 @@ class SlackRepoSelectionOutcome:
     reason: str
     repo_research_task_id: str | None = None
     repo_research_run_id: str | None = None
+    usage_limited: bool = False
 
 
 @dataclass
