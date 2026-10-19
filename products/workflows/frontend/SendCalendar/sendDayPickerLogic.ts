@@ -127,9 +127,9 @@ export interface sendDayPickerLogicMeta {
         days: (anchorDate: string, weekStartDay: number) => string[]
         loadRange: (days: string[], effectiveTimezone: string, rule: SendingRule) => CalendarRange
         otherFlows: (scheduledFlows: SendCalendarFlowApi[] | null, id: string) => SendCalendarFlowApi[]
-        otherSends: (otherFlows: any, days: string[], effectiveTimezone: string) => CalendarSend[]
+        otherSends: (otherFlows: SendCalendarFlowApi[], days: string[], effectiveTimezone: string) => CalendarSend[]
         countingSends: (
-            otherFlows: any,
+            otherFlows: SendCalendarFlowApi[],
             loadRange: CalendarRange,
             draftAudience: SendAudience,
             isTransactional: boolean
