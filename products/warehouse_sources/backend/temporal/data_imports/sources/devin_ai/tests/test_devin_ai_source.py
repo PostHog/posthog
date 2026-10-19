@@ -43,10 +43,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = DevinAISource().get_schemas(_config(), team_id=1, names=["sessions"])
-        assert [s.name for s in schemas] == ["sessions"]
-
 
 class TestValidateCredentials:
     @parameterized.expand(

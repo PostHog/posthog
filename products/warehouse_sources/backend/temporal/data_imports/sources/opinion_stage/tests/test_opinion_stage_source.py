@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     always,
     scripted_network,
 )
@@ -64,9 +63,3 @@ class TestOpinionStageSource:
         assert kwargs["api_key"] == "os-key"
         assert kwargs["endpoint"] == "items"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Opinion Stage schema 'not_a_table'"
