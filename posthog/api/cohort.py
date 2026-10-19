@@ -132,11 +132,15 @@ from products.product_analytics.backend.facade.models import Insight
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_active_workflows_using_realtime_cohort,
+    team_has_active_workflows_using_cohorts,
 )
 from products.workflows.backend.facade.contracts import CohortDependentWorkflow, HogFlowReference
 
 
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
+    # Most teams have no active cohort workflows, so skip loading every cohort in the project for them.
+    if not team_has_active_workflows_using_cohorts(team_id=cohort.team_id):
+        return []
     # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
     # also relies on this one. Load the project's cohort references in one query and walk them in memory.
     dependents: defaultdict[int, set[int]] = defaultdict(set)
@@ -444,6 +448,11 @@ def _canonical_criteria(node: Any) -> Any:
     ):
         return values[0]
     return canonical
+
+
+def _criteria_key(filters: Any) -> str:
+    # JSON keeps 1 and 1.0 apart, which Python equality does not, and they compile to different criteria.
+    return json.dumps(_canonical_criteria(filters), sort_keys=True, default=str)
 
 
 def _coerce_stored_filter_values(filters: Any) -> Any:
@@ -1696,9 +1705,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and _canonical_criteria(
-            validated_data.get("filters")
-        ) != _canonical_criteria(_coerce_stored_filter_values(cohort.filters))
+        filters_changed = "filters" in validated_data and _criteria_key(validated_data.get("filters")) != _criteria_key(
+            _coerce_stored_filter_values(cohort.filters)
+        )
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
