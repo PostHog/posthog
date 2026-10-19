@@ -57,6 +57,7 @@ _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
+RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -271,6 +272,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
                     fairness_key=organization_id,
+                    activity_task_queue=_activity_task_queue(organization_id),
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
                 task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -307,6 +309,24 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
         except Exception:
             # Expected for rows whose workflow never started (Temporal connect failure) or already finished.
             pass
+
+
+def _activity_task_queue(organization_id: str) -> str | None:
+    # Evaluated locally, like the rate-limit flag, so the start never waits on /flags. A flag error keeps the run
+    # on the workflow's queue, because a failed start would roll the row back to FAILED.
+    try:
+        enabled = feature_enabled_or_false(
+            RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
+            organization_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:
