@@ -160,17 +160,31 @@ def _property_group_columns_read(events_sql: str) -> list[str]:
     return sorted(column for column in columns if re.search(rf"\b{re.escape(column)}\b", events_sql))
 
 
-def _materialized_columns_read(events_sql: str) -> list[str]:
-    """The enabled events materialized columns that an events-compiled fragment reads.
+# A team's READY dynamic slot makes events read a property from dmat_string_<n>. The slot columns carry no
+# column_materializer comment, so the registry lookup below does not list them.
+_DYNAMIC_MATERIALIZED_COLUMN = re.compile(r"(?<![\w$])dmat_string_\d+(?![\w$])")
 
-    The registry holds the ``mat_`` and ``dmat_string_`` columns and the built-in ``$session_id``,
-    ``$window_id`` and ``$group_0`` to ``$group_4`` columns. A persons subquery reads ``pmat_`` columns the
-    same way on both tables, so those are not in this registry.
+
+def _materialized_columns_read(events_sql: str) -> list[str]:
+    """The events materialized columns that an events-compiled fragment reads.
+
+    The registry holds the ``mat_`` columns and the built-in ``$session_id``, ``$window_id`` and
+    ``$group_0`` to ``$group_4`` columns. The dynamic ``dmat_string_`` slots are matched by name. A persons
+    subquery reads ``pmat_`` columns the same way on both tables, so those are left out.
     """
     from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table
 
     names = {column.name for column in get_enabled_materialized_columns_by_table().get("events", {}).values()}
-    return sorted(name for name in names if re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", events_sql))
+    registered = {name for name in names if re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", events_sql)}
+    return sorted(registered | set(_DYNAMIC_MATERIALIZED_COLUMN.findall(events_sql)))
+
+
+_ELEMENTS_COLUMN = re.compile(r"(?<![\w$])elements_chain\w*")
+
+
+def _elements_columns_read(events_sql: str) -> list[str]:
+    """The element columns that an events-compiled fragment reads."""
+    return sorted(set(_ELEMENTS_COLUMN.findall(events_sql)))
 
 
 # Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin
@@ -372,6 +386,12 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
         return UncopiedRowsPredicate(compiled=None, error="This table has no HogQL table to compile it against.")
     try:
         events_sql, _ = compile_hogql_predicate(obj)
+        if element_columns := _elements_columns_read(events_sql):
+            return UncopiedRowsPredicate(
+                compiled=None,
+                error=f"Events reads it from {', '.join(element_columns)}. {target.uncopied_rows_hogql_table} stores "
+                "no elements and reads them as empty, so the two can match different rows.",
+            )
         if map_columns := _property_group_columns_read(events_sql):
             return UncopiedRowsPredicate(
                 compiled=None,

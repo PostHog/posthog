@@ -333,6 +333,24 @@ def materialized_browser():
         yield
 
 
+@pytest.fixture
+def dmat_slot_for_plan(team):
+    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+
+    from products.event_definitions.backend.models.property_definition import PropertyType
+
+    prop_def = PropertyDefinition.objects.create(
+        team=team,
+        project_id=team.project_id,
+        name="plan",
+        property_type=PropertyType.String,
+        type=PropertyDefinition.Type.EVENT,
+    )
+    MaterializedColumnSlot.objects.create(
+        team=team, property_definition=prop_def, slot_index=0, state=MaterializedColumnSlotState.READY
+    )
+
+
 def _flag_call_request(team: Team, hogql_predicate: str) -> DataDeletionRequest:
     # OPTIMIZED is the cloud setting. It makes events read non-$ keys and $feature/ keys from
     # property-group maps, which flag_evaluations does not have.
@@ -374,6 +392,8 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         ("properties.$browser IS NULL", "materialized column mat_$browser"),
         # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
         ("properties.$group_0 IS NULL", "materialized column $group_0"),
+        # A team's READY dynamic slot makes events read dmat_string_0, which the column registry does not list.
+        ("properties.plan IS NULL", "materialized column dmat_string_0"),
     ],
     ids=[
         "person_id",
@@ -384,6 +404,7 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         "materialized_property_equals_empty_string",
         "materialized_property_is_null",
         "builtin_group_column_is_null",
+        "dynamic_slot_is_null",
     ],
 )
 def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
@@ -391,6 +412,8 @@ def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answe
 ):
     if "$browser" in predicate:
         request.getfixturevalue("materialized_browser")
+    if predicate == "properties.plan IS NULL":
+        request.getfixturevalue("dmat_slot_for_plan")
     uncopied = uncopied_rows_predicate(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
 
     assert uncopied.compiled is None
