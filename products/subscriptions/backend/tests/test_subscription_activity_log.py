@@ -11,8 +11,8 @@ from posthog.event_usage import EventSource
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models.subscription import Subscription, attribute_subscription_saves
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import Subscription, attribute_subscription_saves
 
 
 @time_machine.travel("2022-01-01", tick=False)
