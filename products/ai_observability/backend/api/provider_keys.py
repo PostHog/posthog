@@ -95,9 +95,9 @@ def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs
 def _validation_error_field(provider: str, error_message: str | None) -> str | None:
     """Pick the form field a validation error belongs to, or None when it is unattributed.
 
-    Azure OpenAI, Anthropic on Microsoft Foundry, and OpenAI-compatible providers may fail because of endpoint issues (unreachable,
-    wrong domain, 404), in which case the error is attributed to the endpoint field so the UI can
-    highlight the right input. Callers that must land the error on some field fall back to
+    Azure OpenAI, Anthropic on Microsoft Foundry, and OpenAI-compatible providers may fail because
+    of endpoint issues (unreachable, wrong domain, 404), in which case the error is attributed to the
+    endpoint field so the UI can highlight the right input. Callers that must land the error on some field fall back to
     `api_key`; the pre-validation endpoint reports the field separately and keeps the None.
     """
     if provider == LLMProvider.AZURE_OPENAI:
@@ -442,8 +442,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             instance.state = LLMProviderKey.State.UNKNOWN
             instance.error_message = None
         # No OpenAI-compatible or Anthropic branch here on purpose: `validate` rejects a base URL
-        # or Foundry endpoint change that arrives without an API key, so every change to one runs through the branch
-        # above and is re-validated against the new endpoint before it is stored.
+        # or Foundry endpoint change that arrives without an API key, so every change to one runs
+        # through the branch above and is re-validated against the new endpoint before it is stored.
 
         return super().update(instance, validated_data)
 

@@ -355,21 +355,16 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
         }
     }
 
-    // A result is only about the endpoint it was validated against, so editing the base URL has
+    // A result is only about the endpoint it was validated against, so editing the endpoint has
     // to drop it. Otherwise a key validated against the old endpoint keeps showing as validated.
-    const handleBaseUrlChange = (value: string): void => {
-        setBaseUrl(value)
-        if (preValidationResult) {
-            clearPreValidation()
+    const handleEndpointChange =
+        (setEndpoint: (value: string) => void): ((value: string) => void) =>
+        (value) => {
+            setEndpoint(value)
+            if (preValidationResult) {
+                clearPreValidation()
+            }
         }
-    }
-
-    const handleFoundryEndpointChange = (value: string): void => {
-        setAzureEndpoint(value)
-        if (preValidationResult) {
-            clearPreValidation()
-        }
-    }
 
     const handleProviderChange = (value: LLMProvider): void => {
         setProvider(value)
@@ -459,7 +454,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     <FoundryEndpointField
                         optional
                         value={azureEndpoint}
-                        onChange={handleFoundryEndpointChange}
+                        onChange={handleEndpointChange(setAzureEndpoint)}
                         errorMessage={
                             endpointErrorField === 'endpoint'
                                 ? preValidationResult?.error_message || 'Invalid Microsoft Foundry endpoint'
@@ -473,7 +468,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         <label className="text-sm font-medium">Base URL</label>
                         <LemonInput
                             value={baseUrl}
-                            onChange={handleBaseUrlChange}
+                            onChange={handleEndpointChange(setBaseUrl)}
                             placeholder="https://api.example.com/v1"
                             className="mt-1"
                             fullWidth
@@ -624,21 +619,16 @@ function EditKeyModal({
         }
     }
 
-    // A result is only about the endpoint it was validated against, so editing the base URL has
+    // A result is only about the endpoint it was validated against, so editing the endpoint has
     // to drop it. Otherwise a key validated against the old endpoint keeps showing as validated.
-    const handleBaseUrlChange = (value: string): void => {
-        setBaseUrl(value)
-        if (preValidationResult) {
-            clearPreValidation()
+    const handleEndpointChange =
+        (setEndpoint: (value: string) => void): ((value: string) => void) =>
+        (value) => {
+            setEndpoint(value)
+            if (preValidationResult) {
+                clearPreValidation()
+            }
         }
-    }
-
-    const handleFoundryEndpointChange = (value: string): void => {
-        setAzureEndpoint(value)
-        if (preValidationResult) {
-            clearPreValidation()
-        }
-    }
 
     const keyValidated = isSystemOne || apiKey.length === 0 || preValidationResult?.state === 'ok'
     const baseUrlMissing = isOpenAICompatibleEdit && baseUrl.length === 0
@@ -736,7 +726,7 @@ function EditKeyModal({
                     <FoundryEndpointField
                         optional={false}
                         value={azureEndpoint}
-                        onChange={handleFoundryEndpointChange}
+                        onChange={handleEndpointChange(setAzureEndpoint)}
                         errorMessage={
                             endpointErrorField === 'endpoint'
                                 ? preValidationResult?.error_message || 'Invalid Microsoft Foundry endpoint'
@@ -750,7 +740,7 @@ function EditKeyModal({
                         <label className="text-sm font-medium">Base URL</label>
                         <LemonInput
                             value={baseUrl}
-                            onChange={handleBaseUrlChange}
+                            onChange={handleEndpointChange(setBaseUrl)}
                             placeholder="https://api.example.com/v1"
                             className="mt-1"
                             fullWidth

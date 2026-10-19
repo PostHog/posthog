@@ -22,8 +22,9 @@ class ClaudeDeploymentOnAzureOpenAIError(UnsupportedModelError):
     """Raised when an Azure OpenAI key names a Claude deployment, which only the Anthropic API serves."""
 
     def __init__(self, model: str):
-        super().__init__(model)
-        self.args = (
+        self.model = model
+        LLMError.__init__(
+            self,
             f"'{model}' looks like a Claude deployment. Azure OpenAI keys can't call Claude models. "
             "Add an Anthropic key with your Microsoft Foundry endpoint, then pick that key for this model.",
         )
