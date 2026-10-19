@@ -1704,3 +1704,21 @@ export function IconChristmasOrnament(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconUndockPanel(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M6.75 13.75V19.25C6.75 20.3546 7.64543 21.25 8.75 21.25H19.25C20.3546 21.25 21.25 20.3546 21.25 19.25V8.75C21.25 7.64543 20.3546 6.75 19.25 6.75H13.75" />
+            <path d="M3.75 10.25V4.5C3.75 4.08579 4.08579 3.75 4.5 3.75H10.25" />
+            <path d="M4.75 4.75L10.25 10.25" />
+        </LemonIconBase>
+    )
+}
+
+export function IconOpenFullScreen(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M3.75 10.25V5.75C3.75 4.64543 4.64543 3.75 5.75 3.75H19.25C20.3546 3.75 21.25 4.64543 21.25 5.75V13.25C21.25 14.3546 20.3546 15.25 19.25 15.25H14.75M17.25 7.75V10.75M17.25 7.75H14.25M17.25 7.75L14 11M9.25 21.25H4.75C3.64543 21.25 2.75 20.3546 2.75 19.25V15.75C2.75 14.6454 3.64543 13.75 4.75 13.75H9.25C10.3546 13.75 11.25 14.6454 11.25 15.75V19.25C11.25 20.3546 10.3546 21.25 9.25 21.25Z" />
+        </LemonIconBase>
+    )
+}
