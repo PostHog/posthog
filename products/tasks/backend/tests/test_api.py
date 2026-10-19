@@ -2837,17 +2837,20 @@ class TestTaskAPI(BaseTaskAPITest):
         from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Signal Task",
-                "description": "From a signal report",
-                "origin_product": "signal_report",
-                "signal_report": str(report.id),
-                "signal_report_task_relationship": "implementation",
-            },
-            format="json",
-        )
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Signal Task",
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": "implementation",
+                },
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
@@ -3041,17 +3044,20 @@ class TestTaskAPI(BaseTaskAPITest):
         from products.signals.backend.models import SignalReport, SignalScoutNote
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Discuss report",
-                "description": _DISCUSS_PROMPT,
-                "origin_product": "signal_report",
-                "signal_report": str(report.id),
-                "signal_report_task_relationship": relationship,
-            },
-            format="json",
-        )
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Discuss report",
+                    "description": _DISCUSS_PROMPT,
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": relationship,
+                },
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         notes = SignalScoutNote.objects.for_team(self.team.id).filter(origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
         if should_forward:
@@ -3238,17 +3244,20 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
     def _post_signal_report_task(self, report_id, relationship, title="Report task"):
-        return self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": title,
-                "description": "From a signal report",
-                "origin_product": "signal_report",
-                "signal_report": str(report_id),
-                "signal_report_task_relationship": relationship,
-            },
-            format="json",
-        )
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            return self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": title,
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report_id),
+                    "signal_report_task_relationship": relationship,
+                },
+                format="json",
+            )
 
     def _create_implementation_task_with_runs(self, report, run_specs, deleted=False):
         from products.signals.backend.models import SignalReportTask
@@ -16997,8 +17006,14 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), expected)
 
-    def test_create_signal_report_task_ignores_channel_repository(self):
-        from products.signals.backend.models import SignalReport
+    @parameterized.expand(
+        [
+            ("web", None, status.HTTP_400_BAD_REQUEST),
+            ("desktop", TaskClientProvenance.POSTHOG_DESKTOP, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_pr_without_resolvable_repository(self, _name, client_provenance, expected_status):
+        from products.signals.backend.models import SignalReport, SignalReportTask
         from products.tasks.backend.models import Channel
 
         report = SignalReport.objects.create(team=self.team)
@@ -17006,6 +17021,10 @@ class TestCloudUsageGate(BaseTaskAPITest):
         with (
             patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=None),
             patch("products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value=None),
+            patch(
+                "products.tasks.backend.presentation.views.api.get_task_client_provenance",
+                return_value=client_provenance,
+            ),
         ):
             response = self.client.post(
                 "/api/projects/@current/tasks/",
@@ -17019,7 +17038,12 @@ class TestCloudUsageGate(BaseTaskAPITest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["detail"], tasks_facade.REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED)
+            self.assertFalse(Task.objects.filter(signal_report=report).exists())
+            self.assertFalse(SignalReportTask.objects.filter(report=report).exists())
+            return
         task = Task.objects.get(id=response.json()["id"])
         self.assertIsNone(task.repository)
         self.assertNotIn("attacker/repo", task.repositories)

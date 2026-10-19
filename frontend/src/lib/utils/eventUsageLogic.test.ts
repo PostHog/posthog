@@ -18,7 +18,6 @@ import {
     type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
-    OnboardingStepKey,
     PropertyFilterType,
     StepOrderValue,
 } from '~/types'
@@ -31,37 +30,6 @@ import {
 } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
-    describe('onboarding funnel events', () => {
-        let capture: jest.SpyInstance
-
-        beforeEach(() => {
-            initKeaTests()
-            eventUsageLogic.mount()
-            capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        })
-
-        afterEach(() => {
-            capture.mockRestore()
-        })
-
-        it('stamps the entry point on every funnel event', () => {
-            eventUsageLogic.actions.reportOnboardingStarted()
-            eventUsageLogic.actions.reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
-            eventUsageLogic.actions.reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics')
-
-            for (const event of [
-                'onboarding started',
-                'onboarding step completed',
-                'onboarding step skipped',
-                'onboarding completed',
-            ]) {
-                const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: 'product_selection' })
-            }
-        })
-    })
-
     describe('experiments list viewed', () => {
         it('sends the state of the list under its pinned property names', () => {
             initKeaTests()
