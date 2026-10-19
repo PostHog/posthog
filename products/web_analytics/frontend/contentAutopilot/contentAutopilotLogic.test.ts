@@ -389,8 +389,24 @@ describe('contentAutopilotLogic', () => {
             status: 'queued',
             proposal_id: null,
         }
+        const redraftedFromAnOlderRun: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000302',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: failedInAnOlderRun.id,
+        }
+        const startedInThisRun: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000303',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: failed.id,
+        }
         mockProposalsList.mockResolvedValue(paginated([rejected, failed, failedInAnOlderRun, ready]))
-        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(paginated([queued]))
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
+            paginated([queued, redraftedFromAnOlderRun, startedInThisRun])
+        )
         mockRunsList.mockResolvedValue(
             paginated([
                 {
@@ -418,6 +434,7 @@ describe('contentAutopilotLogic', () => {
             failedInAnOlderRun.id,
             rejected.id,
             queued.id,
+            redraftedFromAnOlderRun.id,
         ])
         expect(mountedLogic.values.readyDraftCount).toBe(1)
         expect(mountedLogic.values.latestRunErrors).toEqual([

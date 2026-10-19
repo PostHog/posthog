@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 import httpx
+import requests
 from anthropic import APIConnectionError
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -806,27 +807,52 @@ class TestFetchSitePage(SimpleTestCase):
         assert expected_text in document.text
         assert absent is None or absent not in document.text
 
-    def test_html_to_text_keeps_code_blocks_and_the_pages_own_spacing(self) -> None:
-        html = (
-            "<html><title>Next.js A/B tests</title><body><main>"
-            "<h2>Create a <code>Next.js</code> app</h2>"
-            "<div><button>JavaScript</button><button>PostHog AI</button></div>"
-            '<pre class="language-jsx"><code><span>export default function Home() {</span>\n'
-            "<span>  return &lt;h1&gt;Next.js A/B tests&lt;/h1&gt;</span>\n<span>}</span></code></pre>"
-            "</main></body></html>"
-        )
+    @parameterized.expand(
+        [
+            (
+                "code_block_and_inline_code",
+                "<h2>Create a <code>Next.js</code> app</h2>"
+                "<div><button>JavaScript</button><button>PostHog AI</button></div>"
+                '<pre class="language-jsx"><code><span>export default function Home() {</span>\n'
+                "<span>  return &lt;h1&gt;Next.js A/B tests&lt;/h1&gt;</span>\n<span>}</span></code></pre>",
+                "## Create a `Next.js` app\n"
+                "```jsx\n"
+                "export default function Home() {\n"
+                "  return <h1>Next.js A/B tests</h1>\n"
+                "}\n"
+                "```",
+            ),
+            (
+                "code_block_showing_a_markdown_fence",
+                '<h2>Write a README</h2><pre class="language-md"><code>```bash\nnpm install\n```\n# Usage</code></pre>'
+                "<p>Then commit it.</p>",
+                "## Write a README\n````md\n```bash\nnpm install\n```\n# Usage\n````\nThen commit it.",
+            ),
+        ]
+    )
+    def test_html_to_text_keeps_code_blocks_and_the_pages_own_spacing(
+        self, _name: str, body: str, expected: str
+    ) -> None:
+        html = f"<html><title>Next.js A/B tests</title><body><main>{body}</main></body></html>"
 
-        assert html_to_text(html).text == (
-            "## Create a `Next.js` app\n"
-            "```jsx\n"
-            "export default function Home() {\n"
-            "  return <h1>Next.js A/B tests</h1>\n"
-            "}\n"
-            "```"
-        )
+        assert html_to_text(html).text == expected
 
-    def test_reads_a_page_without_a_twin_through_firecrawl(self) -> None:
-        markdown = "# Session replay\n\n```js\nposthog.init('phc_example')\n```"
+    @parameterized.expand(
+        [
+            (
+                "firecrawl_markdown",
+                FirecrawlScrape(
+                    url="https://example.com/docs/session-replay",
+                    markdown="# Session replay\n\n```js\nposthog.init('phc_example')\n```",
+                ),
+                "# Session replay\n\n```js\nposthog.init('phc_example')\n```",
+            ),
+            ("firecrawl_timeout_falls_back_to_html", requests.Timeout("read timed out"), "Session replay"),
+        ]
+    )
+    def test_reads_a_page_without_a_twin_through_firecrawl(
+        self, _name: str, scraped: FirecrawlScrape | Exception, expected_text: str
+    ) -> None:
 
         def fetch(url: str, **kwargs: Any) -> FetchedPublicUrl:
             if url.endswith(".md"):
@@ -839,13 +865,13 @@ class TestFetchSitePage(SimpleTestCase):
             patch("products.web_analytics.backend.content_autopilot.research.fetch_public_url", side_effect=fetch),
             patch(
                 "products.web_analytics.backend.content_autopilot.research.scrape",
-                return_value=FirecrawlScrape(url="https://example.com/docs/session-replay", markdown=markdown),
+                side_effect=[scraped],
             ),
         ):
             document = fetch_site_page("https://example.com/docs/session-replay")
 
         assert document is not None
-        assert document.text == markdown
+        assert document.text == expected_text
 
 
 class TestValidationChecks(SimpleTestCase):

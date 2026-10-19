@@ -4,6 +4,8 @@ from html.parser import HTMLParser
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+import requests
+
 from posthog.dataclasses import frozen
 from posthog.egress.firecrawl.client import (
     MAX_SEARCH_QUERY_CHARS,
@@ -101,6 +103,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _REPEATED_SPACES_RE = re.compile(r" {2,}")
 _CODE_LANGUAGE_RE = re.compile(r"(?:^|\s)lang(?:uage)?-([\w+#.-]+)")
 _CODE_BLOCK_TOKEN_RE = re.compile(r"\x00code-block-(\d+)\x00")
+_BACKTICK_RUN_RE = re.compile(r"`+")
 
 
 def _code_language(attrs: list[tuple[str, str | None]]) -> str:
@@ -136,7 +139,8 @@ class _TextExtractor(HTMLParser):
     def _close_code_block(self) -> None:
         code = "".join(self._pre_text).strip("\n")
         if code.strip():
-            self._code_blocks.append(f"```{self._pre_language}\n{code}\n```")
+            fence = "`" * max([3, *(len(run) + 1 for run in _BACKTICK_RUN_RE.findall(code))])
+            self._code_blocks.append(f"{fence}{self._pre_language}\n{code}\n{fence}")
             self._append(f"\n\x00code-block-{len(self._code_blocks) - 1}\x00\n")
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -273,7 +277,7 @@ def _fetch_rendered_document(url: str, origin: DocumentOrigin) -> SourceDocument
         scraped = scrape(url, source=FIRECRAWL_SOURCE, formats=("markdown",), priority=Priority.BATCH)
         if scraped.markdown:
             return SourceDocument(url=url, title=scraped.title or "", text=_clean(scraped.markdown), origin=origin)
-    except (FirecrawlNotConfigured, FirecrawlScrapeFailed, FirecrawlEgressBudgetExhausted):
+    except (FirecrawlNotConfigured, FirecrawlScrapeFailed, FirecrawlEgressBudgetExhausted, requests.RequestException):
         pass
     return _fetch_html_document(url, origin)
 

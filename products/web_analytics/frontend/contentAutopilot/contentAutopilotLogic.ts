@@ -1087,7 +1087,13 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         })
                     ),
                 ...(opportunities ?? [])
-                    .filter(({ status, proposal_id }) => status === 'queued' && !proposal_id)
+                    .filter(
+                        ({ status, proposal_id, run_id }) =>
+                            status === 'queued' &&
+                            !proposals.some(
+                                ({ id, run_id: proposalRunId }) => id === proposal_id && proposalRunId === run_id
+                            )
+                    )
                     .map(
                         (opportunity): ContentAutopilotDraftRow => ({
                             id: opportunity.id,
@@ -1267,6 +1273,9 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 contentBoundaries: discoveredSite.content_boundaries.join('\n'),
             })
         },
+        discoverSiteFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
+        },
         selectProposal: ({ proposalId }) => {
             actions.setProposedMarkdown('')
             if (proposalId) {
@@ -1278,7 +1287,8 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 actions.setProposedMarkdown(proposalDetail.proposed_markdown)
             }
         },
-        loadProposalFailure: () => {
+        loadProposalFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
             actions.selectProposal(null)
         },
         saveProfileSuccess: ({ savedProfile }) => {
@@ -1286,10 +1296,19 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             actions.resetProfileDraft(draftFromProfile(savedProfile))
             actions.loadSiteProfiles()
         },
+        saveProfileFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
+        },
         deleteProfileSuccess: () => {
             lemonToast.success('Site deleted')
             actions.selectProposal(null)
             actions.loadSiteProfiles()
+        },
+        deleteProfileFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
+        },
+        dismissOpportunityFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
         },
         draftOpportunitiesSuccess: ({ runMutation }) => {
             if (runMutation.profile_id !== values.profile?.id) {
@@ -1311,6 +1330,9 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             lemonToast.success('Content run canceled')
             actions.loadRuns()
         },
+        cancelRunFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
+        },
         startRunFailure: ({ errorObject }) => {
             toastClientError(errorObject)
         },
@@ -1319,10 +1341,16 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             actions.selectProposal(null)
             actions.loadProposals()
         },
+        rejectProposalFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
+        },
         regenerateProposalSuccess: () => {
             lemonToast.success('Proposal queued for regeneration')
             actions.selectProposal(null)
             actions.loadProposals()
+        },
+        regenerateProposalFailure: ({ errorObject }) => {
+            toastClientError(errorObject)
         },
         saveProposalSuccess: () => {
             lemonToast.success('Changes saved and queued for validation')
