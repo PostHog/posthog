@@ -1,6 +1,7 @@
-import type { ReactElement } from 'react'
+import type { ComponentType, ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
+import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
@@ -11,6 +12,7 @@ interface SettingsRadioRowProps {
     testID?: string
     /** Defaults to the label. */
     accessibilityLabel?: string
+    Icon?: ComponentType<IconProps>
 }
 
 export function SettingsRadioRow({
@@ -19,6 +21,7 @@ export function SettingsRadioRow({
     onPress,
     testID,
     accessibilityLabel,
+    Icon,
 }: SettingsRadioRowProps): ReactElement {
     return (
         <Pressable44
@@ -30,6 +33,7 @@ export function SettingsRadioRow({
             style={styles.row}
             testID={testID}
         >
+            {Icon ? <Icon size={iconSizes.control} color={colors.secondary} /> : null}
             <Text style={styles.label} numberOfLines={1}>
                 {label}
             </Text>
