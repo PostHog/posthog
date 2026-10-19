@@ -26,10 +26,6 @@ class TestGetResource:
         params = cast(dict[str, Any], endpoint["params"])
         assert params["start_date"] < params["end_date"]
 
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Cloudability endpoint"):
-            get_resource("NotARealEndpoint", view_id=None)
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(

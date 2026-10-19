@@ -688,6 +688,7 @@ _NEGATIVE_OPERATOR_COMPLEMENTS = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
 }
 
 
@@ -954,6 +955,18 @@ def _expr_to_compare_op(
             op=ast.CompareOperationOp.Eq,
             left=apply_path_cleaning(expr, team),
             right=apply_path_cleaning(ast.Constant(value=value), team),
+        )
+    elif operator == PropertyOperator.IS_CLEANED_PATH_NOT_EXACT:
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=apply_path_cleaning(expr, team),
+                    right=apply_path_cleaning(ast.Constant(value=value), team),
+                ),
+                # Keep rows where the property is missing, matching every other negative operator.
+                ast.Call(name="isNull", args=[expr]),
+            ]
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
         values: list

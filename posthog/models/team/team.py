@@ -1,7 +1,6 @@
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -21,7 +20,6 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
@@ -50,7 +48,7 @@ from posthog.week_start_day import WeekStartDay  # noqa: F401
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
-from .extensions import get_or_create_team_extension
+from .extensions import TeamExtensionDescriptor
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -752,35 +750,21 @@ class Team(UUIDTClassicModel):
     # without raising. A config no serializer exposes needs no accessor here, and is reached through
     # the helper the way TeamFeatureFlagDefaultsConfig is.
 
-    @cached_property
-    def revenue_analytics_config(self):
-        from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamRevenueAnalyticsConfig)
-
-    @cached_property
-    def marketing_analytics_config(self):
-        from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamMarketingAnalyticsConfig)
-
-    @cached_property
-    def customer_analytics_config(self):
-        from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
-
-    @cached_property
-    def workflows_config(self):
-        from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
-
-        return get_or_create_team_extension(self, TeamWorkflowsConfig)
-
-    @cached_property
-    def feature_flag_policy_config(self):
-        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
-
-        return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
+    revenue_analytics_config = TeamExtensionDescriptor(
+        "posthog.models.team.team_revenue_analytics_config", "TeamRevenueAnalyticsConfig"
+    )
+    marketing_analytics_config = TeamExtensionDescriptor(
+        "posthog.models.team.team_marketing_analytics_config", "TeamMarketingAnalyticsConfig"
+    )
+    customer_analytics_config = TeamExtensionDescriptor(
+        "products.customer_analytics.backend.facade.team_extension", "TeamCustomerAnalyticsConfig"
+    )
+    workflows_config = TeamExtensionDescriptor(
+        "products.workflows.backend.facade.team_extension", "TeamWorkflowsConfig"
+    )
+    feature_flag_policy_config = TeamExtensionDescriptor(
+        "products.feature_flags.backend.models.team_feature_flag_policy_config", "TeamFeatureFlagPolicyConfig"
+    )
 
     @property
     def default_modifiers(self) -> dict:
@@ -879,10 +863,6 @@ class Team(UUIDTClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
-    @cached_property
-    def persons_seen_so_far(self) -> int:
-        return self.count_persons_seen_so_far()
-
     def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
         from posthog.schema import HogQLQueryModifiers
 
@@ -904,10 +884,6 @@ class Team(UUIDTClassicModel):
                 # each query's modifiers at print time, not from the database.
                 context=HogQLContext(team_id=self.pk, database=database),
             ).results[0][0]
-
-    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
-    def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        return self.count_groups_seen_so_far(group_type_index)
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
         from posthog.hogql import ast  # noqa: PLC0415 — breaks team import cycle

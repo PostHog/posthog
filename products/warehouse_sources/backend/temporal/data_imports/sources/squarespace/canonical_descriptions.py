@@ -105,4 +105,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "transactionsSummary": "Summary of the profile's orders and donations.",
         },
     },
+    "fulfillment_options": {
+        "description": "Shipping options configured on the Squarespace site and the carrier services "
+        "each one offers. Used to target free shipping discounts.",
+        "docs_url": "https://developers.squarespace.com/commerce-apis/discounts#get-fulfillment-options",
+        "columns": {
+            "id": "Unique fulfillment option id.",
+            "name": "Name of the shipping option shown to customers (e.g. Standard Shipping).",
+            "type": "Fulfillment option type (e.g. SHIPPING).",
+            "availableServices": "Carrier services available for the option, each with a name and description.",
+        },
+    },
 }

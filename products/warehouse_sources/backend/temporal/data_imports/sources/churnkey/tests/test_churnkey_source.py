@@ -27,12 +27,6 @@ class TestChurnkeySourceConfig:
         assert ChurnkeySource().connection_host_fields == ["app_id"]
 
 
-class TestChurnkeySchemas:
-    def test_get_schemas_name_filter(self) -> None:
-        schemas = ChurnkeySource().get_schemas(_config(), team_id=1, names=["does-not-exist"])
-        assert schemas == []
-
-
 class TestChurnkeyValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_ok"),

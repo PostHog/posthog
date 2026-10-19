@@ -27,8 +27,8 @@ from posthog.models import Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.delivery_common import strip_null_bytes
 from products.subscriptions.backend.temporal.types import MISSING_QUERY_ERROR_TYPE, safe_error_message
 

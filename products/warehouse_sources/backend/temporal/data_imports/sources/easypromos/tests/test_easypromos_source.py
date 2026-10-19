@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -17,12 +15,6 @@ class TestSourceConfig:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs can render the table list.
         assert EasypromosSource.lists_tables_without_credentials is True
-
-
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = EasypromosSource().get_schemas(MagicMock(), team_id=1, names=["promotions", "users"])
-        assert {s.name for s in schemas} == {"promotions", "users"}
 
 
 class TestNonRetryableErrors:

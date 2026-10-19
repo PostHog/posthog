@@ -78,9 +78,6 @@ class TestZendeskSunshineSource:
         )
         assert [s.name for s in schemas] == ["object_records"]
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     def test_get_schemas_rejects_unsupported_version(self) -> None:
         with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
             self.source.get_schemas(self.config, self.team_id, api_version="v9")

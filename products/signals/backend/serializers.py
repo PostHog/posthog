@@ -31,7 +31,12 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     scope_ids_problem,
 )
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
+from products.signals.backend.enums import (
+    ReportTaskActionKind,
+    SignalSourceProduct,
+    SignalSourceType,
+    SuggestedSourceProduct,
+)
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -1196,15 +1201,24 @@ class ReportSourceSuggestionSerializer(serializers.Serializer):
 
 class ReportRankingSerializer(serializers.Serializer):
     served_key = serializers.CharField(
-        help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
+        help_text=(
+            "Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users."
+        )
     )
-    model_name = serializers.CharField(help_text="Feature family of the served model.")
-    model_version = serializers.CharField(help_text="Training partition of the served model, as `YYYY-MM-DD`.")
-    manifest_version = serializers.CharField(help_text="Version of the serving manifest that chose the model.")
+    model_name = serializers.CharField(help_text="Feature family of the served model. Empty for non-staff users.")
+    model_version = serializers.CharField(
+        help_text="Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users."
+    )
+    manifest_version = serializers.CharField(
+        help_text="Version of the serving manifest that chose the model. Empty for non-staff users."
+    )
     scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
     scores = serializers.DictField(
         child=serializers.FloatField(),
-        help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+        help_text=(
+            "Outcome head name to its calibrated probability. Empty when the served model skipped the report, "
+            "and always empty for non-staff users."
+        ),
     )
     lifts = serializers.DictField(
         child=serializers.FloatField(),
@@ -1394,8 +1408,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     ranking = serializers.SerializerMethodField(
         help_text=(
-            "The served model's score from the latest ranking score artefact. Staff only: null for "
-            "other users, and null when the report has no score."
+            "The served model's score from the latest ranking score artefact. Null for users who are neither "
+            "staff nor in the inbox model sort rollout, and null when the report has no score."
         ),
     )
     source_suggestion = serializers.SerializerMethodField(
@@ -1646,7 +1660,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
     @extend_schema_field(ReportRankingSerializer(allow_null=True))
     def get_ranking(self, obj: SignalReport) -> dict | None:
         request = self.context.get("request")
-        if request is None or not request.user.is_staff:
+        if request is None:
+            return None
+        can_view = self.context.get("can_view_inbox_ranking")
+        if not (can_view() if can_view is not None else request.user.is_staff):
             return None
 
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
@@ -1687,13 +1704,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
         except (ValueError, KeyError, TypeError, AttributeError):
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
             return None
+        is_staff = request.user.is_staff
         return {
-            "served_key": score.served_key,
-            "model_name": served.model_name,
-            "model_version": served.model_version,
-            "manifest_version": score.manifest_version,
+            "served_key": score.served_key if is_staff else "",
+            "model_name": served.model_name if is_staff else "",
+            "model_version": served.model_version if is_staff else "",
+            "manifest_version": score.manifest_version if is_staff else "",
             "scored_at": score.scored_at,
-            "scores": served.scores,
+            "scores": served.scores if is_staff else {},
             "lifts": lifts,
             "readable_heads": readable_heads,
             "stale": is_stale_score(score, latest_edit_at),
@@ -3044,3 +3062,69 @@ class PullRequestReviewCommentReactionCreateResponseSerializer(serializers.Seria
     """Response after adding a reaction — the created reaction, so the frontend can track its id."""
 
     reaction = PullRequestCommentReactionSerializer(read_only=True)
+
+
+class SignalReportTaskActionSerializer(serializers.Serializer):
+    """One report action that starts an agent run, with whether the report offers it now."""
+
+    action = serializers.ChoiceField(
+        choices=ReportTaskActionKind.choices,
+        help_text=(
+            "The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. "
+            "`suggested_prompt` sends one of the prompts the report suggests."
+        ),
+    )
+    available = serializers.BooleanField(help_text="Whether a run of this action can start now.")
+    disabled_reason = serializers.CharField(
+        allow_null=True, help_text="Why the action cannot start now. Null when `available` is true."
+    )
+    suggested_prompt_index = serializers.IntegerField(
+        allow_null=True,
+        help_text="Position of the prompt in the report's suggested prompts. Null for other actions.",
+    )
+    text = serializers.CharField(help_text="The message the run gets as its first request.")
+
+
+class SignalReportTaskActionListResponseSerializer(serializers.Serializer):
+    results = SignalReportTaskActionSerializer(
+        many=True, help_text="Every action the report has, available or not, in a stable order."
+    )
+
+
+class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=ReportTaskActionKind.choices,
+        help_text="The action to run. Use a value from the actions list.",
+    )
+    suggested_prompt_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs["action"] == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("suggested_prompt_index") is None:
+            raise serializers.ValidationError(
+                {"suggested_prompt_index": "Give the index of the suggested prompt to send."}
+            )
+        return attrs
+
+
+class SignalReportTaskActionRunResponseSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="The task the action created. It is linked to the report.")
+    run_id = serializers.UUIDField(allow_null=True, help_text="The background run that started, if one did.")
+    task_url = serializers.CharField(help_text="Link to the task in PostHog.")
+    run_error = serializers.CharField(
+        allow_null=True, help_text="Why the run did not start. Null when it started. The task exists either way."
+    )
+
+
+class SignalReportTaskActionErrorSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Machine-readable error code.")
+    detail = serializers.CharField(help_text="Human-readable error message.")
+    task_id = serializers.UUIDField(
+        required=False, help_text="For `report_action_run_active`: the task of the run that is still working."
+    )
+    run_id = serializers.UUIDField(
+        required=False, help_text="For `report_action_run_active`: the run that is still working."
+    )
