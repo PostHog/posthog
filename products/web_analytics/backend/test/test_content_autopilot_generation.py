@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.egress.firecrawl.client import (
     FirecrawlNotConfigured,
+    FirecrawlScrape,
     FirecrawlSearch,
     FirecrawlSearchFailed,
     FirecrawlSearchResult,
@@ -56,6 +57,7 @@ from products.web_analytics.backend.content_autopilot.validation import (
     check_structure,
     check_structured_data,
     check_url_available,
+    judge_checks,
 )
 from products.web_analytics.backend.models import (
     ContentAutopilotOpportunity,
@@ -779,8 +781,82 @@ class TestFetchSitePage(SimpleTestCase):
         assert expected_text in document.text
         assert absent is None or absent not in document.text
 
+    def test_html_fallback_keeps_code_blocks_and_the_pages_own_spacing(self) -> None:
+        html = (
+            "<html><title>Next.js A/B tests</title><body><main>"
+            "<h2>Create a <code>Next.js</code> app</h2>"
+            "<div><button>JavaScript</button><button>PostHog AI</button></div>"
+            '<pre class="language-jsx"><code><span>export default function Home() {</span>\n'
+            "<span>  return &lt;h1&gt;Next.js A/B tests&lt;/h1&gt;</span>\n<span>}</span></code></pre>"
+            "</main></body></html>"
+        )
+
+        def fetch(url: str, **kwargs: Any) -> FetchedPublicUrl:
+            if url.endswith(".md"):
+                return FetchedPublicUrl(status_code=404, headers={}, body=b"")
+            return FetchedPublicUrl(status_code=200, headers={"content-type": "text/html"}, body=html.encode())
+
+        with (
+            patch("products.web_analytics.backend.content_autopilot.research.fetch_public_url", side_effect=fetch),
+            patch(
+                "products.web_analytics.backend.content_autopilot.research.scrape",
+                side_effect=FirecrawlNotConfigured("no key"),
+            ),
+        ):
+            document = fetch_site_page("https://example.com/tutorials/nextjs-ab-tests")
+
+        assert document is not None
+        assert document.text == (
+            "## Create a `Next.js` app\n"
+            "```jsx\n"
+            "export default function Home() {\n"
+            "  return <h1>Next.js A/B tests</h1>\n"
+            "}\n"
+            "```"
+        )
+
+    def test_reads_a_page_without_a_twin_through_firecrawl(self) -> None:
+        markdown = "# Session replay\n\n```js\nposthog.init('phc_example')\n```"
+
+        def fetch(url: str, **kwargs: Any) -> FetchedPublicUrl:
+            if url.endswith(".md"):
+                return FetchedPublicUrl(status_code=404, headers={}, body=b"")
+            return FetchedPublicUrl(
+                status_code=200, headers={"content-type": "text/html"}, body=b"<p>Session replay</p>"
+            )
+
+        with (
+            patch("products.web_analytics.backend.content_autopilot.research.fetch_public_url", side_effect=fetch),
+            patch(
+                "products.web_analytics.backend.content_autopilot.research.scrape",
+                return_value=FirecrawlScrape(url="https://example.com/docs/session-replay", markdown=markdown),
+            ),
+        ):
+            document = fetch_site_page("https://example.com/docs/session-replay")
+
+        assert document is not None
+        assert document.text == markdown
+
 
 class TestValidationChecks(SimpleTestCase):
+    def test_unsupported_claims_are_quoted_and_cut_at_a_word(self) -> None:
+        claim = (
+            '"Inconsistent bucketing: always use the same distinct_id when checking the flag server-side and '
+            "client-side. If the ID changes between requests, a user can flip variants."
+        )
+        verdict = JudgeVerdict(
+            unsupported_claims=(claim,), answers_prompt=True, answers_prompt_reason="", brand_rule_violations=()
+        )
+
+        [grounding] = [
+            check for check in judge_checks(verdict, has_brand_rules=False) if check.check_key == "grounding"
+        ]
+
+        assert grounding.message == (
+            "These claims aren't backed by a source: \"Inconsistent bucketing: always use the same distinct_id when "
+            'checking the flag server-side and client-side. If the ID…".'
+        )
+
     @parameterized.expand(
         [
             ("relative_known", "[a](/pricing)", True),

@@ -26,6 +26,11 @@ export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>
 export type ContentAutopilotWorkspaceSettled = Record<ContentAutopilotWorkspaceResource, boolean>
 export type ContentAutopilotProfileDataSettled = Record<ContentAutopilotProfileResource, boolean>
+export type ContentAutopilotDraftRow =
+    | { kind: 'proposal'; id: string; proposal: ContentAutopilotProposalListApi }
+    | { kind: 'queued'; id: string; opportunity: ContentAutopilotOpportunityApi }
+
+const DRAFT_ERROR_CODES = new Set(['checks_failed', 'draft_failed'])
 
 const REVIEW_ORDER: Record<ContentAutopilotProposalListApi['lifecycle_status'], number> = {
     ready_for_review: 0,
@@ -150,9 +155,10 @@ export interface contentAutopilotLogicValues {
     dismissedOpportunityLoading: boolean
     dismissingOpportunityId: string | null
     draftDisabledReason: string | undefined
+    draftRows: ContentAutopilotDraftRow[]
     exportedProposal: ContentAutopilotExportResponseApi | null
     exportedProposalLoading: boolean
-    failedDraftCount: number
+    latestRunErrors: string[]
     onboardingOpen: boolean
     onboardingStep: ContentAutopilotOnboardingStep
     opportunities: ContentAutopilotOpportunityApi[] | null
@@ -552,10 +558,11 @@ export interface contentAutopilotLogicMeta {
         ) => boolean
         reviewQueue: (siteProposals: ContentAutopilotProposalListApi[]) => ContentAutopilotProposalListApi[]
         readyDraftCount: (siteProposals: ContentAutopilotProposalListApi[]) => number
-        failedDraftCount: (
-            siteRuns: ContentAutopilotRunApi[],
-            siteProposals: ContentAutopilotProposalListApi[]
-        ) => number
+        draftRows: (
+            reviewQueue: ContentAutopilotProposalListApi[],
+            opportunities: ContentAutopilotOpportunityApi[] | null
+        ) => ContentAutopilotDraftRow[]
+        latestRunErrors: (siteRuns: ContentAutopilotRunApi[], activeRun: ContentAutopilotRunApi | null) => string[]
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
         profileDataLoaded: (profileDataSettled: ContentAutopilotProfileDataSettled) => boolean
         proposalActionReasons: (
@@ -1053,12 +1060,38 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             (proposals: ContentAutopilotProposalListApi[]): number =>
                 proposals.filter(({ lifecycle_status }) => lifecycle_status === 'ready_for_review').length,
         ],
-        failedDraftCount: [
-            (selectors) => [selectors.siteRuns, selectors.siteProposals],
-            (runs: ContentAutopilotRunApi[], proposals: ContentAutopilotProposalListApi[]): number =>
-                proposals.filter(
-                    ({ lifecycle_status, run_id }) => lifecycle_status === 'failed' && run_id === runs[0]?.id
-                ).length,
+        draftRows: [
+            (selectors) => [selectors.reviewQueue, selectors.opportunities],
+            (
+                reviewQueue: ContentAutopilotProposalListApi[],
+                opportunities: ContentAutopilotOpportunityApi[] | null
+            ): ContentAutopilotDraftRow[] => [
+                ...reviewQueue.map(
+                    (proposal): ContentAutopilotDraftRow => ({
+                        kind: 'proposal',
+                        id: proposal.id,
+                        proposal,
+                    })
+                ),
+                ...(opportunities ?? [])
+                    .filter(({ status, proposal_id }) => status === 'queued' && !proposal_id)
+                    .map(
+                        (opportunity): ContentAutopilotDraftRow => ({
+                            kind: 'queued',
+                            id: opportunity.id,
+                            opportunity,
+                        })
+                    ),
+            ],
+        ],
+        latestRunErrors: [
+            (selectors) => [selectors.siteRuns, selectors.activeRun],
+            (runs: ContentAutopilotRunApi[], activeRun: ContentAutopilotRunApi | null): string[] =>
+                activeRun || !runs[0]
+                    ? []
+                    : runs[0].errors
+                          .filter(({ error_code }) => !DRAFT_ERROR_CODES.has(error_code))
+                          .map(({ message }) => message),
         ],
         workspaceInitialized: [
             (selectors) => [selectors.workspaceSettled],
@@ -1250,7 +1283,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             lemonToast.error(getErrorMessage(errorObject))
         },
         draftOpportunitiesSuccess: ({ runMutation }) => {
-            lemonToast.success('Drafting started. Each draft takes a few minutes.')
             if (runMutation.profile_id !== values.profile?.id) {
                 return
             }

@@ -12,6 +12,7 @@ import {
     LemonTable,
     LemonTag,
     Link,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -29,7 +30,11 @@ const ENGINE_LABELS: Record<string, string> = {
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
     new: null,
-    queued: <LemonTag type="completion">Drafting</LemonTag>,
+    queued: (
+        <LemonTag type="completion" icon={<Spinner />}>
+            Drafting
+        </LemonTag>
+    ),
     drafted: <LemonTag type="success">Drafted</LemonTag>,
     dismissed: <LemonTag type="muted">Dismissed</LemonTag>,
 }
@@ -39,12 +44,12 @@ const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
 const visibilityTag = (gap: ContentAutopilotOpportunityApi['gap']): JSX.Element => {
     const answers = pluralize(gap.checks, 'answer')
     if (gap.cited_checks > 0) {
-        return <LemonTag type="warning">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
+        return <LemonTag type="success">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
     }
     if (gap.mentioned_checks) {
-        return <LemonTag type="highlight">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
+        return <LemonTag type="warning">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
     }
-    return <LemonTag type="danger">Not mentioned</LemonTag>
+    return <LemonTag type="default">Not mentioned</LemonTag>
 }
 
 export const ContentAutopilotOpportunities = (): JSX.Element => {
@@ -232,7 +237,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 ),
                         },
                         {
-                            title: 'Suggested fix',
+                            title: 'Page to update',
                             key: 'recommendation',
                             render: (_, opportunity) =>
                                 opportunity.recommended_type === 'page_improvement' && opportunity.target_url ? (
@@ -243,9 +248,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                                 opportunity.target_url}
                                         </Link>
                                     </span>
-                                ) : (
-                                    <span className="text-sm text-muted">Decided when drafting</span>
-                                ),
+                                ) : null,
                         },
                         {
                             key: 'actions',
