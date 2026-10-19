@@ -5962,7 +5962,7 @@ Note: Static endpoint list; source dir products/warehouse_sources/backend/tempor
 
 ## Honeycomb — gaps
 
-Today (11): `board_views`, `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `slo_counts_history`, `slos`, `triggers`
+Today (13): `board_views`, `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `signal_historical_anomalies`, `signals`, `slo_counts_history`, `slos`, `triggers`
 
 Diffed against: <https://api-docs.honeycomb.io/api/openapi-public.yaml>
 
@@ -5975,6 +5975,8 @@ Diffed against: <https://api-docs.honeycomb.io/api/openapi-public.yaml>
 - [ ] `/1/reporting/slos/historical` — weekly historical SLO breakdown across multiple SLOs in one call (medium)
 - [ ] `/1/query_annotations/{datasetSlug}` — named/annotated queries used to label saved analyses (low)
 - [ ] `/1/marker_settings/{datasetSlug}` — lookup resolving marker types to display settings for the markers we sync (low)
+- [x] `/1/signals` — Anomaly Detection Signals: the services whose error rate or presence Honeycomb monitors (medium). Added as `signals` (cursor-paginated, full refresh; needs the Manage Signals permission, off by default).
+- [x] `/1/signals/{signalId}/historical_anomalies` — resolved anomalies per Signal (medium). Added as `signal_historical_anomalies` (fan-out over `signals`, incremental on `started_at` via the `start_time`/`end_time` window; off by default).
 
 Note: Diffed against the machine-readable OpenAPI spec (api-docs.honeycomb.io/api/openapi-public.yaml). Coverage of top-level v1 resources is good; the gaps are the SLO measurement sub-resources and the v2 environments lookup.
 
