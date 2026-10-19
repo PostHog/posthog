@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -247,6 +247,8 @@ interface SaveContext {
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
     // Existing workflows to move to broadcasts once this save creates a broadcast.
     moveToBroadcastIds: string[]
+    // How many of them moved. The save sets it before it finishes.
+    movedToBroadcasts?: number
 }
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
@@ -3352,11 +3354,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     // The pending schedule rides along because an earlier save's reset clears it,
                     // which would drop a schedule change the user asked a manual save to persist.
                     const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
-                    saveContexts.push({
+                    const saveContext: SaveContext = {
                         initiatedByAutoSave,
                         pendingSchedule: values.pendingSchedule,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
-                    })
+                    }
+                    saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
                     // Whether this save means to change the lifecycle. Only the enable and disable
                     // control does, and it says so when it dispatches. Comparing the payload's
@@ -3373,7 +3376,9 @@ export const workflowLogic = kea<workflowLogicType>([
 
                         if (!props.id || props.id === 'new') {
                             // The editor's HogFlow schema and the generated HogFlowApi describe the same payload.
-                            const result = (await hogFlowsCreate(String(values.currentProjectId), {
+                            // The selected environment, as the legacy client used, not its parent project.
+                            const teamId = String(ApiConfig.getCurrentTeamId())
+                            const result = (await hogFlowsCreate(teamId, {
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
@@ -3394,6 +3399,18 @@ export const workflowLogic = kea<workflowLogicType>([
                                     entry_source: props.entrySource ?? null,
                                     created_from: 'workflow_editor',
                                 })
+                                // Moved inside the save so the form stays submitting, and Save stays
+                                // disabled, until the moves finish and the editor leaves the new page.
+                                if (saveContext.moveToBroadcastIds.length > 0) {
+                                    saveContext.movedToBroadcasts = await moveWorkflowsToBroadcasts(
+                                        teamId,
+                                        saveContext.moveToBroadcastIds
+                                    )
+                                    posthog.capture('workflows moved to broadcasts', {
+                                        requested: saveContext.moveToBroadcastIds.length,
+                                        moved: saveContext.movedToBroadcasts,
+                                    })
+                                }
                             } else {
                                 // pinned: analytics event name
                                 posthog.capture('workflow draft created', {
@@ -3560,7 +3577,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     isBroadcastShaped(workflow.actions) &&
                     canEditInWizard(workflow.actions, workflow.edges)
                 ) {
-                    const others = await loadBroadcastConversionCandidates(String(values.currentProjectId))
+                    const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
                     const choice = await confirmCreateAsBroadcast(others)
                     posthog.capture('workflow broadcast suggestion answered', {
                         choice: choice ?? 'dismissed',
@@ -4446,8 +4463,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 } else if (originalWorkflow.origin_product === 'broadcasts') {
                     const moveIds = saveContext?.moveToBroadcastIds ?? []
                     if (moveIds.length > 0) {
-                        const moved = await moveWorkflowsToBroadcasts(String(values.currentProjectId), moveIds)
-                        posthog.capture('workflows moved to broadcasts', { requested: moveIds.length, moved })
+                        const moved = saveContext?.movedToBroadcasts ?? 0
                         const message = movedToBroadcastsMessage(moveIds.length, moved)
                         if (moved === moveIds.length) {
                             lemonToast.success(message)

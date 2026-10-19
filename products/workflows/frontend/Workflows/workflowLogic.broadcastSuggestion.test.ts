@@ -30,11 +30,13 @@ describe('workflowLogic broadcast suggestion on create', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let createdBodies: Record<string, any>[]
     let convertedIds: string[]
+    let submittingDuringMove: boolean[]
     let otherIds: string[]
 
     beforeEach(() => {
         createdBodies = []
         convertedIds = []
+        submittingDuringMove = []
         otherIds = []
         useMocks({
             get: {
@@ -42,7 +44,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
                 '/api/projects/:team_id/hog_flows/broadcast_conversion_candidates/': () => [
                     200,
                     {
-                        count: otherIds.length,
+                        has_more: false,
                         results: otherIds.map((id) => ({ id, name: id, status: 'draft' })),
                     },
                 ],
@@ -56,6 +58,7 @@ describe('workflowLogic broadcast suggestion on create', () => {
                 },
                 '/api/projects/:team_id/hog_flows/:id/convert_to_broadcast/': ({ params }) => {
                     convertedIds.push(params.id as string)
+                    submittingDuringMove.push(logic.values.isWorkflowSubmitting)
                     return [200, { id: params.id, origin_product: 'broadcasts' }]
                 },
             },
@@ -148,6 +151,8 @@ describe('workflowLogic broadcast suggestion on create', () => {
                 jest.mocked(confirmCreateAsBroadcast).mock.calls.map(([offered]) => offered?.map((o) => o.id))
             ).toEqual(asked ? [others] : [])
             expect(convertedIds.sort()).toEqual(moved)
+            // Save stays disabled while the other workflows move, so a second click cannot create a duplicate.
+            expect(submittingDuringMove).toEqual(moved.map(() => true))
             expect(createdBodies).toHaveLength(1)
             expect(createdBodies[0].origin_product).toBe(originProduct)
             expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))

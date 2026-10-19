@@ -2667,7 +2667,9 @@ class BroadcastConversionCandidateSerializer(serializers.Serializer):
 class BroadcastConversionCandidatesSerializer(serializers.Serializer):
     """Workflows that only send one email to a batch audience and can move to broadcasts."""
 
-    count = serializers.IntegerField(read_only=True, help_text="How many workflows can move, before the cap.")
+    has_more = serializers.BooleanField(
+        read_only=True, help_text="True when more workflows can move than `results` lists."
+    )
     results = BroadcastConversionCandidateSerializer(
         many=True,
         read_only=True,
@@ -6512,13 +6514,18 @@ class HogFlowViewSet(
         List the workflows that could become broadcasts: one email to a batch audience, with nothing the
         broadcast editor would drop. Only workflows the caller may edit are listed.
         """
+        # One past the cap tells whether more exist without loading them all.
         candidates = list_broadcast_conversion_candidates(
             team_id=self.team_id,
             user_access_control=None if is_service_auth(request) else self.user_access_control,
+            limit=BROADCAST_CONVERSION_CANDIDATE_LIMIT + 1,
         )
         return Response(
             BroadcastConversionCandidatesSerializer(
-                {"count": len(candidates), "results": candidates[:BROADCAST_CONVERSION_CANDIDATE_LIMIT]}
+                {
+                    "has_more": len(candidates) > BROADCAST_CONVERSION_CANDIDATE_LIMIT,
+                    "results": candidates[:BROADCAST_CONVERSION_CANDIDATE_LIMIT],
+                }
             ).data
         )
 

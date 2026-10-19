@@ -1,6 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -89,3 +90,18 @@ class TestBroadcastConversionAPI(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert flow.origin_product == overrides.get("origin_product")
+
+    def test_candidates_stop_at_the_cap_and_say_more_exist(self) -> None:
+        newest = self._flow(name="Newest")
+        self._flow(name="Broken", edges=[{"from": "trigger_node", "to": "exit_node"}])
+        self._flow(name="Oldest")
+        HogFlow.objects.filter(pk=newest.pk).update(updated_at="2030-01-01T00:00:00Z")
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.BROADCAST_CONVERSION_CANDIDATE_LIMIT", 1):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/broadcast_conversion_candidates/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "has_more": True,
+            "results": [{"id": str(newest.id), "name": "Newest", "status": "draft"}],
+        }

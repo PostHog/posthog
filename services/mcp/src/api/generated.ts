@@ -19031,8 +19031,8 @@ export namespace Schemas {
      * Workflows that only send one email to a batch audience and can move to broadcasts.
      */
     export interface BroadcastConversionCandidates {
-      /** How many workflows can move, before the cap. */
-      readonly count: number;
+      /** True when more workflows can move than `results` lists. */
+      readonly has_more: boolean;
       /** The most recently updated candidates, at most 100. */
       readonly results: readonly BroadcastConversionCandidate[];
     }

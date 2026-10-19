@@ -37,14 +37,43 @@ def is_convertible_to_broadcast(flow: HogFlow) -> bool:
     config = trigger.get("config") or {}
     if config.get("type") != BROADCAST_TRIGGER_TYPE or (config.get("filters") or {}).get("audience_type") == "accounts":
         return False
+    return _joins_in_order(flow, trigger.get("id"), email.get("id"), exit_step.get("id"))
+
+
+def _joins_in_order(flow: HogFlow, trigger_id: object, email_id: object, exit_id: object) -> bool:
+    """Whether the only edges run trigger to email and email to exit."""
     paths = {(edge.get("from"), edge.get("to")) for edge in flow.edges or [] if isinstance(edge, dict)}
-    return paths == {(trigger.get("id"), email.get("id")), (email.get("id"), exit_step.get("id"))}
+    return paths == {(trigger_id, email_id), (email_id, exit_id)}
+
+
+def _json_path(path: str) -> models.Func:
+    return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
+
+
+def _step_count(step_type: str) -> models.Func:
+    steps = models.Func(
+        models.F("actions"),
+        _json_path(f'$[*] ? (@.type == "{step_type}")'),
+        function="jsonb_path_query_array",
+        output_field=models.JSONField(),
+    )
+    return models.Func(steps, function="jsonb_array_length", output_field=models.IntegerField())
+
+
+def _step_id(step_type: str) -> models.Func:
+    return models.Func(
+        models.F("actions"),
+        _json_path(f'$[*] ? (@.type == "{step_type}").id'),
+        function="jsonb_path_query_first",
+        output_field=models.JSONField(),
+    )
 
 
 def list_broadcast_conversion_candidates(
-    *, team_id: int, user_access_control: Optional[UserAccessControl]
+    *, team_id: int, user_access_control: Optional[UserAccessControl], limit: int
 ) -> list[WorkflowSummary]:
-    """The team's workflows that could become broadcasts and that the caller may edit, newest first."""
+    """Up to `limit` of the team's workflows that could become broadcasts and that the caller may edit,
+    newest first. The shape checks run in Postgres, so only small columns load and never every row."""
     queryset = (
         annotate_broadcast_shape(
             HogFlow.objects.filter(
@@ -54,19 +83,52 @@ def list_broadcast_conversion_candidates(
                 draft__isnull=True,
             ).exclude(status=HogFlow.State.ARCHIVED)
         )
-        .filter(_has_batch_trigger=True, _email_step_count=1, _has_other_step=False)
-        .order_by("-updated_at")
+        .annotate(
+            _step_count=models.Func(
+                models.F("actions"), function="jsonb_array_length", output_field=models.IntegerField()
+            ),
+            _trigger_count=_step_count("trigger"),
+            _exit_count=_step_count("exit"),
+            _trigger_id=_step_id("trigger"),
+            _email_id=_step_id("function_email"),
+            _exit_id=_step_id("exit"),
+            _account_audience=models.Func(
+                models.F("actions"),
+                _json_path('$[*] ? (@.type == "trigger" && @.config.filters.audience_type == "accounts")'),
+                function="jsonb_path_exists",
+                output_field=models.BooleanField(),
+            ),
+        )
+        .filter(
+            _has_batch_trigger=True,
+            _email_step_count=1,
+            _has_other_step=False,
+            _step_count=3,
+            _trigger_count=1,
+            _exit_count=1,
+            _account_audience=False,
+        )
+        .only("id", "team_id", "name", "status", "edges", "created_by")
+        .order_by("-updated_at", "id")
     )
-    candidates = [flow for flow in queryset if is_convertible_to_broadcast(flow)]
-    if user_access_control is not None:
-        # Converting needs editor access, so a workflow the caller can only view is not offered.
-        user_access_control.preload_object_access_controls(cast("list[models.Model]", candidates))
-        candidates = [
-            flow
-            for flow in candidates
-            if user_access_control.check_access_level_for_object(flow, required_level="editor")
-        ]
-    return [WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status) for flow in candidates]
+    found: list[HogFlow] = []
+    offset = 0
+    while len(found) < limit:
+        page = list(queryset[offset : offset + limit])
+        if not page:
+            break
+        offset += len(page)
+        page = [flow for flow in page if _joins_in_order(flow, flow._trigger_id, flow._email_id, flow._exit_id)]
+        if user_access_control is not None:
+            # Converting needs editor access, so a workflow the caller can only view is not offered.
+            user_access_control.preload_object_access_controls(cast("list[models.Model]", page))
+            page = [
+                flow
+                for flow in page
+                if user_access_control.check_access_level_for_object(flow, required_level="editor")
+            ]
+        found.extend(page)
+    return [WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status) for flow in found[:limit]]
 
 
 def convert_workflow_to_broadcast(*, team_id: int, hog_flow_id: UUID, actor: WorkflowActor) -> bool:
