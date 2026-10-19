@@ -223,7 +223,7 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
 def validate_flag_restorable(flag_id: int, *, team_id: int) -> None:
     """Raise ``ValidationError`` when a release condition targets a missing or deleted cohort.
 
-    A restored flag with such a condition fails every evaluation. ``update_flag`` runs this
+    A restored flag with such a condition fails every evaluation that reaches it. ``update_flag`` runs this
     check on a restore. A caller that restores a flag another way must run it first. A
     hard-deleted id or another team's flag has nothing to check.
     """

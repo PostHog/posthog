@@ -8,7 +8,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import requests
@@ -1766,8 +1766,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         "Remove the cohort from these flags, or archive the flags, before deleting it."
                     )
                     # Resuming a survey enables its targeting flag. That save fails once the flag is archived.
-                    survey_flag_ids = Survey.get_internal_flag_ids(project_id=cohort.team.project_id)
-                    if any(flag.id in survey_flag_ids for flag in visible_flags):
+                    visible_flag_ids = [flag.id for flag in visible_flags]
+                    if (
+                        visible_flag_ids
+                        and Survey.objects.filter(
+                            Q(targeting_flag_id__in=visible_flag_ids)
+                            | Q(internal_targeting_flag_id__in=visible_flag_ids)
+                            | Q(internal_response_sampling_flag_id__in=visible_flag_ids),
+                            team__project_id=cohort.team.project_id,
+                        ).exists()
+                    ):
                         message += " For a survey's targeting flag, change the survey's targeting or delete the survey instead."
                     raise ValidationError(message)
 

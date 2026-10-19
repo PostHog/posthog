@@ -1185,9 +1185,9 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
 def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
 
-    The flag evaluator loads only non-deleted cohorts. A condition on a deleted cohort
-    therefore fails the whole flag on every request. The lookup includes deleted cohorts so
-    that the error can name the cohort.
+    The flag evaluator loads only non-deleted cohorts. A request that reaches a condition on a
+    deleted cohort therefore fails the whole flag. The lookup includes deleted cohorts so that the
+    error can name the cohort.
     """
     try:
         cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=project_id)
