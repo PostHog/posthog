@@ -1,11 +1,12 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { captureInboxPanelViewed } from '../../inboxAnalytics'
 import { inboxActivationLogic } from '../../logics/inboxActivationLogic'
 import { ScoutSuggestionCard } from '../config/scouts/ScoutSuggestionCard'
 import { ScoutSuggestionCreateHost } from '../config/scouts/ScoutSuggestionCreateHost'
@@ -15,9 +16,18 @@ interface InboxActivationPanelProps {
 }
 
 export function InboxActivationPanel({ hasReports = false }: InboxActivationPanelProps): JSX.Element {
-    const { savedState, sourceNames, generalScout, suggestions, recommendationsReady, pollingExpired } =
+    const { savedState, sourceNames, generalScout, suggestions, recommendationsReady, pollingExpired, currentTeamId } =
         useValues(inboxActivationLogic)
     const [expanded, setExpanded] = useState(false)
+    const { reportRecommendationsShown } = useActions(inboxActivationLogic)
+    useEffect(() => {
+        captureInboxPanelViewed({ panel: 'onboarding' })
+    }, [currentTeamId])
+    useEffect(() => {
+        if (suggestions.length > 0) {
+            reportRecommendationsShown()
+        }
+    }, [suggestions, reportRecommendationsShown])
     const jobs = savedState?.jobs
     return (
         <LemonCard hoverEffect={false} className="@container flex flex-col gap-3" data-attr="inbox-activation-panel">

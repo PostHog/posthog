@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -50,6 +51,7 @@ describe('Inbox activation progress', () => {
 
     afterEach(() => {
         unmount()
+        jest.restoreAllMocks()
         jest.useRealTimers()
     })
 
@@ -59,13 +61,29 @@ describe('Inbox activation progress', () => {
     }
 
     it('hides old recommendations and keeps polling until scout dispatch settles', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         await settle()
+        logic.actions.reportRecommendationsShown()
+        expect(capture.mock.calls.filter(([event]) => event === 'Scout suggestions shown')).toHaveLength(0)
         expect(logic.values.suggestions).toEqual([])
         batch = { ...batch, generated_at: new Date(ACTIVATED_AT + 1000).toISOString() }
         await jest.advanceTimersByTimeAsync(10_000)
         await settle()
         expect(logic.values.recommendationsReady).toBe(true)
         expect(logic.values.suggestions).toEqual(batch.items)
+        logic.actions.reportRecommendationsShown()
+        logic.actions.reportRecommendationsShown()
+        expect(capture.mock.calls.filter(([event]) => event === 'Scout suggestions shown')).toEqual([
+            [
+                'Scout suggestions shown',
+                expect.objectContaining({
+                    surface: 'onboarding',
+                    suggestion_count: batch.items.length,
+                    inbox_client: 'cloud',
+                }),
+                undefined,
+            ],
+        ])
         state = { ...state, jobs: { scout: 'failed', recommendations: 'started' } }
         await jest.advanceTimersByTimeAsync(10_000)
         await settle()

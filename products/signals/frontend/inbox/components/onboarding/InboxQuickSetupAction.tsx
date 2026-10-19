@@ -45,7 +45,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                 <LemonButton
                     type="primary"
                     status="alt"
-                    onClick={activateQuickSetup}
+                    onClick={() => activateQuickSetup()}
                     loading={saving}
                     disabledReason={
                         restrictionReason ||
@@ -81,7 +81,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                             failedOperation === 'scouts' || failedOperation === 'sources'
                                 ? retry
                                 : quickSetupReady
-                                  ? activateQuickSetup
+                                  ? () => activateQuickSetup('retry')
                                   : startSetup
                         }
                         loading={saving}

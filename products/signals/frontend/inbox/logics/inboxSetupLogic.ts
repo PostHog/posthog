@@ -43,6 +43,7 @@ import type {
 } from '../../generated/api.schemas'
 import type { InboxOnboardingStepEnumApi } from '../../generated/api.schemas'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
+import { captureSignalSourceConnected } from '../inboxAnalytics'
 import { signalSourcesLogic, WAREHOUSE_SOURCE_SETUP, type WarehouseBackedSource } from '../signalSourcesLogic'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
@@ -125,11 +126,11 @@ export interface inboxSetupLogicActions {
     loadSources: () => {
         value: true
     } // sourcesDataLogic
-    activate: () => {
-        value: true
+    activate: (activationSource?: 'button' | 'github_return' | 'retry') => {
+        activationSource: 'button' | 'github_return' | 'retry'
     }
-    activateQuickSetup: () => {
-        value: true
+    activateQuickSetup: (activationSource?: 'button' | 'github_return' | 'retry') => {
+        activationSource: 'button' | 'github_return' | 'retry'
     }
     connectGithub: (url: string) => {
         url: string
@@ -176,6 +177,9 @@ export interface inboxSetupLogicActions {
     reportInteraction: () => {
         value: true
     }
+    reportStepViewed: () => {
+        value: true
+    }
     resumeQuickSetup: () => {
         value: true
     }
@@ -187,10 +191,12 @@ export interface inboxSetupLogicActions {
     }
     setError: (
         error: string | null,
-        failedOperation?: 'activation' | 'other' | 'scouts' | 'sources'
+        failedOperation?: 'activation' | 'other' | 'scouts' | 'sources',
+        failureReason?: 'draft_save_failed' | 'github_redirect_failed' | 'source_connection_failed' | null
     ) => {
         error: string | null
         failedOperation: 'activation' | 'other' | 'scouts' | 'sources'
+        failureReason: 'draft_save_failed' | 'github_redirect_failed' | 'source_connection_failed' | null
     }
     setSavedState: (state: InboxOnboardingStateApi) => {
         state: InboxOnboardingStateApi
@@ -371,6 +377,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         setSourceSetupSource: (source: WarehouseBackedSource | null) => ({ source }),
         finishSourceSetup: true,
         reportInteraction: true,
+        reportStepViewed: true,
         expose: (variant: 'control' | 'test-ui' | 'test-github') => ({ variant }),
         patchDraft: (patch: Partial<InboxOnboardingDraftApi>) => ({ patch }),
         setEditedDraft: (draft: InboxOnboardingDraftApi) => ({ draft }),
@@ -378,14 +385,21 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         toggleSource: (source: InboxSetupSource, enabled: boolean) => ({ source, enabled }),
         toggleSuggestion: (suggestion: ScoutSuggestionItemApi) => ({ suggestion }),
         goToStep: (step: InboxOnboardingDraftApi['step']) => ({ step }),
-        activate: true,
+        activate: (activationSource: 'button' | 'github_return' | 'retry' = 'button') => ({ activationSource }),
         retry: true,
-        activateQuickSetup: true,
+        activateQuickSetup: (activationSource: 'button' | 'github_return' | 'retry' = 'button') => ({
+            activationSource,
+        }),
         resumeQuickSetup: true,
         setSaving: (saving: boolean) => ({ saving }),
-        setError: (error: string | null, failedOperation: 'activation' | 'sources' | 'scouts' | 'other' = 'other') => ({
+        setError: (
+            error: string | null,
+            failedOperation: 'activation' | 'sources' | 'scouts' | 'other' = 'other',
+            failureReason: 'draft_save_failed' | 'source_connection_failed' | 'github_redirect_failed' | null = null
+        ) => ({
             error,
             failedOperation,
+            failureReason,
         }),
         setSavedState: (state: InboxOnboardingStateApi) => ({ state }),
     }),
@@ -639,6 +653,22 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         let persistedDraft: InboxOnboardingDraftApi | null = null
         let requestedStep: InboxOnboardingDraftApi['step'] | undefined
 
+        const capture = (event: string, properties: Record<string, unknown> = {}): void => {
+            posthog.capture(event, {
+                variant: values.experimentVariant,
+                project_id: values.currentTeamId,
+                flow_version: 'ui-first-v1',
+                inbox_client: 'cloud',
+                setup_mode: values.isQuickSetup ? 'quick' : 'guided',
+                self_driving_ubp: values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] ?? null,
+                automatic_implementation: values.isQuickSetup
+                    ? (values.quickSetupDraft?.automatic_implementation ?? null)
+                    : values.draft.automatic_implementation,
+                implementation_priority: values.draft.implementation_priority,
+                ...properties,
+            })
+        }
+
         const saveDraft = async (step?: InboxOnboardingDraftApi['step']): Promise<void> => {
             requestedStep = step ?? requestedStep
             if (pendingSave) {
@@ -675,11 +705,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 if (values.inProgress) {
                     return
                 }
-                posthog.capture('self-driving onboarding welcome continued', {
-                    variant: values.experimentVariant,
-                    project_id: values.currentTeamId,
-                    flow_version: 'ui-first-v1',
-                })
+                capture('self-driving onboarding welcome continued')
                 actions.openSetup()
             },
             expose: async ({ variant }) => {
@@ -739,7 +765,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     await saveDraft()
                     actions.setSourceSetupSource(source)
                 } catch {
-                    actions.setError('Could not save your choices. Try again before connecting a source.')
+                    actions.setError(
+                        'Could not save your choices. Try again before connecting a source.',
+                        'other',
+                        'draft_save_failed'
+                    )
                 } finally {
                     actions.setSaving(false)
                 }
@@ -769,7 +799,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     await saveDraft()
                     actions.setSourceSetupSource(null)
                 } catch {
-                    actions.setError('Could not confirm your source connection. Try again.')
+                    actions.setError(
+                        'Could not confirm your source connection. Try again.',
+                        'other',
+                        'source_connection_failed'
+                    )
                 } finally {
                     actions.setSaving(false)
                 }
@@ -788,15 +822,36 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
             },
             reportInteraction: () => {
-                if (!cache.startReported) {
-                    posthog.capture('self-driving onboarding started', {
-                        variant: values.experimentVariant,
-                        project_id: values.currentTeamId,
-                        flow_version: 'ui-first-v1',
-                    })
-                    cache.startReported = true
+                if (cache.startReported !== values.currentTeamId) {
+                    capture('self-driving onboarding started')
+                    cache.startReported = values.currentTeamId
                 }
             },
+            reportStepViewed: () => {
+                if (!values.ready || values.isQuickSetup || values.completed) {
+                    return
+                }
+                const key = `${values.currentTeamId}:${values.draft.step}`
+                if (cache.viewedStep !== key) {
+                    capture('self-driving onboarding step viewed', {
+                        step: values.draft.step,
+                        implementation_toggle_shown:
+                            values.draft.step === 'github' && !!values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP],
+                        github_connected: values.hasGithubIntegration,
+                    })
+                    cache.viewedStep = key
+                }
+            },
+            setError: ({ error, failedOperation, failureReason }) => {
+                if (error) {
+                    capture('self-driving onboarding failed', {
+                        step: values.draft.step,
+                        failed_operation: failedOperation,
+                        failure_reason: failureReason ?? failedOperation,
+                    })
+                }
+            },
+            loadSetupFailure: () => capture('self-driving onboarding failed', { failed_operation: 'load_setup' }),
             [signalSourcesLogic.actionTypes.loadSourceConfigsFailure]: () => {
                 actions.setError('Could not load signal sources. Try again.', 'sources')
             },
@@ -805,26 +860,45 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             patchDraft: async ({ patch }, breakpoint) => {
                 actions.reportInteraction()
+                const previousImplementation = values.draft.automatic_implementation
                 actions.setEditedDraft({ ...values.draft, ...patch })
+                if (
+                    patch.automatic_implementation !== undefined &&
+                    patch.automatic_implementation !== previousImplementation
+                ) {
+                    capture('self-driving onboarding implementation changed', {
+                        previous_value: previousImplementation,
+                        new_value: patch.automatic_implementation,
+                    })
+                }
                 actions.setError(null)
                 await breakpoint(750)
                 try {
                     await saveDraft()
                 } catch {
-                    actions.setError('Could not save your choices. Try again before leaving setup.')
+                    actions.setError(
+                        'Could not save your choices. Try again before leaving setup.',
+                        'other',
+                        'draft_save_failed'
+                    )
                 }
             },
             connectGithub: async ({ url }) => {
                 if (values.saving) {
                     return
                 }
+                actions.reportInteraction()
                 actions.setSaving(true)
                 actions.setError(null)
                 try {
                     await saveDraft()
                     window.location.assign(url)
                 } catch {
-                    actions.setError('Could not save your choices. Try again before connecting GitHub.')
+                    actions.setError(
+                        'Could not save your choices. Try again before connecting GitHub.',
+                        'other',
+                        'github_redirect_failed'
+                    )
                 } finally {
                     actions.setSaving(false)
                 }
@@ -883,23 +957,19 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 actions.setError(null)
                 try {
                     await saveDraft(step)
-                    if (step !== previousStep) {
-                        posthog.capture('self-driving onboarding step completed', {
+                    const steps: InboxOnboardingDraftApi['step'][] = ['signals', 'scouts', 'github']
+                    if (steps.indexOf(step) > steps.indexOf(previousStep)) {
+                        capture('self-driving onboarding step completed', {
                             step: previousStep,
-                            variant: values.experimentVariant,
-                            project_id: values.currentTeamId,
                             skipped: previousStep === 'scouts' && !values.draft.suggestions.length,
                         })
                     }
                     router.actions.replace(urls.inbox(), { ...router.values.searchParams, onboarding_step: step })
-                    posthog.capture('self-driving onboarding step viewed', {
-                        step,
-                        variant: values.experimentVariant,
-                        project_id: values.currentTeamId,
-                    })
                 } catch (error) {
                     actions.setError(
-                        error instanceof ApiError ? error.detail : 'Could not save your choices. Try again.'
+                        error instanceof ApiError ? error.detail : 'Could not save your choices. Try again.',
+                        'other',
+                        'draft_save_failed'
                     )
                 } finally {
                     actions.setSaving(false)
@@ -907,7 +977,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             retry: () => {
                 if (values.failedOperation === 'activation') {
-                    actions.activate()
+                    actions.activate('retry')
                 } else if (values.failedOperation === 'sources') {
                     actions.setError(null)
                     actions.refreshSources()
@@ -925,21 +995,25 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             resumeQuickSetup: () => {
                 if (values.shouldResumeQuickSetup && !cache.quickSetupResumed) {
                     cache.quickSetupResumed = true
-                    actions.activateQuickSetup()
+                    actions.activateQuickSetup('github_return')
                 }
             },
-            activateQuickSetup: async () => {
+            activateQuickSetup: async ({ activationSource }) => {
                 if (values.saving || !values.quickSetupReady || values.completed || !values.isQuickSetup) {
                     return
                 }
                 actions.setEditedDraft(values.quickSetupDraft!)
-                actions.activate()
+                actions.activate(activationSource)
             },
-            activate: async () => {
+            activate: async ({ activationSource }) => {
                 if (values.saving || cache.activating || values.activationDisabledReason) {
                     return
                 }
                 actions.reportInteraction()
+                capture('self-driving onboarding activation requested', {
+                    activation_source: activationSource,
+                    github_connected: values.hasGithubIntegration,
+                })
                 cache.activating = true
                 actions.setSaving(true)
                 actions.setError(null)
@@ -1043,6 +1117,15 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         } else if (source.enabled) {
                             await signalsSourceConfigsCreate(projectId, source)
                         }
+                        if (source.enabled && !existing?.enabled) {
+                            captureSignalSourceConnected({
+                                sourceProduct: source.source_product,
+                                sourceType: source.source_type,
+                                isFirstConnection: !existing,
+                                viaSetupWizard: false,
+                                setupMode: values.isQuickSetup ? 'quick' : 'guided',
+                            })
+                        }
                     }
                     for (const scanner of scanners) {
                         const enabled = draft.scanner_ids.includes(scanner.id)
@@ -1067,6 +1150,15 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                                 source_product: 'signals_scout',
                                 source_type: 'cross_source_issue',
                                 enabled: true,
+                            })
+                        }
+                        if (!source?.enabled) {
+                            captureSignalSourceConnected({
+                                sourceProduct: 'signals_scout',
+                                sourceType: 'cross_source_issue',
+                                isFirstConnection: !source,
+                                viaSetupWizard: false,
+                                setupMode: 'quick',
                             })
                         }
                     }
@@ -1099,6 +1191,9 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         }
                     }
                     actions.setSavedState(await signalsOnboardingCompleteCreate(projectId, draft))
+                    if (!values.isQuickSetup) {
+                        capture('self-driving onboarding step completed', { step: 'github', skipped: false })
+                    }
                     actions.loadSourceConfigs()
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
@@ -1110,11 +1205,6 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                             : 'Could not finish setup. Your choices are saved. Retry activation.',
                         'activation'
                     )
-                    posthog.capture('self-driving onboarding failed', {
-                        variant: values.experimentVariant,
-                        project_id: values.currentTeamId,
-                        step: draft.step,
-                    })
                 } finally {
                     actions.setSaving(false)
                     cache.activating = false

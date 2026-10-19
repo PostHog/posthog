@@ -80,6 +80,9 @@ class TestInboxOnboarding(APIBaseTest):
     def test_exposure_is_sticky_and_queued_once(self, variant: str) -> None:
         with (
             patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
+            patch(
+                "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True
+            ) as flag,
             patch("products.signals.backend.tasks.reconcile_inbox_onboarding.delay") as reconcile,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -92,6 +95,9 @@ class TestInboxOnboarding(APIBaseTest):
         assert second.json()["variant"] == variant
         assert capture.call_count == 1
         assert capture.call_args.kwargs["properties"]["variant"] == variant
+        assert capture.call_args.kwargs["properties"]["self_driving_ubp"] is True
+        assert flag.call_args.args == ("self-driving-ubp", str(self.user.distinct_id))
+        assert flag.call_args.kwargs["groups"]["organization"] == str(self.organization.id)
         if variant == "control":
             reconcile.assert_called_once_with(self.team.id)
         else:
@@ -104,6 +110,10 @@ class TestInboxOnboarding(APIBaseTest):
         with (
             patch.object(InboxOnboardingReconciler, "has_repository", return_value=False) as repository,
             patch("products.signals.backend.onboarding_completion.ph_scoped_capture") as capture,
+            patch(
+                "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled",
+                side_effect=RuntimeError("Unavailable"),
+            ),
             self.captureOnCommitCallbacks(execute=True),
         ):
             assert InboxOnboardingReconciler(self.team.id).run() is True
@@ -116,6 +126,8 @@ class TestInboxOnboarding(APIBaseTest):
         assert config.onboarding["completed_at"]
         capture.assert_called_once()
         assert capture.return_value.__enter__.return_value.call_args.kwargs["properties"]["variant"] == "control"
+        assert capture.return_value.__enter__.return_value.call_args.kwargs["properties"]["self_driving_ubp"] is None
+        assert capture.return_value.__enter__.return_value.call_args.kwargs["properties"]["setup_mode"] == "legacy"
 
     @parameterized.expand([(False,), (True,)])
     def test_control_reconciliation_waits_for_manual_activation(self, draft_saved_during_check: bool) -> None:
@@ -202,6 +214,10 @@ class TestInboxOnboarding(APIBaseTest):
                 return_value=object(),
             ),
             patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
+            patch(
+                "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled",
+                return_value=not automatic_implementation,
+            ),
             patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay") as launch,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -223,6 +239,20 @@ class TestInboxOnboarding(APIBaseTest):
         assert config.default_autostart_priority == "P1"
         assert config.onboarding["activated_by"] == self.user.id
         assert capture.call_args.kwargs["properties"]["variant"] == variant
+        assert capture.call_args.kwargs["properties"] == {
+            "variant": variant,
+            "project_id": self.team.id,
+            "flow_version": "ui-first-v1",
+            "inbox_client": "cloud",
+            "setup_mode": "quick" if variant == "test-github" else "guided",
+            "self_driving_ubp": not automatic_implementation,
+            "automatic_implementation": automatic_implementation,
+            "implementation_priority": "P1",
+            "enabled_source_products": ["error_tracking", "signals_scout"]
+            if variant == "test-github"
+            else ["error_tracking"],
+            "scout_count": 1 if variant == "test-github" else 0,
+        }
         assert (
             len(
                 [
@@ -602,6 +632,9 @@ class TestInboxOnboardingActivation(BaseTest):
         client.start_workflow = AsyncMock()
         with (
             patch("products.signals.backend.onboarding_activation.sync_connect", return_value=client),
+            patch("products.signals.backend.onboarding_activation.ph_scoped_capture") as capture,
+            patch("products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True),
+            self.captureOnCommitCallbacks(execute=True),
             patch("products.signals.backend.temporal.agentic.scout_suggestions.stamp_requested"),
             patch(
                 "posthoganalytics.get_feature_flag_payload",
@@ -636,6 +669,13 @@ class TestInboxOnboardingActivation(BaseTest):
         assert config.onboarding is not None
         assert config.onboarding["jobs"][job] == "started"
         assert client.start_workflow.call_args.kwargs["id"] == dispatch["id"]
+        events = capture.return_value.__enter__.return_value.call_args_list
+        assert [event.kwargs["properties"]["status"] for event in events] == (
+            ["failed", "started", "started"] if retry_count == 5 else ["started", "started"]
+        )
+        assert all(event.kwargs["event"] == "self-driving onboarding job status changed" for event in events)
+        assert all(event.kwargs["properties"]["job"] == job for event in events)
+        assert all(event.kwargs["properties"]["setup_mode"] == "quick" for event in events)
 
     @parameterized.expand([("scout",), ("recommendations",)])
     def test_no_background_work_without_ai_consent(self, job: str) -> None:
@@ -649,9 +689,19 @@ class TestInboxOnboardingActivation(BaseTest):
                 "jobs": {"scout": "pending", "recommendations": "pending"},
             },
         )
-        with patch("products.signals.backend.onboarding_activation.sync_connect") as connect:
+        with (
+            patch("products.signals.backend.onboarding_activation.sync_connect") as connect,
+            patch("products.signals.backend.onboarding_activation.ph_scoped_capture") as capture,
+            patch("products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=None),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             InboxOnboardingActivation(self.team.id).run(job)
         connect.assert_not_called()
         config.refresh_from_db()
         assert config.onboarding is not None
         assert config.onboarding["jobs"][job] == "skipped"
+        capture.return_value.__enter__.return_value.assert_called_once()
+        assert (
+            capture.return_value.__enter__.return_value.call_args.kwargs["properties"]["reason"]
+            == "ai_consent_required"
+        )

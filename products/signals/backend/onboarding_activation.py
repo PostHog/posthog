@@ -3,10 +3,14 @@ from __future__ import annotations
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
+from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.suggestions import read_suggestion_settings, suggestions_allowed_for_team
 from products.signals.backend.temporal.agentic.scout_scheduler import start_onboarding_signals_scout_run
@@ -17,12 +21,30 @@ class InboxOnboardingActivation:
     def __init__(self, team_id: int) -> None:
         self.team_id = team_id
 
-    def _record_status(self, job: str, status: str) -> None:
+    def _capture_status(self, config: SignalTeamConfig, job: str, status: str, reason: str | None) -> None:
+        user = User.objects.filter(pk=(config.onboarding or {}).get("activated_by")).first()
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(config.team.uuid),
+                event="self-driving onboarding job status changed",
+                groups=groups(team=config.team),
+                properties={
+                    **InboxOnboardingAnalytics.properties(config, user),
+                    "job": job,
+                    "status": status,
+                    "reason": reason,
+                },
+            )
+
+    def _record_status(self, job: str, status: str, reason: str | None = None) -> None:
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id)
             state = config.onboarding or {}
+            if state.get("jobs", {}).get(job) == status:
+                return
             config.onboarding = {**state, "jobs": {**state.get("jobs", {}), job: status}}
             config.save(update_fields=["onboarding", "updated_at"])
+            transaction.on_commit(lambda: self._capture_status(config, job, status, reason), robust=True)
 
     def _start_scout(self, team: Team) -> bool:
         scout = (
@@ -61,7 +83,7 @@ class InboxOnboardingActivation:
             return
         team = config.team.parent_team or config.team
         if team.organization.is_ai_data_processing_approved is not True:
-            self._record_status(job, "skipped")
+            self._record_status(job, "skipped", "ai_consent_required")
             return
         try:
             started = (
@@ -70,6 +92,6 @@ class InboxOnboardingActivation:
                 else self._start_recommendations(team, state.get("activated_by"))
             )
         except Exception:
-            self._record_status(job, "failed" if final_attempt else "pending")
+            self._record_status(job, "failed" if final_attempt else "pending", "dispatch_error")
             raise
-        self._record_status(job, "started" if started else "skipped")
+        self._record_status(job, "started" if started else "skipped", None if started else "not_eligible")

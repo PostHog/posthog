@@ -23,6 +23,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     signal_source_product_choices,
 )
+from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.scout_harness.create_access import can_create_scout
@@ -102,7 +103,7 @@ class InboxOnboarding:
                     "exposed_by": self.user.pk,
                 }
                 config.save(update_fields=["onboarding", "updated_at"])
-                transaction.on_commit(lambda: self._report_exposure(self.user, variant), robust=True)
+                transaction.on_commit(lambda: self._report_exposure(self.user, config), robust=True)
         return self._state(config)
 
     def save_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
@@ -206,7 +207,7 @@ class InboxOnboarding:
                 )
                 if resume_operational_scouts:
                     InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
-                transaction.on_commit(lambda: self._report_completion(user, state.get("variant")), robust=True)
+                transaction.on_commit(lambda: self._report_completion(user, config), robust=True)
                 transaction.on_commit(lambda: self._enqueue_activation_jobs(config))
         return self._state(config)
 
@@ -223,20 +224,22 @@ class InboxOnboarding:
             if status in ("pending", "failed"):
                 launch_inbox_onboarding_job.delay(self.team_id, job)
 
-    def _capture(self, user: User, event: str, variant: str | None) -> None:
+    def _capture(self, user: User, event: str, properties: dict[str, object]) -> None:
         posthoganalytics.capture(
             distinct_id=str(user.distinct_id),
             event=event,
             groups=groups(team=self.team),
-            properties={"project_id": self.team_id, "variant": variant, "flow_version": "ui-first-v1"},
+            properties=properties,
         )
 
-    def _report_completion(self, user: User, variant: str | None) -> None:
-        self._capture(user, "self-driving onboarding completed", variant)
+    def _report_completion(self, user: User, config: SignalTeamConfig) -> None:
+        self._capture(
+            user, "self-driving onboarding completed", InboxOnboardingAnalytics.completion_properties(config, user)
+        )
 
-    def _report_exposure(self, user: User, variant: str) -> None:
-        self._capture(user, "self-driving onboarding exposed", variant)
-        if variant == "control":
+    def _report_exposure(self, user: User, config: SignalTeamConfig) -> None:
+        self._capture(user, "self-driving onboarding exposed", InboxOnboardingAnalytics.properties(config, user))
+        if (config.onboarding or {}).get("variant") == "control":
             from products.signals.backend.tasks import (
                 reconcile_inbox_onboarding,  # noqa: PLC0415 - avoid task imports during API initialization
             )

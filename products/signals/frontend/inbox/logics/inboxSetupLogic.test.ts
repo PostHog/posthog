@@ -202,6 +202,7 @@ describe('focused Inbox setup', () => {
     ] as const)(
         'activates through %s with usage-based pricing %s and saved implementation %s',
         async (entry, usageBasedPricing, savedImplementation) => {
+            const capture = jest.spyOn(posthog, 'capture')
             variant = entry === 'github_return' ? 'test-github' : null
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
@@ -246,6 +247,29 @@ describe('focused Inbox setup', () => {
             )
             expect(router.values.searchParams.onboarding_step).toBeUndefined()
             expect(refresh).not.toHaveBeenCalled()
+            const requests = capture.mock.calls.filter(
+                ([event]) => event === 'self-driving onboarding activation requested'
+            )
+            expect(requests).toEqual([
+                [
+                    'self-driving onboarding activation requested',
+                    expect.objectContaining({
+                        variant: 'test-github',
+                        setup_mode: 'quick',
+                        flow_version: 'ui-first-v1',
+                        inbox_client: 'cloud',
+                        activation_source: entry,
+                        self_driving_ubp: usageBasedPricing,
+                        automatic_implementation: !usageBasedPricing,
+                    }),
+                ],
+            ])
+            expect(
+                capture.mock.calls.filter(
+                    ([event, properties]) =>
+                        event === 'Signal source connected' && properties?.source_product === 'signals_scout'
+                )
+            ).toHaveLength(1)
         }
     )
 
@@ -276,6 +300,23 @@ describe('focused Inbox setup', () => {
                 expect(onboarding.values.onboardingMode).toBe('takeover')
                 expect(router.values.searchParams.onboarding_step).toBe('signals')
                 await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+                logic.actions.reportStepViewed()
+                logic.actions.reportStepViewed()
+                expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding step viewed')).toEqual(
+                    [
+                        [
+                            'self-driving onboarding step viewed',
+                            expect.objectContaining({ step: 'signals', setup_mode: 'guided' }),
+                        ],
+                    ]
+                )
+                await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
+                logic.actions.reportStepViewed()
+                await expectLogic(logic, () => logic.actions.goToStep('signals')).toFinishAllListeners()
+                logic.actions.reportStepViewed()
+                expect(
+                    capture.mock.calls.filter(([event]) => event === 'self-driving onboarding step completed')
+                ).toEqual([['self-driving onboarding step completed', expect.objectContaining({ step: 'signals' })]])
                 await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
                 await expectLogic(logic, () =>
                     logic.actions.patchDraft({ sources: draft.sources })
@@ -304,11 +345,24 @@ describe('focused Inbox setup', () => {
             expect(logic.values.draft.step).toBe('github')
             expect(logic.values.experimentVariant).toBe(assignment)
             await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+            const resumedCapture = jest.spyOn(posthog, 'capture')
+            logic.actions.reportStepViewed()
+            expect(resumedCapture).toHaveBeenCalledWith(
+                'self-driving onboarding step viewed',
+                expect.objectContaining({
+                    step: 'github',
+                    implementation_toggle_shown: true,
+                })
+            )
             failCompletion = false
             await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
             expect(logic.values.completed).toBe(true)
             expect(logic.values.inProgress).toBe(false)
             expect(logic.values.experimentVariant).toBe(assignment)
+            expect(resumedCapture).toHaveBeenCalledWith(
+                'self-driving onboarding step completed',
+                expect.objectContaining({ step: 'github' })
+            )
         }
     )
 
@@ -335,6 +389,31 @@ describe('focused Inbox setup', () => {
         expect(logic.values.inProgress).toBe(false)
         expect(createdSources).toBe(1)
         expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(1)
+        expect(capture.mock.calls.filter(([event]) => event === 'Signal source connected')).toEqual([
+            [
+                'Signal source connected',
+                expect.objectContaining({
+                    source_product: 'error_tracking',
+                    is_first_connection: true,
+                    setup_mode: 'guided',
+                }),
+                undefined,
+            ],
+        ])
+        expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding failed')).toEqual([
+            [
+                'self-driving onboarding failed',
+                expect.objectContaining({
+                    failed_operation: 'activation',
+                    step: 'github',
+                    flow_version: 'ui-first-v1',
+                }),
+            ],
+        ])
+        expect(capture).toHaveBeenCalledWith(
+            'self-driving onboarding activation requested',
+            expect.objectContaining({ activation_source: 'retry' })
+        )
         capture.mockRestore()
     })
 
@@ -570,6 +649,7 @@ describe('focused Inbox setup', () => {
     )
 
     it('batches rapid edits without locking the form', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
         const save = jest.spyOn(signalsApi, 'signalsOnboardingCreate').mockImplementation(async (_, draft) => ({
             draft,
@@ -587,6 +667,19 @@ describe('focused Inbox setup', () => {
         await jest.advanceTimersByTimeAsync(1)
         expect(save).toHaveBeenCalledTimes(1)
         expect(save.mock.calls[0][1]).toMatchObject({ automatic_implementation: true, implementation_priority: 'P2' })
+        expect(
+            capture.mock.calls.filter(([event]) => event === 'self-driving onboarding implementation changed')
+        ).toEqual([
+            [
+                'self-driving onboarding implementation changed',
+                expect.objectContaining({
+                    previous_value: false,
+                    new_value: true,
+                    setup_mode: 'guided',
+                    self_driving_ubp: true,
+                }),
+            ],
+        ])
     })
 
     it('serializes saves and keeps newer edits while navigation waits for them', async () => {
