@@ -6,6 +6,25 @@ import userEvent from '@testing-library/user-event'
 import { DetailSection } from './DetailSection'
 
 describe('DetailSection', () => {
+    it('keeps evidence mounted while its section is collapsed', async () => {
+        const user = userEvent.setup()
+        render(
+            <DetailSection icon={<span />} title="Evidence" collapsible keepMounted>
+                <input aria-label="Evidence state" defaultValue="Loaded evidence" />
+            </DetailSection>
+        )
+        const body = screen.getByRole('textbox')
+        const toggle = screen.getByText('Evidence').closest('button')
+        if (!toggle) {
+            throw new Error('Missing evidence toggle')
+        }
+        await user.click(toggle)
+        expect(body).not.toBeVisible()
+        await user.click(toggle)
+        expect(screen.getByRole('textbox')).toBe(body)
+        expect(body).toHaveValue('Loaded evidence')
+    })
+
     it('renders a summary for the current open state', async () => {
         const user = userEvent.setup()
 

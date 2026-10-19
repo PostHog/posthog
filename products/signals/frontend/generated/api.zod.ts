@@ -2069,6 +2069,16 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n\* `small` - small\n\* `medium` - medium\n\* `large` - large'
                             ),
+                        cached_results: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                "Last successful chart result. Hidden when the viewer's access differs from the shared query context."
+                            ),
+                        cached_results_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the saved chart result was measured.'),
                     })
                     .describe(
                         'One chart attached to a report — rendered in the inbox and referenceable from the summary.'
@@ -2456,6 +2466,16 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n\* `small` - small\n\* `medium` - medium\n\* `large` - large'
                             ),
+                        cached_results: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                "Last successful chart result. Hidden when the viewer's access differs from the shared query context."
+                            ),
+                        cached_results_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the saved chart result was measured.'),
                     })
                     .describe(
                         'One chart attached to a report — rendered in the inbox and referenceable from the summary.'
