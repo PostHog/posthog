@@ -255,6 +255,17 @@ async def handle_terminal_user_error_result(
     return workflow_result
 
 
+def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:
+    # A backfill waits on its children, so each result lands in the backfill's own history. Hog
+    # output has no size cap, and a page of large results can pass Temporal's history limit.
+    if backfill_id is None:
+        return result
+    compact = result.copy()
+    compact.pop("reasoning", None)
+    compact.pop("message", None)
+    return compact
+
+
 @temporalio.workflow.defn(name="run-evaluation")
 class RunEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
@@ -267,6 +278,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
         # histories for one release, then delete this call (temporal-workflow-versioning rule).
         temporalio.workflow.deprecate_patch("remove-trial-evals")
@@ -325,6 +339,24 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             )
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+
+        # A backfill can outlive the evaluation it runs, so it checks before the billed judge call.
+        # The skip also tells the backfill to stop the rest of its page.
+        if (
+            result is None
+            and inputs.backfill_id is not None
+            and (evaluation["deleted"] or not evaluation["enabled"])
+            and temporalio.workflow.patched("evaluation-backfill-skips-disabled-evaluation")
+        ):
+            disabled_result: WorkflowResult = {
+                "skipped": True,
+                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+                "evaluation_id": inputs.evaluation_id,
+                "evaluation_type": evaluation_type,
+            }
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
+                disabled_result["verdict"] = None
+            return disabled_result
 
         if result is None:
             if evaluation_type == "hog":

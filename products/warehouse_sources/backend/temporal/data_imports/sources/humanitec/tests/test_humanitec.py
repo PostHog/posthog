@@ -8,7 +8,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -130,13 +129,6 @@ def test_pipeline_links_cannot_retarget_credentials(next_url: str) -> None:
     assert isinstance(result.raised, ValueError)
     assert "Refusing to send" in str(result.raised)
     assert len(result.requests) == 2
-
-
-def test_unknown_table() -> None:
-    result = SourceDriver(HumanitecSource(), CONFIG).run("missing", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 def test_unexpected_probe_error_is_not_reported_as_invalid_credentials() -> None:

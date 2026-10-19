@@ -72,6 +72,7 @@ from products.feature_flags.backend.api.feature_flag import (
     _flag_write_source,
     parse_created_by_ids,
 )
+from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import TURN_ON_MODES, turn_flag_on
 from products.feature_flags.backend.blast_radius_flag_deps import MAX_DEPENDENCY_DEPTH
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
@@ -5071,22 +5072,136 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
 
-    def test_creating_feature_flag_with_non_existant_cohort(self):
-        cohort_request = self._create_flag_with_properties(
-            "cohort-flag",
-            [{"key": "id", "type": "cohort", "value": 5151}],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
+    def _unusable_cohort_id(self, cohort_state: str) -> int | str:
+        if cohort_state == "missing":
+            return (Cohort.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1
+        if cohort_state == "malformed":
+            return "not-an-id"
+        if cohort_state == "boolean":
+            # A live cohort with id 1 is what a boolean value would wrongly resolve to.
+            Cohort.objects.update_or_create(pk=1, defaults={"team": self.team, "name": "First cohort"})
+            return True
+        return Cohort.objects.create(
+            team=self.team,
+            name=None if cohort_state == "deleted_unnamed" else "Retired cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}],
+                }
+            },
+            deleted=True,
+        ).id
 
+    @staticmethod
+    def _cohort_condition_filters(cohort_id: int | str) -> dict[str, Any]:
+        return {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}]}
+
+    @staticmethod
+    def _unusable_cohort_detail(cohort_state: str, cohort_id: int | str) -> str:
+        if cohort_state in ("missing", "malformed", "boolean"):
+            return f"Cohort with id {cohort_id} does not exist"
+        label = (
+            f"Cohort with id {cohort_id}"
+            if cohort_state == "deleted_unnamed"
+            else f"Cohort 'Retired cohort' (ID {cohort_id})"
+        )
+        return f"{label} has been deleted. Restore the cohort, choose another cohort, or remove this condition."
+
+    @parameterized.expand(
+        [
+            ("missing_post", "missing", "post"),
+            ("deleted_post", "deleted", "post"),
+            ("deleted_patch", "deleted", "patch"),
+            ("deleted_unnamed_post", "deleted_unnamed", "post"),
+        ]
+    )
+    def test_writing_filters_with_missing_or_deleted_cohort_is_rejected(
+        self, _name: str, cohort_state: str, method: str
+    ) -> None:
+        cohort_id = self._unusable_cohort_id(cohort_state)
+        filters = self._cohort_condition_filters(cohort_id)
+        url = f"/api/projects/{self.team.id}/feature_flags/"
+        if method == "patch":
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="cohort-flag", filters=filters)
+            response = self.client.patch(f"{url}{flag.id}/", {"filters": filters}, format="json")
+        else:
+            response = self.client.post(url, {"key": "cohort-flag", "filters": filters}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "cohort_does_not_exist",
-                "detail": "Cohort with id 5151 does not exist",
+                "detail": self._unusable_cohort_detail(cohort_state, cohort_id),
                 "attr": "filters",
             }.items(),
-            cohort_request.json().items(),
+            response.json().items(),
         )
+
+    @parameterized.expand(
+        [(mode, mode, "deleted") for mode in (*TURN_ON_MODES, "restore_disabled", "unarchive")]
+        + [
+            ("patch_missing_cohort", "patch", "missing"),
+            ("patch_malformed_cohort", "patch", "malformed"),
+            ("patch_boolean_cohort", "patch", "boolean"),
+        ]
+    )
+    def test_enabling_restoring_or_unarchiving_checks_stored_cohorts(
+        self, _name: str, mode: str, cohort_state: str
+    ) -> None:
+        cohort_id = self._unusable_cohort_id(cohort_state)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="cohort-flag",
+            filters=self._cohort_condition_filters(cohort_id),
+            active=mode == "restore",
+            deleted=mode in ("restore", "restore_disabled"),
+            archived=mode == "unarchive",
+            version=7,
+        )
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+
+        if mode == "restore_disabled":
+            response = self.client.patch(url, {"deleted": False}, format="json")
+        elif mode == "unarchive":
+            response = self.client.post(f"{url}unarchive/", {}, format="json")
+        else:
+            response = turn_flag_on(self.client, url, mode)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertLessEqual(
+            {
+                "code": "cohort_does_not_exist",
+                "detail": self._unusable_cohort_detail(cohort_state, cohort_id),
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+        flag.refresh_from_db()
+        self.assertEqual(flag.version, 7)
+
+    @parameterized.expand([("disable",), ("archive",), ("delete",), ("delete_archived",), ("rename_archived",)])
+    def test_restrictive_writes_succeed_with_stored_deleted_cohort(self, action: str) -> None:
+        archived = action.endswith("_archived")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="cohort-flag",
+            filters=self._cohort_condition_filters(self._unusable_cohort_id("deleted")),
+            active=not archived,
+            archived=archived,
+        )
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+        if action.startswith("delete"):
+            response = self.client.patch(url, {"deleted": True}, format="json")
+        elif action == "rename_archived":
+            response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        else:
+            response = self.client.post(f"{url}{action}/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_validation_payloads(self):
         self._create_flag_with_properties(

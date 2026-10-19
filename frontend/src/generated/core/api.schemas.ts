@@ -2715,7 +2715,6 @@ export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
  * * `create_early_access_feature` - create_early_access_feature
  * * `update_feature_stage` - update_feature_stage
  * * `use_posthog_ai` - use_posthog_ai
- * * `use_posthog_code` - use_posthog_code
  * * `use_posthog_mcp` - use_posthog_mcp
  * * `use_posthog_in_slack` - use_posthog_in_slack
  */
@@ -2786,7 +2785,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
     UsePosthogAi: 'use_posthog_ai',
-    UsePosthogCode: 'use_posthog_code',
     UsePosthogMcp: 'use_posthog_mcp',
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
@@ -6911,6 +6909,10 @@ export type FileSystemListParams = {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean
+    /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean
     /**
      * Number of results to return per page.
      */

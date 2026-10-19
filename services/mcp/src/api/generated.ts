@@ -7584,6 +7584,8 @@ export namespace Schemas {
     export interface HogQLQueryResponse {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -8417,6 +8419,8 @@ export namespace Schemas {
     export interface Response3 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -14969,7 +14973,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -15040,7 +15043,6 @@ export namespace Schemas {
       CreateEarlyAccessFeature: 'create_early_access_feature',
       UpdateFeatureStage: 'update_feature_stage',
       UsePosthogAi: 'use_posthog_ai',
-      UsePosthogCode: 'use_posthog_code',
       UsePosthogMcp: 'use_posthog_mcp',
       UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
@@ -18154,22 +18156,11 @@ export namespace Schemas {
          */
       threshold_value?: string | null;
       /**
-         * Minimum current value before the alert can fire.
-         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-         */
-      minimum_value?: string;
-      /**
          * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
          * @minimum 1
          * @maximum 90
          */
       baseline_window_days?: number;
-      /**
-         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-         * @minimum 0
-         * @maximum 72
-         */
-      evaluation_delay_hours?: number;
       /** Current lifecycle state of this alert.
        *
        * * `not_firing` - Not firing
@@ -18178,12 +18169,6 @@ export namespace Schemas {
        * * `snoozed` - Snoozed
        * * `broken` - Broken */
       readonly state: BillingAlertConfigurationStateEnum;
-      /**
-         * Minimum hours between repeated firing notifications.
-         * @minimum 0
-         * @maximum 720
-         */
-      cooldown_hours?: number;
       /**
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
@@ -26781,6 +26766,11 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface CreateStaticCohortForFlagResponse {
+      /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
+      readonly cohort: Cohort;
+    }
+
     /**
      * * `try_next` - try_next
      * * `consider` - consider
@@ -31319,6 +31309,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -32516,6 +32507,7 @@ export namespace Schemas {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -32717,6 +32709,7 @@ export namespace Schemas {
       Plaid: 'Plaid',
       SurveyMonkey: 'SurveyMonkey',
       Eventbrite: 'Eventbrite',
+      Everflow: 'Everflow',
       RingCentral: 'RingCentral',
       Twilio: 'Twilio',
       Freshsales: 'Freshsales',
@@ -33914,6 +33907,7 @@ export namespace Schemas {
       SimonData: 'SimonData',
       CommissionJunction: 'CommissionJunction',
       Liveblocks: 'Liveblocks',
+      Livestorm: 'Livestorm',
       NationBuilder: 'NationBuilder',
       Tana: 'Tana',
       Zenchef: 'Zenchef',
@@ -34129,6 +34123,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -35326,6 +35321,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -36398,6 +36394,43 @@ export namespace Schemas {
     }
 
     /**
+     * * `Passed` - Passed
+     * * `Failed` - Failed
+     * * `Skipped` - Skipped
+     */
+    export type DestinationConnectionTestStepStatusEnum = typeof DestinationConnectionTestStepStatusEnum[keyof typeof DestinationConnectionTestStepStatusEnum];
+
+
+    export const DestinationConnectionTestStepStatusEnum = {
+      Passed: 'Passed',
+      Failed: 'Failed',
+      Skipped: 'Skipped',
+    } as const;
+
+    export interface DestinationConnectionTestStep {
+      /** What this step checks. */
+      name: string;
+      /** A longer explanation of what this step checks. */
+      description: string;
+      /** The result of the step. Null when the step did not run because an earlier step failed.
+       *
+       * * `Passed` - Passed
+       * * `Failed` - Failed
+       * * `Skipped` - Skipped */
+      status: DestinationConnectionTestStepStatusEnum | null;
+      /**
+         * Why the step failed or was skipped. Null when the step passed or did not run.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface DestinationConnectionTestResponse {
+      /** The steps of the connection test, in order. The test stops at the first failed step. */
+      steps: DestinationConnectionTestStep[];
+    }
+
+    /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
      * * `Tablet` - Tablet
@@ -36793,6 +36826,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -37990,6 +38024,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -43055,7 +43090,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly system_one_model_display: string | null;
-      /** Azure OpenAI endpoint URL */
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
       azure_endpoint?: string;
       /**
          * Azure OpenAI API version
@@ -45571,6 +45606,8 @@ export namespace Schemas {
       calls: number;
       /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
       remotely_evaluated_calls: number;
+      /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
+      people_assigned_outside: number;
     }
 
     export interface ExperimentHealthInputsReaderAccess {
@@ -48906,6 +48943,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -50103,6 +50141,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -50338,6 +50377,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -51535,6 +51575,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -52943,6 +52984,22 @@ export namespace Schemas {
       upvotes: string | null;
       created_at: string | null;
     }
+
+    /**
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other
+     */
+    export type FeedDismissalReasonEnum = typeof FeedDismissalReasonEnum[keyof typeof FeedDismissalReasonEnum];
+
+
+    export const FeedDismissalReasonEnum = {
+      NotARealProblem: 'not_a_real_problem',
+      AlreadyKnown: 'already_known',
+      NotMyArea: 'not_my_area',
+      Other: 'other',
+    } as const;
 
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
@@ -60564,6 +60621,422 @@ export namespace Schemas {
       working: ImpactWorking | null;
     }
 
+    /**
+     * * `signals` - Signals
+     * * `scouts` - Scouts
+     * * `github` - GitHub
+     */
+    export type InboxOnboardingStepEnum = typeof InboxOnboardingStepEnum[keyof typeof InboxOnboardingStepEnum];
+
+
+    export const InboxOnboardingStepEnum = {
+      Signals: 'signals',
+      Scouts: 'scouts',
+      Github: 'github',
+    } as const;
+
+    /**
+     * * `session_replay` - Session replay
+     * * `llm_analytics` - LLM analytics
+     * * `github` - GitHub
+     * * `linear` - Linear
+     * * `jira` - Jira
+     * * `zendesk` - Zendesk
+     * * `conversations` - Conversations
+     * * `error_tracking` - Error tracking
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - Signals scout
+     * * `signals_check` - Report check
+     * * `logs` - Logs
+     * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
+     * * `analytics` - Product analytics
+     * * `freshdesk` - Freshdesk
+     * * `freshservice` - Freshservice
+     * * `front` - Front
+     * * `gorgias` - Gorgias
+     * * `kustomer` - Kustomer
+     * * `dixa` - Dixa
+     * * `plain` - Plain
+     * * `gitlab` - GitLab
+     * * `gitea` - Gitea
+     * * `shortcut` - Shortcut
+     * * `sentry` - Sentry
+     * * `rollbar` - Rollbar
+     * * `bugsnag` - Bugsnag
+     * * `honeybadger` - Honeybadger
+     * * `raygun` - Raygun
+     * * `snyk` - Snyk
+     * * `sonarqube` - SonarQube
+     * * `semgrep` - Semgrep
+     * * `rapid7_insightvm` - Rapid7 InsightVM
+     * * `featurebase` - Featurebase
+     * * `frill` - Frill
+     * * `aha` - Aha
+     * * `uservoice` - UserVoice
+     * * `productboard` - Productboard
+     * * `canny` - Canny
+     * * `asknicely` - AskNicely
+     * * `retently` - Retently
+     * * `appfigures` - Appfigures
+     * * `appfollow` - AppFollow
+     * * `judgeme_reviews` - Judge.me
+     * * `intercom` - Intercom
+     * * `hubspot` - HubSpot
+     * * `engineering_analytics` - Engineering analytics
+     * * `google_search_console` - Google Search Console
+     */
+    export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
+
+
+    export const SignalSourceProductEnum = {
+      SessionReplay: 'session_replay',
+      LlmAnalytics: 'llm_analytics',
+      Github: 'github',
+      Linear: 'linear',
+      Jira: 'jira',
+      Zendesk: 'zendesk',
+      Conversations: 'conversations',
+      ErrorTracking: 'error_tracking',
+      Pganalyze: 'pganalyze',
+      SignalsScout: 'signals_scout',
+      SignalsCheck: 'signals_check',
+      Logs: 'logs',
+      HealthChecks: 'health_checks',
+      Endpoints: 'endpoints',
+      ReplayVision: 'replay_vision',
+      Analytics: 'analytics',
+      Freshdesk: 'freshdesk',
+      Freshservice: 'freshservice',
+      Front: 'front',
+      Gorgias: 'gorgias',
+      Kustomer: 'kustomer',
+      Dixa: 'dixa',
+      Plain: 'plain',
+      Gitlab: 'gitlab',
+      Gitea: 'gitea',
+      Shortcut: 'shortcut',
+      Sentry: 'sentry',
+      Rollbar: 'rollbar',
+      Bugsnag: 'bugsnag',
+      Honeybadger: 'honeybadger',
+      Raygun: 'raygun',
+      Snyk: 'snyk',
+      Sonarqube: 'sonarqube',
+      Semgrep: 'semgrep',
+      Rapid7Insightvm: 'rapid7_insightvm',
+      Featurebase: 'featurebase',
+      Frill: 'frill',
+      Aha: 'aha',
+      Uservoice: 'uservoice',
+      Productboard: 'productboard',
+      Canny: 'canny',
+      Asknicely: 'asknicely',
+      Retently: 'retently',
+      Appfigures: 'appfigures',
+      Appfollow: 'appfollow',
+      JudgemeReviews: 'judgeme_reviews',
+      Intercom: 'intercom',
+      Hubspot: 'hubspot',
+      EngineeringAnalytics: 'engineering_analytics',
+      GoogleSearchConsole: 'google_search_console',
+    } as const;
+
+    /**
+     * * `session_analysis_cluster` - Session analysis cluster
+     * * `evaluation_report` - Evaluation report
+     * * `issue` - Issue
+     * * `ticket` - Ticket
+     * * `issue_created` - Issue created
+     * * `issue_reopened` - Issue reopened
+     * * `issue_spiking` - Issue spiking
+     * * `cross_source_issue` - Cross source issue
+     * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
+     * * `anomaly_investigation` - Anomaly investigation
+     * * `feedback` - Feedback
+     * * `review` - Review
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
+     * * `search_opportunity` - Search opportunity
+     */
+    export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
+
+
+    export const SignalSourceConfigSourceTypeEnum = {
+      SessionAnalysisCluster: 'session_analysis_cluster',
+      EvaluationReport: 'evaluation_report',
+      Issue: 'issue',
+      Ticket: 'ticket',
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
+      CrossSourceIssue: 'cross_source_issue',
+      AlertStateChange: 'alert_state_change',
+      HealthIssue: 'health_issue',
+      EndpointExecutionFailed: 'endpoint_execution_failed',
+      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+      ScannerFinding: 'scanner_finding',
+      AnomalyInvestigation: 'anomaly_investigation',
+      Feedback: 'feedback',
+      Review: 'review',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
+      SearchOpportunity: 'search_opportunity',
+    } as const;
+
+    export interface InboxOnboardingSource {
+      /** Source product selected during setup.
+       *
+       * * `session_replay` - Session replay
+       * * `llm_analytics` - LLM analytics
+       * * `github` - GitHub
+       * * `linear` - Linear
+       * * `jira` - Jira
+       * * `zendesk` - Zendesk
+       * * `conversations` - Conversations
+       * * `error_tracking` - Error tracking
+       * * `pganalyze` - pganalyze
+       * * `signals_scout` - Signals scout
+       * * `signals_check` - Report check
+       * * `logs` - Logs
+       * * `health_checks` - Health checks
+       * * `endpoints` - Endpoints
+       * * `replay_vision` - Replay Vision
+       * * `analytics` - Product analytics
+       * * `freshdesk` - Freshdesk
+       * * `freshservice` - Freshservice
+       * * `front` - Front
+       * * `gorgias` - Gorgias
+       * * `kustomer` - Kustomer
+       * * `dixa` - Dixa
+       * * `plain` - Plain
+       * * `gitlab` - GitLab
+       * * `gitea` - Gitea
+       * * `shortcut` - Shortcut
+       * * `sentry` - Sentry
+       * * `rollbar` - Rollbar
+       * * `bugsnag` - Bugsnag
+       * * `honeybadger` - Honeybadger
+       * * `raygun` - Raygun
+       * * `snyk` - Snyk
+       * * `sonarqube` - SonarQube
+       * * `semgrep` - Semgrep
+       * * `rapid7_insightvm` - Rapid7 InsightVM
+       * * `featurebase` - Featurebase
+       * * `frill` - Frill
+       * * `aha` - Aha
+       * * `uservoice` - UserVoice
+       * * `productboard` - Productboard
+       * * `canny` - Canny
+       * * `asknicely` - AskNicely
+       * * `retently` - Retently
+       * * `appfigures` - Appfigures
+       * * `appfollow` - AppFollow
+       * * `judgeme_reviews` - Judge.me
+       * * `intercom` - Intercom
+       * * `hubspot` - HubSpot
+       * * `engineering_analytics` - Engineering analytics
+       * * `google_search_console` - Google Search Console */
+      source_product: SignalSourceProductEnum;
+      /** Signal type selected during setup.
+       *
+       * * `session_analysis_cluster` - Session analysis cluster
+       * * `evaluation_report` - Evaluation report
+       * * `issue` - Issue
+       * * `ticket` - Ticket
+       * * `issue_created` - Issue created
+       * * `issue_reopened` - Issue reopened
+       * * `issue_spiking` - Issue spiking
+       * * `cross_source_issue` - Cross source issue
+       * * `alert_state_change` - Alert state change
+       * * `health_issue` - Health issue
+       * * `endpoint_execution_failed` - Endpoint execution failed
+       * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+       * * `scanner_finding` - Scanner finding
+       * * `anomaly_investigation` - Anomaly investigation
+       * * `feedback` - Feedback
+       * * `review` - Review
+       * * `ci_flaky_check` - CI flaky check
+       * * `ci_broken_default_branch` - CI broken default branch
+       * * `ci_duration_regression` - CI duration regression
+       * * `search_opportunity` - Search opportunity */
+      source_type: SignalSourceConfigSourceTypeEnum;
+      /** Whether this source should be enabled at activation. */
+      enabled: boolean;
+    }
+
+    /**
+     * * `canonical` - canonical
+     * * `custom` - custom
+     */
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
+    export interface ScoutSuggestionProposedConfig {
+      /**
+         * Suggested five-field cron schedule in the project timezone, or null for an interval.
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+      /**
+         * Suggested minutes between runs when no cron is given; null means the daily default.
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /** Whether the suggested scout should write to the inbox (false = dry run). */
+      emit: boolean;
+    }
+
+    export interface ScoutSuggestionItem {
+      /** Stable id of this suggestion within the batch; use it to dismiss. */
+      id: string;
+      /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
+       *
+       * * `canonical` - canonical
+       * * `custom` - custom */
+      kind: ScoutOriginEnum;
+      /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
+      skill_name: string;
+      /** Short sentence-case title: what the scout watches. */
+      title: string;
+      /** Project-specific evidence for this suggestion, in prose. */
+      why_here: string;
+      /** Custom only: the one-line description the scout would be created with. */
+      description: string;
+      /** Custom only: the complete skill body the scout would be created with. */
+      draft_body: string;
+      /** Suggested schedule and emit posture. */
+      proposed_config: ScoutSuggestionProposedConfig;
+      /** True when nothing in the current fleet covers this. */
+      gap: boolean;
+      /** The producer's confidence.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high */
+      confidence: ConfidenceTierEnum;
+    }
+
+    export interface InboxOnboardingDraft {
+      /** Step to resume after returning.
+       *
+       * * `signals` - Signals
+       * * `scouts` - Scouts
+       * * `github` - GitHub */
+      step: InboxOnboardingStepEnum;
+      /** Staged signal source choices. */
+      sources: InboxOnboardingSource[];
+      /**
+         * Existing enabled scanners selected to emit signals.
+         * @maxItems 100
+         */
+      scanner_ids: string[];
+      /** Selected scout suggestion drafts. */
+      suggestions: ScoutSuggestionItem[];
+      /**
+         * Scouts enabled by an unfinished activation, retained to undo later deselections.
+         * @maxItems 50
+         * @items.maxLength 200
+         */
+      activation_scouts?: string[];
+      /** Opt in to automatically creating pull requests. */
+      automatic_implementation: boolean;
+      /** Lowest priority to implement automatically; P1 includes P0 and P1.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      implementation_priority: AutonomyPriorityEnum;
+    }
+
+    /**
+     * * `control` - Control
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore
+     */
+    export type InboxOnboardingVariantEnum = typeof InboxOnboardingVariantEnum[keyof typeof InboxOnboardingVariantEnum];
+
+
+    export const InboxOnboardingVariantEnum = {
+      Control: 'control',
+      TestUi: 'test-ui',
+      TestGithub: 'test-github',
+    } as const;
+
+    export interface InboxOnboardingExposure {
+      /** Assigned experiment variant at the eligible Inbox impression.
+       *
+       * * `control` - Control
+       * * `test-ui` - Focused steps
+       * * `test-github` - Activate and explore */
+      variant: InboxOnboardingVariantEnum;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed
+     */
+    export type InboxOnboardingJobStatusEnum = typeof InboxOnboardingJobStatusEnum[keyof typeof InboxOnboardingJobStatusEnum];
+
+
+    export const InboxOnboardingJobStatusEnum = {
+      Pending: 'pending',
+      Started: 'started',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface InboxOnboardingJobs {
+      /** Dispatch status of the first general scout run.
+       *
+       * * `pending` - Pending
+       * * `started` - Started
+       * * `skipped` - Unavailable
+       * * `failed` - Failed */
+      scout: InboxOnboardingJobStatusEnum;
+      /** Dispatch status of personalized scout recommendations.
+       *
+       * * `pending` - Pending
+       * * `started` - Started
+       * * `skipped` - Unavailable
+       * * `failed` - Failed */
+      recommendations: InboxOnboardingJobStatusEnum;
+    }
+
+    export interface InboxOnboardingState {
+      /** Background work started by quick activation. */
+      jobs?: InboxOnboardingJobs;
+      /** Saved setup choices, without activating them. */
+      draft: InboxOnboardingDraft | null;
+      /**
+         * When verified setup completed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Variant recorded at the first eligible impression.
+       *
+       * * `control` - Control
+       * * `test-ui` - Focused steps
+       * * `test-github` - Activate and explore */
+      variant: InboxOnboardingVariantEnum | null;
+    }
+
     export interface InboxSummaryPullRequest {
       /** GitHub repository in owner/name format. */
       repository: string;
@@ -63850,6 +64323,8 @@ export namespace Schemas {
       type: LogsAlertDestinationTypeEnum;
       /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
+      /** Whether any HogFunction in the group sends something other than the stock message, such as an edited body, headers, method or code. A customized destination sends exactly what its HogFunctions build. */
+      message_customized: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
@@ -68546,7 +69021,7 @@ export namespace Schemas {
     }
 
     export interface NotebookRunStartRequest {
-      /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+      /** Include prepared embedded insights when refreshing a dashboard widget. */
       include_prepared_insights?: boolean;
       /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
       variables?: NotebookVariable[];
@@ -69010,6 +69485,19 @@ export namespace Schemas {
       exported_asset_id?: string | null;
       /** @nullable */
       event_definition_id?: string | null;
+    }
+
+    /**
+     * Why the calling user marked an observation not useful in What to watch.
+     */
+    export interface ObservationFeedDismissal {
+      /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+       *
+       * * `not_a_real_problem` - Not a real problem
+       * * `already_known` - Already known
+       * * `not_my_area` - Not my area
+       * * `other` - Other */
+      reason?: FeedDismissalReasonEnum | null;
     }
 
     export interface ObservationLabelDayCount {
@@ -75072,162 +75560,6 @@ export namespace Schemas {
       ranker?: string | null;
     }
 
-    /**
-     * * `session_replay` - Session replay
-     * * `llm_analytics` - LLM analytics
-     * * `github` - GitHub
-     * * `linear` - Linear
-     * * `jira` - Jira
-     * * `zendesk` - Zendesk
-     * * `conversations` - Conversations
-     * * `error_tracking` - Error tracking
-     * * `pganalyze` - pganalyze
-     * * `signals_scout` - Signals scout
-     * * `signals_check` - Report check
-     * * `logs` - Logs
-     * * `health_checks` - Health checks
-     * * `endpoints` - Endpoints
-     * * `replay_vision` - Replay Vision
-     * * `analytics` - Product analytics
-     * * `freshdesk` - Freshdesk
-     * * `freshservice` - Freshservice
-     * * `front` - Front
-     * * `gorgias` - Gorgias
-     * * `kustomer` - Kustomer
-     * * `dixa` - Dixa
-     * * `plain` - Plain
-     * * `gitlab` - GitLab
-     * * `gitea` - Gitea
-     * * `shortcut` - Shortcut
-     * * `sentry` - Sentry
-     * * `rollbar` - Rollbar
-     * * `bugsnag` - Bugsnag
-     * * `honeybadger` - Honeybadger
-     * * `raygun` - Raygun
-     * * `snyk` - Snyk
-     * * `sonarqube` - SonarQube
-     * * `semgrep` - Semgrep
-     * * `rapid7_insightvm` - Rapid7 InsightVM
-     * * `featurebase` - Featurebase
-     * * `frill` - Frill
-     * * `aha` - Aha
-     * * `uservoice` - UserVoice
-     * * `productboard` - Productboard
-     * * `canny` - Canny
-     * * `asknicely` - AskNicely
-     * * `retently` - Retently
-     * * `appfigures` - Appfigures
-     * * `appfollow` - AppFollow
-     * * `judgeme_reviews` - Judge.me
-     * * `intercom` - Intercom
-     * * `hubspot` - HubSpot
-     * * `engineering_analytics` - Engineering analytics
-     * * `google_search_console` - Google Search Console
-     */
-    export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
-
-
-    export const SignalSourceProductEnum = {
-      SessionReplay: 'session_replay',
-      LlmAnalytics: 'llm_analytics',
-      Github: 'github',
-      Linear: 'linear',
-      Jira: 'jira',
-      Zendesk: 'zendesk',
-      Conversations: 'conversations',
-      ErrorTracking: 'error_tracking',
-      Pganalyze: 'pganalyze',
-      SignalsScout: 'signals_scout',
-      SignalsCheck: 'signals_check',
-      Logs: 'logs',
-      HealthChecks: 'health_checks',
-      Endpoints: 'endpoints',
-      ReplayVision: 'replay_vision',
-      Analytics: 'analytics',
-      Freshdesk: 'freshdesk',
-      Freshservice: 'freshservice',
-      Front: 'front',
-      Gorgias: 'gorgias',
-      Kustomer: 'kustomer',
-      Dixa: 'dixa',
-      Plain: 'plain',
-      Gitlab: 'gitlab',
-      Gitea: 'gitea',
-      Shortcut: 'shortcut',
-      Sentry: 'sentry',
-      Rollbar: 'rollbar',
-      Bugsnag: 'bugsnag',
-      Honeybadger: 'honeybadger',
-      Raygun: 'raygun',
-      Snyk: 'snyk',
-      Sonarqube: 'sonarqube',
-      Semgrep: 'semgrep',
-      Rapid7Insightvm: 'rapid7_insightvm',
-      Featurebase: 'featurebase',
-      Frill: 'frill',
-      Aha: 'aha',
-      Uservoice: 'uservoice',
-      Productboard: 'productboard',
-      Canny: 'canny',
-      Asknicely: 'asknicely',
-      Retently: 'retently',
-      Appfigures: 'appfigures',
-      Appfollow: 'appfollow',
-      JudgemeReviews: 'judgeme_reviews',
-      Intercom: 'intercom',
-      Hubspot: 'hubspot',
-      EngineeringAnalytics: 'engineering_analytics',
-      GoogleSearchConsole: 'google_search_console',
-    } as const;
-
-    /**
-     * * `session_analysis_cluster` - Session analysis cluster
-     * * `evaluation_report` - Evaluation report
-     * * `issue` - Issue
-     * * `ticket` - Ticket
-     * * `issue_created` - Issue created
-     * * `issue_reopened` - Issue reopened
-     * * `issue_spiking` - Issue spiking
-     * * `cross_source_issue` - Cross source issue
-     * * `alert_state_change` - Alert state change
-     * * `health_issue` - Health issue
-     * * `endpoint_execution_failed` - Endpoint execution failed
-     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
-     * * `scanner_finding` - Scanner finding
-     * * `anomaly_investigation` - Anomaly investigation
-     * * `feedback` - Feedback
-     * * `review` - Review
-     * * `ci_flaky_check` - CI flaky check
-     * * `ci_broken_default_branch` - CI broken default branch
-     * * `ci_duration_regression` - CI duration regression
-     * * `search_opportunity` - Search opportunity
-     */
-    export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
-
-
-    export const SignalSourceConfigSourceTypeEnum = {
-      SessionAnalysisCluster: 'session_analysis_cluster',
-      EvaluationReport: 'evaluation_report',
-      Issue: 'issue',
-      Ticket: 'ticket',
-      IssueCreated: 'issue_created',
-      IssueReopened: 'issue_reopened',
-      IssueSpiking: 'issue_spiking',
-      CrossSourceIssue: 'cross_source_issue',
-      AlertStateChange: 'alert_state_change',
-      HealthIssue: 'health_issue',
-      EndpointExecutionFailed: 'endpoint_execution_failed',
-      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
-      ScannerFinding: 'scanner_finding',
-      AnomalyInvestigation: 'anomaly_investigation',
-      Feedback: 'feedback',
-      Review: 'review',
-      CiFlakyCheck: 'ci_flaky_check',
-      CiBrokenDefaultBranch: 'ci_broken_default_branch',
-      CiDurationRegression: 'ci_duration_regression',
-      SearchOpportunity: 'search_opportunity',
-    } as const;
-
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
 
 
@@ -78160,6 +78492,28 @@ export namespace Schemas {
 
     export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
 
+    /**
+     * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
+     */
+    export type WarehouseSuggestionEvidenceRequestsBySurface = {[key: string]: number};
+
+    export interface WarehouseSuggestionEvidence {
+      /** Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any project, so it shows how much history exists, not how active this project is. */
+      days_with_data?: number;
+      /** Queries people ran that read the subject in the usage window. */
+      human_requests?: number;
+      /** Distinct people who ran those queries. */
+      human_users?: number;
+      /** Days on which people read the subject. */
+      human_days?: number;
+      /** Queries PostHog ran on its own that read the subject, such as cache warming and alerts. */
+      background_requests?: number;
+      /** Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp. */
+      requests_by_surface?: WarehouseSuggestionEvidenceRequestsBySurface;
+      /** When any query last read the subject, including queries PostHog ran on its own. */
+      last_read_at?: string;
+    }
+
     export interface WarehouseSuggestionReviewer {
       /** User id. */
       id: number;
@@ -78228,11 +78582,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * The usage numbers that led to this suggestion.
-     */
-    export type WarehouseSuggestionEvidence = { [key: string]: unknown };
-
-    /**
      * What accepting this suggestion created. Null until accepted.
      * @nullable
      */
@@ -78241,7 +78590,7 @@ export namespace Schemas {
     export interface WarehouseSuggestion {
       /** What accepting this suggestion would create or change. Shape depends on kind. */
       readonly payload: WarehouseSuggestionPayload;
-      /** The usage numbers that led to this suggestion. */
+      /** The read counts that led to this suggestion. A field is missing when the subject had no reads. */
       evidence: WarehouseSuggestionEvidence;
       /**
          * What accepting this suggestion created. Null until accepted.
@@ -78293,8 +78642,6 @@ export namespace Schemas {
       evidence_window_end: string;
       /** When the daily job last found evidence for this suggestion. */
       last_seen_at: string;
-      /** How strongly the evidence supports the suggestion. Higher comes first. */
-      score: number;
       /**
          * When the suggestion was first shown. Null while it waits for a slot.
          * @nullable
@@ -79653,22 +80000,11 @@ export namespace Schemas {
          */
       threshold_value?: string | null;
       /**
-         * Minimum current value before the alert can fire.
-         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-         */
-      minimum_value?: string;
-      /**
          * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
          * @minimum 1
          * @maximum 90
          */
       baseline_window_days?: number;
-      /**
-         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-         * @minimum 0
-         * @maximum 72
-         */
-      evaluation_delay_hours?: number;
       /** Current lifecycle state of this alert.
        *
        * * `not_firing` - Not firing
@@ -79677,12 +80013,6 @@ export namespace Schemas {
        * * `snoozed` - Snoozed
        * * `broken` - Broken */
       readonly state?: BillingAlertConfigurationStateEnum;
-      /**
-         * Minimum hours between repeated firing notifications.
-         * @minimum 0
-         * @maximum 720
-         */
-      cooldown_hours?: number;
       /**
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
@@ -83191,7 +83521,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly system_one_model_display?: string | null;
-      /** Azure OpenAI endpoint URL */
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
       azure_endpoint?: string;
       /**
          * Azure OpenAI API version
@@ -93152,6 +93482,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative8 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -93982,6 +94314,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative40 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -99962,18 +100296,6 @@ export namespace Schemas {
       variant_analysis?: boolean;
     }
 
-    /**
-     * * `canonical` - canonical
-     * * `custom` - custom
-     */
-    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
-
-
-    export const ScoutOriginEnum = {
-      Canonical: 'canonical',
-      Custom: 'custom',
-    } as const;
-
     export type ScoutRoleEnum = typeof ScoutRoleEnum[keyof typeof ScoutRoleEnum];
 
 
@@ -101169,51 +101491,6 @@ export namespace Schemas {
       name: string;
       /** Every scope a token minted from this preset carries, including the internal ones. */
       scopes: string[];
-    }
-
-    export interface ScoutSuggestionProposedConfig {
-      /**
-         * Suggested five-field cron schedule in the project timezone, or null for an interval.
-         * @nullable
-         */
-      run_cron_schedule?: string | null;
-      /**
-         * Suggested minutes between runs when no cron is given; null means the daily default.
-         * @nullable
-         */
-      run_interval_minutes?: number | null;
-      /** Whether the suggested scout should write to the inbox (false = dry run). */
-      emit: boolean;
-    }
-
-    export interface ScoutSuggestionItem {
-      /** Stable id of this suggestion within the batch; use it to dismiss. */
-      id: string;
-      /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
-       *
-       * * `canonical` - canonical
-       * * `custom` - custom */
-      kind: ScoutOriginEnum;
-      /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
-      skill_name: string;
-      /** Short sentence-case title: what the scout watches. */
-      title: string;
-      /** Project-specific evidence for this suggestion, in prose. */
-      why_here: string;
-      /** Custom only: the one-line description the scout would be created with. */
-      description: string;
-      /** Custom only: the complete skill body the scout would be created with. */
-      draft_body: string;
-      /** Suggested schedule and emit posture. */
-      proposed_config: ScoutSuggestionProposedConfig;
-      /** True when nothing in the current fleet covers this. */
-      gap: boolean;
-      /** The producer's confidence.
-       *
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high */
-      confidence: ConfidenceTierEnum;
     }
 
     export interface ScoutSuggestionRefresh {
@@ -103856,6 +104133,19 @@ export namespace Schemas {
       github_open_pull_request_ready?: boolean | null;
     }
 
+    export interface SigningSecret {
+      /**
+         * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -104444,6 +104734,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -105641,6 +105932,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -105907,6 +106199,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -107104,6 +107397,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -107337,6 +107631,7 @@ export namespace Schemas {
        * * `Plaid` - Plaid
        * * `SurveyMonkey` - SurveyMonkey
        * * `Eventbrite` - Eventbrite
+       * * `Everflow` - Everflow
        * * `RingCentral` - RingCentral
        * * `Twilio` - Twilio
        * * `Freshsales` - Freshsales
@@ -108534,6 +108829,7 @@ export namespace Schemas {
        * * `SimonData` - SimonData
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
+       * * `Livestorm` - Livestorm
        * * `NationBuilder` - NationBuilder
        * * `Tana` - Tana
        * * `Zenchef` - Zenchef
@@ -126446,6 +126742,10 @@ export namespace Schemas {
      */
     include_content_type?: boolean;
     /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -131292,11 +131592,12 @@ export namespace Schemas {
 
     export type SignalsScoutConfigSyncParams = {
     /**
-     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.
+     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. The onboarding surface creates new configs disabled until the user activates them. Omitted means unknown.
      *
      * * `roster` - roster
      * * `desktop` - desktop
      * * `wizard` - wizard
+     * * `onboarding` - onboarding
      * @minLength 1
      */
     surface?: SignalsScoutConfigSyncSurface;
@@ -131309,6 +131610,7 @@ export namespace Schemas {
       Roster: 'roster',
       Desktop: 'desktop',
       Wizard: 'wizard',
+      Onboarding: 'onboarding',
     } as const;
 
     export type SignalsScoutMembersListParams = {

@@ -882,13 +882,18 @@ class TestOAuthAPI(APIBaseTest):
         )
         return app, grant, private_key
 
-    def _signed_assertion_and_jwks(self, app: OAuthApplication, private_key: rsa.RSAPrivateKey) -> tuple[str, dict]:
+    def _signed_assertion_and_jwks(
+        self,
+        app: OAuthApplication,
+        private_key: rsa.RSAPrivateKey,
+        audience: str = "https://us.posthog.com/oauth/token/",
+    ) -> tuple[str, dict]:
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
             {
                 "iss": app.client_id,
                 "sub": app.client_id,
-                "aud": "https://us.posthog.com/oauth/token/",
+                "aud": audience,
                 "jti": "pkjwt-assertion-1",
                 "iat": now,
                 "exp": now + 60,
@@ -915,13 +920,22 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("regional_token_endpoint", "https://us.posthog.com/oauth/token/"),
+            # Clients that discover the OAuth proxy address its issuer or token endpoint, and
+            # the proxy forwards the assertion to the region unchanged.
+            ("proxy_issuer", "https://oauth.posthog.com"),
+            ("proxy_token_endpoint", "https://oauth.posthog.com/oauth/token/"),
+        ]
+    )
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
-    @override_settings(SITE_URL="https://us.posthog.com")
-    def test_private_key_jwt_cimd_client_completes_token_exchange(self):
+    @override_settings(SITE_URL="https://us.posthog.com", ID_JAG_ALLOWED_AUDIENCES=["https://oauth.posthog.com"])
+    def test_private_key_jwt_cimd_client_completes_token_exchange(self, _name, audience):
         # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
         # paths can never authenticate it and only the assertion path can finish an install.
         app, grant, private_key = self._create_private_key_jwt_app_and_grant()
-        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key, audience=audience)
 
         with (
             patch(

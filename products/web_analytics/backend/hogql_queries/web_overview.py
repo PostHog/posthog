@@ -1,4 +1,5 @@
 import math
+from functools import cached_property
 from typing import Optional, Union
 
 import structlog
@@ -18,8 +19,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,

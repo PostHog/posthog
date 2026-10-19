@@ -87,6 +87,8 @@ _ALERT_BATCH_SIZE: Final = 200
 
 # Only these receive alert events. Any other function on the same event id reads captured events.
 _RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
+# Compiled code and drafts are large and never classified, so they stay unread.
+_UNCLASSIFIED_FIELDS: Final = ("bytecode", "transpiled", "draft")
 
 
 def classify_alert_destinations(
@@ -98,6 +100,7 @@ def classify_alert_destinations(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         )
         .filter(**_RECEIVES_ALERT_EVENTS)
+        .defer(*_UNCLASSIFIED_FIELDS)
         .order_by("created_at", "id")
     )
     return _classify(team_id, list(functions), allowed_event_ids)
@@ -115,6 +118,7 @@ def classify_destinations_by_alert(
                 team_id=team_id, alert_ids=batch, allowed_event_ids=allowed_event_ids, known_templates_only=False
             )
             .filter(**_RECEIVES_ALERT_EVENTS)
+            .defer(*_UNCLASSIFIED_FIELDS)
             .order_by("created_at", "id")
         )
         for function, eligibility in zip(functions, _classify(team_id, functions, allowed_event_ids)):

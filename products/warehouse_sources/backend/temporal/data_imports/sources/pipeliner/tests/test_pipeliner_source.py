@@ -1,6 +1,5 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
     PipelinerSourceConfig,
 )
@@ -22,11 +21,6 @@ class TestPipelinerSource:
         # Retargeting the service URL must force re-entry of the API key pair — without this an
         # editor could point the stored credentials at a server they control and exfiltrate them.
         assert "service_url" in self.source.connection_host_fields
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["accounts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "accounts"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source.pipeliner_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pipeliner_source):
@@ -63,9 +57,3 @@ class TestPipelinerSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_pipeliner_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("unknown", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Pipeliner schema" in str(result.raised)

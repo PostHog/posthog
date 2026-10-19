@@ -261,6 +261,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         # The Ad node returns its creative as a nested object. Without a scalar id there is no join
         # from an ad to `ad_creatives`, where the destination URL and the URL tags live.
         "hoisted_columns": (HoistedColumn(source_field="creative", key="id", column="creative_id"),),
+        # These fields come from the ad's creative. Meta can refuse them for one ad with an invalid
+        # Advantage+ creative, and that ad then syncs without them instead of failing the table.
+        "refusable_fields": ("creative", "tracking_specs", "conversion_specs"),
     },
     MetaAdsResource.AdStats: {
         "primary_keys": ["ad_id", "account_id", "date_start"],
