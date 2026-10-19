@@ -17,7 +17,7 @@ import { PhaiViewSwitchMenuItem } from 'scenes/max/components/PhaiViewSwitchMenu
 
 import { SidePanelTab } from '~/types'
 
-import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/primitives'
+import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
 
 import { todayAiChatLogic } from './todayAiChatLogic'
 import { todayContextPanelLogic } from './todayContextPanelLogic'

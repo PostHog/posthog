@@ -14,7 +14,8 @@ import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
 import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
 
-import { DebugLogsMenu, DebugLogsMenuItem, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
+import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { aiSceneView } from '../aiSceneView'

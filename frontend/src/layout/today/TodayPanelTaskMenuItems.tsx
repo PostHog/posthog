@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { TaskMenuItems } from 'products/posthog_ai/frontend/api/primitives'
+import { TaskMenuItems } from 'products/posthog_ai/frontend/api/menus'
 
 import { DROPDOWN_PARTS } from './todayMenuParts'
 import { todayPanelTaskLogic } from './todayPanelTaskLogic'
