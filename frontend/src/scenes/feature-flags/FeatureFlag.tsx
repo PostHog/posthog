@@ -6,6 +6,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -18,6 +19,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -246,23 +248,36 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         ),
     })
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const editButton = (
         <AccessControlAction
             resourceType={AccessControlResourceType.FeatureFlag}
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={featureFlag.user_access_level}
         >
-            {({ disabledReason }) => (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    disabledReason={disabledReason}
-                    onClick={() => editFeatureFlag(true)}
-                    data-attr={isV1Config ? undefined : 'edit-rules-v2-flag'}
-                >
-                    Edit
-                </LemonButton>
-            )}
+            {({ disabledReason }) =>
+                todayRailNav ? (
+                    <Button
+                        variant="outline"
+                        disabledReason={disabledReason}
+                        onClick={() => editFeatureFlag(true)}
+                        data-attr={isV1Config ? undefined : 'edit-rules-v2-flag'}
+                    >
+                        Edit
+                    </Button>
+                ) : (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        disabledReason={disabledReason}
+                        onClick={() => editFeatureFlag(true)}
+                        data-attr={isV1Config ? undefined : 'edit-rules-v2-flag'}
+                    >
+                        Edit
+                    </LemonButton>
+                )
+            }
         </AccessControlAction>
     )
 
@@ -567,7 +582,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <SceneMenuBar>
                             <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
                                 <SceneMenuBarSubMenu label="Create">
-                                    {featureFlag.id && (
+                                    {/* Adding to notebooks is deprecated under the rail redesign; gated here so an emptied menu can disable itself. */}
+                                    {featureFlag.id && !todayRailNav && (
                                         <SceneMenuBarAddToNotebook
                                             dataAttrKey={RESOURCE_TYPE}
                                             notebookSelectButtonProps={{
@@ -681,9 +697,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 editButton
                             ) : (
                                 <div className="flex items-center gap-2">
-                                    <LemonTag type="highlight" data-attr="feature-flag-config-format">
-                                        {featureFlagConfigFormatLabel(featureFlag.filters)}
-                                    </LemonTag>
+                                    {todayRailNav ? (
+                                        <Badge variant="info" data-attr="feature-flag-config-format">
+                                            {featureFlagConfigFormatLabel(featureFlag.filters)}
+                                        </Badge>
+                                    ) : (
+                                        <LemonTag type="highlight" data-attr="feature-flag-config-format">
+                                            {featureFlagConfigFormatLabel(featureFlag.filters)}
+                                        </LemonTag>
+                                    )}
                                     {isRulesV2EditableConfig(featureFlag.filters, featureFlags) && editButton}
                                 </div>
                             )

@@ -15,6 +15,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -79,6 +80,7 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } f
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+import { QuillFeatureFlagsActions } from './QuillFeatureFlagsActions'
 
 // "Feature Flags open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-0b1f-0000-5d00-170b29838bc5
 // Button-only: its URL condition never matches, so this button is the survey's sole entry point.
@@ -813,6 +815,7 @@ export function FeatureFlags(): JSX.Element {
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
     const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent className="feature_flags">
@@ -823,61 +826,70 @@ export function FeatureFlags(): JSX.Element {
                     type: 'feature_flag',
                 }}
                 actions={
-                    <>
-                        <FeedbackSurveyButton
-                            surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
-                            data-attr="feature-flags-feedback-button"
+                    todayRailNav ? (
+                        <QuillFeatureFlagsActions
+                            feedbackSurveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
+                            showRulesV2Editor={showRulesV2Editor}
+                            rulesV2DisabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                            newFeatureFlagUrl={newFeatureFlagUrl}
                         />
-                        {showRulesV2Editor && (
+                    ) : (
+                        <>
+                            <FeedbackSurveyButton
+                                surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
+                                data-attr="feature-flags-feedback-button"
+                            />
+                            {showRulesV2Editor && (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.FeatureFlag}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        to={urls.featureFlagNew({ format: 'rules_v2' })}
+                                        disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                                        data-attr="new-rules-v2-feature-flag"
+                                    >
+                                        New rules v2 flag
+                                    </LemonButton>
+                                </AccessControlAction>
+                            )}
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    to={urls.featureFlagNew({ format: 'rules_v2' })}
-                                    disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
-                                    data-attr="new-rules-v2-feature-flag"
+                                <Shortcut
+                                    name="NewFeatureFlag"
+                                    keybind={[keyBinds.new]}
+                                    intent="New feature flag"
+                                    interaction="click"
+                                    scope={Scene.FeatureFlags}
                                 >
-                                    New rules v2 flag
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        to={newFeatureFlagUrl}
+                                        data-attr="new-feature-flag"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                className: 'new-feature-flag-overlay',
+                                                actionable: true,
+                                                closeOnClickInside: false,
+                                                overlay: <OverlayForNewFeatureFlagMenu />,
+                                            },
+                                            'data-attr': 'new-feature-flag-dropdown',
+                                        }}
+                                        tooltip="New feature flag"
+                                    >
+                                        New
+                                    </LemonButton>
+                                </Shortcut>
                             </AccessControlAction>
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.FeatureFlag}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <Shortcut
-                                name="NewFeatureFlag"
-                                keybind={[keyBinds.new]}
-                                intent="New feature flag"
-                                interaction="click"
-                                scope={Scene.FeatureFlags}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    to={newFeatureFlagUrl}
-                                    data-attr="new-feature-flag"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            className: 'new-feature-flag-overlay',
-                                            actionable: true,
-                                            closeOnClickInside: false,
-                                            overlay: <OverlayForNewFeatureFlagMenu />,
-                                        },
-                                        'data-attr': 'new-feature-flag-dropdown',
-                                    }}
-                                    tooltip="New feature flag"
-                                >
-                                    New
-                                </LemonButton>
-                            </Shortcut>
-                        </AccessControlAction>
-                    </>
+                        </>
+                    )
                 }
             />
             <LemonTabs
