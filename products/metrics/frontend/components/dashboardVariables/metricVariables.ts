@@ -22,6 +22,49 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
+/** Follows the backend: a `#` comment holds no references, and a regex-escaped `$` in a string is a literal. */
+export function promqlReferencedNames(query: string | null | undefined): string[] {
+    const text = query ?? ''
+    // The quote of the string that holds each position, or '#' inside a comment.
+    const contexts: (string | null)[] = []
+    let quote: string | null = null
+    for (let index = 0; index < text.length; index++) {
+        const char = text[index]
+        contexts[index] = quote
+        if (quote === '#') {
+            quote = char === '\n' || char === '\r' ? null : quote
+        } else if (quote) {
+            if (char === '\\' && quote !== '`') {
+                contexts[index + 1] = quote
+                index++
+            } else if (char === quote) {
+                quote = null
+            }
+        } else if (char === '#' || char === '"' || char === "'" || char === '`') {
+            quote = char
+            contexts[index] = char === '#' ? '#' : null
+        }
+    }
+    const names = new Set<string>()
+    for (const match of text.matchAll(REFERENCE)) {
+        const context = contexts[match.index] ?? null
+        if (context === '#') {
+            continue
+        }
+        if (context) {
+            let backslashes = 0
+            while (text[match.index - backslashes - 1] === '\\') {
+                backslashes++
+            }
+            if ((context === '`' ? backslashes : Math.floor(backslashes / 2)) % 2 === 1) {
+                continue
+            }
+        }
+        names.add(match[1] ?? match[2] ?? match[3])
+    }
+    return [...names]
+}
+
 const SQL_REFERENCE = /\$\{([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\$([A-Za-z0-9_]+)/y
 
 /** Follows the backend: comments and quoted identifiers hold no references, and `[[x]]` is a nested array. */
@@ -71,7 +114,8 @@ export function variableParents(variable: MetricsDashboardVariable, variables: M
         return []
     }
     const names = new Set(variables.map((other) => other.name))
-    const referenced = variable.source === 'sql' ? sqlReferencedNames(variable.query) : referencedNames(variable.query)
+    const referenced =
+        variable.source === 'sql' ? sqlReferencedNames(variable.query) : promqlReferencedNames(variable.query)
     return referenced.filter((name) => names.has(name))
 }
 
