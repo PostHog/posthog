@@ -100,6 +100,7 @@ describe('HogFunctionHandler', () => {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                systemEmailService: undefined as any,
             }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
