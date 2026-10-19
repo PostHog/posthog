@@ -502,6 +502,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         selectedConnectionId,
         hasEditorChanges,
         metadata,
+        activeQueryText,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal, saveAsCohort } = useActions(editorSceneLogic)
     const {
@@ -664,7 +665,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         if (isMultiQuery) {
             return 'Use a single SQL query to save a cohort'
         }
-        const tables = metadata?.query?.trim() === queryInput?.trim() ? metadata?.table_names : undefined
+        const tables =
+            metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
         const hasPersonId =
             response &&
             'columns' in response &&
@@ -682,6 +684,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         sourceQuery.source.executionTarget,
         isMultiQuery,
         metadata,
+        activeQueryText,
         queryInput,
         response,
     ])
