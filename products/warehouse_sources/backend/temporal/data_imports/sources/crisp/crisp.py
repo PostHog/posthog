@@ -1,6 +1,5 @@
-import dataclasses
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -11,9 +10,11 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
@@ -30,14 +31,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.settings import ENDPOINTS, CrispEndpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.settings import (
+    CONVERSATION_PARAMS,
+    ENDPOINTS,
+    CrispEndpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
+
+# A window that one list page holds cannot lose a conversation to a page shift during the run.
+WINDOW_PAGE_SIZE = int(CONVERSATION_PARAMS["per_page"])
+# An incremental message sync stops after this many conversations with messages, so that the run
+# completes and keeps its watermark. A website token allows 10,000 requests a day, and a backfill
+# that needs more would otherwise start again from zero every run.
+CONVERSATIONS_PER_RUN = 3000
+EARLIEST_UPDATE = datetime(2000, 1, 1, tzinfo=UTC)
+ONE_MILLISECOND = timedelta(milliseconds=1)
 
 
 @frozen
 class CrispResumeConfig:
     paginator_state: dict[str, Any]
     started_at: str | None = None
+    conversations_loaded: int = 0
 
 
 class CrispPathPaginator(PageNumberPaginator):
@@ -182,6 +197,37 @@ def parent_path_map(
     return encode_path
 
 
+def conversation_windows(
+    list_window: Callable[[datetime, datetime, bool], list[dict[str, Any]]],
+    start: datetime,
+    end: datetime,
+    done: Callable[[], bool],
+    safe_point: Callable[[], None],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the conversations updated in [start, end], oldest window first.
+
+    A full page can hide more conversations, so its window splits in two until one page holds it.
+    The halves share their middle millisecond, because Crisp does not document whether its date
+    filter includes the bounds. The fan-out skips a conversation that it already finished.
+    """
+    pending = [(start, end)]
+    while pending and not done():
+        low, high = pending.pop()
+        rows = list_window(low, high, False)
+        if len(rows) >= WINDOW_PAGE_SIZE:
+            # The left half is one millisecond wider than half the window, so only a window wider
+            # than two milliseconds splits into strictly smaller halves.
+            if high - low > 2 * ONE_MILLISECOND:
+                middle = low + (high - low) / 2
+                pending.append((middle, high))
+                pending.append((low, middle + ONE_MILLISECOND))
+                safe_point()
+                continue
+            # More conversations than a page share the same few milliseconds, so only page numbers reach them.
+            rows = list_window(low, high, True)
+        yield rows
+
+
 def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     for name in ("created_at", "updated_at", "conversation_updated_at", "timestamp", "dispatched_at", "waiting_since"):
         value = row.get(name)
@@ -193,6 +239,120 @@ def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
 def normalize_operator(row: dict[str, Any]) -> dict[str, Any]:
     # Pending invitations include credentials, so only joined operators enter the warehouse.
     return {"type": row["type"], **row["details"]}
+
+
+def windowed_messages_resource(
+    config: CrispSourceConfig,
+    inputs: SourceInputs,
+    api_version: str,
+    settings: CrispEndpoint,
+    started_at: datetime,
+    manager: ResumableSourceManager[CrispResumeConfig],
+    save_state: Callable[[dict[str, Any] | None], None],
+    initial_state: dict[str, Any] | None,
+    loaded_before: int,
+    with_messages: set[str],
+) -> Resource:
+    fanout = settings.fanout
+    assert fanout is not None
+    parent = ENDPOINTS[fanout.parent_name]
+    last_value = inputs.db_incremental_field_last_value
+    start = (
+        (last_value.replace(tzinfo=UTC) if last_value.tzinfo is None else last_value) - ONE_MILLISECOND
+        if isinstance(last_value, datetime)
+        else EARLIEST_UPDATE
+    )
+
+    def list_window(low: datetime, high: datetime, all_pages: bool) -> list[dict[str, Any]]:
+        endpoint = endpoint_config(parent, config.website_id)
+        endpoint["params"] = {
+            **CONVERSATION_PARAMS,
+            "order_date_created": "1",
+            "filter_date_start": format_updated_since(low),
+            "filter_date_end": format_updated_since(high),
+        }
+        if not all_pages:
+            endpoint["paginator"] = SinglePagePaginator()
+        window: RESTAPIConfig = {
+            "client": client_config(config, api_version),
+            "resources": [{"name": parent.name, "endpoint": endpoint}],
+        }
+        rows: list[dict[str, Any]] = []
+        for page in rest_api_resource(window, inputs.team_id, inputs.job_id, None):
+            rows.extend(page if isinstance(page, list) else [page])
+        return rows
+
+    def count_conversation(row: dict[str, Any]) -> dict[str, Any]:
+        with_messages.add(str(row.get("session_id")))
+        return row
+
+    child_endpoint = endpoint_config(settings, config.website_id)
+    child_endpoint["params"] = {
+        fanout.resolve_param: {"type": "resolve", "resource": parent.name, "field": fanout.resolve_field}
+    }
+    child_endpoint["response_actions"] = [
+        *fanout.child_response_actions,
+        *(child_endpoint.get("response_actions") or []),
+    ]
+
+    finished_before = set((initial_state or {}).get("completed") or [])
+    child_path = child_endpoint["path"]
+    assert child_path is not None
+    cutoff_ms = started_at.timestamp() * 1000
+
+    def unread(row: dict[str, Any]) -> bool:
+        updated_at = row.get("updated_at")
+        if isinstance(updated_at, int | float) and updated_at > cutoff_ms:
+            # parent_path_map defers this conversation, so the fan-out reads nothing for it.
+            return False
+        return child_path.format(session_id=quote(str(row.get("session_id")), safe="")) not in finished_before
+
+    # An earlier attempt can stop inside a window. If this attempt stopped before it finished that
+    # window, the watermark of the run would skip the window's unread conversations. So a resumed
+    # attempt may stop only after it reaches a window with a conversation that it has to read.
+    caught_up = not finished_before
+
+    def done() -> bool:
+        return caught_up and loaded_before + len(with_messages) >= CONVERSATIONS_PER_RUN
+
+    def windows() -> Iterator[list[dict[str, Any]]]:
+        nonlocal caught_up
+        for rows in conversation_windows(list_window, start, started_at, done, manager.safe_point):
+            caught_up = caught_up or any(unread(row) for row in rows)
+            yield rows
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config(config, api_version),
+        "resources": [
+            {
+                "name": parent.name,
+                "table_name": parent.name,
+                "write_disposition": "replace",
+                "endpoint": endpoint_config(parent, config.website_id),
+                "data_iterator": windows,
+                "data_map": parent_path_map(fanout.resolve_param, fanout.include_from_parent, started_at),
+            },
+            {
+                "name": settings.name,
+                "table_name": settings.name,
+                "write_disposition": {"disposition": "merge", "strategy": "upsert"},
+                "include_from_parent": fanout.include_from_parent,
+                "endpoint": child_endpoint,
+                "table_format": "delta",
+            },
+        ],
+    }
+    resources = rest_api_resources(
+        rest_config,
+        inputs.team_id,
+        inputs.job_id,
+        None,
+        resume_hook=save_state,
+        initial_paginator_state=initial_state,
+    )
+    child = next(resource for resource in resources if resource.name == settings.name)
+    child.add_map(rename_parent_fields(parent.name, fanout.parent_field_renames))
+    return child.add_map(count_conversation)
 
 
 def credential_resource(config: CrispSourceConfig, team_id: int, api_version: str, schema_name: str | None) -> Resource:
@@ -235,14 +395,34 @@ def crisp_source(
         else datetime.now(UTC)
     )
 
+    loaded_before = resume.conversations_loaded if resume is not None else 0
+    with_messages: set[str] = set()
+
     def save_state(state: dict[str, Any] | None) -> None:
         if state is not None:
             manager.save_state(
-                CrispResumeConfig(paginator_state=state, started_at=started_at.isoformat() if defer_changed else None)
+                CrispResumeConfig(
+                    paginator_state=state,
+                    started_at=started_at.isoformat() if defer_changed else None,
+                    conversations_loaded=loaded_before + len(with_messages) if defer_changed else 0,
+                )
             )
 
     initial_state = resume.paginator_state if resume is not None else None
-    if settings.fanout is not None:
+    if defer_changed:
+        resource = windowed_messages_resource(
+            config,
+            inputs,
+            api_version,
+            settings,
+            started_at,
+            manager,
+            save_state,
+            initial_state,
+            loaded_before,
+            with_messages,
+        )
+    elif settings.fanout is not None:
         parent = ENDPOINTS[settings.fanout.parent_name]
         parent_endpoint = endpoint_config(parent, config.website_id)
         parent_endpoint.pop("params", None)
@@ -252,33 +432,24 @@ def crisp_source(
             *settings.fanout.child_response_actions,
             *(child_endpoint.get("response_actions") or []),
         ]
-        resource = build_dependent_resource(
+        dependent = build_dependent_resource(
             endpoint_configs=ENDPOINTS,
             child_endpoint=settings.name,
-            fanout=dataclasses.replace(settings.fanout, parent_params=list_params(parent, inputs))
-            if incremental
-            else settings.fanout,
+            fanout=settings.fanout,
             client_config=client_config(config, api_version),
             path_format_values={"website_id": quote(config.website_id, safe="")},
             team_id=inputs.team_id,
             job_id=inputs.job_id,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value if incremental else None,
-            should_use_incremental_field=incremental,
-            incremental_field=inputs.incremental_field,
-            # The watermark filters the parent list, so it binds to no child request param.
-            incremental_config_factory=lambda _field: None,
+            db_incremental_field_last_value=None,
             parent_endpoint_extra=parent_endpoint,
             child_endpoint_extra=child_endpoint,
-            parent_data_map=parent_path_map(
-                settings.fanout.resolve_param,
-                settings.fanout.include_from_parent,
-                started_at if defer_changed else None,
-            ),
+            parent_data_map=parent_path_map(settings.fanout.resolve_param, settings.fanout.include_from_parent),
             page_size_param=None,
             resume_hook=save_state,
             initial_paginator_state=initial_state,
         )
-        assert isinstance(resource, Resource)
+        assert isinstance(dependent, Resource)
+        resource = dependent
     else:
         rest_config: RESTAPIConfig = {
             "client": client_config(config, api_version),

@@ -129,6 +129,7 @@ class TestSemgrepDevex:
     )
     @patch("hogli_commands.preflight_checks._semgrep_findings", side_effect=_every_line_is_a_finding)
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
     def test_only_findings_the_branch_introduced_are_reported(
         self,
         mock_which: MagicMock,
@@ -152,6 +153,7 @@ class TestSemgrepDevex:
         "hogli_commands.preflight_checks._semgrep_findings", side_effect=SemgrepUnavailable("tool cache unavailable")
     )
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
     def test_an_incomplete_scan_skips_instead_of_reporting(
         self, mock_which: MagicMock, mock_findings: MagicMock
     ) -> None:
@@ -173,6 +175,7 @@ class TestSemgrepDevex:
         assert "--offline" in command
 
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
     def test_baseline_scan_uses_only_the_remaining_check_budget(self, mock_which: MagicMock) -> None:
         clock = [100.0]
         scans = 0

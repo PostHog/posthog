@@ -895,6 +895,48 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("flag_on", True, status.HTTP_200_OK),
+            ("flag_off", False, status.HTTP_400_BAD_REQUEST),
+            ("flag_error_fails_closed", RuntimeError("flags unavailable"), status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_model_sort_flag_opens_lifts_but_not_raw_scores_to_non_staff(self, _name, flag, expected_status):
+        self.user.is_staff = False
+        self.user.save()
+        high = self._create_report(title="High")
+        low = self._create_report(title="Low")
+        self._ranking_score_artefact(high, scores={"open": 0.8123}, lifts={"open": 3.2})
+        self._ranking_score_artefact(low, scores={"open": 0.1234}, lifts={"open": 0.5})
+
+        evaluate = {"side_effect": flag} if isinstance(flag, Exception) else {"return_value": flag}
+        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", **evaluate):
+            response = self.client.get(self._list_url(status="ready", ordering="-ranking_open,status,-updated_at"))
+            detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{high.id}/")
+
+        assert response.status_code == expected_status
+        if expected_status != status.HTTP_200_OK:
+            assert response.json()["attr"] == "ordering"
+            assert detail.json()["ranking"] is None
+            return
+        rows = response.json()["results"]
+        assert [row["id"] for row in rows] == [str(high.id), str(low.id)]
+        assert detail.json()["ranking"] == rows[0]["ranking"]
+        assert rows[0]["ranking"] == {
+            "served_key": "",
+            "model_name": "",
+            "model_version": "",
+            "manifest_version": "",
+            "scored_at": "2026-09-20T12:00:00Z",
+            "scores": {},
+            "lifts": {"open": 3.2},
+            "readable_heads": ["open"],
+            "stale": False,
+        }
+        for raw_score in ("0.1234", "0.8123", "report_embeddings"):
+            assert raw_score not in response.content.decode()
+
+    @parameterized.expand(
+        [
             ("edit_before_the_scored_vector", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 10, False),
             ("edit_after_the_vector_before_scored_at", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 11, True),
             ("edit_after_scored_at_without_a_vector_time", None, 13, True),
@@ -957,15 +999,34 @@ class TestSignalReportListAPI(APIBaseTest):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
-        artefact = self._ranking_score_artefact(report)
+        full_heads = [
+            {"head": "open", "readable": True, "refit_classification_threshold": 0.25, "holdout": {"auc": 0.7}},
+            {"head": "merged", "readable": False},
+        ]
+        artefact = self._ranking_score_artefact(report, heads=full_heads)
+        SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.NOTE, content=json.dumps({})
+        )
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert [row["type"] for row in response.json()["results"]] == expected_types
+        rows = response.json()["results"]
+        assert [row["type"] for row in rows] == ["note", *expected_types]
 
         detail = self.client.get(f"{url}{artefact.id}/")
         assert detail.status_code == (status.HTTP_200_OK if is_staff else status.HTTP_404_NOT_FOUND)
+        if is_staff:
+            served_key = "report_embeddings@2026-09-01"
+            listed = rows[1]["content"]["results"][served_key]
+            assert listed["scores"] == {"open": 0.5, "merged": 0.2}
+            assert listed["metadata"] == {
+                "heads": [
+                    {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
+                    {"head": "merged", "readable": False},
+                ]
+            }
+            assert detail.json()["content"]["results"][served_key]["metadata"] == {"heads": full_heads}
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -1375,13 +1436,17 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", {"return_value": None}),
-            ("control", {"return_value": "control"}),
-            ("unknown_variant", {"return_value": "test-2"}),
-            ("flag_error", {"side_effect": RuntimeError("flags down")}),
+            ("flag_off", {"return_value": None}, None),
+            ("control", {"return_value": "control"}, None),
+            ("unknown_variant", {"return_value": "test"}, None),
+            ("non_recommended_head", {"return_value": "discuss"}, None),
+            ("flag_error", {"side_effect": RuntimeError("flags down")}, None),
+            ("eu_instance", {"return_value": "fixed"}, "EU"),
         ]
     )
-    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_test(self, _name, flag_result):
+    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_a_head(
+        self, _name, flag_result, cloud_deployment
+    ):
         p2 = self._create_report(title="P2")
         p0 = self._create_report(title="P0")
         no_priority = self._create_report(title="No priority")
@@ -1389,9 +1454,16 @@ class TestSignalReportListAPI(APIBaseTest):
         self._priority_artefact(p0, priority="P0")
         self._ranking_score_artefact(p2, scores={"fixed": 0.9})
 
-        with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result):
+        with (
+            self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
+            patch(
+                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result
+            ) as get_flag,
+        ):
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
+        if cloud_deployment == "EU":
+            get_flag.assert_not_called()
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["ranker"] == "priority"
@@ -1401,7 +1473,8 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(no_priority.id), 65),
         ]
 
-    def test_recommended_sort_test_variant_ranks_by_fixed_head_without_showing_scores_to_non_staff(self):
+    @parameterized.expand([("open",), ("action",), ("fixed",)])
+    def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, head):
         self.user.is_staff = False
         self.user.save()
         low_p0 = self._create_report(title="Low P0")
@@ -1417,10 +1490,17 @@ class TestSignalReportListAPI(APIBaseTest):
             (stale_p0, "P0"),
         ):
             self._priority_artefact(report, priority=priority)
-        self._ranking_score_artefact(low_p0, scores={"fixed": 0.1234})
-        self._ranking_score_artefact(high_p3, scores={"fixed": 0.8765})
-        self._ranking_score_artefact(same_decile_p0, scores={"fixed": 0.8123})
-        self._ranking_score_artefact(stale_p0, scores={"fixed": 0.9876})
+        other_heads = [h for h in ("open", "action", "fixed") if h != head]
+        # The other heads score in reverse, so an order from the wrong head fails the assertion.
+        for report, score in (
+            (low_p0, 0.1234),
+            (high_p3, 0.8765),
+            (same_decile_p0, 0.8123),
+            (stale_p0, 0.9876),
+        ):
+            self._ranking_score_artefact(
+                report, scores={head: score, **{other: round(1 - score, 4) for other in other_heads}}
+            )
         SignalReportArtefact.objects.create(
             team=self.team,
             report=stale_p0,
@@ -1429,14 +1509,14 @@ class TestSignalReportListAPI(APIBaseTest):
         )
 
         with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value="test"
+            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=head
         ) as get_flag:
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
-        assert body["ranker"] == "fixed"
+        assert body["ranker"] == head
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
             (str(same_decile_p0.id), 6),
             (str(high_p3.id), 9),
@@ -1586,7 +1666,6 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        # Neither report has a score or a priority, so the newest comes first.
         assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
 
@@ -1611,6 +1690,67 @@ class TestSignalReportListAPI(APIBaseTest):
         assert with_unowned.json()["count"] == 2
         assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
         assert without_unowned.json()["count"] == 1
+
+    def test_for_you_pages_the_ranked_list_without_the_excluded_reports(self):
+        by_priority: dict[str | None, str] = {}
+        for priority in ["P3", None, "P1", "P2"]:
+            report = self._create_report(title=f"Priority {priority}")
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            self._priority_artefact(report, priority=priority)
+            by_priority[priority] = str(report.id)
+
+        def for_you(**query: object) -> dict:
+            response = self.client.get(f"{self._list_url()}for_you/?{urlencode(query)}")
+            assert response.status_code == status.HTTP_200_OK
+            return response.json()
+
+        everything = for_you(limit=20)
+        page = for_you(limit=1, offset=1, exclude=f"{by_priority['P1']},{by_priority['P2']}")
+
+        assert [row["id"] for row in everything["results"]] == [by_priority[p] for p in ["P1", "P2", "P3", None]]
+        assert everything["count"] == 4
+        assert [row["id"] for row in page["results"]] == [by_priority[None]]
+        assert page["count"] == 2
+
+    def test_for_you_uses_the_inbox_control_order_without_joining_the_sort_experiment(self):
+        titles: dict[str, str] = {}
+        for title, priority, open_score in [
+            ("P0 low score", "P0", 0.15),
+            ("P2 high score", "P2", 0.85),
+            ("P1 unscored", "P1", None),
+        ]:
+            report = self._create_report(title=title)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            self._priority_artefact(report, priority=priority)
+            if open_score is not None:
+                self._ranking_score_artefact(report, scores={"open": open_score})
+            titles[str(report.id)] = title
+        flag = "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag"
+
+        with patch(flag, return_value="control"):
+            inbox = self.client.get(self._list_url(sort="recommended", suggested_reviewers=str(self.user.uuid)))
+        with patch(flag, return_value="open") as get_flag:
+            for_you = self.client.get(f"{self._list_url()}for_you/?limit=20")
+
+        assert inbox.status_code == status.HTTP_200_OK
+        assert for_you.status_code == status.HTTP_200_OK
+        get_flag.assert_not_called()
+        assert [titles[row["id"]] for row in for_you.json()["results"]] == [
+            "P0 low score",
+            "P1 unscored",
+            "P2 high score",
+        ]
+        assert for_you.json()["results"] == inbox.json()["results"]
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them
@@ -2138,6 +2278,35 @@ class TestSignalReportListAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 3
         assert len(body["results"]) == 1
+
+    @parameterized.expand(
+        [
+            ("short_first_page", 10, 0, 3, False, False),
+            ("short_last_page", 2, 2, 1, False, False),
+            ("exact_full_page", 3, 0, 3, True, False),
+            ("full_page_with_more", 2, 0, 2, True, True),
+            ("offset_past_the_end", 2, 5, 0, True, False),
+        ]
+    )
+    def test_search_page_counts_without_a_second_scan_when_the_page_is_short(
+        self, _name: str, limit: int, offset: int, rows: int, runs_count_query: bool, has_next: bool
+    ) -> None:
+        for i in range(3):
+            self._create_report(title=f"Checkout failure {i}")
+        self._create_report(title="Unrelated")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(search="checkout", limit=limit, offset=offset))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert len(body["results"]) == rows
+        assert (body["next"] is not None) == has_next
+        count_queries = [
+            q for q in ctx.captured_queries if 'COUNT(*) AS "__count" FROM "signals_signalreport"' in q["sql"]
+        ]
+        assert bool(count_queries) == runs_count_query
 
     def test_filter_actionability_absent_returns_all(self):
         a = self._create_report(title="A")

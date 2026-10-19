@@ -200,10 +200,21 @@ def _note_oob_domain(request: PreparedRequest) -> None:
 
     try:
         host = urlparse(request.url or "").hostname
-        oob_domain = matched_oob_domain(host) if host else None
-    except Exception:
+    except Exception as exc:
         # Detection never fails a request: a malformed URL is the connection's problem to report.
-        logger.exception("security.oob_domain_check_failed", url=request.url)
+        # `requests` rejects a URL it cannot parse before `send()`, so reaching this means the two
+        # parsers disagree. The URL stays out of the line because it carries the credential that
+        # `record_request` scrubs; it logs the same request a moment later.
+        logger.warning("security.oob_domain_url_unparsed", error=type(exc).__name__)
+        return
+
+    if host is None:
+        return
+
+    try:
+        oob_domain = matched_oob_domain(host)
+    except Exception:
+        logger.exception("security.oob_domain_check_failed", host=host)
         return
 
     if oob_domain is not None:

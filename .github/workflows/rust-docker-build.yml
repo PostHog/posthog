@@ -51,7 +51,7 @@ jobs:
             github.event_name != 'workflow_dispatch' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' ||
-             github.event.pull_request.head.repo.full_name == github.repository)
+             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         permissions:
             contents: read
         outputs:
@@ -93,7 +93,7 @@ jobs:
             !cancelled() &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' ||
-             github.event.pull_request.head.repo.full_name == github.repository) &&
+             github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             needs.affected.result != 'failure' &&
             needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
@@ -201,6 +201,9 @@ jobs:
                     - release: personhog-identity
                       digest_key: personhog-identity
                       values_key: image
+                    - release: personhog-publisher
+                      digest_key: personhog-publisher
+                      values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader
                       values_key: image
@@ -263,7 +266,7 @@ jobs:
                         "values": {"${{ matrix.values_key }}": {"sha": "${{ steps.check.outputs.digest }}"}},
                         "release": "${{ matrix.release }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

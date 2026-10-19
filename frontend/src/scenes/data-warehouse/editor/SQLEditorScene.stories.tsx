@@ -6,6 +6,7 @@ import { BindLogic } from 'kea'
 import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import {
     DatabaseSchemaMaterializedViewTable,
@@ -23,7 +25,11 @@ import {
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { buildBIQuery, getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import {
+    buildBIQuery,
+    getBIResultDimensions,
+    getBIResultMeasureColumns,
+} from 'products/business_intelligence/frontend/biEditorTypes'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
 import { expect, userEvent } from 'storybook/test'
@@ -86,6 +92,26 @@ const SQL_RESULTS = {
         ['filesystem', 'exec', 5200, 2290, 208],
         ['filesystem', 'read-file', 980, 180, 3],
         ['filesystem', 'write-file', 420, 240, 11],
+    ],
+}
+
+const HARNESS_SQL = `SELECT properties.$virt_mcp_harness AS harness, count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+GROUP BY harness
+ORDER BY calls DESC`
+
+const HARNESS_RESULTS = {
+    columns: ['harness', 'calls'],
+    column_formats: ['mcp_harness', null],
+    types: [
+        ['harness', 'String'],
+        ['calls', 'UInt64'],
+    ],
+    results: [
+        ['Claude Code', 12],
+        ['OpenAI Codex', 7],
+        ['Other', 2],
     ],
 }
 
@@ -165,6 +191,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
                 '/api/:scope/:team_id/external_data_sources/connections/': [],
                 '/api/:scope/:team_id/external_data_sources/direct_connection_options/': [],
+                '/api/projects/:team_id/query_tab_state/user': [200, { tabs: [] }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -178,6 +205,9 @@ const meta: Meta = {
                     }
                     if (body?.query?.query === 'SELECT category, revenue FROM example_sales') {
                         return [200, CHART_EXPERIMENT_RESULTS]
+                    }
+                    if (JSON.stringify(body?.query ?? {}).includes('$virt_mcp_harness')) {
+                        return [200, HARNESS_RESULTS]
                     }
                     return [200, SQL_RESULTS]
                 },
@@ -203,6 +233,40 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const CustomerImages: Story = {
+    tags: ['hogqlx-images'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: IMAGE_QUERY }),
+        testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewport: { width: 1600, height: 900 } },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': IMAGE_RESULTS,
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const editor = sqlEditorLogic({ tabId: 'default' })
+        await waitFor(() => {
+            expect(editor.values.queryInput).toBe(IMAGE_QUERY)
+            expect(dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })).toBeDefined()
+        })
+        const runButton = canvasElement.querySelector('[data-attr="sql-editor-run-button"]')
+        expect(runButton).not.toBeNull()
+        await userEvent.click(runButton!)
+        await waitFor(() => {
+            const image = canvasElement.querySelector('img[alt="Custom SVG"]')
+            expect(image).not.toBeNull()
+            expect(image!.getBoundingClientRect().height).toBeLessThanOrEqual(24)
+            const labels = canvasElement.querySelectorAll('[data-attr="hogqlx-brand-mark-label"]')
+            expect(Array.from(labels, (label) => label.textContent)).toEqual(['true', 'false'])
+        })
+        const dataLogic = dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })!
+        dataLogic.actions.setElapsedTime(180)
+    },
+}
+
 export const HostedTrino: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
@@ -215,6 +279,36 @@ export const HostedTrino: Story = {
                 },
             },
         },
+    },
+}
+
+export const HarnessLogoInResults: Story = {
+    tags: ['harness-result-visual'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        testOptions: {
+            waitForSelector: '.rdg [data-attr="hogqlx-brand-mark-label"]',
+            viewport: { width: 1600, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(
+            () => {
+                const logic = sqlEditorLogic({ tabId: 'default' })
+                expect(logic.values.queryInput).toBe(HARNESS_SQL)
+                expect(dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })).toBeTruthy()
+            },
+            { timeout: 15000 }
+        )
+        const runButton = await canvas.findByRole('button', { name: 'Run' }, { timeout: 15000 })
+        await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        mcpHintLogic.actions.recordShown(Date.now())
+        await userEvent.click(runButton)
+        await expect(
+            await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
+        ).toBeVisible()
+        await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
     },
 }
 
@@ -958,7 +1052,7 @@ const CHART_EXPERIMENT_RESULTS = {
 }
 
 const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDelay = 0): Record<string, unknown> => ({
-    featureFlags: ['ml-inference-decisions', 'jev-chart-autodetection'],
+    featureFlags: ['ml-inference-decisions'],
     pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
     msw: {
         mocks: {
@@ -1530,7 +1624,13 @@ export const BINamedHierarchy: Story = {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await userEvent.click(await canvas.findByText('120', { exact: true }))
-        await waitFor(() => expect(within(document.body).getByRole('link', { name: 'Drill to State' })).toBeVisible())
+        await userEvent.click(
+            await within(document.body).findByRole('button', {
+                name: 'Geography: filters this worksheet to the selection',
+            })
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvas.getByText('Example state', { exact: true })).toBeVisible())
         await stabilizeQueryElapsedTime()
     },
 }
@@ -1558,5 +1658,102 @@ export const BINumericBins: Story = {
         await userEvent.click(await canvas.findByLabelText('Options for revenue', {}, { timeout: 15000 }))
         const body = within(canvasElement.ownerDocument.body)
         await userEvent.click(await body.findByText('Create numeric bins', { exact: true }))
+    },
+}
+export const BICatalogSource: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 1,
+                        next: null,
+                        results: [
+                            {
+                                id: 'proposal-example',
+                                source_table_name: 'events',
+                                source_table_key: 'account_id',
+                                joining_table_name: 'accounts',
+                                joining_table_key: 'id',
+                                field_name: 'account',
+                                status: 'proposed',
+                                reasoning: 'Connect each event to its account.',
+                            },
+                        ],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'String', 'Float64'],
+                        results: [
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-03', 'purchase', 150],
+                        ],
+                        hasMore: false,
+                    },
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: BI_EVENTS_FIELDS,
+                                certification: {
+                                    status: 'certified',
+                                    notes: 'Use this source for product activity worksheets.',
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BICatalogSnapshot: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}?metric=weekly_revenue`,
+        testOptions: { waitForSelector: '[data-attr="bi-catalog-snapshot"]' },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/weekly_revenue/': {
+                        name: 'weekly_revenue',
+                        display_name: 'Weekly revenue',
+                        definition: {
+                            kind: NodeKind.HogQLQuery,
+                            query: "SELECT sum(revenue) AS revenue FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
+                        },
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['revenue'],
+                        types: ['Float64'],
+                        results: [[450]],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
 }

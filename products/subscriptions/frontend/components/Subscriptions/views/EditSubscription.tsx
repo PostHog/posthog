@@ -246,7 +246,8 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
     const {
         subscription,
         subscriptionLoading,
@@ -498,6 +499,11 @@ export function EditSubscription({
                                             data-attr="subscribed-emails"
                                             options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
+                                            onFocus={() => {
+                                                if (!members) {
+                                                    ensureAllMembersLoaded()
+                                                }
+                                            }}
                                             placeholder="Enter an email address"
                                         />
                                     )}

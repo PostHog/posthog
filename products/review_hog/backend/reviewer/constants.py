@@ -169,9 +169,11 @@ FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
 # The first review keeps more of what it finds. A finding the cap cuts is recorded only as a dropped finding, so
 # a later turn finds it again and posts it on its own, one push at a time.
 FLASH_FIRST_REVIEW_CAP_MULTIPLIER = 2
-# Turns up to this run review the whole pull request: one run finds only part of what is there, so a second pass
-# is worth it. A later automatic follow-up only comments on what its push changed, plus must-fix anywhere.
-FLASH_WHOLE_PR_TURNS = 2
+# Turns up to this run review the whole pull request. Run 1 does this with the larger cap above. Each later
+# automatic turn only comments on what its push changed, plus must-fix anywhere, so a fix push draws findings
+# about the fix and not new opinions on code that earlier turns already covered. A review someone requests
+# (comment, label, or UI) is not limited this way and reviews the whole pull request.
+FLASH_WHOLE_PR_TURNS = 1
 
 
 def flash_max_findings(lens_part_count: int) -> int:

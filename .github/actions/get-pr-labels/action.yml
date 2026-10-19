@@ -14,11 +14,32 @@ runs:
     steps:
         - name: Get PR associated with the last commit
           id: pr-info
-          uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae # v3.0.0
-          with:
-              route: GET /repos/${{ github.repository }}/commits/${{ github.sha }}/pulls
+          shell: bash
           env:
               GITHUB_TOKEN: ${{ inputs.token }}
+              SHA: ${{ github.sha }}
+          run: |
+              response="$RUNNER_TEMP/pr-info.json"
+              for attempt in 1 2 3; do
+                status=$(curl -sS --connect-timeout 10 -o "$response" -w '%{http_code}' \
+                  -H "Authorization: Bearer $GITHUB_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/PostHog/posthog/commits/$SHA/pulls") || status=000
+                case "$status" in
+                  200)
+                    { echo "data<<PR_INFO_EOF"; cat "$response"; echo; echo "PR_INFO_EOF"; } >> "$GITHUB_OUTPUT"
+                    exit 0
+                    ;;
+                  404|422)
+                    echo "::notice::$SHA is not a PostHog/posthog commit, so it has no PR labels."
+                    exit 0
+                    ;;
+                esac
+                echo "::warning::PR lookup attempt $attempt returned HTTP $status"
+                sleep $((attempt * 10))
+              done
+              echo "::error::PR lookup failed with HTTP $status after 3 attempts"
+              exit 1
 
         - name: Extract PR number
           shell: bash
@@ -36,7 +57,7 @@ runs:
           env:
               GITHUB_TOKEN: ${{ inputs.token }}
               PR_NUMBER: ${{ steps.extract-pr.outputs.PR_NUMBER }}
-              REPOSITORY: ${{ github.repository }}
+              REPOSITORY: PostHog/posthog
           run: |
               if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
                 echo labels="[]" >> $GITHUB_OUTPUT

@@ -43,6 +43,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
 from products.signals.backend.enums import ReportLinkKind, ToolPreset
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
@@ -187,6 +188,11 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     Status and timestamps flow from the linked `tasks.TaskRun`.
     """
 
+    total_spend = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.",
+    )
     run_id = serializers.CharField(help_text="UUID of the bridge row.")
     skill_name = serializers.CharField(
         help_text="Canonical skill name the run executed (e.g. `signals-scout-general`)."
@@ -917,6 +923,7 @@ class ScoutFleetSyncQuerySerializer(serializers.Serializer):
             "Which surface asked for the materialization, recorded on the "
             "`signals_scout_fleet_synced` analytics event so a fleet a person's tab-open "
             "delivered is separable from one the coordinator was going to deliver anyway. "
+            "The onboarding surface creates new configs disabled until the user activates them. "
             "Omitted means unknown."
         ),
     )
@@ -925,6 +932,14 @@ class ScoutFleetSyncQuerySerializer(serializers.Serializer):
 class RecentRunsPerScoutQuerySerializer(serializers.Serializer):
     """Query parameters for the `recent-per-scout` action."""
 
+    skill_name = serializers.CharField(
+        required=False,
+        max_length=255,
+        help_text=(
+            "Return only this scout's runs. Omit to cover every configured scout. A single-scout "
+            "page passes it so it does not wait on the probes of the rest of the fleet."
+        ),
+    )
     per_scout_limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -2711,8 +2726,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
 class ProjectProfilePayloadSerializer(serializers.Serializer):
     """Top-level `payload` shape on a `SignalProjectProfile` row.
 
-    v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
-    `narrative` slots — they're absent (not null) in v1 responses.
+    Carries `inventory` only.
     """
 
     inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
@@ -2790,9 +2804,9 @@ class ProjectProfileSerializer(serializers.Serializer):
     """Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
 
     Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
-    is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
-    latest cached profile or a freshly-built one if the cache was stale or the caller passed
-    `force_refresh=true`.
+    is per-team with a soft TTL (`PROFILE_TTL`). The internal scout token gets a fresh
+    profile, built on a stale cache or `force_refresh=true`. Other callers get the newest
+    stored profile, with `stale=true` when it is past `expires_at`.
 
     `summary` leads the response and `payload` trails it: the inventory runs to tens of
     kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
@@ -2808,6 +2822,12 @@ class ProjectProfileSerializer(serializers.Serializer):
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
     computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
     expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the profile is past `expires_at`. Only read-only callers get a stale profile. "
+            "Read `computed_at` to see how old it is, and verify a detail live when its age matters."
+        ),
+    )
     source_version = serializers.CharField(
         help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
     )
@@ -2961,6 +2981,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         raise RuntimeError("Scout config output destination validation requires project_id in its context")
 
     integration_id = slack["integration_id"]
+    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
     integration = Integration.objects.filter(
         id=integration_id,
         team__project_id=project_id,
@@ -3381,11 +3402,6 @@ def validate_allowed_mcp_tools(value: list[str] | None) -> list[str] | None:
     return sorted(set(value))
 
 
-class ScoutOrigin(models.TextChoices):
-    CANONICAL = "canonical", "canonical"
-    CUSTOM = "custom", "custom"
-
-
 class ScoutRole(models.TextChoices):
     SPECIALIST = "specialist", "specialist"
     OPERATIONAL = "operational", "operational"
@@ -3589,6 +3605,32 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
+    last_precheck_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run "
+            "row, so this stays recent while `last_run_at` ages. Null if no pre-check has run."
+        ),
+    )
+    last_precheck_outcome = serializers.ChoiceField(
+        choices=SignalScoutConfig.PrecheckOutcome.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The outcome of the latest scheduled pre-check: `run` (the query found something new), "
+            "`skip` (nothing new, so the run did not start), or `error` (the query failed and the run "
+            "started). Null if no pre-check has run."
+        ),
+    )
+    last_precheck_row_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            f"How many rows the latest scheduled pre-check returned, at most {PRECHECK_MAX_ROWS}. "
+            "Null if no pre-check has run."
+        ),
+    )
     consecutive_failure_count = serializers.IntegerField(
         read_only=True,
         help_text=(
@@ -3755,6 +3797,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "precheck_disabled",
             "effective_precheck_query",
             "precheck_query_source",
+            "last_precheck_at",
+            "last_precheck_outcome",
+            "last_precheck_row_count",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",

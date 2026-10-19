@@ -10,6 +10,8 @@ MAX_SOURCES_PER_TEAM = 500
 # Generated sources are excluded from MAX_SOURCES_PER_TEAM. This bounds the
 # sources list when learning publishes one text source per accepted topic.
 MAX_LEARNED_SOURCES_PER_TEAM = 10000
+MAX_LIBRARIES_PER_TEAM = 100
+DEFAULT_LIBRARY_NAME = "Learned"
 MAX_CHUNKS_PER_TEAM = 250_000
 # 1 MB of raw text. Above this Stage 1 refuses the create; for longer docs the
 # customer is expected to split them or wait for Stage 2/3.
@@ -195,6 +197,13 @@ BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 # `search_knowledge` also clamps its anchor count to the max.
 BK_SEARCH_DEFAULT_LIMIT = 10
 BK_SEARCH_MAX_LIMIT = 20
+# A library-scoped semantic query filters ClickHouse by document id. The query
+# already carries a 1,536-float embedding (~30 KB). Past this many ids the IN
+# list is dropped and the Postgres rejoin does the filter instead.
+BK_LIBRARY_SEMANTIC_DOCUMENT_CAP = 2_000
+# Fixed upper bound on that unfiltered ClickHouse pull. The rejoin then drops
+# chunks whose source is outside the library.
+BK_LIBRARY_SEMANTIC_UNFILTERED_LIMIT = 200
 
 # --- Always-on context cap ---
 # Hard char cap for always-on sources injected into every support prompt.

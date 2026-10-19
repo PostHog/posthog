@@ -23,6 +23,12 @@ APPEND_ROLLBACK_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DELTA_COMPACT_DURING_REBUILD_TOTAL = Counter(
+    "warehouse_load_delta_compact_during_rebuild_total",
+    "Compaction checks between the batches of a rebuild run, by outcome",
+    labelnames=["outcome"],
+)
+
 PARQUET_READ_DURATION_SECONDS = Histogram(
     "warehouse_load_parquet_read_duration_seconds",
     "Duration of S3 parquet file reads",

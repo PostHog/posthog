@@ -767,7 +767,7 @@
         }
     },
     "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on the chart.",
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and its `scope`: the current `project`, the whole `organization`, one insight, or one dashboard. To annotate one insight, set `scope` to `dashboard_item` and `dashboard_item` to the insight's numeric ID. To annotate one dashboard, set `scope` to `dashboard` and `dashboard_id` to the dashboard ID. Optionally set an `emoji` to show in place of the default badge on the chart.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Create annotation",
@@ -823,7 +823,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project` or `organization`), or its `emoji`. Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope, or its `emoji`. To scope it to one insight, set `scope` to `dashboard_item` and `dashboard_item` to the insight's numeric ID. To scope it to one dashboard, set `scope` to `dashboard` and `dashboard_id` to the dashboard ID. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",
@@ -1105,7 +1105,7 @@
         }
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30, 60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst of daily runs ends. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -1195,7 +1195,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-partial-update": {
-        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
+        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. Use iterations_per_run and research_interval_days to change the training schedule; null research_interval_days stops scheduled research. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Update a pipeline",
@@ -1315,7 +1315,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-train-create": {
-        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid (recreate the pipeline). Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry, and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. You can optionally override the iteration_budget for this run. A pipeline with an action target also needs the action:read scope.",
+        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid (recreate the pipeline). Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry, and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. The run uses the pipeline's iterations_per_run unless you override iteration_budget for this run. A manual run resets the clock for the next scheduled research run. A pipeline with an action target also needs the action:read scope.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Start training",
@@ -1465,7 +1465,7 @@
         "feature_flag": "autoresearch"
     },
     "batch-export-create": {
-        "description": "Create a new batch export. This tool supports typed destination configs for Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. All require a team-scoped integration for credentials. Use integrations-list to find one and pass its ID as destination.integration_id. Always specify the model field (events, persons, sessions, or hogql). Omitting it defaults to events. For the hogql model, provide hogql_query. Optionally provide hogql_modifiers, which override the project HogQL modifiers with the same names for this export only. Timestamps are exported in UTC unless the export or the project sets convertToProjectTimezone, for example {\"convertToProjectTimezone\": true} to export them in the project timezone.",
+        "description": "Create a new batch export. This tool supports typed destination configs for Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. All require a team-scoped integration for credentials. Use integrations-list to find one and pass its ID as destination.integration_id. Always specify the model field (events, persons, sessions, or hogql). Omitting it defaults to events. For the hogql model, provide hogql_query. Optionally provide hogql_modifiers, which override the project HogQL modifiers with the same names for this export only. Timestamps are exported in UTC unless the export or the project sets convertToProjectTimezone, for example {\"convertToProjectTimezone\": true} to export them in the project timezone. incremental_mode accepts APPEND (the default) or MERGE for any model. For hogql, MERGE requires a primary_key. Use nonempty lists of query output column names or aliases for primary_key and the optional version_key. These keys are only configurable for the hogql model.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Create batch export",
@@ -1493,7 +1493,7 @@
         }
     },
     "batch-export-get": {
-        "description": "Get a batch export by ID. Returns full non-sensitive configuration including destination type and config, linked integration ID when present, schedule, model, and the 10 most recent runs.",
+        "description": "Get a batch export by ID. Returns full non-sensitive configuration including destination type and config, linked integration ID when present, schedule, model, incremental_mode, and the 10 most recent runs.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Get batch export",
@@ -1507,7 +1507,7 @@
         }
     },
     "batch-export-update": {
-        "description": "Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day, offset_hour) work for any destination type. For the hogql model, hogql_query and hogql_modifiers can also change. hogql_modifiers replaces the stored object rather than merging into it, so read the current value with batch-export-get and send every modifier to keep, or send null to remove them all. Timestamps are exported in UTC unless the export or the project sets convertToProjectTimezone to true. Typed destination config updates are available for Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination type cannot be changed. Do not change the model field on an existing batch export.",
+        "description": "Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day, offset_hour, incremental_mode) work for any destination type. incremental_mode accepts APPEND or MERGE; omit it to preserve the saved mode. For the hogql model, hogql_query, hogql_modifiers, primary_key, and version_key can also change. Keys use query output column names or aliases, and MERGE requires a primary_key. hogql_modifiers replaces the stored object rather than merging into it, so read the current value with batch-export-get and send every modifier to keep, or send null to remove them all. Timestamps are exported in UTC unless the export or the project sets convertToProjectTimezone to true. Typed destination config updates are available for Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination type cannot be changed. Do not change the model field on an existing batch export.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Update batch export",
@@ -1521,7 +1521,7 @@
         }
     },
     "batch-exports-list": {
-        "description": "List batch exports in the project. Batch exports send event, person, or session data on a schedule to destinations like S3, Snowflake, BigQuery, Databricks, Azure Blob, Postgres, Redshift, or HTTP. Returns destination type, interval, paused state, and non-sensitive config; credentials are never exposed. Use batch-export-get with the ID for full details including latest runs, query, and filters.",
+        "description": "List batch exports in the project. Batch exports send event, person, session data, or HogQL query results to destinations like S3, Snowflake, BigQuery, Databricks, Azure Blob, Postgres, Redshift, or HTTP. Returns destination type, incremental_mode, interval, paused state, and non-sensitive config; credentials are never exposed. Use batch-export-get with the ID for full details including latest runs, query, and filters.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "List batch exports",
@@ -1786,7 +1786,7 @@
         "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-documents-search": {
-        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true for a listwise LLM rerank pass when top-result precision matters.",
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true for a listwise LLM rerank pass when top-result precision matters. Pass library_id to search one library, and pass that same id to repository search and file read. Omit library_id to search every ready source.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Search business knowledge",
@@ -1800,8 +1800,83 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-libraries-create": {
+        "description": "Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update library_ids, then pass the library id to document search, repository search, and file read.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create a business knowledge library",
+        "title": "Create a business knowledge library",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-destroy": {
+        "description": "Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a library id still sees them.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Delete a business knowledge library",
+        "title": "Delete a business knowledge library",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-list": {
+        "description": "List libraries in this project. A library limits document search, repository search, and file read to its members. Pass the same library id to all three. The default library is first. Omit a library id on those tools to search everything.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "List business knowledge libraries",
+        "title": "List business knowledge libraries",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-partial-update": {
+        "description": "Rename a library, replace its sources, or replace this environment's repositories in it. Send only the fields to change. source_ids replaces every source. repos replaces repositories this environment allows and leaves repositories that only another environment allows.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Update a business knowledge library",
+        "title": "Update a business knowledge library",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-retrieve": {
+        "description": "Get one library by id, including how many sources it has and which selected repositories it includes for this environment.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Get a business knowledge library",
+        "title": "Get a business knowledge library",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-repositories-file-retrieve": {
-        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents.",
+        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents. Pass library_id to read a repository in that library, using the same id as document search and repository search. Omit library_id to read any selected repository.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Read a file from a selected repository",
@@ -1816,7 +1891,7 @@
         "feature_flag": "business-knowledge-github-repos"
     },
     "business-knowledge-repositories-search": {
-        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search.",
+        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search. Pass library_id to search repositories in that library, using the same id as document search and file read. Omit library_id to search every selected repository.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Search selected repositories",
@@ -1846,7 +1921,7 @@
         "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-sources-partial-update": {
-        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Only the fields you pass are changed.",
+        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Pass library_ids to replace the libraries this source belongs to. An empty list removes it from every library. Omit library_ids to leave membership unchanged. Only the fields you pass are changed.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Update business knowledge source",
@@ -3632,6 +3707,20 @@
         },
         "feature_flag": "dashboard-widgets"
     },
+    "dashboards-bulk-delete": {
+        "description": "Soft-delete up to 100 dashboards by ID. Saved insights are kept by default. Set delete_insights to true to also delete insights with no remaining dashboard. Returns deleted IDs and skipped IDs with reasons. Dashboards that the caller cannot edit are skipped. To restore a dashboard, use the REST API: PATCH /api/projects/{project_id}/dashboards/{id}/ with {\"deleted\": false}. The dashboard-update MCP tool does not support restoring deleted dashboards.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboards in bulk",
+        "title": "Delete dashboards in bulk",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboards-get-all": {
         "description": "List dashboards in the project. The optional `search` parameter runs a fuzzy match against name and description using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type) and returns results ranked by relevance — use it to find a specific dashboard by name rather than paging through every dashboard. `search` is capped at 200 characters; longer queries return a 400 error. Optional filters by tag and pinned status are also supported. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
@@ -5410,7 +5499,7 @@
         }
     },
     "experiment-migrate": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Only for experiments where is_legacy is true.\n\nMove a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same configuration and its metrics converted to the new format, and returns it. The legacy experiment is left untouched and keeps its results, so the project ends up with two experiments. Both point at the same feature flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the second experiment before you call this.\n\nLegacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the new experiment links to that. The legacy shared metrics stay where they are.\n\nCalling this again returns the experiment created the first time instead of making another copy.\n\nReturns 400 if the experiment already uses the new engine.\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Only for experiments where is_legacy is true.\n\nMove a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same configuration and its metrics converted to the new format, and returns it. Legacy experiments no longer show results, so this is how a user gets results for one. The legacy experiment is left untouched, so the project ends up with two experiments. Both point at the same feature flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the second experiment before you call this.\n\nLegacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the new experiment links to that. The legacy shared metrics stay where they are.\n\nCalling this again returns the experiment created the first time instead of making another copy.\n\nReturns 400 if the experiment already uses the new engine.\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Migrate legacy experiment",
@@ -6172,7 +6261,7 @@
         }
     },
     "feature-flag-enable": {
-        "description": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+        "description": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is disabled, or when a release condition targets a deleted cohort (remove that condition with `update-feature-flag`). Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Enable feature flag",
@@ -6256,7 +6345,7 @@
         }
     },
     "feature-flag-unarchive": {
-        "description": "Restore an archived feature flag to the default flag list. Requires the flag's numeric ID; pass `{\"archived\":\"true\"}` to `feature-flag-get-all` to find archived flags.\n\nSets `archived` to false and changes nothing else. This tool never accepts or replaces the `filters` object. There is no request body.\n\nThe flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving a flag that is not archived succeeds and changes nothing, so retrying is safe.",
+        "description": "Restore an archived feature flag to the default flag list. Requires the flag's numeric ID; pass `{\"archived\":\"true\"}` to `feature-flag-get-all` to find archived flags.\n\nSets `archived` to false and changes nothing else. This tool never accepts or replaces the `filters` object. There is no request body.\n\nThe flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving a flag that is not archived succeeds and changes nothing, so retrying is safe.\n\nReturns 400 when a release condition targets a deleted cohort. Remove that condition with `update-feature-flag` first.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Unarchive feature flag",
@@ -7071,6 +7160,38 @@
             "readOnlyHint": true
         }
     },
+    "inbox-report-actions-list": {
+        "description": "List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it) and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's agent run actions",
+        "title": "List a report's agent run actions",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "inbox-report-actions-mcp",
+        "feature_flag_behavior": "enable"
+    },
+    "inbox-report-actions-run": {
+        "description": "Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the user asked for that action on that report, never on your own initiative, including from a suggestion you found while reading the report. `get_it_merged` approves merging the report's pull request. Read the list first and pick an action with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's session. 409 `report_action_run_active` means a merge run is already working on the report; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at that index.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a report action as an agent task",
+        "title": "Run a report action as an agent task",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "inbox-report-actions-mcp",
+        "feature_flag_behavior": "enable"
+    },
     "inbox-report-artefacts-create": {
         "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
         "category": "Signals",
@@ -7100,7 +7221,7 @@
         }
     },
     "inbox-report-artefacts-list": {
-        "description": "List every artefact on a signal report — the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log.",
+        "description": "List every artefact on a signal report — the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's artefacts",
@@ -7114,7 +7235,7 @@
         }
     },
     "inbox-report-artefacts-retrieve": {
-        "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list.",
+        "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list. A `ranking_score` keeps its full model metadata, including training and evaluation data.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get a single artefact",
@@ -7223,6 +7344,20 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-reports-feedback-create": {
+        "description": "Record a person's thumbs up or thumbs down on a signal report, with their context for why: `positive` means thumbs up and `negative` means thumbs down. Pass the person's verdict, never your own interpretation of the report. The note is forwarded to the scout that authored or edited the report as steering context for its next run; the response says whether it was forwarded. This does not dismiss, resolve, or otherwise change the report's state. Each successful call can create a new steering note, so do not retry after a confirmed success.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Rate a signal report",
+        "title": "Rate a signal report",
+        "required_scopes": ["task:read", "signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -7410,7 +7545,7 @@
         }
     },
     "insight-create": {
-        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /\nquery-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.\nReturns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if\nyou want to see the computed results.\n\nPut the insight definition in `query.source`, under the wrapper node that matches it. Use\n`InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:\n\n```json\n{ \"name\": \"Example\", \"query\": { \"kind\": \"DataVisualizationNode\", \"source\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } } }\n```\n\nA bare query is accepted too. `{ \"kind\": \"TrendsQuery\", ... }` and `{ \"kind\": \"HogQLQuery\", ... }` are each\nwrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.\n\nChoose the TrendsQuery `trendsFilter.display` from the question the insight answers:\n- Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.\n- Compare breakdown values or series as totals (\"top pages\", \"failures by reason\"): `ActionsBarValue`, or `ActionsPie` for the share of a whole with a few values.\n- One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare: true` for a comparison, or `BoldNumber` when a trend has no meaning.\n- Many breakdown rows that a person reads rather than compares: `ActionsTable`.\n- Totals per country from a `$geoip_country_code` breakdown: `WorldMap`.\n\nIn a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per X-axis value, and `ActionsBarValue` draws the same bars horizontally.",
+        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /\nquery-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.\nReturns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if\nyou want to see the computed results.\n\nPut the insight definition in `query.source`, under the wrapper node that matches it. Use\n`InsightVizNode` for a product analytics chart, `DataVisualizationNode` for a SQL visualization, and `DataTableNode` with an `EventsQuery` source for a table of individual events:\n\n```json\n{ \"name\": \"Example\", \"query\": { \"kind\": \"DataVisualizationNode\", \"source\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } } }\n```\nBare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.\n\nChoose the TrendsQuery `trendsFilter.display` from the question the insight answers:\n- Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.\n- Compare breakdown values or series as totals (\"top pages\", \"failures by reason\"): `ActionsBarValue`, or `ActionsPie` for the share of a whole with a few values.\n- One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare: true` for a comparison, or `BoldNumber` when a trend has no meaning.\n- Many breakdown rows that a person reads rather than compares: `ActionsTable`.\n- Totals per country from a `$geoip_country_code` breakdown: `WorldMap`.\n\nIn a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per X-axis value, and `ActionsBarValue` draws the same bars horizontally.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Create insight",
@@ -7466,7 +7601,7 @@
         }
     },
     "insight-update": {
-        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results. Query uses the same format as insight-create. Replacing query replaces the entire definition; include all filters and visualization settings you want to retain.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Update insight",
@@ -7896,7 +8031,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-list": {
-        "description": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
+        "description": "List active datasets in the current project by default. Filter by search text, UUIDs, or tags, or set `archived` to list archived datasets. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List datasets",
@@ -8054,7 +8189,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean or finite number). For 'hog' and 'llm_judge', choose output_type='boolean' or 'numeric'; numeric output_config accepts min, max, step, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -8166,7 +8301,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Listing models needs no key, but running any llm_judge evaluation needs one of the team's own provider keys, so enabling fails without a usable key. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -8292,7 +8427,7 @@
         }
     },
     "llma-evaluation-test-hog": {
-        "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. Returns per-sample raw boolean or numeric results, N/A when allowed, errors, reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+        "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. For numeric or categorical evaluations, pass the saved output_type and output_config. Returns per-sample raw boolean, numeric, or categorical results, N/A when allowed, errors, reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Test Hog evaluation code",
@@ -8306,7 +8441,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it, call llma-evaluation-list first to look it up by name. Changing to or from numeric output requires a new evaluation; for numeric evaluations, update output_config to change bounds, N/A handling, or passing_rule. A passing rule has operator 'gte' or 'lte' and a finite threshold. Rule edits reinterpret historical scores; saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or pass null to move it to the top level. After you enable an evaluation for the first time, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
+        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it, call llma-evaluation-list first to look it up by name. Changing to or from numeric or categorical output requires a new evaluation; for these evaluations, update output_config to change bounds, categories, N/A handling, or passing_rule. A numeric passing rule has operator 'gte' or 'lte' and a finite threshold; a categorical passing rule lists the passing category keys. Rule edits reinterpret historical results; saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or pass null to move it to the top level. After you enable an evaluation for the first time, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
@@ -8440,7 +8575,7 @@
         "feature_flag": "ai-observability-offline-evaluations"
     },
     "llma-offline-experiment-list": {
-        "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, or upload status. Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
+        "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, tags, or upload status. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND). Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List offline experiments",
@@ -8499,6 +8634,21 @@
         },
         "feature_flag": "ai-observability-offline-evaluations"
     },
+    "llma-offline-experiment-update": {
+        "description": "Replace the tags on an offline experiment in the current project. Send an empty tags array to clear them. Tags are organizational metadata and do not change the experiment's results or upload lifecycle.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment tags",
+        "title": "Update offline experiment tags",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ai-observability-offline-evaluations"
+    },
     "llma-offline-experiment-upload": {
         "description": "Persist externally computed scores and their shared items in one atomic request. Submit 1–1,000 results, keyed by item_id and exact scorer_version_id, with up to 1,000 item declarations. Reuse caller-generated item IDs and unchanged content for retries; a result is unique per item/scorer version. Existing items can be referenced without repeating their declaration or payload. This tool does not execute evaluators. Item payloads allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk uploads. Correct validation errors before retrying; never generate new IDs merely to retry an uncertain response.",
         "category": "AI observability",
@@ -8515,7 +8665,7 @@
         "feature_flag": "ai-observability-offline-evaluations"
     },
     "llma-offline-scorer-history": {
-        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
+        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Read offline scorer history",
@@ -8866,7 +9016,7 @@
         }
     },
     "llma-score-definition-list": {
-        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata, tags, and the current config snapshot.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List scorers",
@@ -9102,7 +9252,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-tagger-list": {
         "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
@@ -9116,7 +9267,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-tagger-test-hog": {
         "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
@@ -9130,7 +9282,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
@@ -10332,8 +10485,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "notebook-generated-widgets"
+        }
     },
     "notebooks-widget-cancel": {
         "description": "Cancel an active generated notebook widget job. Use the notebook short_id, the Widget tag's nodeId, and the generation_id supplied when starting the job or returned as active_job.id by notebooks-widget-status. Existing generated versions remain available.",
@@ -10347,8 +10499,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "notebook-generated-widgets"
+        }
     },
     "notebooks-widget-generate": {
         "description": "Generate or improve an interactive notebook widget from instructions and the notebook's completed SQL and Python dataframes. This tool's availability means generated Widget tags are enabled for the current user. First insert a Widget component with notebooks-add-cell: cell_type=\"component\", tag_name=\"Widget\", props={\"prompt\":\"Describe the visualization\"}, and a short title. If using markdown editing instead, insert <Widget nodeId=\"a-stable-unique-id\" prompt=\"Describe the visualization\" /> into a saved markdown notebook. Insertion alone does not start generation. Run the SQL and Python cells the widget should use first; unrelated unrun cells are skipped. Then call this tool with the notebook short_id, the inserted node_id, prompt, and a fresh UUID generation_id. Reuse that UUID when retrying the same request. Use generation_operation=\"initial\" for a new widget, \"regenerate\" to replace it, or \"improve\" with expected_current_version_id to change the current version. Generation uses AI credits. Poll notebooks-widget-status until lifecycle_status is ready or failed; notebooks-widget-cancel stops an active job. Direct the user to the widget in the notebook to review and run it. Generated previews with dataframe access require the user's approval in the notebook.",
@@ -10363,8 +10514,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "notebook-generated-widgets"
+        "requires_ai_consent": true
     },
     "notebooks-widget-status": {
         "description": "Read a generated notebook widget's lifecycle_status, active job, current version, and automated security review. Use the notebook short_id and the Widget tag's nodeId. Poll while generating or building, waiting a few seconds between calls. Ready means the build finished; the user may still need to approve execution in the notebook. On failed or incompatible, read error_detail and error_code before retrying.",
@@ -10378,8 +10528,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "notebook-generated-widgets"
+        }
     },
     "opt-outs-add": {
         "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
@@ -11389,7 +11538,7 @@
         }
     },
     "reminder-create": {
-        "description": "Create a reminder for yourself. Set organization (required) and optionally team to scope it to a project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or task — reminders are how they get recurring in-app notifications without manual polling.",
+        "description": "Create a reminder for yourself. Set team to scope it to a project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or task — reminders are how they get recurring in-app notifications without manual polling.",
         "category": "Reminders",
         "feature": "reminders",
         "summary": "Create reminder",
@@ -11470,8 +11619,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "notebook-generated-widgets"
+        }
     },
     "reusable-widgets-retrieve": {
         "description": "Get a reusable widget's current version and input contract before adding it to a notebook. The contract lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local notebook dataframes. Different dataframe names need only a source binding, not Hog. Add a Hog mapping only when column names, column types, order, or shape differ. Ask the user when units or meaning are ambiguous.",
@@ -11485,8 +11633,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "notebook-generated-widgets"
+        }
     },
     "review-hog-reviews-get": {
         "description": "Fetch one code review by `id` (from `review-hog-reviews-list` or the trigger's `report_id`). It returns the last completed turn: its validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. While a re-review runs, the findings are still the previous turn's. A first review that is still running has no detail yet, so poll `review-hog-reviews-list` until it completes.",
@@ -13827,40 +13974,8 @@
         },
         "feature_flag": "tasks"
     },
-    "today-briefing-get": {
-        "description": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the self-driving reports that need them most (reports that wait for them, that they claimed or review, and urgent reports nobody owns), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
-        "category": "Today",
-        "feature": "today",
-        "summary": "Get my Today briefing",
-        "title": "Get my Today briefing",
-        "required_scopes": ["today:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "today-rail-nav",
-        "feature_flag_behavior": "enable"
-    },
-    "today-candidates-list": {
-        "description": "The items behind the current user's briefing, each with its source, the reason it was picked, a link, and the facts the text rests on (the report's status, its priority, and whether an implementation PR exists). Use this when you need the numbers and details, not the written text. Items are in briefing order, most urgent first.",
-        "category": "Today",
-        "feature": "today",
-        "summary": "List my Today candidates",
-        "title": "List my Today candidates",
-        "required_scopes": ["today:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "today-rail-nav",
-        "feature_flag_behavior": "enable"
-    },
     "update-feature-flag": {
-        "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant definitions, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\n`feature-flag-set-release-condition-rollout` changes one release condition's percentage and `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express it, such as changing the split between variants while leaving the audience alone.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. When the flag targets groups, keep `type: \"group\"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the existing flag so group targeting is not silently converted to person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",
+        "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant definitions, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\n`feature-flag-set-release-condition-rollout` changes one release condition's percentage and `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express it, such as changing the split between variants while leaving the audience alone.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. When the flag targets groups, keep `type: \"group\"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the existing flag so group targeting is not silently converted to person targeting. When the flag's conditions don't all target the same thing (some target persons and others a group type, or they target different group types), set `aggregation_group_type_index` on every condition whenever you add, remove, reorder, or change the properties of conditions. Use null for persons. Otherwise this tool can't tell which target each condition keeps, and it refuses the update. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Update feature flag",
@@ -14537,7 +14652,7 @@
         }
     },
     "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, embedded for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`, `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate` to project its monthly credit spend and `vision-quota-get` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's other scanners. The scanner stops scanning once the credits left cannot cover another observation, and resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set `experiment_targeting` to `{\"experiment_id\": <id>, \"variant\": null}` (or one variant key) and leave exposure out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to `vision-scanners-estimate`, so the estimate counts only exposed sessions. Create with `enabled: false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to continue.",
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary, embedded for search), or `experiment` (a summary of one A/B test's exposed sessions, each with its variant) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`, `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`; experiment scanners need `experiment_id` and optionally set `variants` (null watches every variant), `balance_variants` and `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate` to project its monthly credit spend and `vision-quota-get` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's other scanners. The scanner stops scanning once the credits left cannot cover another observation, and resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert from the scanner's Scouts and Alerts tabs. To scan an experiment, create the `experiment` type rather than scoping another type to it: it scans only the experiment's exposed sessions, records each session's variant, samples the variants evenly, and stops when the experiment ends. Leave exposure out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an `experiment_exposure` filter set directly in `query`. `experiment_targeting` on the other types is legacy; don't set it. Pass the same `experiment_id` and `variants` to `vision-scanners-estimate` as `experiment`, so the estimate counts only exposed sessions. Read the results per variant with `vision-scanners-variants-list`. Create with `enabled: false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to continue.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision scanner",
@@ -14581,7 +14696,7 @@
         }
     },
     "vision-scanners-draft": {
-        "description": "Draft a full scanner configuration from a natural-language `goal` (e.g. \"find where users get stuck during onboarding\"). Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query` and a `rationale` addressed to the person. When `monthly_credit_budget` is honored the draft also picks `sampling_mode`, `sampling_rate`, `model` and `credit_limit` to fit the budget; otherwise those come back null. Review the draft with the person, then pass it to `vision-scanners-create`. The call is an inline LLM request and can take a while.",
+        "description": "Draft a full scanner configuration from a natural-language `goal` (e.g. \"find where users get stuck during onboarding\"). Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query` and a `rationale` addressed to the person. When `monthly_credit_budget` is honored the draft also picks `sampling_mode`, `sampling_rate`, `model` and `credit_limit` to fit the budget; otherwise those come back null. A draft that watches an experiment comes back as an `experiment` scanner; with a budget, pass `experiment_id` to draft one on a launched experiment the person picked. Review the draft with the person, then pass it to `vision-scanners-create`. The call is an inline LLM request and can take a while.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Draft scanner from goal",
@@ -14611,7 +14726,7 @@
         "requires_ai_consent": true
     },
     "vision-scanners-estimate": {
-        "description": "Preview how many observations a proposed scanner would generate, and what they would cost, before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner, pass the same `experiment_targeting` you will save, so the estimate counts only exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the current period, so prorate them by the days left between `period_start` and `period_end` before comparing.",
+        "description": "Preview how many observations a proposed scanner would generate, and what they would cost, before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner, pass `experiment` with the same `experiment_id` and `variants` you will save, so the estimate counts only exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the current period, so prorate them by the days left between `period_start` and `period_end` before comparing.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Estimate replay vision scanner volume",
@@ -15301,7 +15416,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-get": {
-        "description": "Get one warehouse suggestion by id, including `evidence`: the read counts and usage window that led to it. Use this to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
+        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Get a warehouse suggestion",
@@ -15316,7 +15431,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come strongest first within each kind. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts from warehouse-suggestions-get.",
+        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
@@ -15519,7 +15634,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real people, and further content edits stage as a draft you must publish (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...) connected by edges. A webhook or manual trigger also needs config.template_id set to the literal 'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it the create is rejected with 'Template not found' against the trigger node. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
+        "description": "Create a workflow. Before a project's first email, SMS or push workflow, call workflows-setup-status when it is available, so the user knows what blocks sending. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real people, and further content edits stage as a draft you must publish (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...) connected by edges. A webhook or manual trigger also needs config.template_id set to the literal 'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it the create is rejected with 'Template not found' against the trigger node. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -15545,6 +15660,51 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-data-suggestions-create": {
+        "description": "Build one suggested workflow (a suggestion id from workflows-data-suggestions-list) and save it as a draft in the project. It never runs until enabled. Building takes 10 to 60 seconds: while status is 'building', call this tool again with the same suggestion_id every few seconds; it does not start a second build. With status 'ready' you get workflow_id and missing_inputs, the settings the draft leaves blank (a webhook URL, an email sender, a branch condition), plus _posthogUrl, the editor link. Ask the user for all of them first, then fill them in one workflows-patch-graph call: that tool checks the whole draft, so a patch that leaves another required setting blank is rejected. Or tell them to finish it in the editor. A field that says there is no verified sender means the project cannot send email yet: tell the user to add and verify a sending domain under Workflows > Channels first, instead of asking for an address. Never guess credentials or URLs. With status 'failed', call once more with retry true, then offer another suggestion.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create a workflow from a suggestion",
+        "title": "Create a workflow from a suggestion",
+        "required_scopes": ["hog_flow:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-data-suggestions"
+    },
+    "workflows-data-suggestions-get": {
+        "description": "Read the suggested workflows without starting anything. Use it to check on a run that workflows-data-suggestions-list started: while status is 'generating', call it again every few seconds, for up to five minutes. 'ready' lists the suggestions, 'unavailable' or 'ai_not_approved' means there are none to show. Present them the same way as workflows-data-suggestions-list.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Check suggested workflows",
+        "title": "Check suggested workflows",
+        "required_scopes": ["hog_flow:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-data-suggestions"
+    },
+    "workflows-data-suggestions-list": {
+        "description": "Up to three workflows suggested from the project's own events, such as a welcome email for a sign-up event. Use it to help a user who is getting started with workflows. Returns the cached suggestions, or starts making them and returns status 'generating', which takes about 10 to 30 seconds: then call workflows-data-suggestions-get every few seconds until status is 'ready'. Clients that show apps render the suggestions as cards with a Create workflow button, so do not list them again. Otherwise show one line per suggestion, like 'Welcome new sign-ups: a welcome email, then tips (user_signed_up, 57 this week)', and ask which one to create. Always let the user pick, even when they only asked to set up a workflow; create one without asking only when they already named it. When email_sender_ready is false, say that first: the project has no verified email sender, so email workflows can be saved as drafts but cannot send until a sending domain is added and verified under Workflows > Channels. Then offer the suggestions. Never show the ids; the user picks by name or number, and you pass that suggestion's id to workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data processing; 'unavailable' means there is nothing to suggest right now.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List suggested workflows",
+        "title": "List suggested workflows",
+        "required_scopes": ["hog_flow:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-data-suggestions"
     },
     "workflows-discard-draft": {
         "description": "Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing is staged is a no-op. Returns the workflow.",
@@ -15854,6 +16014,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-setup-status": {
+        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. When data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Check messaging setup",
+        "title": "Check messaging setup",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-mcp-onboarding"
     },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",

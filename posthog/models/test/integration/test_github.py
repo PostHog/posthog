@@ -949,12 +949,19 @@ class TestGitHubIntegrationModel(BaseTest):
                 self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
             )
         assert result is not None
-        mock_access.assert_called_once_with("PostHog/posthog")
+        mock_access.assert_called_once_with("PostHog/posthog", raise_on_transient=True)
+
+    def test_repository_access_probe_raises_after_transient_retries_are_exhausted(self):
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
+        with patch.object(github, "api_request", return_value=MagicMock(status_code=503)):
+            with pytest.raises(GitHubIntegrationError, match="failed transiently"):
+                github.installation_can_access_repository("PostHog/posthog", raise_on_transient=True)
 
     @parameterized.expand(
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
@@ -973,6 +980,7 @@ class TestGitHubIntegrationModel(BaseTest):
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
@@ -1958,9 +1966,10 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response"):
+        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 2
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1984,9 +1993,10 @@ class TestGitHubIntegrationModel(BaseTest):
         # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
         mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_repositories")

@@ -128,6 +128,21 @@ class TestOOBDomainDetection:
         assert events[0][1]["domain"] == "oast.live"
         assert events[0][1]["guard"] == "warehouse_http"
 
+    def test_a_matcher_failure_logs_the_host_and_never_the_url(self, mocker):
+        events: list[tuple[str, dict]] = []
+        mocker.patch.object(transport, "is_cloud", return_value=True)
+        mocker.patch.object(transport, "matched_oob_domain", side_effect=RuntimeError("boom"))
+        mocker.patch.object(
+            transport.logger, "exception", side_effect=lambda event, **fields: events.append((event, fields))
+        )
+        mocker.patch("requests.adapters.HTTPAdapter.send", return_value=MagicMock())
+        adapter = transport.make_tracked_adapter()
+
+        adapter.send(requests.Request("GET", "https://key:secret@example.com/x?api_key=abc").prepare())
+
+        assert [event for event, _ in events] == ["security.oob_domain_check_failed"]
+        assert events[0][1] == {"host": "example.com"}
+
     def test_logs_a_redirect_hop_to_a_listed_host(self, mocker):
         events: list[tuple[str, dict]] = []
         mocker.patch.object(transport, "is_cloud", return_value=True)
