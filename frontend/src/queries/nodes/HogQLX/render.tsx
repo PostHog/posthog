@@ -162,7 +162,6 @@ export function renderHogQLX(value: any): JSX.Element {
                     className="inline-block max-w-full object-contain align-middle"
                     loading="lazy"
                     decoding="async"
-                    referrerPolicy="no-referrer"
                 />
             )
         } else if (tag === 'a') {

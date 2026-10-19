@@ -3,20 +3,21 @@ const MAX_IMAGE_DIMENSION = 24
 const DATA_IMAGE_SOURCE = /^data:image\/(png|jpeg|gif|webp|avif|svg\+xml)(;(charset=utf-8|utf8))?(;base64)?,/i
 
 export function imageSource(value: unknown): string | null {
-    if (typeof value !== 'string' || value.length === 0 || value.length > MAX_IMAGE_SOURCE_LENGTH) {
+    if (typeof value !== 'string' || value.length > MAX_IMAGE_SOURCE_LENGTH) {
         return null
     }
-    if (DATA_IMAGE_SOURCE.test(value)) {
-        return value
+    return DATA_IMAGE_SOURCE.test(value) || isSameOrigin(value) ? value : null
+}
+
+function isSameOrigin(value: string): boolean {
+    if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+        return false
     }
     try {
-        if (value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')) {
-            const origin = window.location.origin
-            return new URL(value, origin).origin === origin ? value : null
-        }
-        return new URL(value).protocol === 'https:' ? value : null
+        const origin = window.location.origin
+        return new URL(value, origin).origin === origin
     } catch {
-        return null
+        return false
     }
 }
 

@@ -66,7 +66,6 @@ describe('HogQLX', () => {
 
     describe('render', () => {
         it.each([
-            'https://example.com/logo.svg',
             '/uploaded/logo.png',
             'data:image/png;base64,aGVsbG8=',
             'data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"/%3E',
@@ -81,13 +80,13 @@ describe('HogQLX', () => {
             expect(image).toHaveAttribute('src', src)
             expect(image).toHaveAttribute('alt', 'Customer logo')
             expect(image).toHaveStyle({ width: '24px', height: '16px' })
-            expect(image).toHaveAttribute('referrerpolicy', 'no-referrer')
         })
 
         it.each([
             null,
             { toString: 'bad' },
             'javascript:alert(1)',
+            'https://example.com/logo.svg',
             'http://example.com/logo.png',
             '//example.com/logo.png',
             '/\\example.com/logo.png',
@@ -110,7 +109,9 @@ describe('HogQLX', () => {
             ['100%', 24],
             [{ toString: 'bad' }, 24],
         ])('bounds image dimensions (%#)', (size, expected) => {
-            const { container } = render(renderHogQLX({ __hx_tag: 'img', src: '/logo.svg', width: size, height: size }))
+            const { container } = render(
+                renderHogQLX({ __hx_tag: 'img', src: 'data:image/png;base64,aGVsbG8=', width: size, height: size })
+            )
             expect(container.querySelector('img')).toHaveStyle({ width: `${expected}px`, height: `${expected}px` })
         })
 
@@ -118,7 +119,7 @@ describe('HogQLX', () => {
             const { container } = render(
                 renderHogQLX({
                     __hx_tag: 'img',
-                    src: '/logo.svg',
+                    src: 'data:image/png;base64,aGVsbG8=',
                     alt: { toString: 'bad' },
                     onload: 'alert(1)',
                     srcSet: 'https://example.com/other.svg 2x',
