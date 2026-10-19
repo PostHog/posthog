@@ -112,6 +112,43 @@ describe('dashboardMetricVariablesLogic', () => {
         expect(onSelectionsChange.mock.calls[0][0][1]).toEqual({ ...redefined[1], current: { values: ['/z'] } })
     })
 
+    it('drops a pending selection when the dashboard discards it', async () => {
+        mockOptions.mockResolvedValue({ results: ['/b'] })
+        const onSelectionsChange = jest.fn((next: MetricsDashboardVariable[]) => {
+            dashboardMetricVariablesLogic({ dashboardId: 1, variables: next, onSelectionsChange })
+        })
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables, onSelectionsChange })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.select('service', { values: ['worker'] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const routes = deferred()
+        mockOptions.mockReturnValue(routes.promise)
+        logic.actions.select('service', { values: ['web'] })
+        await flush()
+        dashboardMetricVariablesLogic({ dashboardId: 1, variables, onSelectionsChange })
+        routes.resolve(['/c'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const services = onSelectionsChange.mock.calls.map(([next]) => next[0].current?.values[0])
+        expect(services).not.toContain('web')
+        expect(logic.values.pendingVariables).toBeNull()
+    })
+
+    it('sends one request for variables with the same query and selections', async () => {
+        mockOptions.mockReturnValue(new Promise(() => {}))
+        const same: MetricsDashboardVariable[] = [
+            { name: 'a', source: 'sql', query: 'SELECT 1' },
+            { name: 'b', source: 'sql', query: 'SELECT 1' },
+        ]
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables: same, onSelectionsChange: jest.fn() })
+        logic.mount()
+        await flush()
+
+        expect(mockOptions).toHaveBeenCalledTimes(1)
+    })
+
     it('runs at most four option requests at once', async () => {
         const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
             name: `v${index}`,

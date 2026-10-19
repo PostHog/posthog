@@ -20,7 +20,6 @@ import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from
 import { metricsVariableOptionsCreate } from 'products/metrics/frontend/generated/api'
 
 import {
-    applyVariableRegex,
     dependentsOf,
     orderVariables,
     reconcileSelection,
@@ -216,6 +215,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                     const body = {
                         source: variable.source,
                         query: variable.query ?? null,
+                        regex: variable.regex ?? null,
                         variables: selectionsForRequest(variable, variables, values.options),
                         // The server resolves the dashboard date filter as the tiles do.
                         dateFrom: props.dateFrom ?? null,
@@ -227,27 +227,23 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                     const key = JSON.stringify(body)
                     let request = inflight.get(key)
                     if (!request) {
-                        // Option queries share the organization's query slots with the tiles, so few run at once.
-                        await acquireRequestSlot(cache)
-                        try {
-                            breakpoint()
-                        } catch (error) {
-                            releaseRequestSlot(cache)
-                            throw error
-                        }
-                        request = metricsVariableOptionsCreate(String(values.currentTeamId), body)
-                        inflight.set(key, request)
-                        void request
-                            .catch(() => undefined)
-                            .finally(() => {
-                                inflight.delete(key)
+                        const teamId = String(values.currentTeamId)
+                        request = (async () => {
+                            // Option queries share the organization's query slots with the tiles, so few run at once.
+                            await acquireRequestSlot(cache)
+                            try {
+                                return await metricsVariableOptionsCreate(teamId, body)
+                            } finally {
                                 releaseRequestSlot(cache)
-                            })
+                            }
+                        })()
+                        inflight.set(key, request)
+                        void request.catch(() => undefined).finally(() => inflight.delete(key))
                     }
                     try {
                         const response = await request
                         breakpoint()
-                        options = applyVariableRegex(response.results, variable.regex)
+                        options = response.results
                     } catch (error) {
                         breakpoint()
                         actions.setLoading(name, false)
@@ -314,6 +310,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
         },
         stage: ({ variables, names }) => {
             if (!names.length && !values.pendingVariables) {
+                ;(cache.published ??= []).push(variables)
                 props.onSelectionsChange(variables)
                 return
             }
@@ -342,10 +339,14 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             }
             return
         }
+        // Settings from outside, such as Discard, replace the selections that are not published yet.
+        cache.pending = undefined
+        cache.pendingReconcile = false
+        cache.reconciling = undefined
+        actions.setPendingVariables(null)
         const names = variablesToReload(oldProps.variables, props.variables)
-        if (names.length) {
-            actions.loadOptions(names, true)
-        }
+        // An empty load still cancels the older loads.
+        actions.loadOptions(names, names.length > 0)
     }),
     afterMount(({ actions }) => {
         actions.loadOptions(null, false)
