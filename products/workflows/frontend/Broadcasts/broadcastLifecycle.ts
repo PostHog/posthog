@@ -141,8 +141,9 @@ export function confirmCreateAsBroadcast(): Promise<CreateAsBroadcastChoice | nu
     return new Promise((resolve) => {
         LemonDialog.open({
             width: 500,
-            title: 'Make this a broadcast?',
-            description: 'Get a step-by-step editor, email previews, test sends and send status tracking.',
+            title: 'Track this send as a broadcast?',
+            description:
+                'Broadcasts come with an overview built for sends to an audience. Watch deliveries, opens, clicks and conversions come in, and compare them across sends.',
             primaryButton: {
                 children: 'Create broadcast',
                 type: 'primary',
