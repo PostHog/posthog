@@ -39,6 +39,7 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
     "BrowserUse",
     "CheckoutCom",
     "EZOfficeInventory",
+    "Flutterwave",
     "Giphy",
     "GoogleSearchConsole",
     "Langfuse",
