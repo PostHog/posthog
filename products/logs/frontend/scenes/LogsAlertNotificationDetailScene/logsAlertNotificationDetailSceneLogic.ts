@@ -20,7 +20,6 @@ import {
     LogsAlertDestinationGroup,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { logsAlertsDestinationsDeleteCreate, logsAlertsRetrieve } from 'products/logs/frontend/generated/api'
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsAlertConfigurationDetailApi } from '../../generated/api.schemas'
 
@@ -105,11 +104,11 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
         messageCustomized: (
-            alert: LogsAlertConfigurationApi | null,
+            alert: LogsAlertConfigurationDetailApi | null,
             destinationGroup: LogsAlertDestinationGroup | null
         ) => boolean
         breadcrumbs: (
-            alert: LogsAlertConfigurationApi | null,
+            alert: LogsAlertConfigurationDetailApi | null,
             destinationGroup: LogsAlertDestinationGroup | null,
             alertId: string
         ) => Breadcrumb[]
@@ -236,7 +235,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
         breadcrumbs: [
             (s) => [s.alert, s.destinationGroup, s.alertId],
             (
-                alert: LogsAlertConfigurationApi | null,
+                alert: LogsAlertConfigurationDetailApi | null,
                 group: LogsAlertDestinationGroup | null,
                 alertId: string
             ): Breadcrumb[] => [
