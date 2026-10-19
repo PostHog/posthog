@@ -175,7 +175,7 @@ class InboxOnboarding:
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
                 if resume_operational_scouts:
-                    InboxOnboardingScouts.resume(scout_team_id, withheld)
+                    InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
                 transaction.on_commit(lambda: self._report_completion(user, state.get("variant")), robust=True)
         return self._state(config)
 

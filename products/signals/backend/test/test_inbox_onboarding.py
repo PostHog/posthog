@@ -302,7 +302,7 @@ class TestInboxOnboarding(APIBaseTest):
         assert safe_detail is not None
         assert next(change for change in safe_detail["changes"] if change["field"] == "onboarding")["after"] == "masked"
 
-    @parameterized.expand([("unchanged", True), ("user_paused", False), ("withheld", False)])
+    @parameterized.expand([("unchanged", True), ("user_paused", False), ("withheld", False), ("task_only", False)])
     def test_activation_resumes_only_onboarding_operational_pauses(self, state: str, enabled: bool) -> None:
         seed_canonical_skills(self.team)
         register_missing_configs(self.team.id, enable_new_configs=False)
@@ -314,6 +314,10 @@ class TestInboxOnboarding(APIBaseTest):
             scout.status_changed_at = timezone.now() + timedelta(seconds=1)
             scout.save(update_fields=["status_changed_at"])
         withheld = [scout.skill_name] if state == "withheld" else []
+        if state == "task_only":
+            raw = self.create_personal_api_key_with_scopes(["task:write"])
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
         with (
             patch.object(
                 GitHubIntegration, "list_repositories", return_value=([{"full_name": "example/product"}], False)
@@ -325,10 +329,19 @@ class TestInboxOnboarding(APIBaseTest):
         ):
             Integration.objects.create(team=self.team, kind="github")
             response = self.client.post(f"{self.url}complete/", self.draft, format="json")
-        assert response.status_code == 200, response.content
+        assert response.status_code == (403 if state == "task_only" else 200), response.content
         scout.refresh_from_db()
         assert scout.enabled is enabled
         assert not SignalScoutConfig.objects.for_team(self.team.id).get(skill_name="signals-scout-general").enabled
+        if state == "task_only":
+            assert not SignalTeamConfig.objects.get(team=self.team).onboarding.get("completed_at")
+        elif state == "withheld":
+            register_missing_configs(self.team.id, withheld_skill_names=set(withheld))
+            scout.refresh_from_db()
+            assert not scout.enabled
+            register_missing_configs(self.team.id, withheld_skill_names=set())
+            scout.refresh_from_db()
+            assert scout.enabled
 
     @parameterized.expand([("expose",), ("reconcile",)])
     def test_child_scoped_credential_cannot_start_parent_reconciliation(self, action: str) -> None:
