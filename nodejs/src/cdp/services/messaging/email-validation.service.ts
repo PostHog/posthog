@@ -122,6 +122,10 @@ export class EmailValidationService {
         // open, which is the safe direction.
         const rawDomain = email.slice(email.lastIndexOf('@') + 1)
         const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
+        // Above resolveDeliverability on purpose: one verdict is cached and shared across teams for
+        // up to a day, so a check inside the lookup would miss every send that hits the cache.
+        noteOobDomain(domain, 'node_email_validation', { teamId: invocation.teamId })
+
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
             return this.skip(
@@ -188,10 +192,6 @@ export class EmailValidationService {
     }
 
     private async dnsLookup(domain: string): Promise<'valid' | 'invalid' | 'transient'> {
-        // The invocation's team id does not reach this layer, and one verdict is cached and shared
-        // across teams, so the log line names the domain alone.
-        noteOobDomain(domain, 'node_email_validation')
-
         let mxRecords: MxRecord[]
         try {
             mxRecords = await this.resolver.resolveMx(domain)

@@ -183,14 +183,22 @@ describe('fetch', () => {
                 const originalNodeEnv = process.env.NODE_ENV
                 process.env.NODE_ENV = nodeEnv
                 try {
-                    await expect(raiseIfUserProvidedUrlUnsafe('https://abc.oast.me/path')).resolves.not.toThrow()
+                    // A host per case: noteOobDomain logs one line per host, team and guard per
+                    // window, so a shared host would suppress the second case.
+                    await expect(
+                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
+                    ).resolves.not.toThrow()
                 } finally {
                     process.env.NODE_ENV = originalNodeEnv
                 }
 
                 expect(info).toHaveBeenCalledWith(
                     'security.oob_domain_seen',
-                    expect.objectContaining({ host: 'abc.oast.me', domain: 'oast.me', guard: 'node_request' })
+                    expect.objectContaining({
+                        host: `${nodeEnv}.abc.oast.me`,
+                        domain: 'oast.me',
+                        guard: 'node_request',
+                    })
                 )
             }
         )
