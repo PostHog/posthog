@@ -52,6 +52,7 @@ Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
+Run state updates cannot set, change, remove, or append trial funding and sandbox provisioning markers. The server owns these accounting decisions.
 
 GitHub credentials that require user action fail the run without retrying. Fresh runs and resumed sandboxes preserve the actionable error, and Temporal does not report these expected failures to error tracking.
 

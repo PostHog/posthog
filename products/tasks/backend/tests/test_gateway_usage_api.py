@@ -206,15 +206,20 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_ordinary_patch_hides_and_protects_accounting_state(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_ordinary_patch_hides_and_protects_accounting_state(self, trial_funded: bool) -> None:
         run = self._run()
-        run.state = {
+        original_state = {
             "mode": "background",
             "unprocessed_request_ids": ["existing"],
             "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
             "token_cost_incomplete": True,
             "compute_cost": 2,
+            "sandbox_provisioning_started": True,
         }
+        if trial_funded:
+            original_state["self_driving_funding"] = {"funding": "trial", "grant_id": str(uuid.uuid4())}
+        run.state = original_state
         run.save(update_fields=["state"])
 
         response = self.client.patch(
@@ -225,13 +230,21 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
                     "token_cost": {},
                     "token_cost_incomplete": False,
                     "compute_cost": 999,
+                    "self_driving_funding": {"funding": "trial", "grant_id": str(uuid.uuid4())},
+                    "sandbox_provisioning_started": False,
                 },
-                "state_append": {"unprocessed_request_ids": "forged"},
+                "state_append": {
+                    "unprocessed_request_ids": "forged",
+                    "self_driving_funding": "forged",
+                    "sandbox_provisioning_started": False,
+                },
                 "state_remove_keys": [
                     "unprocessed_request_ids",
                     "token_cost",
                     "token_cost_incomplete",
                     "compute_cost",
+                    "self_driving_funding",
+                    "sandbox_provisioning_started",
                 ],
             },
             format="json",
@@ -240,13 +253,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["state"] == {"mode": "background"}
         run.refresh_from_db()
-        assert run.state == {
-            "mode": "background",
-            "unprocessed_request_ids": ["existing"],
-            "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
-            "token_cost_incomplete": True,
-            "compute_cost": 2,
-        }
+        assert run.state == original_state
 
     @parameterized.expand([(False, True), (True, True), (False, False)])
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

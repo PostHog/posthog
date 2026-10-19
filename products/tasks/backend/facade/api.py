@@ -88,6 +88,7 @@ from products.tasks.backend.constants import (
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SANDBOX_PROVISIONING_STARTED_STATE_KEY,
     SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
     SUBSCRIPTION_PLAN_NAMES,
@@ -2900,6 +2901,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "token_cost",
         "token_cost_incomplete",
         "compute_cost",
+        # Billing and trial admission use these server-owned stamps.
+        "self_driving_funding",
+        SANDBOX_PROVISIONING_STARTED_STATE_KEY,
         "failure_error_type",
         "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,

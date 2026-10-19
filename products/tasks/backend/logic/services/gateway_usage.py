@@ -258,7 +258,7 @@ def get_task_runs_spend(*, team_id: int, task_ids: list[UUID]) -> list[TaskRunSp
 def get_task_run_actual_cost(*, run_id: UUID, team_id: int) -> TaskRunActualCost:
     run = TaskRun.objects.get(id=run_id, team_id=team_id)
     sessions = list(SandboxSession.objects.for_team(team_id).filter(task_run=run))
-    sources = _cost_sources(run, sessions=sessions)
+    sources = _cost_sources(run, sessions=sessions, include_unattributed=True)
     never_provisioned = (
         run.environment == TaskRun.Environment.CLOUD
         and run.is_terminal
@@ -303,14 +303,18 @@ def _token_cost_microusd(run: TaskRun) -> int | None:
     return usage.cost_microusd if usage.complete else None
 
 
-def _cost_sources(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> _CostSources:
+def _cost_sources(
+    run: TaskRun, *, sessions: list[SandboxSession] | None = None, include_unattributed: bool = False
+) -> _CostSources:
     return _CostSources(
         token_cost_microusd=_token_cost_microusd(run),
-        compute_cost_usd=_compute_cost_source(run, sessions=sessions),
+        compute_cost_usd=_compute_cost_source(run, sessions=sessions, include_unattributed=include_unattributed),
     )
 
 
-def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> Decimal | None:
+def _compute_cost_source(
+    run: TaskRun, *, sessions: list[SandboxSession] | None = None, include_unattributed: bool = False
+) -> Decimal | None:
     if run.environment != TaskRun.Environment.CLOUD or not COMPUTE_RATE_CARDS:
         return None
     if sessions is None:
@@ -322,7 +326,12 @@ def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None 
         return sum(
             (
                 calculate_sandbox_compute_cost(
-                    session, COMPUTE_RATE_CARDS[0].effective_at, now, calculated_at=now, rate_cards=COMPUTE_RATE_CARDS
+                    session,
+                    COMPUTE_RATE_CARDS[0].effective_at,
+                    now,
+                    calculated_at=now,
+                    rate_cards=COMPUTE_RATE_CARDS,
+                    include_unattributed=include_unattributed,
                 ).total_cost_usd
                 for session in sessions
             ),

@@ -132,6 +132,7 @@ def calculate_sandbox_compute_cost(
     *,
     calculated_at: datetime | None = None,
     rate_cards: Sequence[ComputeRateCard] = COMPUTE_RATE_CARDS,
+    include_unattributed: bool = False,
 ) -> SandboxComputeCost:
     cards = validate_compute_rate_cards(rate_cards)
     validate_reporting_window(reporting_start, reporting_end)
@@ -140,10 +141,11 @@ def calculate_sandbox_compute_cost(
     if timezone.is_naive(now):
         raise ValueError("calculation timestamp must be timezone-aware")
 
-    if session.user_attributed_at is None:
+    usage_start = session.created_at if include_unattributed else session.user_attributed_at
+    if usage_start is None:
         return _empty_cost()
 
-    pricing_start = max(session.user_attributed_at, cards[0].effective_at)
+    pricing_start = max(usage_start, cards[0].effective_at)
     effective_end = min(session.ended_at or now, session.ttl_expires_at)
     if effective_end <= pricing_start:
         return _empty_cost()

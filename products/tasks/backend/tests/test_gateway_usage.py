@@ -1,5 +1,5 @@
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from uuid import UUID
 
 from posthog.test.base import BaseTest
@@ -14,6 +14,7 @@ from parameterized import parameterized
 from products.tasks.backend.facade.billing import (
     TaskRunCost,
     get_task_cost,
+    get_task_run_actual_cost,
     get_task_run_cost,
     get_task_run_token_cost_microusd,
     get_task_run_token_usage,
@@ -249,7 +250,7 @@ class TestGatewayUsage(BaseTest):
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
 
     def test_compute_cost_uses_existing_ledger_attribution_and_resource_floors(self) -> None:
-        run = self._run()
+        run = self._run(status=TaskRun.Status.COMPLETED)
         now = timezone.now()
         for name, attributed in (("prewarm", None), ("claimed", now - timedelta(hours=1))):
             SandboxSession.objects.for_team(self.team.id).create(
@@ -277,6 +278,15 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["compute_cost"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_cost", "compute_cost"}
+        actual = get_task_run_actual_cost(run_id=run.id, team_id=self.team.id)
+        expected_actual = int(
+            ((card.cpu_core_second_usd + card.memory_gib_second_usd) * 4 * 3600 * 1_000_000).to_integral_value(
+                rounding=ROUND_CEILING
+            )
+        )
+        assert actual.compute_cost_microusd == expected_actual
+        assert actual.complete
+        assert actual.compute_complete
 
     @patch("aiohttp.ClientSession._request")
     def test_accounting_after_completion_has_no_completion_side_effects(self, get: Mock) -> None:
