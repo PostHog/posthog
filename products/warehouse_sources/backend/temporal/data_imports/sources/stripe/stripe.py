@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookDeletionResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import DEFAULT_BATCH_ROW_LIMIT
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
     log_fanout_parent_rows_consumed,
 )
@@ -92,6 +93,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     ClientFactory,
     InvoiceListWithAllLines,
+    PacedClientFactory,
     RateLimitCallback,
     WebhookObjectRefetcher,
     WebhookRefetch,
@@ -263,9 +265,19 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
 
-    def __init__(self, *args: Any, on_rate_limited: Optional[RateLimitCallback] = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        on_rate_limited: Optional[RateLimitCallback] = None,
+        before_request: Optional[Callable[[], None]] = None,
+        expects_lists: bool = True,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._on_rate_limited = on_rate_limited
+        self._before_request = before_request
+        # A client that also retrieves single objects cannot treat a non-list GET body as corrupt.
+        self._expects_lists = expects_lists
 
     def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
         self,
@@ -275,6 +287,8 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         post_data: Any = None,
     ) -> tuple[bytes, int, Mapping[str, str]]:
         self._last_request_method = (method or "").lower()
+        if self._before_request is not None:
+            self._before_request()
         return super().request(method, url, headers, post_data)
 
     def _should_retry(
@@ -311,16 +325,25 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
             return True
         # A complete but non-list body identifies a corrupt list read only for a GET — a write
         # (webhook create/update/delete) legitimately returns a single object, so gate on method.
-        return self._last_request_method == "get" and _is_non_list_stripe_response(body)
+        return self._expects_lists and self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
-def _tracked_stripe_http_client(on_rate_limited: Optional[RateLimitCallback] = None) -> RequestsClient:
+def _tracked_stripe_http_client(
+    on_rate_limited: Optional[RateLimitCallback] = None,
+    before_request: Optional[Callable[[], None]] = None,
+    expects_lists: bool = True,
+) -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
 
     Uses a subclass that additionally retries 429 rate limits and truncated list responses via the
     SDK's built-in backoff, and reports each 429 to `on_rate_limited`."""
-    return _RateLimitRetryingRequestsClient(session=make_tracked_session(), on_rate_limited=on_rate_limited)
+    return _RateLimitRetryingRequestsClient(
+        session=make_tracked_session(),
+        on_rate_limited=on_rate_limited,
+        before_request=before_request,
+        expects_lists=expects_lists,
+    )
 
 
 def _clean_stripe_error_message(msg: str) -> str:
@@ -889,16 +912,30 @@ def _client_factory(
     api_key: str, account_id: Optional[str], api_version: str
 ) -> Callable[[Optional[RateLimitCallback]], StripeClient]:
     def new_client(on_rate_limited: Optional[RateLimitCallback]) -> StripeClient:
-        return StripeClient(
-            api_key,
-            stripe_account=account_id,
-            stripe_version=api_version,
-            max_network_retries=2,
-            base_addresses=_stripe_base_addresses(),
-            http_client=_tracked_stripe_http_client(on_rate_limited=on_rate_limited),
-        )
+        return _stripe_client(api_key, account_id, api_version, _tracked_stripe_http_client(on_rate_limited))
 
     return new_client
+
+
+def _refetch_client_factory(api_key: str, account_id: Optional[str], api_version: str) -> PacedClientFactory:
+    def new_client(on_rate_limited: RateLimitCallback, before_request: Callable[[], None]) -> StripeClient:
+        http_client = _tracked_stripe_http_client(on_rate_limited, before_request=before_request, expects_lists=False)
+        return _stripe_client(api_key, account_id, api_version, http_client)
+
+    return new_client
+
+
+def _stripe_client(
+    api_key: str, account_id: Optional[str], api_version: str, http_client: RequestsClient
+) -> StripeClient:
+    return StripeClient(
+        api_key,
+        stripe_account=account_id,
+        stripe_version=api_version,
+        max_network_retries=2,
+        base_addresses=_stripe_base_addresses(),
+        http_client=http_client,
+    )
 
 
 def get_rows(
@@ -1413,14 +1450,19 @@ def stripe_source(
                     WebhookObjectRefetcher(
                         refetch,
                         logger,
-                        client_factory_provider=lambda: _client_factory(
+                        client_factory_provider=lambda: _refetch_client_factory(
                             api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
                         ),
                     )
                 )
             else:
                 table_transformer = _webhook_table_transformer
-            return webhook_source_manager.get_items(table_transformer=table_transformer)
+            # Objects grow once their lines or tiers are filled in, after the batch limits were
+            # checked, so a batch that completes objects holds no more rows than a list sync chunk.
+            batch_row_limit = STRIPE_CHUNK_SIZE if refetch is not None else DEFAULT_BATCH_ROW_LIMIT
+            return webhook_source_manager.get_items(
+                table_transformer=table_transformer, batch_row_limit=batch_row_limit
+            )
 
         return get_rows(
             api_key=api_key,

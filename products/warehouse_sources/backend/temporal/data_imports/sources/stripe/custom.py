@@ -27,6 +27,8 @@ _T = TypeVar("_T")
 # Receives the Retry-After seconds from a 429, or None when Stripe sent none.
 RateLimitCallback = Callable[[Optional[float]], None]
 ClientFactory = Callable[[RateLimitCallback], StripeClient]
+# Gets the pool's rate-limit callback and its pacer turn, which the client takes before every request.
+PacedClientFactory = Callable[[RateLimitCallback, Callable[[], None]], StripeClient]
 
 
 class InvoiceListWithAllLines:
@@ -135,14 +137,15 @@ class WebhookObjectRefetcher:
     Stripe never expands an event payload, so an event object can be missing data the list sync
     fetches: an invoice carries only its first 10 lines, a tiered price has no tiers. Upserting that
     object would overwrite the complete row. Only incomplete objects cost API calls. The reads use a
-    paced pool with per-thread clients, as the invoice line fan-out does, and objects keep their order.
+    pool with per-thread clients, as the invoice line fan-out does, and objects keep their order. The
+    client takes a pacer turn before every request, so line pages and retries count against the rate.
     """
 
     def __init__(
         self,
         refetch: WebhookRefetch,
         logger: FilteringBoundLogger,
-        client_factory_provider: Callable[[], ClientFactory],
+        client_factory_provider: Callable[[], PacedClientFactory],
         concurrency: int = LINE_FETCH_CONCURRENCY,
         requests_per_second: float = LINE_REQUESTS_PER_SECOND,
     ) -> None:
@@ -175,12 +178,11 @@ class WebhookObjectRefetcher:
         return completed
 
     def _complete_one(
-        self, obj: dict[str, Any], client_factory: ClientFactory, thread_clients: threading.local
+        self, obj: dict[str, Any], client_factory: PacedClientFactory, thread_clients: threading.local
     ) -> dict[str, Any]:
-        self._pacer.wait_turn()
         client: Optional[StripeClient] = getattr(thread_clients, "client", None)
         if client is None:
-            client = client_factory(self._pacer.throttled)
+            client = client_factory(self._pacer.throttled, self._pacer.wait_turn)
             thread_clients.client = client
         try:
             return self._refetch.complete(client, obj)

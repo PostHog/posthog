@@ -1587,7 +1587,9 @@ class TestWebhookRefetch:
         refetcher = WebhookObjectRefetcher(
             stripe_module.WEBHOOK_REFETCH[endpoint],
             MagicMock(),
-            client_factory_provider=lambda: stripe_module._client_factory("sk_test", None, STRIPE_API_VERSION_ACACIA),
+            client_factory_provider=lambda: stripe_module._refetch_client_factory(
+                "sk_test", None, STRIPE_API_VERSION_ACACIA
+            ),
         )
         events = table_from_py_list([_event_row("evt_1", f"{obj['object']}.updated", 1700000100, obj)])
         return stripe_module._refetching_webhook_table_transformer(refetcher)(events).to_pylist()
@@ -1670,11 +1672,11 @@ class TestWebhookRefetch:
         with scripted_network(script) as network:
             rows = self._transform(endpoint, event_object)
 
-        sent = {
-            request.path: {name: request.param(name) for name in answers[request.path][0]}
+        sent = [
+            (request.path, {name: request.param(name) for name in answers[request.path][0]})
             for request in network.requests_log
-        }
-        assert sent == {path: params for path, (params, _) in answers.items()}
+        ]
+        assert sent == [(path, params) for path, (params, _) in answers.items()]
         assert len(rows) == 1
         assert row_is_complete(rows[0])
 
@@ -1735,6 +1737,23 @@ class TestWebhookRefetch:
             rows = transformer(events).to_pylist()
 
         assert len(orjson.loads(rows[0]["lines"])["data"]) == len(_ALL_LINES)
+        assert webhooks.get_items.call_args.kwargs["batch_row_limit"] == stripe_module.STRIPE_CHUNK_SIZE
+
+    def test_client_takes_a_pacer_turn_before_every_line_page(self) -> None:
+        turns: list[str] = []
+        pages = [
+            ScriptedResponse(json=_stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", has_more=True)),
+            ScriptedResponse(json=_stripe_list([{"id": "line_10"}], "/v1/invoices/in_1/lines")),
+        ]
+        client = stripe_module._refetch_client_factory("sk_test", None, STRIPE_API_VERSION_ACACIA)(
+            lambda _retry_after: None, lambda: turns.append("turn")
+        )
+
+        with scripted_network(pages):
+            lines = list(client.invoices.line_items.list("in_1", params={"limit": 10}).auto_paging_iter())
+
+        assert len(lines) == 11
+        assert turns == ["turn", "turn"]
 
 
 class TestEndpointCatalogWiring:
