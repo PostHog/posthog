@@ -4136,7 +4136,7 @@ jobs:
             # Depot gate replaces it there.
             - name: Point at the Depot gate
               if: github.event_name == 'pull_request'
-              run: echo "::notice::Depot CI runs the backend tests for pull requests. The required check is 'Backend CI on Depot / Django Tests Pass on Depot'."
+              run: echo "::notice::Depot CI runs the backend tests for pull requests. The required check is 'Backend CI on Depot / Test results'."
             - name: Summarize dependency results
               if: github.event_name != 'pull_request'
               run: |

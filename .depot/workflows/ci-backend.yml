@@ -4329,9 +4329,10 @@ jobs:
             # Depot's own checks carry no output and their pages need a Depot login, so this
             # check carries the gate summary: GitHub shows the title on the PR's check row
             # and the summary on the Checks tab.
+            # This check is the required context, so a lost post must fail the gate: a green gate
+            # with no verdict published leaves the PR pending with nothing to retry.
             - name: Post the test results check
-              if: ${{ always() && steps.gate-token.outputs.token != '' }}
-              continue-on-error: true
+              if: ${{ always() && github.event_name == 'pull_request' }}
               env:
                   GH_TOKEN: ${{ steps.gate-token.outputs.token }}
                   REPO: ${{ github.repository }}
@@ -4340,12 +4341,17 @@ jobs:
                   # A `no-ci` draft skips change detection and every check, so its row says so.
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || needs.changes.result == 'skipped' && 'skipped' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
                   # A draft run skips the product tests, and a completed check stays on the commit:
-                  # a completed draft verdict would satisfy the required context the moment the PR
-                  # turns ready, before the ready run finishes. So a draft's check stays in progress
-                  # and the ready run completes it. Merge-queue PRs are drafts whose run is the
-                  # merge verdict, so theirs completes.
+                  # a passing draft verdict would satisfy the required context the moment the PR
+                  # turns ready, before the ready run finishes. So a draft's passing check stays in
+                  # progress and the ready run completes it. A failed draft completes red, which
+                  # cannot open that window. Merge-queue PRs are drafts whose run is the merge
+                  # verdict, so theirs completes.
                   DRAFT: ${{ github.event.pull_request.draft == true && !startsWith(github.head_ref, 'trunk-merge/') }}
               run: |
+                  if [[ -z "$GH_TOKEN" ]]; then
+                      echo "::error::No checks:write token, so the Test results check was not published. Retry this job."
+                      exit 1
+                  fi
                   case "$CONCLUSION" in
                       success) title="Backend tests passed on Depot" ;;
                       skipped) title="No backend checks ran on Depot" ;;
@@ -4353,7 +4359,14 @@ jobs:
                       *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
                   esac
                   status=completed
-                  if [[ "$DRAFT" == "true" ]]; then
+                  if [[ "$DRAFT" == "true" && ( "$CONCLUSION" == "success" || "$CONCLUSION" == "skipped" ) ]]; then
+                      # A draft run that outlives the ready run on the same commit must not replace
+                      # that run's completed verdict with a pending one.
+                      if gh api "repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$GATE_CHECK" '$n|@uri')" \
+                              --jq '.check_runs[] | select(.status == "completed") | .id' | grep -q .; then
+                          echo "A completed $GATE_CHECK check already exists on $SHA; leaving it."
+                          exit 0
+                      fi
                       status=in_progress
                       title="${title/ on Depot/ on a draft run}. The merge verdict comes from the run on the ready-for-review PR."
                   fi
@@ -4362,18 +4375,23 @@ jobs:
                   # GitHub rejects a summary over 65535 characters, and the byte budget below stays
                   # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
-                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg status "$status" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
-                      --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
-                      '{name: $name, head_sha: $sha, status: $status, details_url: $url,
-                        output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}
-                       + (if $status == "completed" then {conclusion: $conclusion} else {} end)' \
-                      | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
-                  # A rejected output must not lose the check.
-                  echo "::warning::Could not post the gate check with its summary. Posting it without."
                   conclusion_arg=()
                   [[ "$status" == "completed" ]] && conclusion_arg=(-f conclusion="$CONCLUSION")
-                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status="$status" "${conclusion_arg[@]}" -f details_url="$DEPOT_JOB_URL" --silent
+                  for attempt in 1 2 3; do
+                      jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg status "$status" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
+                          --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
+                          '{name: $name, head_sha: $sha, status: $status, details_url: $url,
+                            output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}
+                           + (if $status == "completed" then {conclusion: $conclusion} else {} end)' \
+                          | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
+                      # A rejected output must not lose the check.
+                      echo "::warning::Could not post the gate check with its summary. Posting it without."
+                      gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
+                          -f head_sha="$SHA" -f status="$status" "${conclusion_arg[@]}" -f details_url="$DEPOT_JOB_URL" --silent && exit 0
+                      sleep $((attempt * 10))
+                  done
+                  echo "::error::Could not publish the Test results check after 3 attempts. Retry this job."
+                  exit 1
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
