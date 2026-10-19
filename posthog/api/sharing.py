@@ -45,6 +45,10 @@ from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
+from posthog.models.sharing_configuration import (
+    DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING,
+    PUBLIC_SETTINGS_IS_NULL_SETTING,
+)
 from posthog.models.user import User
 from posthog.rate_limit import (
     BurstRateThrottle,
@@ -375,18 +379,30 @@ class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serialize
 
     def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
-            return None
-        try:
-            # Filter out unknown fields before validation since the schema has extra="forbid"
-            known_fields = SharingConfigurationSettings.model_fields.keys()
-            filtered_data = {k: v for k, v in value.items() if k in known_fields}
+            result = None
+        else:
+            try:
+                # Filter out unknown fields before validation since the schema has extra="forbid"
+                known_fields = SharingConfigurationSettings.model_fields.keys()
+                filtered_data = {k: v for k, v in value.items() if k in known_fields}
 
-            validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
-            result = validated_settings.model_dump(exclude_none=True)
-            return result
-        except Exception as e:
-            capture_exception(e)
-            raise serializers.ValidationError("Invalid settings format")
+                validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
+                result = validated_settings.model_dump(exclude_none=True)
+            except Exception as e:
+                capture_exception(e)
+                raise serializers.ValidationError("Invalid settings format")
+        if self.instance and self.instance.direct_connection_access_validated:
+            return {
+                **(result or {}),
+                DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING: True,
+                PUBLIC_SETTINGS_IS_NULL_SETTING: result is None,
+            }
+        return result
+
+    def to_representation(self, instance: SharingConfiguration) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        data["settings"] = instance.public_settings
+        return data
 
     @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
@@ -546,17 +562,24 @@ class SharingConfigurationViewSet(
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
-        # Publishing is the access decision for shared links (queries on the public page execute
-        # without warehouse access control), so gate the enable transition: the publisher must have
-        # access to everything the artifact queries, or sharing becomes an escalation channel.
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        publishing = serializer.validated_data.get("enabled") is True
+        access_control_enabled = self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        is_organization_admin = self.user_access_control.is_organization_admin
+
+        # Publishing is the access decision for shared links, including revalidation of legacy shares.
         if (
-            request.data.get("enabled")
-            and not instance.enabled
-            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            publishing
+            and (not instance.enabled or not instance.direct_connection_access_validated)
+            and access_control_enabled
             # org admins have full access, so skip the gate for a faster enable
-            and not self.user_access_control.is_organization_admin
+            and not is_organization_admin
         ):
-            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+            # Existing shares keep their publish decision for queries that do not use direct connections.
+            blocked_names = blocked_access_for_publisher(
+                cast(User, request.user), self.team, instance, direct_connections_only=instance.enabled
+            )
             if blocked_names:
                 blocked = ", ".join(f"`{name}`" for name in blocked_names)
                 raise ValidationError(
@@ -564,9 +587,18 @@ class SharingConfigurationViewSet(
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        if publishing:
+            share_settings = serializer.validated_data.get("settings", instance.settings)
+            serializer.save(
+                settings={
+                    **(share_settings or {}),
+                    DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING: access_control_enabled or is_organization_admin,
+                    PUBLIC_SETTINGS_IS_NULL_SETTING: share_settings is None
+                    or (share_settings or {}).get(PUBLIC_SETTINGS_IS_NULL_SETTING) is True,
+                }
+            )
+        else:
+            serializer.save()
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
@@ -1405,7 +1437,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             raise NotFound("No resource found")
 
         # Get sharing settings using Pydantic model for validation and defaults
-        settings_data = getattr(resource, "settings", {}) or {}
+        settings_data = (
+            resource.public_settings
+            if isinstance(resource, SharingConfiguration)
+            else getattr(resource, "settings", {})
+        ) or {}
         base_settings = SharingConfigurationSettings.model_validate(settings_data, strict=False)
 
         # Only check query params for configurations created before SETTINGS_SHIP_DATE
