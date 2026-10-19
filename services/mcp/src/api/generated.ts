@@ -52986,6 +52986,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other
+     */
+    export type FeedDismissalReasonEnum = typeof FeedDismissalReasonEnum[keyof typeof FeedDismissalReasonEnum];
+
+
+    export const FeedDismissalReasonEnum = {
+      NotARealProblem: 'not_a_real_problem',
+      AlreadyKnown: 'already_known',
+      NotMyArea: 'not_my_area',
+      Other: 'other',
+    } as const;
+
+    /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
     export type FieldNoteElementContext = { [key: string]: unknown };
@@ -54923,6 +54939,48 @@ export namespace Schemas {
          * @nullable
          */
       math_property?: string | null;
+    }
+
+    /**
+     * * `single` - Single
+     * * `by_result_labels` - By result labels
+     */
+    export type GroupingModeEnum = typeof GroupingModeEnum[keyof typeof GroupingModeEnum];
+
+
+    export const GroupingModeEnum = {
+      Single: 'single',
+      ByResultLabels: 'by_result_labels',
+    } as const;
+
+    /**
+     * * `degrade_visible` - Degrade visible
+     */
+    export type OnOverflowEnum = typeof OnOverflowEnum[keyof typeof OnOverflowEnum];
+
+
+    export const OnOverflowEnum = {
+      DegradeVisible: 'degrade_visible',
+    } as const;
+
+    export interface Grouping {
+      /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+       *
+       * * `single` - Single
+       * * `by_result_labels` - By result labels */
+      mode: GroupingModeEnum;
+      /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+      keys?: string[];
+      /**
+         * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_instances?: number;
+      /** What happens to groups past max_instances. degrade_visible names how many were left out.
+       *
+       * * `degrade_visible` - Degrade visible */
+      on_overflow?: OnOverflowEnum;
     }
 
     export interface HandsFreeToken {
@@ -65223,6 +65281,94 @@ export namespace Schemas {
       BodyMining: 'body_mining',
     } as const;
 
+    export type ThresholdOperator = typeof ThresholdOperator[keyof typeof ThresholdOperator];
+
+
+    export const ThresholdOperator = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export type WindowMinutesEnum = typeof WindowMinutesEnum[keyof typeof WindowMinutesEnum];
+
+
+    export const WindowMinutesEnum = {
+      Number5: 5,
+      Number10: 10,
+      Number15: 15,
+      Number30: 30,
+      Number60: 60,
+    } as const;
+
+    export interface LogsPlatformAlertCondition {
+      /**
+         * Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      threshold_count: number;
+      /** Whether the alert fires when the count is above or below the threshold. */
+      threshold_operator: ThresholdOperator;
+      /** Time window in minutes over which logs are counted. */
+      window_minutes: WindowMinutesEnum;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const LogsPlatformAlertConfigurationEditSourceKind = {
+      Logs: 'logs',
+    } as const;
+
+    export interface LogsPlatformAlertSourceConfig {
+      /** The logs the alert counts: severityLevels, serviceNames, or a filterGroup of property filters. An enabled alert needs at least one. */
+      filters: LogsAlertFilters;
+      /** The bound the count is checked against. */
+      condition: LogsPlatformAlertCondition;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface LogsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: LogsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+      source_config: LogsPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
+
     export interface LogsRetentionRule {
       /** Unique identifier for this retention rule. */
       readonly id: string;
@@ -69471,6 +69617,19 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    /**
+     * Why the calling user marked an observation not useful in What to watch.
+     */
+    export interface ObservationFeedDismissal {
+      /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+       *
+       * * `not_a_real_problem` - Not a real problem
+       * * `already_known` - Already known
+       * * `not_my_area` - Not my area
+       * * `other` - Other */
+      reason?: FeedDismissalReasonEnum | null;
+    }
+
     export interface ObservationLabelDayCount {
       /** Day (UTC) the observed sessions were scanned. */
       date: string;
@@ -73132,6 +73291,32 @@ export namespace Schemas {
       Insight: 'insight',
     } as const;
 
+    /**
+     * * `ok` - OK
+     * * `errored` - Errored
+     * * `broken` - Broken
+     */
+    export type PlatformAlertCheckStatusEnum = typeof PlatformAlertCheckStatusEnum[keyof typeof PlatformAlertCheckStatusEnum];
+
+
+    export const PlatformAlertCheckStatusEnum = {
+      Ok: 'ok',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    /**
+     * * `source` - Source
+     * * `platform` - Platform
+     */
+    export type PlatformAlertOwnerEnum = typeof PlatformAlertOwnerEnum[keyof typeof PlatformAlertOwnerEnum];
+
+
+    export const PlatformAlertOwnerEnum = {
+      Source: 'source',
+      Platform: 'platform',
+    } as const;
+
     export interface PlatformAlert {
       /** Unique identifier of this alert instance. */
       readonly id: string;
@@ -73214,6 +73399,24 @@ export namespace Schemas {
          * @nullable
          */
       readonly legacy_configuration_id: string | null;
+      /** How the alert splits its results into instances. */
+      readonly grouping: Grouping;
+      /**
+         * Time until which every instance's notifications are muted. Null when not muted. An instance's own snooze_until mutes one group, and the later of the two holds.
+         * @nullable
+         */
+      readonly snooze_until: string | null;
+      /** Whether the alert's checks succeed. Holds for every instance, because a failed check names no group.
+       *
+       * * `ok` - OK
+       * * `errored` - Errored
+       * * `broken` - Broken */
+      readonly check_status: PlatformAlertCheckStatusEnum;
+      /** Which stack evaluates and delivers the alert. Only an alert the platform owns can be edited here. The source product's own API edits the rest.
+       *
+       * * `source` - Source
+       * * `platform` - Platform */
+      readonly owner: PlatformAlertOwnerEnum;
       /** When the configuration was created. */
       readonly created_at: string;
       /** When the configuration was last changed. */
@@ -83707,6 +83910,55 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedLogsPlatformAlertConfigurationEditSourceKind = typeof PatchedLogsPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedLogsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedLogsPlatformAlertConfigurationEditSourceKind = {
+      Logs: 'logs',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedLogsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedLogsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a logs alert. The bound the alert is evaluated against is under condition. */
+      source_config?: LogsPlatformAlertSourceConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
     export interface PatchedLogsRetentionRule {
       /** Unique identifier for this retention rule. */
       readonly id?: string;
@@ -84398,6 +84650,8 @@ export namespace Schemas {
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
+
+    export type PatchedPlatformAlertConfigurationEdit = PatchedLogsPlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -89302,6 +89556,8 @@ export namespace Schemas {
       labels: unknown[];
       created_at: string | null;
     }
+
+    export type PlatformAlertConfigurationEdit = LogsPlatformAlertConfigurationEdit;
 
     /**
      * * `running` - Running
