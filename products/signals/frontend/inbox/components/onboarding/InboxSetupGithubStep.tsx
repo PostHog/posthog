@@ -3,7 +3,8 @@ import { combineUrl } from 'kea-router'
 
 import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { IntegrationAccessRequest } from 'scenes/integrations/components/IntegrationAccessRequest'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { InboxSetupImplementation } from './InboxSetupImplementation'
 
 export function InboxSetupGithubStep(): JSX.Element {
     const { hasGithubIntegration, saving } = useValues(inboxSetupLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { connectGithub } = useActions(inboxSetupLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -41,7 +43,7 @@ export function InboxSetupGithubStep(): JSX.Element {
                     />
                 )}
             </GuidedWizardSection>
-            <InboxSetupImplementation />
+            {featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && <InboxSetupImplementation />}
         </>
     )
 }

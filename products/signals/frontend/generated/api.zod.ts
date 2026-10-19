@@ -475,10 +475,10 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
 
 export const SignalsOnboardingExposeCreateBody = /* @__PURE__ */ zod.object({
     variant: zod
-        .enum(['control', 'test'])
-        .describe('\* `control` - Control\n\* `test` - Focused steps')
+        .enum(['control', 'test-ui', 'test-github'])
+        .describe('\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore')
         .describe(
-            'Assigned experiment variant at the eligible Inbox impression.\n\n\* `control` - Control\n\* `test` - Focused steps'
+            'Assigned experiment variant at the eligible Inbox impression.\n\n\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore'
         ),
 })
 

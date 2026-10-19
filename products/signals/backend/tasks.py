@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
@@ -78,6 +78,16 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
+    from products.signals.backend.onboarding_activation import (
+        InboxOnboardingActivation,  # noqa: PLC0415 - keep the Temporal graph off task discovery
+    )
+
+    InboxOnboardingActivation(team_id).run(job, final_attempt=self.request.retries >= self.max_retries)
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)

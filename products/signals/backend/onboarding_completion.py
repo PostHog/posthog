@@ -20,6 +20,7 @@ from posthog.ph_client import ph_scoped_capture
 
 from products.replay_vision.backend.facade.api import has_signal_emitting_scanner
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 
 
 class RepositoryCheckUnavailable(APIException):
@@ -85,7 +86,7 @@ class InboxOnboardingReconciler:
             if not state.get("completed_at"):
                 locked.onboarding = {**state, "completed_at": timezone.now().isoformat()}
                 locked.save(update_fields=["onboarding", "updated_at"])
-                transaction.on_commit(lambda: self._capture(config), robust=True)
+                transaction.on_commit(lambda: self._capture(locked), robust=True)
         return False
 
     def has_repository(self) -> bool:
@@ -113,5 +114,5 @@ class InboxOnboardingReconciler:
                 distinct_id=str(user.distinct_id if user else config.team.uuid),
                 event="self-driving onboarding completed",
                 groups=groups(team=config.team),
-                properties={"project_id": self.team_id, "variant": "control", "flow_version": "ui-first-v1"},
+                properties=InboxOnboardingAnalytics.completion_properties(config, user),
             )

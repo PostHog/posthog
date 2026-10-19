@@ -15,13 +15,18 @@ import { InboxSetupScoutsStep } from './InboxSetupScoutsStep'
 import { InboxSetupSourcesStep } from './InboxSetupSourcesStep'
 
 export function InboxSetupFlow(): JSX.Element {
-    const { draft, ready, saving, error, activationDisabledReason, isFinalStep, sourceSetupSource } =
+    const { draft, ready, saving, error, activationDisabledReason, isFinalStep, sourceSetupSource, currentTeamId } =
         useValues(inboxSetupLogic)
-    const { startSetup, goToStep, activate, retry } = useActions(inboxSetupLogic)
+    const { startSetup, goToStep, activate, retry, reportStepViewed } = useActions(inboxSetupLogic)
     useMountedLogic(scoutSuggestionsLogic)
     useEffect(() => {
         startSetup()
     }, [startSetup])
+    useEffect(() => {
+        if (ready) {
+            reportStepViewed()
+        }
+    }, [ready, draft.step, currentTeamId, reportStepViewed])
     const isScoutsStep = draft.step === 'scouts'
     return (
         <div className={cn('@container w-full', isScoutsStep && 'h-full')}>
