@@ -152,7 +152,8 @@ export function confirmCreateAsBroadcast(otherCount: number = 0): Promise<Create
     }
     return new Promise((resolve) => {
         LemonDialog.open({
-            width: 500,
+            // Three buttons do not fit on one row at the default width.
+            width: otherCount > 0 ? 600 : 500,
             title: 'Track this send as a broadcast?',
             description:
                 otherCount > 0
