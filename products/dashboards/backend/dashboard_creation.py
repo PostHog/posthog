@@ -51,6 +51,7 @@ class NewInsightTile:
     description: str
     query: dict[str, Any]
     layout: TileLayout
+    show_description: bool | None = None
 
 
 @frozen
@@ -154,7 +155,11 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                 if not was_created:
                     raise ValueError("A dashboard was already created with this idempotency key.")
                 created_tile = DashboardTile.objects.create(
-                    dashboard=created, team_id=team_id, insight_id=insight_id, layouts=_layouts(tile.layout)
+                    dashboard=created,
+                    team_id=team_id,
+                    insight_id=insight_id,
+                    layouts=_layouts(tile.layout),
+                    show_description=tile.show_description,
                 )
                 insight_count += 1
             else:

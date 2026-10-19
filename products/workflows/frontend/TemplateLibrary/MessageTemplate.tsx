@@ -1,7 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonMenuOverlay,
+    LemonTag,
+    Spinner,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -54,6 +64,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         syncExternalEdit,
         keepMyTemplateVersion,
         setTransactionalTab,
+        discardDraft,
     } = useActions(logic)
     const {
         template,
@@ -67,6 +78,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSyncingExternalEdit,
         transactionalHogFlowId,
         transactionalTab,
+        draftsEnabled,
+        hasDraft,
+        hasUnsavedChanges,
+        isSavingDraft,
+        isDiscardingDraft,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
@@ -180,9 +196,22 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     nameSuffix={
                         showTransactional && transactionalHogFlowId ? (
-                            <LemonTag type="success" className="ml-1">
-                                Transactional
-                            </LemonTag>
+                            <>
+                                <LemonTag type="success" className="ml-1">
+                                    Transactional
+                                </LemonTag>
+                                {(hasDraft || hasUnsavedChanges) && (
+                                    <Tooltip title="Your changes save as a draft. Sends use the live version until you publish.">
+                                        <LemonTag
+                                            type="warning"
+                                            className="ml-1"
+                                            data-attr="message-template-draft-tag"
+                                        >
+                                            {isSavingDraft ? 'Saving draft…' : 'Editing draft'}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
                         ) : undefined
                     }
                     actions={
@@ -197,7 +226,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             >
                                 Send test
                             </LemonButton>
-                            {templateChanged && (
+                            {templateChanged && !draftsEnabled && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
                                     type="secondary"
@@ -214,15 +243,48 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting || templateLoading}
                                 disabledReason={
-                                    !templateChanged && props.id !== 'new'
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
+                                    draftsEnabled && isSavingDraft
+                                        ? 'Saving your draft'
+                                        : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                                          ? 'No changes to publish'
+                                          : !draftsEnabled && !templateChanged && props.id !== 'new'
+                                            ? 'No changes to save'
+                                            : !template.name
+                                              ? 'Name is required'
+                                              : undefined
                                 }
                                 size="small"
+                                sideAction={
+                                    draftsEnabled
+                                        ? {
+                                              'data-attr': 'message-template-draft-actions',
+                                              'aria-label': 'More draft actions',
+                                              dropdown: {
+                                                  placement: 'bottom-end',
+                                                  overlay: (
+                                                      <LemonMenuOverlay
+                                                          items={[
+                                                              {
+                                                                  label: 'Discard draft',
+                                                                  icon: <IconTrash />,
+                                                                  status: 'danger',
+                                                                  onClick: discardDraft,
+                                                                  disabledReason: !hasDraft
+                                                                      ? 'There is no draft to discard'
+                                                                      : isSavingDraft || isDiscardingDraft
+                                                                        ? 'Wait for the draft to finish saving'
+                                                                        : undefined,
+                                                                  'data-attr': 'message-template-discard-draft',
+                                                              },
+                                                          ]}
+                                                      />
+                                                  ),
+                                              },
+                                          }
+                                        : undefined
+                                }
                             >
-                                {props.id === 'new' ? 'Create' : 'Save'}
+                                {props.id === 'new' ? 'Create' : draftsEnabled ? 'Publish' : 'Save'}
                             </LemonButton>
                             <More
                                 size="small"
@@ -242,7 +304,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                     fullWidth
                                                     onClick={duplicateTemplate}
                                                     disabledReason={
-                                                        templateChanged
+                                                        hasUnsavedChanges
                                                             ? 'Save your changes before duplicating'
                                                             : undefined
                                                     }

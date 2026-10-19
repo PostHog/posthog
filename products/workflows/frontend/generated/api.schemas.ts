@@ -1107,6 +1107,17 @@ export interface HogFlowBatchJobCancelResponseApi {
     done: boolean
 }
 
+export interface HogFlowConvertedToBroadcastApi {
+    /** Id of the workflow that is now a broadcast. */
+    readonly id: string
+    /** The product that now owns the workflow. Always `broadcasts`.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi
+}
+
 /**
  * * `update_action` - update_action
  * * `add_action` - add_action
@@ -1796,6 +1807,29 @@ export interface PatchedHogFlowScheduleApi {
     readonly next_run_at?: string | null
     readonly created_at?: string
     readonly updated_at?: string
+}
+
+export interface BroadcastConversionCandidateApi {
+    /** Workflow id. */
+    readonly id: string
+    /** Workflow name. Empty when unnamed. */
+    readonly name: string
+    /** Workflow status.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    readonly status: HogFlowStateEnumApi
+}
+
+/**
+ * Workflows that only send one email to a batch audience and can move to broadcasts.
+ */
+export interface BroadcastConversionCandidatesApi {
+    /** True when more workflows can move than `results` lists. */
+    readonly has_more: boolean
+    /** The most recently updated candidates, at most 100. */
+    readonly results: readonly BroadcastConversionCandidateApi[]
 }
 
 /**
