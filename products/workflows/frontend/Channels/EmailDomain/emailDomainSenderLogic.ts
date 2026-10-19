@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -282,9 +282,12 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     config: { ...senderConfig, name: values.senderName },
                 })
                 actions.senderSaved(saved)
-            } catch {
+            } catch (error) {
                 actions.saveSenderFailed()
-                lemonToast.error('Could not save the sender name. Try again in a moment.')
+                lemonToast.error(
+                    (error instanceof ApiError && error.detail) ||
+                        'Could not save the sender name. Try again in a moment.'
+                )
             }
         },
         senderSaved: () => {
@@ -299,7 +302,10 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     testSendResult.emailSendResult.reason ?? 'Nothing was sent. Check the recipient settings.'
                 )
             } else if (testSendResult) {
-                lemonToast.error('Could not confirm the test email was sent. Check the recipient and try again.')
+                lemonToast.error(
+                    testSendResult.emailSendResult?.reason ??
+                        'Could not confirm the test email was sent. Check the recipient and try again.'
+                )
             }
         },
     })),
