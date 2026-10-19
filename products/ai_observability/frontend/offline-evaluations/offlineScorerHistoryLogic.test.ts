@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { saveTagFilters } from '../components/resourceTagFilters'
 import * as api from '../generated/api'
 import { offlineScorerHistoryLogic, offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
 import { OFFLINE_STORY_DEFINITION, OFFLINE_STORY_VERSION, makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
@@ -183,6 +184,7 @@ describe('offlineScorerHistoryLogic', () => {
     ] as const)(
         'includes %s experiments started %i days ago when opened from their scorer link',
         async (status, age) => {
+            saveTagFilters('experiments', { tags: ['production'], tag_match: 'all' }, 1)
             const startedAt = dayjs().subtract(age, 'day').toISOString()
             router.actions.push(
                 offlineScorerHistoryUrl(
@@ -198,6 +200,7 @@ describe('offlineScorerHistoryLogic', () => {
             expect(query?.scorer_version_ids).toBe(OFFLINE_STORY_VERSION.id)
             expect(query?.statuses?.split(',')).toContain(status)
             expect(dayjs(query?.date_from).isAfter(startedAt)).toBe(false)
+            expect(query?.tags).toBe('[]')
         }
     )
 

@@ -1,8 +1,9 @@
 import json
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import connection, transaction
 from django.test import SimpleTestCase
@@ -11,7 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Tag, Team
 
 from products.ai_observability.backend.api.resource_tags import ResourceTagFilterSerializer, ResourceTagsWriteSerializer
 from products.ai_observability.backend.dataset_service import create_dataset
@@ -82,6 +83,7 @@ class TestResourceTags(APIBaseTest):
         response = self.client.patch(detail_url, {"tags": []}, format="json")
         assert response.status_code == 200, response.data
         assert response.data["tags"] == []
+        assert list(Tag.objects.filter(team=self.team).values_list("name", flat=True)) == ["quality"]
         first.refresh_from_db()
         if isinstance(first, ScoreDefinition):
             assert first.versions.count() == 1
@@ -89,6 +91,31 @@ class TestResourceTags(APIBaseTest):
             assert first.current_revision_id is None
         else:
             assert first.status == "uploading"
+
+    @parameterized.expand(
+        [
+            ("empty", [], []),
+            ("normalized", ["production", "quality"], [" Quality ", "production", "QUALITY"]),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.score_definitions.report_user_action")
+    def test_saving_unchanged_scorer_tags_does_not_record_an_update(
+        self, _name: str, current_tags: list[str], submitted_tags: list[str], report_user_action: Mock
+    ) -> None:
+        scorer = self._resource("scorers", "Tagged scorer")
+        assert isinstance(scorer, ScoreDefinition)
+        ResourceTags.set(scorer, current_tags)
+        updated_at = timezone.now() - timedelta(days=1)
+        ScoreDefinition.objects.filter(pk=scorer.pk).update(updated_at=updated_at)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"{self._url('scorers')}{scorer.pk}/", {"tags": submitted_tags}, format="json")
+
+        assert response.status_code == 200, response.data
+        assert response.data["tags"] == current_tags
+        scorer.refresh_from_db()
+        assert scorer.updated_at == updated_at
+        report_user_action.assert_not_called()
 
     @parameterized.expand(RESOURCES)
     def test_tags_do_not_cross_projects_or_resource_types(self, entity: str) -> None:

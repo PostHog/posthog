@@ -101,6 +101,7 @@ export function offlineScorerHistoryUrl(
     if (!experiment) {
         return combineUrl(urls.aiObservabilityOfflineScorerHistory(scorer.definition_id), search).url
     }
+    search.tags = []
     if (experiment.status !== DEFAULT_FILTERS.statuses) {
         search.statuses = OFFLINE_ALL_UPLOAD_STATES
     }

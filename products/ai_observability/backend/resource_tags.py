@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from django.db import models, transaction
 from django.db.models import Exists, Prefetch, QuerySet
 
-from posthog.api.tagged_item import set_tags_on_object
+from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.models.tagged_item import TaggedItem
 
 if TYPE_CHECKING:
@@ -51,3 +51,4 @@ class ResourceTags:
             # Serialize replacement on the resource so concurrent saves cannot merge two replacement sets.
             type(resource)._base_manager.select_for_update().get(pk=resource.pk, team_id=resource.team_id)
             resource.__dict__["prefetched_tags"] = set_tags_on_object(tags, resource)
+            cleanup_orphan_tags(resource.team_id)

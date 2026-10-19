@@ -331,8 +331,10 @@ class ScoreDefinitionViewSet(
         definition_data = dict(validated_data)
         changed_fields: list[str] = []
         if "tags" in definition_data:
-            ResourceTags.set(definition, definition_data.pop("tags"))
-            changed_fields.append("tags")
+            tags = definition_data.pop("tags")
+            if tags != ResourceTags.names(definition):
+                ResourceTags.set(definition, tags)
+                changed_fields.append("tags")
 
         if "description" in definition_data:
             definition_data["description"] = definition_data["description"] or ""
