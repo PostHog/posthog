@@ -96,11 +96,18 @@ ROLE_DETAIL = (
     "PostHog cannot assume the role. Check the role ARN and the trust policy with the external ID, "
     "then run the sync again."
 )
+INVALID_PARAMS_DETAIL = (
+    "The destination's S3 configuration is invalid. Check the bucket name, region and prefix, then run the sync again."
+)
 
 
 def _configuration_error_detail(err: Exception) -> str | None:
     if isinstance(err, InvalidCredentialsError):
         return ROLE_DETAIL
+    if isinstance(err, botocore.exceptions.ParamValidationError):
+        # Raised by botocore itself, before any request reaches S3, so a retry sends the exact
+        # same invalid parameters and fails identically every time.
+        return INVALID_PARAMS_DETAIL
     if not isinstance(err, botocore.exceptions.ClientError):
         return None
     if err.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500:
@@ -286,7 +293,7 @@ class S3DestinationWriter:
     def __init__(self, ctx: DestinationRunContext) -> None:
         self._ctx = ctx
         config = ctx.config or {}
-        self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip("/")
+        self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
         self._prefix: str = (config.get("prefix") or "").strip("/")
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))

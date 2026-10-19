@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsScopeInsufficientError,
     Integration,
     OauthIntegration,
     google_ads_hierarchy_level,
@@ -410,6 +411,9 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsScopeInsufficientError as e:
+            # Reconnecting alone repeats the same consent screen, so name the permission to allow.
+            raise IntegrationAccountListingError(_SCOPE_INSUFFICIENT_ERROR) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.

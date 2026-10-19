@@ -197,6 +197,7 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # by default); only an explicit False disables it, leaving reports to still generate and notify
     # while the team reviews and opens PRs manually.
     autostart_enabled = models.BooleanField(null=True, blank=True)
+    onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
@@ -2585,6 +2586,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         TRUSTED = "trusted", "Trusted domains only"
         FULL = "full", "Full"
 
+    class PrecheckOutcome(models.TextChoices):
+        """The outcome of one scheduled pre-check (`scout_harness/precheck.py`)."""
+
+        RUN = "run", "Run"
+        SKIP = "skip", "Skip"
+        # The query failed, so the scout ran as if it had no pre-check.
+        ERROR = "error", "Error"
+
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
     RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
@@ -2854,6 +2863,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     precheck_query = models.TextField(null=True, blank=True)
     # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
     precheck_disabled = models.BooleanField(default=False, db_default=False)
+    # The latest scheduled pre-check, written by `evaluate_scout_precheck`. A skip creates no run
+    # row, so these fields are the only stored trace that a gated scout still checks its surface.
+    last_precheck_at = models.DateTimeField(null=True, blank=True)
+    last_precheck_outcome = models.CharField(max_length=16, choices=PrecheckOutcome.choices, null=True, blank=True)
+    last_precheck_row_count = models.IntegerField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
