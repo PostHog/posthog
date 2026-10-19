@@ -23,8 +23,10 @@ export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
 const errorTrackingTicketLine = (label: string, value: string, condition = `notEmpty(${value})`): string =>
     `{${condition} ? concat('\\n- ${label}: ', ${value}) : ''}`
 
-// Same shape as the Linear, GitHub and GitLab template defaults in nodejs/src/cdp/templates/hog-helpers.ts,
-// built from the issue name and description, which stay on the event when the exception properties are dropped.
+// Same shape as the Linear, GitHub and GitLab template defaults in nodejs/src/cdp/templates/error-tracking-ticket.ts,
+// but built from the issue name and description. When the event is too large for Kafka, the producer drops
+// exception_props (products/error_tracking/backend/temporal/lifecycle/side_effects.py), so $exception_types
+// and $exception_values are missing. The name and description still arrive, so the title still renders.
 const ERROR_TRACKING_TICKET_TITLE =
     "{substring(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, 1, 120)}"
 

@@ -1,6 +1,6 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
-import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../hog-helpers'
+import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../error-tracking-ticket'
 
 export const template: HogFunctionTemplate = {
     status: 'stable',
