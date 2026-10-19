@@ -290,11 +290,11 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 trendSeries: RetentionTrendPayload[],
                 timezone: string
             ) => {
-                const { date_to } = dateRange || {}
+                const { date_to, excludeIncompletePeriods } = dateRange || {}
                 const { period } = retentionFilter || {}
 
                 // Returns negative number of points to paint over starting from end of array
-                if (!trendSeries?.[0]?.days) {
+                if (!trendSeries?.[0]?.days || excludeIncompletePeriods) {
                     return 0
                 } else if (!date_to) {
                     return -1

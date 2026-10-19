@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -127,4 +128,19 @@ describe('retentionLogic', () => {
         expect(logic.values.allCohortsEmpty).toBe(allCohortsEmpty)
         expect(logic.values.hasEntityPropertyFilters).toBe(hasEntityPropertyFilters)
     })
+
+    it.each([
+        { excludeIncompletePeriods: true, expectedCounts: [100, 50] },
+        { excludeIncompletePeriods: false, expectedCounts: [100, 50, 20] },
+    ])(
+        'keeps the current period only when excludeIncompletePeriods is $excludeIncompletePeriods',
+        async ({ excludeIncompletePeriods, expectedCounts }) => {
+            const twoDaysAgo = dayjs().utc().startOf('day').subtract(2, 'day').toISOString()
+            await loadResults({ ...retentionQuery(), dateRange: { excludeIncompletePeriods } }, [
+                cohortRow(twoDaysAgo, [100, 50, 20]),
+            ])
+
+            expect(logic.values.results[0].values.map((value) => value.count)).toEqual(expectedCounts)
+        }
+    )
 })

@@ -152,7 +152,8 @@ export interface retentionLogicMeta {
             insightData: Record<string, any>,
             retentionFilter: RetentionFilter | null,
             timezone: string,
-            isPropertyValueAggregation: boolean
+            isPropertyValueAggregation: boolean,
+            dateRange: DateRange | null | undefined
         ) => ProcessedRetentionPayload[]
         filteredResults: (
             results: ProcessedRetentionPayload[],
@@ -354,13 +355,21 @@ export const retentionLogic = kea<retentionLogicType>([
                 results.length > 0 && results.every((result) => (result.values[0]?.count ?? 0) === 0),
         ],
         results: [
-            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone, s.isPropertyValueAggregation],
+            (s) => [
+                s.insightQuery,
+                s.insightData,
+                s.retentionFilter,
+                s.timezone,
+                s.isPropertyValueAggregation,
+                s.dateRange,
+            ],
             (
                 insightQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>>,
                 insightData: Record<string, any>,
                 retentionFilter: RetentionFilter | null,
                 timezone: string,
-                isPropertyValueAggregation: boolean
+                isPropertyValueAggregation: boolean,
+                dateRange: DateRange | null | undefined
             ): ProcessedRetentionPayload[] => {
                 if (isPropertyValueAggregation && !retentionFilter?.aggregationProperty) {
                     return []
@@ -394,7 +403,7 @@ export const retentionLogic = kea<retentionLogicType>([
                     }),
                 }))
 
-                // Filter out future values and handle breakdown label
+                // Filter out future values (and the current period when excluded) and handle breakdown label
                 return results.map((result) => ({
                     ...result,
                     date: dayjs(result.date).tz(timezone),
@@ -406,7 +415,9 @@ export const retentionLogic = kea<retentionLogicType>([
                     // Dashboard breakdown color configs store the raw value, so keep it
                     // alongside the display-mapped one.
                     rawBreakdownValue: result.breakdown_value ?? null,
-                    values: result.values.filter((value) => !value.isFuture),
+                    values: result.values.filter(
+                        (value) => !value.isFuture && !(dateRange?.excludeIncompletePeriods && value.isCurrentPeriod)
+                    ),
                 }))
             },
         ],
