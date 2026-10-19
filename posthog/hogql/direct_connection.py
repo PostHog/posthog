@@ -14,6 +14,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod, ManagedWarehouseSQLMode
 
@@ -80,6 +81,23 @@ def raw_query_denied_by_table_access(
     return any(not uac.check_access_level_for_object(table, required_level="viewer") for table in tables)
 
 
+def _source_explicitly_locked(team: "Team", source: ExternalDataSource) -> bool:
+    """Return True if an admin has set the team-wide default access on this source to 'none'.
+
+    A team-wide default row has no organization_member and no role. When it exists with
+    access_level='none', the source is restricted to explicitly-granted users only, so an
+    anonymous SharedLinkUser must not bypass it.
+    """
+    return AccessControl.objects.filter(
+        team=team,
+        resource="external_data_source",
+        resource_id=str(source.id),
+        organization_member=None,
+        role=None,
+        access_level="none",
+    ).exists()
+
+
 def get_direct_connection_source(
     team: "Team", connection_id: str | None, *, user: Optional["User"] = None, require_pure_direct: bool = False
 ) -> ExternalDataSource | None:
@@ -125,6 +143,13 @@ def get_direct_connection_source(
         and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
         and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
+        return None
+
+    # SharedLinkUser is an anonymous public viewer. SyntheticUser is an internal service principal
+    # and bypasses unconditionally. For SharedLinkUser, respect an explicit team-level "none" ACL
+    # on this source: if an admin locked it down (no default viewer access), the public share must
+    # not expose it either.
+    if isinstance(user, SharedLinkUser) and _source_explicitly_locked(team, source):
         return None
 
     return source
