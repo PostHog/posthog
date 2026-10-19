@@ -539,6 +539,7 @@ from .goldcast.source import GoldcastSource
 from .gologin.source import GoLoginSource
 from .gong.source import GongSource
 from .google_ad_manager.source import GoogleAdManagerSource
+from .google_admob.source import GoogleAdMobSource
 from .google_ads.source import GoogleAdsSource
 from .google_adsense.source import GoogleAdSenseSource
 from .google_analytics.source import GoogleAnalyticsSource
