@@ -1,7 +1,7 @@
 import { buildSpanTree, type SpanNode } from 'products/tracing/frontend/spanTree'
 import type { Span } from 'products/tracing/frontend/types'
 
-import { buildTraceDialogRows, countDescendantsById, type TraceDialogRow } from './traceDialogRows'
+import { buildTraceDialogRows, countDescendantsById, rowConnectorLines, type TraceDialogRow } from './traceDialogRows'
 
 function span(spanId: string, parentSpanId: string, offsetMs: number): Span {
     return {
@@ -24,7 +24,13 @@ function span(spanId: string, parentSpanId: string, offsetMs: number): Span {
 }
 
 function labels(rows: TraceDialogRow[]): string[] {
-    return rows.map((row) => (row.kind === 'span' ? row.node.span.span_id : `+${row.hiddenCount}`))
+    return rows.map((row) =>
+        row.kind === 'span'
+            ? row.node.span.span_id
+            : row.kind === 'chain'
+              ? `[${row.nodes.map((node) => node.span.span_id).join('>')}]`
+              : `+${row.hiddenCount}`
+    )
 }
 
 function find(roots: SpanNode[], spanId: string): SpanNode {
@@ -81,6 +87,83 @@ describe('traceDialogRows', () => {
     ])('%s', (_name, collapsed, fullChildLists, pinnedId, expected) => {
         const pinned = pinnedId ? find(roots, pinnedId) : null
 
-        expect(labels(buildTraceDialogRows(roots, collapsed, fullChildLists, pinned))).toEqual(expected)
+        expect(
+            labels(
+                buildTraceDialogRows(roots, {
+                    collapsedSpanIds: collapsed,
+                    fullChildListSpanIds: fullChildLists,
+                    openChainIds: new Set(),
+                    pinned,
+                })
+            )
+        ).toEqual(expected)
+    })
+
+    describe('chains', () => {
+        // root > a > b > c > d, where d branches into e and f.
+        const chain = buildSpanTree([
+            span('root', '', 0),
+            span('a', 'root', 1),
+            span('b', 'a', 2),
+            span('c', 'b', 3),
+            span('d', 'c', 4),
+            span('e', 'd', 5),
+            span('f', 'd', 6),
+        ])
+        const build = (openChainIds: Set<string>, pinnedId: string | null = null): TraceDialogRow[] =>
+            buildTraceDialogRows(chain, {
+                collapsedSpanIds: new Set(),
+                fullChildListSpanIds: new Set(),
+                openChainIds,
+                pinned: pinnedId ? find(chain, pinnedId) : null,
+            })
+
+        it.each([
+            [
+                'folds a run of single-child spans into one row',
+                new Set<string>(),
+                null,
+                ['root', '[a>b>c]', 'd', 'e', 'f'],
+            ],
+            // Opening must not fold the rest of the run again from its second span.
+            ['shows every span of an opened chain', new Set(['a']), null, ['root', 'a', 'b', 'c', 'd', 'e', 'f']],
+            [
+                'keeps the chain open when the span a log came from is inside it',
+                new Set<string>(),
+                'b',
+                ['root', 'a', 'b', 'c', 'd', 'e', 'f'],
+            ],
+        ])('%s', (_name, openChainIds, pinnedId, expected) => {
+            expect(labels(build(openChainIds, pinnedId))).toEqual(expected)
+        })
+
+        it('still folds the spans below the span a log came from', () => {
+            const long = buildSpanTree([
+                span('root', '', 0),
+                span('a', 'root', 1),
+                span('b', 'a', 2),
+                span('c', 'b', 3),
+                span('d', 'c', 4),
+                span('e', 'd', 5),
+                span('f', 'e', 6),
+            ])
+            const rows = buildTraceDialogRows(long, {
+                collapsedSpanIds: new Set(),
+                fullChildListSpanIds: new Set(),
+                openChainIds: new Set(),
+                pinned: find(long, 'a'),
+            })
+
+            expect(labels(rows)).toEqual(['root', 'a', '[b>c>d>e]', 'f'])
+        })
+
+        it('places rows under a folded chain one level below it, with lines only where siblings follow', () => {
+            const rows = build(new Set())
+            const [, chainRow, d, e, f] = rows
+
+            expect([chainRow.depth, d.depth, e.depth, f.depth]).toEqual([1, 2, 3, 3])
+            expect([e.isLast, f.isLast]).toEqual([false, true])
+            expect(rowConnectorLines(f)).toEqual([false, false])
+        })
     })
 })

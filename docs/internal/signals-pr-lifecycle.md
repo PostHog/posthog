@@ -55,6 +55,39 @@ Custom HogQL aggregations are parsed before a metric or check is authored. Inval
 
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
 
+## Monitoring metric definitions
+
+Research should make every effort to complete `config.monitoring` for each metric check using the research evidence. If required facts remain unknown, explain what is missing in the rationale instead of inventing values. The definition records the target's `reference_period_minutes`, an explicit `threshold_scaling` policy, and `baseline_period_minutes` when a baseline is supplied. These periods are independent of the soak, run interval, expiry, and any future Monitoring deadline. No existing check receives an inferred definition.
+
+The definition describes a measurement from Monitoring start through the observation time. A `linear` target scales by elapsed minutes divided by reference minutes and requires a single additive event count or property sum without a formula. Session-level sums are excluded because a session can contribute to more than one chart bucket. A `fixed` target keeps its bound as the observation period grows, including for percentages, averages, distinct counts, or explicitly fixed custom targets. Display format alone never selects the policy. The baseline retains its own measured period and is not presented as an observation from Monitoring.
+
+Expected impact keeps the activity chart visible and collapses the target period, scaling policy, baseline, and minimum wait under measurement details. Dynamic chart boundaries refresh at minute intervals so repeated views can reuse cached results. Bucket granularity follows the full displayed range and stays within the 1,000-point budget. The chart preserves date-range filters and spans one reference period on each side of Monitoring start, or now before Monitoring starts, extending through now if necessary. Start and now markers separate the surrounding activity from future dates, whose values remain empty. Compatible charts show target reference lines: additive linear targets scale to a full chart bucket, and fixed rates or property averages/quantiles retain their level. Fixed totals, distinct counts, unknown aggregations, linear calendar intervals longer than a day, and linear day buckets with unequal daylight-saving durations receive no reference line. These references do not impose per-bucket pass/fail rules. This read-time chart does not evaluate the Monitoring target or save a check result. The stored bounded query and whole-window comparison retain their existing Resolved execution meaning. Monitoring execution, scaled comparisons, saved interim observations, and final outcomes remain separate work.
+
+With `signals-report-metrics` enabled, research gathers short-window baselines before verification and prefers metric-based follow-up checks. It aims for practical 70-80% confidence in improvement, without claiming a calculated confidence score. Observed volume, recurrence, ingestion delay, and deployment timing justify the shortest useful query and wait. Frequent or high-volume checks can use 4-8 hours, allowing for several hours of deployment delay before the fix reaches users. Around 24 hours or several days require the corresponding activity or rollout evidence. Agent checks remain available when interpretation or unsupported measurements prevent a useful metric check. Missing activity is not success. These prompt preferences do not change execution, schema defaults, or final outcomes.
+
+The server refuses new Monitoring definitions when `signals-report-monitoring` is disabled or unavailable and omits the definition from check responses. Stored definitions remain intact. Research carries its definition-visibility decision into reconciliation, so flag recovery during a run does not replace an unchanged check or reset its approval and schedule. Existing definitions, charts, check schedules, and Resolved outcomes otherwise follow their current behavior.
+
+## Inbox value summary
+
+The `signals-inbox-value-summary` flag shows project-wide counts above the web
+inbox in both layouts. It is disabled by default. The rolling seven-day window
+uses GitHub merge time and includes only PRs verified as output from Self-driving
+implementation tasks. Manual attachments and research or discussion tasks do not
+count. Personal inbox filters do not change the totals.
+
+The people count deduplicates human GitHub IDs across mergers and non-dismissed
+approvals submitted before merge. Approvals can predate the seven-day window.
+Bots do not count. A missing participant snapshot leaves the people count unknown,
+not zero. The response includes the merged PR links and the GitHub logins stored in
+the participant snapshot. GitHub reads run in a background task; opening the inbox
+only reads the database.
+
+The panel stays hidden when there are no qualifying merges. Dismissal lasts seven
+days and is stored per user and project in that browser. On return, the client
+refreshes a result older than five minutes. Before rollout, apply the migrations,
+run `backfill_inbox_summary --team-id <id>` in bounded batches, and check the counts
+against the linked GitHub PRs. The flag does not enable this backfill itself.
+
 ## Follow-up measurement timing
 
 Reopening or archiving a resolved report immediately parks its active checks and clears their measurement starts and dispatches. It resets both error and inconclusive retry streaks. Delayed resolution callbacks only arm checks while the report is still resolved. Results from an earlier measurement window or dispatch cannot update the current check.

@@ -7,7 +7,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.project import update_team_workflows_config
-from posthog.api.team.team_config import drop_cached_workflows_config
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import Integration
 
@@ -51,6 +50,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
@@ -59,7 +60,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         }
 
     def test_patch_enables_capture(self) -> None:
-        # APIBaseTest.setUp may trigger the workflows_config cached_property (which calls
+        # APIBaseTest.setUp may trigger the workflows_config accessor (which calls
         # get_or_create_team_extension) so the extension row can already exist with the default
         # value. Either way, the patch must end with the row present and capture enabled.
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": True}})
@@ -106,7 +107,6 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_utm_params == {"utm_source": "newsletter"}
 
     def test_a_utm_save_keeps_settings_another_admin_changed_after_the_team_loaded(self) -> None:
-        self.addCleanup(drop_cached_workflows_config)
         team = Team.objects.get(pk=self.team.pk)
         assert team.workflows_config.email_tracking_consent_mode == "off"
         TeamWorkflowsConfig.objects.filter(team=self.team).update(
@@ -145,6 +145,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,

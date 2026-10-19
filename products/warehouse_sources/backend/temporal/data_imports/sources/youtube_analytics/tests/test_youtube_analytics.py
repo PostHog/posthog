@@ -14,17 +14,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubeanalytics import (
     YouTubeAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+    AUDIENCE_RETENTION,
     CHANNEL_DAILY,
     DEMOGRAPHICS,
     GEOGRAPHY,
     MAX_RESULTS_PER_PAGE,
     TOP_VIDEOS,
+    TRAFFIC_SOURCE_DETAILS,
+    VIDEOS,
+    YOUTUBE_ANALYTICS_REPORTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
     YouTubeAnalyticsSource,
@@ -59,13 +64,33 @@ def _connected_account() -> Iterator[None]:
         yield
 
 
-def _driver(start_date: str | None = None) -> SourceDriver:
-    config = YouTubeAnalyticsSourceConfig(channel_id="", youtube_analytics_integration_id=1, start_date=start_date)
+def _driver(start_date: str | None = None, channel_id: str = "") -> SourceDriver:
+    config = YouTubeAnalyticsSourceConfig(
+        channel_id=channel_id, youtube_analytics_integration_id=1, start_date=start_date
+    )
     return SourceDriver(YouTubeAnalyticsSource(), config)
 
 
 def _result(headers: list[str], rows: list[list[Any]]) -> dict[str, Any]:
     return {"columnHeaders": [{"name": name} for name in headers], "rows": rows}
+
+
+def _channel(uploads: str | None = "UU123") -> ScriptedResponse:
+    items = [{"id": "UC123", "contentDetails": {"relatedPlaylists": {"uploads": uploads}}}] if uploads else []
+    return ScriptedResponse(json={"items": items})
+
+
+def _playlist_page(video_ids: list[str], next_page_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"items": [{"contentDetails": {"videoId": video_id}} for video_id in video_ids]}
+    if next_page_token:
+        body["nextPageToken"] = next_page_token
+    return ScriptedResponse(json=body)
+
+
+def _videos(video_ids: list[str]) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"items": [{"id": video_id, "snippet": {"title": f"Video {video_id}"}} for video_id in video_ids]}
+    )
 
 
 class TestChannelIdsParam:
@@ -222,6 +247,122 @@ class TestGetRows:
         assert result.params("startIndex") == ["1", str(MAX_RESULTS_PER_PAGE + 1)]
         assert len(result.items[0]) == MAX_RESULTS_PER_PAGE + 1
 
+    @parameterized.expand(
+        [
+            ("with_referrers", [["example.com", 4]], 9),
+            ("no_referrers", [], 0),
+        ]
+    )
+    def test_traffic_source_details_queries_each_traffic_source_type_per_day(
+        self, _name: str, rows: list[list[Any]], expected_batches: int
+    ) -> None:
+        report = YOUTUBE_ANALYTICS_REPORTS[TRAFFIC_SOURCE_DETAILS]
+
+        result = _driver(start_date="2026-07-24").run(
+            TRAFFIC_SOURCE_DETAILS,
+            always(ScriptedResponse(json=_result(["insightTrafficSourceDetail", "views"], rows))),
+        )
+
+        assert result.raised is None
+        # The report rejects a request without exactly one traffic source type, a sort, or a cap of 25.
+        assert result.params("filters") == [f"insightTrafficSourceType=={value}" for value in report.filter_values] * 2
+        assert result.params("startDate") == ["2026-07-24"] * 9 + ["2026-07-25"] * 9
+        assert set(result.params("sort")) == {"-views"}
+        assert set(result.params("maxResults")) == {"25"}
+        assert set(result.params("dimensions")) == {"insightTrafficSourceDetail"}
+        assert len(result.items) == expected_batches * 2
+        if rows:
+            assert result.items[0] == [
+                {
+                    "insightTrafficSourceDetail": "example.com",
+                    "views": 4,
+                    "insightTrafficSourceType": "ADVERTISING",
+                    "day": datetime(2026, 7, 24, tzinfo=UTC),
+                }
+            ]
+
+    @parameterized.expand([("pinned_channel", "UC123", "id", "UC123"), ("blank_channel", "", "mine", "true")])
+    def test_videos_walks_the_uploads_playlist_and_resolves_each_page(
+        self, _name: str, channel_id: str, channel_param: str, channel_value: str
+    ) -> None:
+        script = route(
+            {
+                "/channels": [_channel()],
+                "/playlistItems": [
+                    _playlist_page(["vid-a", "vid-b"], next_page_token="page-2"),
+                    # A video uploaded mid-walk pushes vid-b onto the next page as well.
+                    _playlist_page(["vid-b", "vid-c"]),
+                ],
+                "/videos": [_videos(["vid-a", "vid-b"]), _videos(["vid-c"])],
+            }
+        )
+
+        result = _driver(channel_id=channel_id).run(VIDEOS, script)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["vid-a", "vid-b", "vid-c"]
+        channel_request, *rest = result.requests
+        assert channel_request.param(channel_param) == channel_value
+        assert [(r.path.rsplit("/", 1)[-1], r.param("pageToken"), r.param("id")) for r in rest] == [
+            ("playlistItems", None, None),
+            ("videos", None, "vid-a,vid-b"),
+            ("playlistItems", "page-2", None),
+            ("videos", None, "vid-c"),
+        ]
+        assert {r.param("playlistId") for r in rest if r.path.endswith("playlistItems")} == {"UU123"}
+
+    @parameterized.expand(
+        [
+            ("channel_not_found", {"/channels": [_channel(uploads=None)]}, 1),
+            ("never_uploaded", {"/channels": [_channel()], "/playlistItems": [ScriptedResponse(status=404)]}, 2),
+            ("empty_playlist", {"/channels": [_channel()], "/playlistItems": [_playlist_page([])]}, 2),
+        ]
+    )
+    def test_videos_syncs_nothing_for_a_channel_without_uploads(
+        self, _name: str, table: dict[str, list[ScriptedResponse]], expected_requests: int
+    ) -> None:
+        result = _driver().run(VIDEOS, route(table))
+
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == expected_requests
+
+    def test_videos_raises_when_a_later_playlist_page_is_missing(self) -> None:
+        # Only a first-page 404 means "no uploads"; a later one would silently truncate the table.
+        script = route(
+            {
+                "/channels": [_channel()],
+                "/playlistItems": [_playlist_page(["vid-a"], next_page_token="page-2"), ScriptedResponse(status=404)],
+                "/videos": [_videos(["vid-a"])],
+            }
+        )
+
+        result = _driver().run(VIDEOS, script)
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+    def test_audience_retention_fetches_one_curve_per_top_video(self) -> None:
+        script = [
+            ScriptedResponse(json=_result(["video", "views"], [["vid-a", 10], ["vid-b", 5]])),
+            ScriptedResponse(json=_result(["elapsedVideoTimeRatio", "audienceWatchRatio"], [[0.01, 1.2], [0.02, 0.9]])),
+            ScriptedResponse(json=_result(["elapsedVideoTimeRatio", "audienceWatchRatio"], [])),
+        ]
+
+        result = _driver(start_date="2026-07-01").run(
+            AUDIENCE_RETENTION, script, should_use_incremental_field=True, db_incremental_field_last_value="2026-07-20"
+        )
+
+        assert result.raised is None
+        assert result.params("filters") == [None, "video==vid-a", "video==vid-b"]
+        assert result.params("dimensions") == ["video", "elapsedVideoTimeRatio", "elapsedVideoTimeRatio"]
+        # Retention covers the whole sync window, never a watermark slice of it.
+        assert set(result.params("startDate")) == {"2026-07-01"}
+        assert set(result.params("endDate")) == {"2026-07-25"}
+        assert result.rows == [
+            {"elapsedVideoTimeRatio": 0.01, "audienceWatchRatio": 1.2, "video": "vid-a"},
+            {"elapsedVideoTimeRatio": 0.02, "audienceWatchRatio": 0.9, "video": "vid-a"},
+        ]
+
     def test_resumes_from_saved_state_instead_of_the_configured_start(self) -> None:
         result = _driver(start_date="2026-01-01").run(
             GEOGRAPHY,
@@ -288,6 +429,9 @@ class TestYouTubeAnalyticsSourceResponse:
             (CHANNEL_DAILY, ["day"]),
             (TOP_VIDEOS, ["day", "video"]),
             (DEMOGRAPHICS, ["day", "ageGroup", "gender"]),
+            (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"]),
+            (VIDEOS, ["id"]),
+            (AUDIENCE_RETENTION, ["video", "elapsedVideoTimeRatio"]),
         ]
     )
     def test_primary_keys_are_unique_table_wide(self, endpoint: str, expected: list[str]) -> None:

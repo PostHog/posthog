@@ -117,13 +117,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import (
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-    preserve_starred_products_setup,
-)
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -156,7 +150,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -170,6 +164,10 @@ NUM_2FA_BACKUP_CODES = 10
 # `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
 # is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
 MAX_PRODUCT_INTROS_SEEN = 100
+
+# Building the person properties runs several queries. The user's own edits refresh them through
+# "user updated", so the per-request refresh only catches slower drift such as project counts.
+PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS = 60 * 60
 
 
 logger = structlog.get_logger(__name__)
@@ -237,6 +235,18 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
+def _person_properties_refresh_due(user: User) -> bool:
+    # Store the last refreshed project, not one key per project. A project switch through
+    # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
+    # must refresh too.
+    key = f"user_person_properties_refreshed:{user.id}"
+    context = f"{user.current_organization_id}:{user.current_team_id}"
+    if get_safe_cache(key) == context:
+        return False
+    safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
+    return True
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -284,11 +294,9 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar "
-            "section and item visibility, and SQL editor settings such as Vim mode and the vimrc. "
-            "Send the complete object: it replaces the stored value "
-            "wholesale. Null means no customization; absent keys mean the element is shown. Once "
-            "`sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true."
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL "
+            "editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the "
+            "stored value wholesale. Null means no customization."
         ),
     )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
@@ -669,7 +677,6 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_notification_settings(cast(User, self.instance), notification_settings)
 
     def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
-        value = preserve_starred_products_setup(cast(Optional[User], self.instance), value)
         if value is None:
             return None
         try:
@@ -839,12 +846,13 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        with tracer.start_as_current_span("user_serializer.identify"):
-            posthoganalytics.capture(
-                distinct_id=instance.distinct_id,
-                event="update user properties",
-                properties={"$set": instance.get_analytics_metadata()},
-            )
+        if _person_properties_refresh_due(instance):
+            with tracer.start_as_current_span("user_serializer.identify"):
+                posthoganalytics.capture(
+                    distinct_id=instance.distinct_id,
+                    event="update user properties",
+                    properties={"$set": instance.get_analytics_metadata()},
+                )
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)

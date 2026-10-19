@@ -18,6 +18,12 @@ from products.customer_analytics.backend.facade.contracts import PinnedAccountPr
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.replay_vision.backend.facade.workflow_scan_limits import (
+    MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
+    MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,
+    WORKFLOW_SCAN_RATE_CAP_PER_DAY,
+    WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
     MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -236,10 +242,10 @@ class EmailUtmParamsField(serializers.JSONField):
         return {key: value for key, value in serializer.validated_data.items() if value.strip()}
 
 
-def drop_cached_workflows_config() -> None:
-    # Team.workflows_config keeps the last loaded row in a process-wide cache. The config save writes every
-    # column, so a cached row would undo settings another admin changed through a different process.
-    Team.workflows_config.fget.cache_clear()
+def drop_cached_workflows_config(team: Team) -> None:
+    # The config save writes every column, so a row this team instance loaded earlier would undo
+    # settings another admin changed since.
+    team.__dict__.pop(Team.workflows_config.cache_name, None)
 
 
 class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -305,6 +311,28 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    replay_vision_scan_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many Replay Vision scans one workflow can request in a rolling 24 hours. "
+            f"Null uses the default of {WORKFLOW_SCAN_RATE_CAP_PER_DAY}; zero pauses scans "
+            f"for every workflow in the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY}."
+        ),
+    )
+    replay_vision_scan_team_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many Replay Vision scans all workflows in the project request together in a rolling "
+            f"24 hours. Null uses the default of {WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY}; zero pauses "
+            f"scans for the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY}."
+        ),
+    )
     default_email_integration_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -339,6 +367,8 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_utm_params",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "replay_vision_scan_rate_limit_per_day",
+            "replay_vision_scan_team_rate_limit_per_day",
             "default_email_integration_id",
             "marketing_frequency_cap_max_messages",
             "marketing_frequency_cap_window_days",
@@ -350,14 +380,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         if self.parent:
             return value
         # Support raises a project past the ceiling in Django admin; clients that echo the whole
-        # config must be able to send that value back unchanged. Read the row fresh: the
-        # `Team.workflows_config` accessor is cached per process and can be stale.
+        # config must be able to send that value back unchanged.
         if value is not None and value > ceiling:
-            stored = (
-                TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values_list(field, flat=True).first()
-                if self.instance is not None
-                else None
-            )
+            stored = getattr(self.instance, field, None)
             if stored != value:
                 raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
         return value
@@ -370,6 +395,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_workflow_task_team_rate_limit_per_day(self, value: int | None) -> int | None:
         return self._enforce_self_serve_ceiling(
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+        )
+
+    def validate_replay_vision_scan_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "replay_vision_scan_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY
+        )
+
+    def validate_replay_vision_scan_team_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "replay_vision_scan_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY
         )
 
     def validate_default_email_integration_id(self, value: int | None) -> int | None:
@@ -394,10 +429,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         cap_fields = ("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
         cap = {field: attrs[field] for field in cap_fields if field in attrs}
         if len(cap) == 1 and self.instance is not None:
-            # Read the stored row, because `Team.workflows_config` is a cached_property on the Team instance
-            # and can hold values from before an earlier update.
-            stored = TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values(*cap_fields).first() or {}
-            cap = {**stored, **cap}
+            cap = {field: cap.get(field, getattr(self.instance, field)) for field in cap_fields}
         # The worker treats either null as no cap, so a half-set cap would save but never apply.
         if cap:
             missing = [field for field in cap_fields if cap.get(field) is None]

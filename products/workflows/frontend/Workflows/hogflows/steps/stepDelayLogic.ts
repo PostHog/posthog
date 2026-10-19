@@ -193,6 +193,9 @@ export interface stepDelayLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -336,6 +339,7 @@ export interface stepDelayLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -504,6 +508,9 @@ export interface stepDelayLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -663,6 +670,7 @@ export interface stepDelayLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'

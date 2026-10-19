@@ -361,17 +361,20 @@ class TestCSPMiddleware(APIBaseTest):
         policy = response["Content-Security-Policy" if regions else "Content-Security-Policy-Report-Only"]
         directives = {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
         script_src, connect_src = directives["script-src"], directives["connect-src"]
+        style_src, font_src = directives["style-src"], directives["font-src"]
         (report_uri,) = directives["report-uri"]
         report_version = parse_qs(urlsplit(report_uri).query)["v"]
         wildcards = {"https://*.posthog.com", "https://*.i.posthog.com"}
         if not regions:
             assert wildcards <= set(script_src)
+            assert "https://*.posthog.com" in style_src
+            assert "https://*.posthog.com" in font_src
             # An operator's endpoint keeps the version they configured.
             assert report_version == ["2"]
             return
 
         region, other_region = regions
-        assert not wildcards & {*script_src, *connect_src}
+        assert not wildcards & {*script_src, *connect_src, *style_src, *font_src}
         # Under the wildcard policy's version, reports from the two policies mix in one query.
         assert report_version == ["4"]
         # The app cannot start without its bundle host.
@@ -386,6 +389,13 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
+        # The app loads its stylesheets and fonts from the bundle host, and the toolbar loads its own from
+        # /static/. Without either source the page renders unstyled, and the user sees no error.
+        assert {overrides["JS_URL"], "https://internal-cf.posthog.com/static/"} <= set(style_src)
+        assert {overrides["JS_URL"], "https://internal-cf.posthog.com/static/"} <= set(font_src)
+        # The swap must remove the wildcard alone. Inline styles, data: fonts and Google Fonts still load.
+        assert {"'self'", "'unsafe-inline'", "https://fonts.googleapis.com"} <= set(style_src)
+        assert {"'self'", "data:", "https://fonts.gstatic.com"} <= set(font_src)
 
     @parameterized.expand(
         [
@@ -425,18 +435,16 @@ class TestCSPMiddleware(APIBaseTest):
         (app_policy,) = [policy for policy in enforced + reported if "default-src" in policy]
         # The app policy keeps `https:` and the PostHog wildcard, so the shadow reports images without blocking any.
         assert {"https:", "https://*.posthog.com"} <= set(app_policy["img-src"])
-        # The app policy keeps the wildcards until the v=6 reports show the named hosts are complete.
-        assert "https://*.posthog.com" in app_policy["style-src"]
-        assert "https://*.posthog.com" in app_policy["font-src"]
-        # Enforced, a shadow would block every image, stylesheet or font from a host it does not name.
-        assert [policy for policy in enforced if _report_version(policy) in (["6"], ["7"])] == []
+        # Enforced, the shadow would block every image from a host it does not name.
+        assert [policy for policy in enforced if _report_version(policy) == ["7"]] == []
         # A v=5 report names an image that only `https:` admits. The image shadow also reports PostHog hosts the
         # named list misses, so under 5 its reports would mix with the old ones in one query.
         assert [policy for policy in enforced + reported if _report_version(policy) == ["5"]] == []
+        # The app policy enforces the named stylesheet and font hosts, so a v=6 policy would report each miss twice.
+        assert [policy for policy in enforced + reported if _report_version(policy) == ["6"]] == []
         image_shadows = [policy for policy in reported if _report_version(policy) == ["7"]]
-        style_font_shadows = [policy for policy in reported if _report_version(policy) == ["6"]]
         if not expects_shadows:
-            assert image_shadows == style_font_shadows == []
+            assert image_shadows == []
             return
 
         (image_shadow,) = image_shadows
@@ -449,16 +457,6 @@ class TestCSPMiddleware(APIBaseTest):
         assert {_US_BUNDLE, "https://internal-cf.posthog.com/static/"} <= img_src
         # The swap must remove those two sources alone, or every image the others admit reports as a miss.
         assert {"'self'", "data:", "blob:", "https://posthog.com", "https://www.gravatar.com"} <= img_src
-
-        (style_font_shadow,) = style_font_shadows
-        # Any other directive would make a v=6 report mean something besides "this host is missing".
-        assert set(style_font_shadow) == {"style-src", "font-src", "report-uri"}
-        for sources in (style_font_shadow["style-src"], style_font_shadow["font-src"]):
-            # A wildcard admits every PostHog host, so a missed host would never report.
-            assert "https://*.posthog.com" not in sources
-            # Without these, every page load reports its own bundle or the toolbar, and a real miss is lost.
-            assert _US_BUNDLE in sources
-            assert "https://internal-cf.posthog.com/static/" in sources
 
     @override_settings(
         OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",

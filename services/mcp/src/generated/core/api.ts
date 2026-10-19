@@ -361,6 +361,10 @@ export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimit
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin = 0
+
+export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin = 0
+
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
@@ -1046,6 +1050,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1116,6 +1121,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1188,6 +1194,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1243,6 +1250,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1331,6 +1339,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1678,6 +1687,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1748,6 +1758,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1820,6 +1831,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1875,6 +1887,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1963,6 +1976,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2313,6 +2327,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -2383,6 +2398,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2455,6 +2471,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -2510,6 +2527,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2598,6 +2616,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2809,6 +2828,20 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .nullish()
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
+                    ),
+                replay_vision_scan_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                replay_vision_scan_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.'
                     ),
                 default_email_integration_id: zod
                     .number()
@@ -3136,6 +3169,10 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParams
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin = 0
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
@@ -3830,6 +3867,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3900,6 +3938,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3972,6 +4011,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4027,6 +4067,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4115,6 +4156,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4462,6 +4504,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4532,6 +4575,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4604,6 +4648,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4659,6 +4704,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4747,6 +4793,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5097,6 +5144,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5167,6 +5215,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5239,6 +5288,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5294,6 +5344,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5382,6 +5433,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5593,6 +5645,20 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .nullish()
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
+                    ),
+                replay_vision_scan_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                replay_vision_scan_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.'
                     ),
                 default_email_integration_id: zod
                     .number()
@@ -5996,6 +6062,6 @@ export const UsersPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })

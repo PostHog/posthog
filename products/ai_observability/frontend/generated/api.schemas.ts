@@ -1932,7 +1932,6 @@ export const EvaluationApiTargetConfigStrategy = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
  * * `system_one` - System One
  * * `openai_compatible` - OpenAI-compatible
  */
@@ -1947,7 +1946,6 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
     SystemOne: 'system_one',
     OpenaiCompatible: 'openai_compatible',
 } as const
@@ -2172,6 +2170,7 @@ export interface PaginatedEvaluationListApi {
  * * `running` - Running
  * * `completed` - Completed
  * * `cancelled` - Cancelled
+ * * `interrupted` - Interrupted
  */
 export type EvaluationBackfillStatusEnumApi =
     (typeof EvaluationBackfillStatusEnumApi)[keyof typeof EvaluationBackfillStatusEnumApi]
@@ -2180,6 +2179,7 @@ export const EvaluationBackfillStatusEnumApi = {
     Running: 'running',
     Completed: 'completed',
     Cancelled: 'cancelled',
+    Interrupted: 'interrupted',
 } as const
 
 export type EvaluationBackfillConditionApiPropertiesItem = { [key: string]: unknown }
@@ -2197,12 +2197,15 @@ export interface EvaluationBackfillConditionApi {
 export interface EvaluationBackfillApi {
     /** Backfill identifier. */
     readonly id: string
-    /** running while the walk is dispatching, then completed or cancelled.
+    /** Running, completed, interrupted by an error, or cancelled by a user.
      *
      * * `running` - Running
      * * `completed` - Completed
-     * * `cancelled` - Cancelled */
+     * * `cancelled` - Cancelled
+     * * `interrupted` - Interrupted */
     readonly status: EvaluationBackfillStatusEnumApi
+    /** Reason an interrupted backfill stopped; empty otherwise. */
+    readonly status_reason: string
     /** What one unit is, frozen at creation: a generation, a trace, or a session.
      *
      * * `generation` - Generation
@@ -2221,12 +2224,19 @@ export interface EvaluationBackfillApi {
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
     readonly dispatched_count: number
+    /**
+     * Evaluations that finished with a verdict. Null for legacy runs.
+     * @nullable
+     */
+    readonly completed_count: number | null
+    /** Evaluations that finished with a recorded skip instead of a verdict. */
+    readonly evaluation_skipped_count: number
     /** Units the live path had already covered, so nothing was dispatched. */
     readonly skipped_count: number
-    /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+    /** Units whose evaluation failed to start or finish. Legacy runs only counted start failures. */
     readonly failed_count: number
     /**
-     * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+     * Units left to retry after completion. Legacy runs estimated this before evaluations finished.
      * @nullable
      */
     readonly remaining_count: number | null
@@ -3471,26 +3481,6 @@ export interface LLMModelsListResponseApi {
     providers: LLMProviderModelsSummaryApi[]
 }
 
-export interface OfflineExperimentItemsRequestApi {
-    /** `$ai_experiment_id` whose offline-evaluation items to return. */
-    experiment_id: string
-    /**
-     * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
-     * @nullable
-     */
-    date_from?: string | null
-    /**
-     * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
-     * @nullable
-     */
-    date_to?: string | null
-}
-
-export interface OfflineExperimentItemsResponseApi {
-    /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
-    results: unknown[][]
-}
-
 export interface ParserRecipeApi {
     readonly id: string
     /**
@@ -4481,7 +4471,6 @@ export interface TaggerConditionApi {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
  * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMCompletionProviderEnumApi =
@@ -4496,7 +4485,6 @@ export const LLMCompletionProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
     OpenaiCompatible: 'openai_compatible',
 } as const
 
@@ -4514,7 +4502,6 @@ export interface TaggerModelConfigurationApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
     provider: LLMCompletionProviderEnumApi
     /**
@@ -4569,7 +4556,6 @@ export interface TaggerModelConfigurationWriteApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
     provider: LLMCompletionProviderEnumApi
     /**
@@ -5273,12 +5259,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openrouter: 'openrouter',
     SystemOne: 'system_one',
     TogetherAi: 'together_ai',
-    Zeabur: 'zeabur',
 } as const
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsParserRecipesListParams = {
     /**
