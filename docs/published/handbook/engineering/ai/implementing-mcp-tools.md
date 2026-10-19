@@ -82,7 +82,8 @@ Include these rules in create and update tools, as well as the dashboard skill:
 - Add a second sentence only when a limitation changes interpretation.
 - If the title gives enough information, omit the description.
 - Exclude query construction, tool names, maintenance instructions, and reasons for creating the object.
-- Keep technical terms only when the reader needs them. Preserve required metric definitions and limitations.
+- Keep technical terms only when the reader needs them. Preserve required metric definitions, units, exclusions, and limitations.
+- State required time boundaries explicitly.
 - During unrelated edits, omit the description field to preserve existing text.
 
 Keep field guidance brief. Put detailed rules in the tool description when the input schema approaches a client size limit.

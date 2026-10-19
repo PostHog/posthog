@@ -27,7 +27,8 @@ a substitute for a Data Catalog metric.
 - Add a second sentence only when a limitation changes how the reader must interpret the data.
 - If the title gives enough information, omit the description. Use an empty string if the tool requires the field.
 - Exclude query construction, tool names, maintenance instructions, and reasons for creating the object.
-- Keep technical terms only when the reader needs them. Preserve required metric definitions and limitations.
+- Keep technical terms only when the reader needs them. Preserve required metric definitions, units, exclusions, and limitations.
+- State required time boundaries explicitly.
 - Put agent maintenance notes in a text tile's `agent_context` when needed. Do not create a tile only to store unnecessary notes.
 - During unrelated edits, omit the description field to preserve existing text. Do not shorten existing descriptions without a request.
 - Treat 25 words as a target. Never truncate a description to meet a length target or field limit.

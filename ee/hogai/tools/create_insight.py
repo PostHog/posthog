@@ -558,7 +558,8 @@ class CreateInsightToolArgs(BaseModel):
             "Add a second sentence only for a limitation that changes interpretation. "
             "Use an empty string if the title is sufficient. "
             "Exclude query construction, tool names, maintenance notes, and reasons for creating the chart. "
-            "Keep technical terms only when the reader needs them."
+            "Keep technical terms only when the reader needs them. "
+            "Keep required units and exclusions. State required time boundaries explicitly."
         ),
     )
 
