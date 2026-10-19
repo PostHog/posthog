@@ -7584,6 +7584,8 @@ export namespace Schemas {
     export interface HogQLQueryResponse {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -8417,6 +8419,8 @@ export namespace Schemas {
     export interface Response3 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -93449,6 +93453,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative8 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -94279,6 +94285,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative40 {
       /** Executed ClickHouse query */
       clickhouse?: string | null;
+      /** Display formats for directly selected virtual properties, aligned with columns. */
+      column_formats?: (string | null)[] | null;
       /** Returned columns */
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
