@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 import structlog
-from openai.types.shared_params import ResponseFormatJSONSchema
+from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
@@ -83,7 +83,7 @@ def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | 
 # because the activity's own deadline expires first. Bounding the retries matters as much
 # as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
 # blocking until the client itself returns.
-MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-6-luna"
 MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
 # One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
@@ -92,12 +92,14 @@ MODEL_OVERRIDE_MAX_RETRIES = 1
 # Same shape of call as the model override, so it takes the same bounds — including the
 # cap riding on `max_completion_tokens`. The reasoning-class chat-completions route
 # rejects `max_tokens` outright, and the classifier would swallow that into its fallback.
-PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-6-luna"
 PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
 PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
 PROJECT_ROUTE_MAX_RETRIES = 1
+# With reasoning on, the model argues itself out of a project the message plainly names.
+PROJECT_ROUTE_REASONING_EFFORT: ReasoningEffort = "none"
 
-AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
+AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-6-luna"
 AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
 # One call per reply in every thread the agent is working in, and its prompt carries the
 # thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
@@ -703,6 +705,7 @@ def classify_slack_app_project_route(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=PROJECT_ROUTE_MAX_COMPLETION_TOKENS,
+            reasoning_effort=PROJECT_ROUTE_REASONING_EFFORT,
             response_format=_project_route_response_format(projects),
         )
         # Tolerant parse on top of the schema, matching the model-override classifier:
