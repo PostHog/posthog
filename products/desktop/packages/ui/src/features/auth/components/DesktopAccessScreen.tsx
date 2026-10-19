@@ -147,6 +147,7 @@ export function DesktopAccessScreen({
   const description = isTechnicalError
     ? "Try again, or select another organization or project."
     : blockedContent?.description;
+  const isSignupsPaused = access.status === "blocked" && !access.reason;
 
   const footerRight = (
     <Button
@@ -170,7 +171,19 @@ export function DesktopAccessScreen({
             <EmptyHeader>
               <EmptyMedia variant="icon">{icon}</EmptyMedia>
               <EmptyTitle>{title}</EmptyTitle>
-              <EmptyDescription>{description}</EmptyDescription>
+              <EmptyDescription
+                className={
+                  isSignupsPaused ? "text-destructive-foreground" : undefined
+                }
+              >
+                {isSignupsPaused && (
+                  <WarningCircle
+                    aria-hidden="true"
+                    className="mr-1 inline-block align-text-bottom"
+                  />
+                )}
+                {description}
+              </EmptyDescription>
             </EmptyHeader>
             <EmptyContent className="w-full max-w-md gap-4">
               <div className="flex w-full flex-col gap-4">
