@@ -31306,6 +31306,7 @@ export namespace Schemas {
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -32702,6 +32703,7 @@ export namespace Schemas {
       PlanetScaleMySQL: 'PlanetScaleMySQL',
       PlanetScalePostgres: 'PlanetScalePostgres',
       Plane: 'Plane',
+      Scarf: 'Scarf',
       SapHana: 'SapHana',
       Rippling: 'Rippling',
       HiBob: 'HiBob',
@@ -34112,6 +34114,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -36766,6 +36769,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -39470,7 +39474,7 @@ export namespace Schemas {
     };
 
     export interface EmailTemplate {
-      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
+      /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
       subject?: string;
       /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
@@ -44669,6 +44673,7 @@ export namespace Schemas {
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44686,6 +44691,7 @@ export namespace Schemas {
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     } as const;
 
     /**
@@ -44745,7 +44751,8 @@ export namespace Schemas {
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
-       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run */
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45314,6 +45321,7 @@ export namespace Schemas {
     /**
      * * `split` - Split
      * * `bucketing` - Bucketing
+     * * `release_conditions` - Release-condition
      */
     export type ExperimentHealthFlagChangeKindEnum = typeof ExperimentHealthFlagChangeKindEnum[keyof typeof ExperimentHealthFlagChangeKindEnum];
 
@@ -45321,6 +45329,7 @@ export namespace Schemas {
     export const ExperimentHealthFlagChangeKindEnum = {
       Split: 'split',
       Bucketing: 'bucketing',
+      ReleaseConditions: 'release_conditions',
     } as const;
 
     export interface ExperimentHealthInputsReleaseCondition {
@@ -45375,11 +45384,12 @@ export namespace Schemas {
       /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
        * * `split` - Split
-       * * `bucketing` - Bucketing */
+       * * `bucketing` - Bucketing
+       * * `release_conditions` - Release-condition */
       kind: ExperimentHealthFlagChangeKindEnum;
       /** When the flag changed. */
       changed_at: string;
-      /** What changed: 'Split', or the name of the setting, such as 'Key'. */
+      /** What changed, as the staff view names it, such as 'Split' or 'Key'. */
       changed: string;
       /** The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset. */
       before: string;
@@ -45393,7 +45403,8 @@ export namespace Schemas {
       /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
        * * `split` - Split
-       * * `bucketing` - Bucketing */
+       * * `bucketing` - Bucketing
+       * * `release_conditions` - Release-condition */
       kind: ExperimentHealthFlagChangeKindEnum;
       /** What was asked, as the staff view names it. */
       question: string;
@@ -45416,7 +45427,7 @@ export namespace Schemas {
       launched_at: string;
       /** The project's time zone, which the findings use for times. */
       team_timezone: string;
-      /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. Empty for 'no_history_access', which does not read them. */
+      /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */
       changes: ExperimentHealthInputsFlagChange[];
       /**
          * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
@@ -45472,7 +45483,7 @@ export namespace Schemas {
       can_read_flag_history: boolean;
       /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
       can_query_events: boolean;
-      /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
+      /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads. */
       denied_event_properties: string[];
     }
 
@@ -45747,7 +45758,7 @@ export namespace Schemas {
       flag: ExperimentHealthInputsFlag | null;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
-      /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
+      /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
        *
        * * `read` - Read
        * * `not_needed` - Not Needed
@@ -48870,6 +48881,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -50300,6 +50312,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -60893,6 +60906,11 @@ export namespace Schemas {
     export interface InsightDataChecksRequest {
       /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
       query: _InsightQuerySchema;
+      /**
+         * An id for this run, chosen by the client. To stop the queries of the run, send a DELETE request to `query/{client_query_id}/`.
+         * @maxLength 128
+         */
+      client_query_id?: string;
     }
 
     /**
@@ -67550,6 +67568,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly transactional_hog_flow_id: string | null;
+      /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+      draft_content?: MessageTemplateContent | null;
     }
 
     export interface MessagingError {
@@ -83519,6 +83539,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly transactional_hog_flow_id?: string | null;
+      /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+      draft_content?: MessageTemplateContent | null;
     }
 
     export interface PatchedMoveTileRequest {
@@ -104360,6 +104382,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -105821,6 +105844,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -107249,6 +107273,7 @@ export namespace Schemas {
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `Plane` - Plane
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -126225,6 +126250,10 @@ export namespace Schemas {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean;
+    /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean;
     /**
      * Number of results to return per page.
      */
