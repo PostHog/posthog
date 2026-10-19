@@ -3,7 +3,7 @@ import json
 import time
 import asyncio
 from collections.abc import Coroutine
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import uuid4
 
@@ -18,12 +18,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ConsumerConfig,
     DeltaBatchConsumerAdapter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.run_start_cursor import (
+    RunStartCursor,
+)
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     _SYNC_POOLS,
     BATCH_TABLE,
     CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
     PARTITION_PRUNING_INTERVAL,
+    RUN_START_CURSOR_KEY,
     STATUS_TABLE,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
@@ -1661,6 +1665,106 @@ class TestStateDualWrite:
         assert superseded == 1
         assert (await _batch_state(conn, live))[0] == "executing"
         assert (await _batch_state(conn, stalled))[0] == "failed"
+
+    @pytest.mark.parametrize(
+        "new_start,old_start,old_overrides,old_final,expect_dropped",
+        [
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {}, False, True),
+            (datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {}, False, True),
+            (datetime(2026, 1, 3, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {}, False, False),
+            (100, 250, {}, False, True),
+            (300, 250, {}, False, False),
+            (None, datetime(2026, 1, 2, tzinfo=UTC), {}, False, False),
+            (datetime(2026, 1, 1, tzinfo=UTC), None, {}, False, False),
+            (1767225600, datetime(2026, 1, 2, tzinfo=UTC), {}, False, False),
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {"field": "created_at"}, False, False),
+            (
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 2, tzinfo=UTC),
+                {"is_first_ever_sync": True},
+                False,
+                False,
+            ),
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {"sync_type": "append"}, False, False),
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {"sync_type": "cdc"}, False, False),
+            (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC), {}, True, False),
+        ],
+        ids=[
+            "new_start_lower",
+            "new_start_equal",
+            "new_start_higher",
+            "number_lower",
+            "number_higher",
+            "new_start_unknown",
+            "old_start_unknown",
+            "kinds_differ",
+            "fields_differ",
+            "old_run_is_first_ever_sync",
+            "old_run_is_append",
+            "old_run_is_cdc",
+            "old_run_extraction_finished",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_supersede_drops_the_queued_batches_of_a_spared_run_the_current_run_rereads(
+        self, conn, sync_conn, new_start, old_start, old_overrides, old_final, expect_dropped
+    ):
+        # A restarted incremental merge extracts again from the same committed cursor. The spared
+        # older run's queued batches only repeat that work in the serial per-(team, schema) gate.
+        row_overrides = dict(old_overrides)
+        field = row_overrides.pop("field", "updated_at")
+        old_cursor = RunStartCursor.from_value(field=field, value=old_start)
+        metadata = {RUN_START_CURSOR_KEY: old_cursor.to_payload()} if old_cursor else {}
+        run_rows = {"sync_type": "incremental", "metadata": metadata, **row_overrides}
+
+        async def spared_run(team_id: int, job_id: str) -> tuple[str, str, str, str]:
+            loaded, executing, pending, retrying = [
+                await _insert_batch(
+                    conn,
+                    team_id=team_id,
+                    job_id=job_id,
+                    run_uuid=f"run-old-{job_id}",
+                    batch_index=index,
+                    is_final_batch=old_final and index == 2,
+                    **run_rows,
+                )
+                for index in range(4)
+            ]
+            await _write_backdated_status(conn, batch_id=loaded, job_state="succeeded", age_seconds=60)
+            await _write_backdated_status(conn, batch_id=executing, job_state="executing", age_seconds=30)
+            await _write_backdated_status(conn, batch_id=retrying, job_state="waiting_retry", age_seconds=20)
+            return loaded, executing, pending, retrying
+
+        loaded, executing, pending, retrying = await spared_run(team_id=1, job_id="job-dw")
+        bystander = await spared_run(team_id=2, job_id="job-other")
+        current = await _insert_batch(conn, run_uuid="run-new", job_id="job-dw", **run_rows)
+        new_cursor = RunStartCursor.from_value(field="updated_at", value=new_start)
+
+        superseded = BatchQueue.supersede_other_runs(
+            sync_conn,
+            job_id="job-dw",
+            current_run_uuid="run-new",
+            rereads_run_start=None if new_cursor is None else new_cursor.rereads,
+        )
+
+        assert superseded == (2 if expect_dropped else 0)
+        assert (await _batch_state(conn, loaded))[0] == "succeeded"
+        assert (await _batch_state(conn, executing))[0] == "executing"
+        assert (await _batch_state(conn, pending))[0] == ("failed" if expect_dropped else "pending")
+        assert (await _batch_state(conn, retrying))[0] == ("failed" if expect_dropped else "waiting_retry")
+        assert (await _batch_state(conn, current))[0] == "pending"
+        assert [(await _batch_state(conn, batch_id))[0] for batch_id in bystander] == [
+            "succeeded",
+            "executing",
+            "pending",
+            "waiting_retry",
+        ]
+        if expect_dropped:
+            cur = await conn.execute(
+                f"SELECT bool_and(superseded) FROM {BATCH_TABLE} WHERE id = ANY(%s)", [[pending, retrying]]
+            )
+            row = await cur.fetchone()
+            assert row is not None and row[0] is True
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):

@@ -99,6 +99,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
     SyncTypeLiteral,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.run_start_cursor import (
+    RunStartCursor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
     BatchWriteResult,
     S3BatchWriter,
@@ -202,6 +205,7 @@ class PipelineV3(Generic[ResumableData]):
         resumed_incremental_run_uuid: str | None = None,
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
+        incremental_start_value: Any = None,
     ) -> None:
         self._resource = source_response
         self._source_cursor_manager = source_cursor_manager
@@ -325,6 +329,23 @@ class PipelineV3(Generic[ResumableData]):
         # so the query that tells the warehouse from an external destination cannot run here.
         self._external_destination_ids: list[str] = list(models.external_destination_ids)
 
+        # A run that resumes an earlier attempt, or a source that reads from its own cursor, does
+        # not start at `incremental_start_value`. The value would then claim rows the run never reads.
+        run_start_cursor: RunStartCursor | None = None
+        if (
+            sync_type == "incremental"
+            and self._schema.is_incremental
+            and self._schema.incremental_field
+            and source_response.sort_mode == "asc"
+            and not is_resume
+            and not reset_pipeline
+            and source_cursor_manager is None
+            and not source_response.lanes
+        ):
+            run_start_cursor = RunStartCursor.from_value(
+                field=self._schema.incremental_field, value=incremental_start_value
+            )
+
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
             "is_resume": is_resume,
@@ -334,6 +355,7 @@ class PipelineV3(Generic[ResumableData]):
             "partition_format": partition_format,
             "partition_mode": partition_mode,
             "is_first_ever_sync": is_first_ever_sync,
+            "run_start_cursor": run_start_cursor,
         }
         self._pg_producer = self._build_producer(
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode

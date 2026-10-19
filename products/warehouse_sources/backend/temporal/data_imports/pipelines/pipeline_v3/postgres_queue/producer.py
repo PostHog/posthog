@@ -21,6 +21,9 @@ import structlog
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.run_start_cursor import (
+    RunStartCursor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -30,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
     is_transient_internal_db_error,
 )
-from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, BatchQueue
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, RUN_START_CURSOR_KEY, BatchQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -92,6 +95,7 @@ class PostgresProducer:
         workflow_run_id: str | None = None,
         destination_ids: list[str] | None = None,
         external_destination_ids: list[str] | None = None,
+        run_start_cursor: RunStartCursor | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -120,6 +124,7 @@ class PostgresProducer:
         self._external_destination_ids: list[str] | None = (
             None if external_destination_ids is None else list(external_destination_ids)
         )
+        self._run_start_cursor = run_start_cursor
 
         with _queue_db_errors():
             self._conn = _connect_with_retry(database_url)
@@ -139,6 +144,18 @@ class PostgresProducer:
     @is_first_ever_sync.setter
     def is_first_ever_sync(self, value: bool) -> None:
         self._is_first_ever_sync = value
+
+    @property
+    def merge_start_cursor(self) -> RunStartCursor | None:
+        """The run's start cursor, when the loader merges this run's batches on the primary key."""
+        if (
+            self._sync_type != "incremental"
+            or not self._primary_keys
+            or self._cdc_write_mode is not None
+            or self._is_first_ever_sync
+        ):
+            return None
+        return self._run_start_cursor
 
     @property
     def has_held_batch(self) -> bool:
@@ -264,6 +281,10 @@ class PostgresProducer:
         #
         # An append is the same: the loader removes an older attempt's rows when this
         # run's batch 0 arrives (see `load/append_rollback.py`).
+        #
+        # An incremental merge also drops the queued batches of a spared run that started at
+        # or above this run's start cursor, because this run extracts all of those rows again.
+        start_cursor = self.merge_start_cursor
         with _queue_db_errors():
             superseded = BatchQueue.supersede_other_runs(
                 self._conn,
@@ -273,6 +294,7 @@ class PostgresProducer:
                     self._sync_type != "full_refresh"
                     and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
                 ),
+                rereads_run_start=None if start_cursor is None else start_cursor.rereads,
             )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)
@@ -318,6 +340,8 @@ class PostgresProducer:
         metadata["timestamp_ns"] = batch_result.timestamp_ns
         if self._external_destination_ids is not None:
             metadata["external_destination_ids"] = self._external_destination_ids
+        if (start_cursor := self.merge_start_cursor) is not None:
+            metadata[RUN_START_CURSOR_KEY] = start_cursor.to_payload()
 
         with _queue_db_errors():
             self._conn.execute(

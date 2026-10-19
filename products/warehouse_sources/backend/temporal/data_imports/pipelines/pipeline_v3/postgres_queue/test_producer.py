@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -9,8 +10,12 @@ import psycopg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.run_start_cursor import (
+    RunStartCursor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources_queue.backend.core.jobs_db import RUN_START_CURSOR_KEY
 
 
 def _default_kwargs(**kwargs: Any) -> dict[str, Any]:
@@ -179,6 +184,7 @@ class TestPostgresProducerSupersede:
             job_id="job-1",
             current_run_uuid="run-1",
             spare_runs_with_progress=False,
+            rereads_run_start=None,
         )
 
     @pytest.mark.parametrize(
@@ -215,6 +221,61 @@ class TestPostgresProducerSupersede:
             producer.send_batch_notification(_make_batch_result(batch_index=0))
 
         assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is True
+
+    @pytest.mark.parametrize(
+        "overrides,expect_cursor",
+        [
+            ({}, True),
+            ({"primary_keys": None}, False),
+            ({"primary_keys": []}, False),
+            ({"cdc_write_mode": "upsert"}, False),
+            ({"is_first_ever_sync": True}, False),
+            ({"sync_type": "append"}, False),
+            ({"sync_type": "full_refresh"}, False),
+            ({"sync_type": "cdc"}, False),
+            ({"run_start_cursor": None}, False),
+        ],
+        ids=[
+            "incremental_merge",
+            "no_primary_keys",
+            "empty_primary_keys",
+            "cdc_write_mode",
+            "first_ever_sync_appends",
+            "append",
+            "full_refresh",
+            "cdc",
+            "unknown_start",
+        ],
+    )
+    def test_only_an_incremental_merge_records_and_compares_its_start_cursor(
+        self, overrides: dict[str, Any], expect_cursor: bool
+    ) -> None:
+        # The loader merges on the primary key only for these runs. Any other run loads a row twice
+        # as two rows, so its batches must never be dropped for a newer run that reads them again.
+        start = RunStartCursor.from_value(field="updated_at", value=datetime(2026, 1, 2, tzinfo=UTC))
+        kwargs: dict[str, Any] = {
+            "sync_type": "incremental",
+            "primary_keys": ["id"],
+            "run_start_cursor": start,
+            **overrides,
+        }
+        producer = _make_producer(is_resume=False, **kwargs)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=0,
+        ) as mock_supersede:
+            producer.send_batch_notification(_make_batch_result(batch_index=0))
+
+        rereads_run_start = mock_supersede.call_args.kwargs["rereads_run_start"]
+        metadata = json.loads(_mock_conn(producer).execute.call_args.args[1]["metadata"])
+        if expect_cursor:
+            assert start is not None
+            assert metadata[RUN_START_CURSOR_KEY] == start.to_payload()
+            assert rereads_run_start(metadata[RUN_START_CURSOR_KEY]) is True
+        else:
+            assert RUN_START_CURSOR_KEY not in metadata
+            assert rereads_run_start is None
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)
@@ -372,6 +433,10 @@ class TestPostgresProducerHeldBatch:
             producer.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
 
         mock_supersede.assert_called_once_with(
-            producer._conn, job_id="job-1", current_run_uuid="run-1", spare_runs_with_progress=False
+            producer._conn,
+            job_id="job-1",
+            current_run_uuid="run-1",
+            spare_runs_with_progress=False,
+            rereads_run_start=None,
         )
         assert _inserted_rows(producer) == []

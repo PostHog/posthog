@@ -94,6 +94,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumed_incremental_run_uuid: str | None = None,
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
+        incremental_start_value: Any = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -112,6 +113,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            incremental_start_value=incremental_start_value,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.

@@ -773,6 +773,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
+                incremental_start_value=source_inputs.db_incremental_field_last_value,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1149,6 +1150,7 @@ async def _run(
     resumed_incremental_value: Any = None,
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
+    incremental_start_value: Any = None,
 ) -> PipelineResult:
     try:
         reset_pipeline = (
@@ -1169,6 +1171,7 @@ async def _run(
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            incremental_start_value=incremental_start_value,
         )
 
         result = await pipeline.run()

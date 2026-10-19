@@ -693,6 +693,99 @@ class TestResetLoadWritesTheQueuedScheme:
         mock_reset.assert_not_called()
 
 
+class TestRunStartCursorWiring:
+    @staticmethod
+    def _run_start_cursor(
+        *,
+        sync_type: str = "incremental",
+        sort_mode: str = "asc",
+        reset_pipeline: bool = False,
+        can_resume: bool = False,
+        own_cursor: bool = False,
+        lanes: list[Any] | None = None,
+        start_value: Any = datetime(2026, 1, 2, tzinfo=UTC),
+    ) -> Any:
+        schema = ExternalDataSchema(
+            name="users",
+            team_id=1,
+            sync_type=sync_type,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+        )
+        resource = MagicMock(
+            name="users",
+            primary_keys=["id"],
+            partition_count=None,
+            partition_size=None,
+            partition_keys=["id"],
+            partition_format=None,
+            partition_mode=None,
+            cdc_write_mode=None,
+            lanes=lanes,
+            sort_mode=sort_mode,
+            webhook_only=False,
+        )
+        manager = MagicMock(can_resume=MagicMock(return_value=True)) if can_resume else None
+        with (
+            patch(f"{_PIPELINE}.current_import_attempt", return_value=1),
+            patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.S3BatchWriter"),
+            patch(f"{_PIPELINE}.PostgresProducer") as mock_producer_cls,
+            patch(f"{_PIPELINE}.DeltaTableRef"),
+            patch(f"{_PIPELINE}.resolve_resume_manager", return_value=manager),
+        ):
+            PipelineV3(
+                source_response=resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=manager,
+                models=ImportJobModels(
+                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    schema=schema,
+                    source=MagicMock(source_type="Postgres"),
+                    table=None,
+                ),
+                source_cursor_manager=MagicMock() if own_cursor else None,
+                incremental_start_value=start_value,
+            )
+        return mock_producer_cls.call_args.kwargs["run_start_cursor"]
+
+    def test_a_fresh_ascending_incremental_run_records_where_it_starts(self) -> None:
+        cursor = self._run_start_cursor()
+
+        assert cursor is not None
+        assert (cursor.field, cursor.kind) == ("updated_at", "datetime")
+        assert cursor.rereads(cursor.to_payload()) is True
+
+    @pytest.mark.parametrize(
+        "run",
+        [
+            {"sort_mode": "desc"},
+            {"can_resume": True},
+            {"reset_pipeline": True},
+            {"own_cursor": True},
+            {"lanes": [MagicMock()]},
+            {"sync_type": "append"},
+            {"sync_type": "full_refresh"},
+            {"start_value": None},
+        ],
+        ids=[
+            "descending_reads_newest_first",
+            "resumed_attempt_starts_mid_way",
+            "reset_rebuilds_the_table",
+            "source_reads_its_own_cursor",
+            "laned_source",
+            "append",
+            "full_refresh",
+            "no_stored_watermark",
+        ],
+    )
+    def test_a_run_that_does_not_start_at_the_watermark_records_no_cursor(self, run: dict[str, Any]) -> None:
+        assert self._run_start_cursor(**run) is None
+
+
 class TestCDCSeqProvenanceSurvivesStaging:
     def test_the_stamp_survives_every_extract_side_hop(self) -> None:
         # The loader gates all position resolution on the provenance stamp. If any hop between the

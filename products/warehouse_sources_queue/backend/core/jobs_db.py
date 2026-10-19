@@ -19,7 +19,7 @@ import json
 import time
 import random
 import threading
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -127,6 +127,10 @@ _MAX_TEAM_ID = 2**63 - 1
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as
 # abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
 TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
+
+# Batch metadata key for the incremental lower bound that the run extracts from. The producer
+# writes it, and only the producer can compare two values (see ``supersede_other_runs``).
+RUN_START_CURSOR_KEY = "run_start_cursor"
 
 # Lookback for the queue-freshness probe. Bounds both the probe's cost and the
 # reported age: an unclaimed batch older than this saturates the gauge at the
@@ -369,6 +373,9 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
           AND b.created_at = t.created_at
           AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
     """
+
+
+_SUPERSEDED_ERROR_RESPONSE = json.dumps({"error": "superseded by newer attempt", "superseded": True})
 
 
 # Both fail-run variants share _bulk_fail_dual_write_sql so the async consumer
@@ -1981,6 +1988,7 @@ class BatchQueue:
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
         spare_runs_with_progress: bool = True,
+        rereads_run_start: Callable[[Any], bool] | None = None,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -2010,6 +2018,13 @@ class BatchQueue:
         per-(team, schema) gate — holding the queue head for hours to write data that has
         already been thrown away. Incremental and CDC keep the sparing rule, because their
         partially merged work survives into the new run.
+
+        ``rereads_run_start`` also supersedes the queued batches of a spared incremental run when
+        the current run extracts every row that run queued. It receives the ``RUN_START_CURSOR_KEY``
+        value of an older run and returns True when the current run starts at or below it. The
+        merge on the primary key makes the second load of a row idempotent, so the older run's
+        unloaded batches are only duplicate work in the serial per-(team, schema) gate. See
+        ``_supersede_reread_runs`` for what stays protected.
         """
         progress_guard = (
             f"""AND NOT EXISTS (
@@ -2032,8 +2047,75 @@ class BatchQueue:
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
                 "progress_stale": progress_stale_seconds,
-                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
+                "error_response": _SUPERSEDED_ERROR_RESPONSE,
             },
+        )
+        superseded = cursor.rowcount or 0
+        if rereads_run_start is None:
+            return superseded
+        return superseded + BatchQueue._supersede_reread_runs(
+            conn, job_id=job_id, current_run_uuid=current_run_uuid, rereads_run_start=rereads_run_start
+        )
+
+    @staticmethod
+    def _supersede_reread_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+        rereads_run_start: Callable[[Any], bool],
+    ) -> int:
+        """Fail the unclaimed batches of older incremental runs that the current run extracts again.
+
+        A run qualifies only when each of its unclaimed batches is an incremental merge that
+        records one and the same start cursor. A first-ever sync appends instead of merging, and a
+        batch written before the key existed has no cursor, so such runs keep the sparing rule.
+
+        A run with a final batch that is not failed is left alone. Its extraction finished, so it
+        can still complete and promote the watermark. Failing it would make progress depend on
+        the current run, which a restart can also interrupt.
+
+        Only 'pending', 'waiting' and 'waiting_retry' batches are failed. An 'executing' batch
+        finishes its write, and the group gate holds the current run until it does.
+        """
+        rows = conn.execute(
+            f"""
+            SELECT b.run_uuid, jsonb_agg(DISTINCT b.metadata -> %(cursor_key)s) AS start_cursors
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+                AND b.latest_state IN ('pending', 'waiting', 'waiting_retry')
+            GROUP BY b.run_uuid
+            HAVING bool_and(
+                    b.sync_type = 'incremental'
+                    AND NOT b.is_first_ever_sync
+                    AND b.metadata ? %(cursor_key)s
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_final
+                    WHERE b_final.run_uuid = b.run_uuid
+                        AND b_final.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND b_final.is_final_batch
+                        AND b_final.latest_state != 'failed'
+                )
+            """,
+            {"job_id": job_id, "current_run_uuid": current_run_uuid, "cursor_key": RUN_START_CURSOR_KEY},
+        ).fetchall()
+        run_uuids = [
+            run_uuid
+            for run_uuid, start_cursors in rows
+            if len(start_cursors) == 1 and rereads_run_start(start_cursors[0])
+        ]
+        if not run_uuids:
+            return 0
+        cursor = conn.execute(
+            _bulk_fail_dual_write_sql(
+                """b.job_id = %(job_id)s AND b.run_uuid = ANY(%(run_uuids)s)
+                AND b.latest_state IN ('pending', 'waiting', 'waiting_retry')"""
+            ),
+            {"job_id": job_id, "run_uuids": run_uuids, "error_response": _SUPERSEDED_ERROR_RESPONSE},
         )
         return cursor.rowcount or 0
 
