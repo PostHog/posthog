@@ -242,6 +242,15 @@ pub struct UpsertOptions {
     /// is the write-buffer flush threshold, so it is also a memory knob worth
     /// `max_parallel_partitions x target_file_size` of exposure.
     pub target_file_size: Option<usize>,
+    /// Write the source rows (updates and inserts) to their own output files instead of
+    /// appending them to the file that receives the survivors of the rewritten files.
+    ///
+    /// Off, a partition's output holds the copied survivors and the new rows together, so
+    /// the next batch that touches any of those new rows must copy every survivor again.
+    /// On, such a batch rewrites only the small file of new rows. The cost is up to one
+    /// more file per touched partition per upsert. Memory is unchanged: the survivors file
+    /// is closed before the first source row is written, as it is at `target_file_size`.
+    pub isolate_source_rows: bool,
     /// Ceiling for the source-size guard; `None` resolves from the environment,
     /// `Some(0)` disables. See [`crate::limits::resolve_max_source_bytes`].
     pub max_source_bytes: Option<usize>,
@@ -264,6 +273,7 @@ impl Default for UpsertOptions {
             commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
+            isolate_source_rows: false,
             max_source_bytes: None,
             limits: ProcessLimits::global().clone(),
         }
@@ -2325,6 +2335,9 @@ async fn rewrite_partition(
         .map_err(|e| Error::Generic(format!("writer task panicked: {e}")))??;
     if let Some(e) = reader_err {
         return Err(e);
+    }
+    if opts.isolate_source_rows {
+        adds.extend(writer.flush().await?);
     }
 
     // Source rows are written LAST: an updated row therefore carries the source values,

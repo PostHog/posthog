@@ -195,6 +195,7 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `probe_concurrency` | `8` | Concurrent statistics/probe reads. |
 | `read_batch_size` | `8192` | Row-group read batch size. |
 | `target_file_size` | table setting, else 100 MiB | Output file size target. |
+| `isolate_source_rows` | `False` | Write the batch's rows to their own files, apart from the unchanged rows copied out of the rewritten files. A later batch that touches the same rows then rewrites only those files. Costs up to one more file per touched partition. |
 | `max_source_bytes` | `2 GiB` | Oversized-batch guard (`0` disables). |
 | `multipart_threshold` / `multipart_part_size` | `64 MiB` / `16 MiB` | Multipart upload thresholds (`0` threshold disables). |
 | `commit_max_retries` | `15` | Conditional-put commit retry budget. |
