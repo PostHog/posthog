@@ -20,7 +20,7 @@ import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDe
 import { ReportDetailLegacy, ReportDetailSkeletonLegacy } from './components/detail/ReportDetailLegacy'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
-import { InboxWelcome } from './components/onboarding/InboxWelcome'
+import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxListViewLegacy } from './components/shell/InboxListViewLegacy'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -126,7 +126,7 @@ function InboxListView(): JSX.Element {
                         <CardSkeleton count={4} variant="cards" />
                     </div>
                 ) : onboarding ? (
-                    <InboxWelcome />
+                    <InboxOnboardingEntry />
                 ) : (
                     <ActiveTabBody tab={activeTab} />
                 )}
