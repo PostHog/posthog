@@ -5522,13 +5522,14 @@ Note: Read the full Incident RPC reference and the current OnCall alerts and sch
 
 ## Granola — adequate
 
-Today (3): `folders`, `notes`, `transcripts`
+Today (4): `folders`, `notes`, `spaces`, `transcripts`
 
 Diffed against: <https://docs.granola.ai/api-reference/openapi.json>
 
 - [x] `transcripts (GET /v1/notes/{note_id}/transcript)` — cursor-paginated transcript items per note, added in API v1.4.0 for transcripts too large to return inline. Shipped as `transcripts`, fanned out over the notes listing (full refresh).
+- [x] `spaces (GET /v1/spaces)` — cursor-paginated list of the spaces the API key can access, added in API v1.6.0; resolves the `space_id` now carried on folders. Shipped as `spaces` (full refresh, no timestamp fields or time filter).
 
-Note: The public OpenAPI declares only 5 paths: /v1/folders, /v1/notes, /v1/notes/{note_id}, and two webhook-endpoint management paths. PostHog's folders + notes tables cover every non-config resource in the API.
+Note: PostHog's folders, notes, spaces and transcripts tables cover the note-data resources in the public OpenAPI. The remaining paths are single-note lookups and webhook-endpoint, audit and legal-hold management.
 
 ## Greenhouse — gaps
 
