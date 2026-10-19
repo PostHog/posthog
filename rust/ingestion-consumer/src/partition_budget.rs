@@ -15,7 +15,7 @@ impl Threshold {
     }
 
     fn scaled(&self, fraction: f64) -> Self {
-        let scale = |limit: u64| ((limit as f64 * fraction) as u64).max(1);
+        let scale = |limit: u64| ((limit as f64 * fraction) as u64).clamp(1, limit);
         Self {
             events: self.events.map(scale),
             bytes: self.bytes.map(scale),
@@ -136,6 +136,15 @@ mod tests {
         assert!(limits.resumes(charge(9, 0)));
     }
 
+    #[test]
+    fn a_limit_above_float_precision_resumes_only_below_the_limit() {
+        let limit = (1 << 53) + 3;
+        let limits = limits(limit, 0, 1.0);
+
+        assert!(limits.pauses(charge(limit, 0)));
+        assert!(!limits.resumes(charge(limit, 0)));
+    }
+
     #[rstest]
     #[case::events(limits(1, 0, 0.8), charge(1, 0))]
     #[case::bytes(limits(0, 1, 0.8), charge(0, 1))]
@@ -157,6 +166,8 @@ mod tests {
     #[rstest]
     #[case::zero(0.0)]
     #[case::above_one(1.5)]
+    #[case::negative(-0.5)]
+    #[case::nan(f64::NAN)]
     fn a_watermark_outside_the_unit_interval_is_rejected(#[case] low_watermark: f64) {
         assert!(BudgetLimits::new(NonZeroU64::new(10), None, low_watermark).is_err());
     }
