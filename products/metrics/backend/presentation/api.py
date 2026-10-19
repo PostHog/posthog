@@ -754,6 +754,18 @@ class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
         max_length=1000,
         help_text="The options when `source` is `custom`.",
     )
+    regex = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        trim_whitespace=False,
+        help_text=(
+            "A regex that filters the options of a query, as `pattern` or `/pattern/flags`. "
+            "With a capture group, each option is its first group."
+        ),
+    )
     variables = _MetricVariableSelectionSerializer(
         many=True,
         required=False,
@@ -1129,12 +1141,13 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # API keys are budgeted as on /query, so SQL options debit the reads they make.
         if get_query_tag_value("access_method") == "personal_api_key":
             tag_queries(api_queries_budgeted=True)
-        if api_queries_budget_enforcement_enabled(self.team):
-            budget = get_api_queries_budget_status(self.team)
-            if budget is not None and budget.remaining_bytes <= 0:
-                raise Throttled(
-                    wait=budget.retry_after_seconds, detail="ClickHouse query byte budget exhausted. Try again later."
-                )
+            if api_queries_budget_enforcement_enabled(self.team):
+                budget = get_api_queries_budget_status(self.team)
+                if budget is not None and budget.remaining_bytes <= 0:
+                    raise Throttled(
+                        wait=budget.retry_after_seconds,
+                        detail="ClickHouse query byte budget exhausted. Try again later.",
+                    )
         variables = [
             MetricsDashboardVariable(
                 name=selection["name"],
@@ -1151,6 +1164,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 source=MetricsDashboardVariableSource(data["source"]),
                 query=data["query"],
                 custom_values=data["customValues"],
+                regex=data["regex"],
                 variables=variables,
                 date_from=data["dateFrom"],
                 date_to=data["dateTo"],

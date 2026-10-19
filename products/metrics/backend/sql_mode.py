@@ -244,6 +244,16 @@ def run_metrics_sql(
 _VARIABLE_VALUE_COLUMN = "__variable_value"
 
 
+def _is_by_name(query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
+    if not isinstance(query, ast.SelectSetQuery):
+        return False
+    return (
+        any(node.set_operator.endswith("BY NAME") for node in query.subsequent_select_queries)
+        or _is_by_name(query.initial_select_query)
+        or any(_is_by_name(node.select_query) for node in query.subsequent_select_queries)
+    )
+
+
 def _name_first_column(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
     """The name of the first column, aliased when it has none. The other columns stay, so ORDER BY can use them."""
     select_query = query
@@ -256,6 +266,11 @@ def _name_first_column(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
         raise ExposedHogQLError("A SQL variable query must name its first column. SELECT * is not supported.")
     if isinstance(first, ast.Alias):
         return first.alias
+    if _is_by_name(query):
+        # The other queries of the set match the first column by its name, so it keeps that name.
+        if isinstance(first, ast.Field) and len(first.chain) == 1 and isinstance(first.chain[0], str):
+            return first.chain[0]
+        raise ExposedHogQLError("A SQL variable query with a BY NAME set must name its first column with AS.")
     select_query.select[0] = ast.Alias(alias=_VARIABLE_VALUE_COLUMN, expr=first)
     return _VARIABLE_VALUE_COLUMN
 

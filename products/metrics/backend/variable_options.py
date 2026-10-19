@@ -11,7 +11,6 @@ import datetime as dt
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from functools import partial
 from itertools import islice
 from typing import Any
 
@@ -286,6 +285,7 @@ def _expand(
             source=definition.source,
             query=definition.query,
             custom_values=definition.customValues,
+            regex=definition.regex,
             variables=expansion.filled,
             definitions=definitions,
             date_from=date_from,
@@ -294,13 +294,6 @@ def _expand(
             slot=slot,
             expansion=expansion,
         )
-        # A list has no query, and its select shows every value, so a regex left over from a query does not apply.
-        if definition.regex and definition.source in (
-            MetricsDashboardVariableSource.PROMQL,
-            MetricsDashboardVariableSource.SQL,
-        ):
-            regex_key = _cache_key(team, ["regex", definition.regex, options])
-            options = _shared_options(regex_key, partial(apply_regex, team, options, definition.regex), slot)
         expansion.filled[name] = with_values(variable, options)
         expansion.resolved.add(name)
 
@@ -317,6 +310,7 @@ def _query_cache_key(
     placeholders: Mapping[str, ast.Expr],
     date_from: dt.datetime,
     date_to: dt.datetime,
+    regex: str | None,
 ) -> str:
     """The key of the query that runs, with the variable values in it, so a dashboard select and a tile share it."""
     values = {
@@ -329,7 +323,7 @@ def _query_cache_key(
     }
     # UTC minutes, so that the browser and the tiles, which compute "now" a few seconds apart, share the key.
     window = [moment.astimezone(dt.UTC).isoformat(timespec="minutes") for moment in (date_from, date_to)]
-    return _cache_key(team, [source.value, text, values, window])
+    return _cache_key(team, [source.value, text, values, window, re2_pattern(regex)])
 
 
 def _shared_options(
@@ -388,6 +382,7 @@ def list_variable_options(
     variables: Mapping[str, Variable],
     date_from: dt.datetime,
     date_to: dt.datetime,
+    regex: str | None = None,
     definitions: Mapping[str, MetricsDashboardVariable] | None = None,
     path: frozenset[str] = frozenset(),
     slot: Callable[[], AbstractContextManager[None]] = nullcontext,
@@ -396,7 +391,8 @@ def list_variable_options(
     """The options of one variable, in the order the source gives them. Raises `ValueError` for a bad query.
 
     `definitions` lets a SQL query use another variable that is set to All, by loading its options.
-    `slot` holds a concurrency slot while the query runs.
+    `slot` holds a concurrency slot while the query runs. `regex` filters the options of a query, and a list
+    ignores it, because its select shows every value.
     """
     options: list[Any]
     if source == MetricsDashboardVariableSource.CUSTOM:
@@ -409,8 +405,10 @@ def list_variable_options(
         substitution = substitute_promql(query or "", variables)
         if substitution.unresolved:
             raise ValueError(unresolved_message(substitution.unresolved))
-        key = _query_cache_key(team, source, substitution.text, {}, date_from, date_to)
-        options = _shared_options(key, lambda: _promql_options(team, substitution.text, date_from, date_to), slot)
+        key = _query_cache_key(team, source, substitution.text, {}, date_from, date_to, regex)
+        options = _shared_options(
+            key, lambda: apply_regex(team, _promql_options(team, substitution.text, date_from, date_to), regex), slot
+        )
     else:
         if definitions:
             expansion = expansion or _Expansion(filled=dict(variables))
@@ -428,12 +426,14 @@ def list_variable_options(
         sql = substitute_sql(query or "", variables)
         if sql.unresolved:
             raise ValueError(unresolved_message(sql.unresolved))
-        key = _query_cache_key(team, source, sql.sql, sql.placeholders, date_from, date_to)
+        key = _query_cache_key(team, source, sql.sql, sql.placeholders, date_from, date_to, regex)
         try:
             options = _shared_options(
                 key,
-                lambda: run_metrics_sql_values(
-                    team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders
+                lambda: apply_regex(
+                    team,
+                    run_metrics_sql_values(team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders),
+                    regex,
                 ),
                 slot,
             )

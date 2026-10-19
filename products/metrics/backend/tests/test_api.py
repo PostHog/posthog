@@ -269,9 +269,25 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         run.assert_not_called()
 
-    @parameterized.expand([("promql", "query_result(up)"), ("sql", OPTIONS_SQL)])
-    def test_options_respect_the_query_byte_budget(self, source: str, query: str) -> None:
+    @parameterized.expand(
+        [
+            ("promql_with_a_key", {"source": "promql", "query": "query_result(up)"}, True, 429),
+            ("sql_with_a_key", {"source": "sql", "query": OPTIONS_SQL}, True, 429),
+            ("list_in_the_browser", {"source": "custom", "customValues": ["a"]}, False, 200),
+        ]
+    )
+    def test_options_respect_the_query_byte_budget(
+        self, _name: str, body: dict[str, Any], with_key: bool, expected_status: int
+    ) -> None:
         exhausted = MagicMock(remaining_bytes=0, retry_after_seconds=30)
+        headers = {}
+        if with_key:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="options", user=self.user, secure_value=hash_key_value(token), scopes=["metrics:read"]
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}"}
         with (
             patch(
                 "products.metrics.backend.presentation.api.api_queries_budget_enforcement_enabled", return_value=True
@@ -280,9 +296,11 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
             patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
             patch("products.metrics.backend.variable_options.run_metrics_sql_values") as run,
         ):
-            response = self._post({"source": source, "query": query})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/metrics/variable_options/", body, format="json", headers=headers
+            )
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.status_code == expected_status
         request.assert_not_called()
         run.assert_not_called()
 
@@ -303,6 +321,13 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         substitution = substitute_sql("SELECT 1 WHERE service_name IN $job", filled)
         assert substitution.placeholders == {"metric_variable_job": ast.Tuple(exprs=[])}
+
+    def test_the_regex_applies_before_the_option_length_limit(self) -> None:
+        line = 'up{instance="api", ' + "x" * 1100 + "}"
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=[line, "web"]):
+            response = self._post({"source": "sql", "query": OPTIONS_SQL, "regex": '/instance="([^"]+)"/'})
+
+        assert response.json() == {"results": ["api"]}
 
     def test_a_regex_group_that_does_not_match_gives_no_option(self) -> None:
         assert apply_regex(self.team, ["web", "api-web"], "^(api-)?web$") == ["api-"]

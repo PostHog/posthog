@@ -771,6 +771,8 @@ export const metricsVariableOptionsCreateBodyCustomValuesItemMax = 1024
 
 export const metricsVariableOptionsCreateBodyCustomValuesMax = 1000
 
+export const metricsVariableOptionsCreateBodyRegexMax = 1024
+
 export const metricsVariableOptionsCreateBodyVariablesItemNameMax = 128
 
 export const metricsVariableOptionsCreateBodyVariablesItemNameRegExp = new RegExp('^[A-Za-z_][A-Za-z0-9_]\*$')
@@ -804,6 +806,13 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
         .max(metricsVariableOptionsCreateBodyCustomValuesMax)
         .nullish()
         .describe('The options when `source` is `custom`.'),
+    regex: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyRegexMax)
+        .nullish()
+        .describe(
+            'A regex that filters the options of a query, as `pattern` or `\/pattern\/flags`. With a capture group, each option is its first group.'
+        ),
     variables: zod
         .array(
             zod.object({

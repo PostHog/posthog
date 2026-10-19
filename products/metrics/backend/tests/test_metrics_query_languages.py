@@ -172,11 +172,24 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
 
         assert {series.labels["service_name"] for series in runner.calculate().results} == expected
 
-    def test_sql_variable_options_keep_the_columns_that_order_them(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "order_columns",
+                "SELECT service_name, count() AS n FROM posthog.metrics GROUP BY service_name ORDER BY n DESC",
+            ),
+            (
+                "by_name_union",
+                "SELECT service_name FROM posthog.metrics WHERE service_name = 'api' "
+                "UNION ALL BY NAME SELECT service_name FROM posthog.metrics WHERE service_name = 'worker'",
+            ),
+        ]
+    )
+    def test_sql_variable_options_keep_the_names_of_their_columns(self, _name: str, sql: str) -> None:
         self._seed()
         options = run_metrics_sql_values(
             self.team,
-            "SELECT service_name, count() AS n FROM posthog.metrics GROUP BY service_name ORDER BY n DESC",
+            sql,
             NOW - dt.timedelta(hours=2),
             NOW,
             1000,
