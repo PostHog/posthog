@@ -130,6 +130,20 @@ export type AiResearchV4Config = {
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: string
     /** A short local delivery timeout, so a slow topic fails a batch fast instead of holding its offsets. */
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: string
+
+    /** The v4 index sink: the bucket its Parquet files go to, under `index/`. */
+    AI_RESEARCH_V4_RRWEB_BUCKET: string
+    /** The v4 index sink's consumer group. Its own setting, so a v4 sink pod never joins the v3 sink group. */
+    AI_RESEARCH_V4_PARQUET_SINK_GROUP_ID: string
+    /**
+     * The v4 sink writes its files this long after its last flush, or when the buffer reaches either size below,
+     * whichever comes first. The byte size counts Kafka message bytes, so it also bounds the buffer's memory.
+     */
+    AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS: number
+    AI_RESEARCH_V4_PARQUET_MAX_ROWS: number
+    AI_RESEARCH_V4_PARQUET_MAX_BYTES: number
+    /** Rows per row group in a v4 index file, so a large file has few row groups. */
+    AI_RESEARCH_V4_PARQUET_ROW_GROUP_ROWS: number
 }
 
 export function getDefaultAiResearchV4Config(): AiResearchV4Config {
@@ -181,6 +195,13 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '32768',
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: `${40 * 1024 * 1024 + 64 * 1024}`,
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: '20000',
+
+        AI_RESEARCH_V4_RRWEB_BUCKET: '',
+        AI_RESEARCH_V4_PARQUET_SINK_GROUP_ID: 'ai-research-v4-parquet-sink',
+        AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS: 10 * 60 * 1000,
+        AI_RESEARCH_V4_PARQUET_MAX_ROWS: 1_000_000,
+        AI_RESEARCH_V4_PARQUET_MAX_BYTES: 128 * 1024 * 1024,
+        AI_RESEARCH_V4_PARQUET_ROW_GROUP_ROWS: 131_072,
     }
 }
 

@@ -10,6 +10,7 @@ import {
     AiResearchV4ImageFetchRetryServer,
     AiResearchV4ImageFetchServer,
 } from '~/servers/ai-research-v4-image-fetch-server'
+import { AiResearchV4ParquetSinkServer } from '~/servers/ai-research-v4-parquet-sink-server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionApiServer } from '~/servers/ingestion-api-server'
@@ -66,6 +67,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ai_research_v4_image_fetch_retry:
             return new AiResearchV4ImageFetchRetryServer()
+
+        case PluginServerMode.ai_research_v4_parquet_sink:
+            return new AiResearchV4ParquetSinkServer()
 
         case PluginServerMode.recording_api:
             return new RecordingApiServer()
