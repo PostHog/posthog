@@ -14,7 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
@@ -596,15 +596,84 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
-    it('stops a launch while an uploaded list in the audience is still matching', async () => {
+    it('refreshes the realtime cohort status until the cohort is ready, past a failed check', async () => {
+        const states = ['needs_attention', 'error', 'ready']
+        let calls = 0
         useMocks({
-            get: {
-                '/api/projects/:team_id/cohorts/:id/': {
-                    id: 42,
-                    name: 'Spring list',
-                    is_static: true,
-                    is_calculating: true,
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                    // The recipient email check posts here too, with an extra condition.
+                    const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
+                    if (filters.properties.length > 1) {
+                        return [200, { affected: 0, total: 0 }]
+                    }
+                    const state = states[Math.min(calls++, states.length - 1)]
+                    if (state === 'error') {
+                        return [500, { detail: 'Simulated outage' }]
+                    }
+                    return [
+                        200,
+                        {
+                            affected: 0,
+                            total: 0,
+                            realtime_cohort: { id: 42, name: 'Upgraded', state, percent_complete: null },
+                        },
+                    ]
                 },
+            },
+        })
+        const statusLoaded =
+            (state: string) =>
+            (action: { type: string; payload?: { blastRadius?: BlastRadiusApi | null } }): boolean =>
+                action.type === logic.actionTypes.loadBlastRadiusSuccess &&
+                action.payload?.blastRadius?.realtime_cohort?.state === state
+        await expectLogic(logic, () => {
+            logic.actions.setAudienceProperties([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
+        }).toDispatchActions([statusLoaded('needs_attention')])
+
+        jest.useFakeTimers()
+        try {
+            await jest.advanceTimersByTimeAsync(20000)
+            await expectLogic(logic).toDispatchActions([statusLoaded('ready')])
+            expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('ready')
+
+            await jest.advanceTimersByTimeAsync(30000)
+            expect(calls).toEqual(3)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
+    it.each([
+        [
+            'an uploaded list that is still matching',
+            { id: 42, name: 'Spring list', is_static: true, is_calculating: true },
+            null,
+            ['"Spring list" is still matching people. You can launch when it finishes.'],
+        ],
+        [
+            'a cohort before its first calculation',
+            dynamicCohort,
+            null,
+            [`"Upgraded" is still calculating who's in it. You can launch when it finishes.`],
+        ],
+        [
+            'a realtime cohort the send waits for',
+            dynamicCohort,
+            { id: 42, name: 'Upgraded', state: 'building', percent_complete: null },
+            [],
+        ],
+    ])('checks the audience cohorts at launch: %s', async (_desc, cohort, realtimeCohort, expectedErrors) => {
+        useMocks({
+            get: { '/api/projects/:team_id/cohorts/:id/': cohort },
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                    200,
+                    { affected: 0, total: 0, realtime_cohort: realtimeCohort },
+                ],
             },
         })
         logic.actions.setEmail({
@@ -616,17 +685,16 @@ describe('broadcastWizardLogic', () => {
         logic.actions.setAudienceProperties([
             { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
         ])
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+        }).toDispatchActions(['loadBlastRadiusSuccess'])
         logic.actions.setStep('review')
 
         await expectLogic(logic, () => {
             logic.actions.launchBroadcast()
-        })
-            .toDispatchActions(['setAudienceCohortLaunchErrors', 'launchBroadcastFinished'])
-            .toNotHaveDispatchedActions(['saveBroadcastFinished'])
+        }).toDispatchActions(['setAudienceCohortLaunchErrors'])
 
-        expect(logic.values.stepValidationErrors.review).toEqual([
-            '"Spring list" is still matching people. You can launch when it finishes.',
-        ])
+        expect(logic.values.stepValidationErrors.review).toEqual(expectedErrors)
     })
 
     it.each([

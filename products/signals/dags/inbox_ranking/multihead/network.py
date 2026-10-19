@@ -8,6 +8,10 @@ One projection serves every vector, so the report and the team's history land in
 and their element-wise product can say "this report looks like what the team engaged with". Weight
 decay is decoupled (AdamW), and dropout sits on the trunk's input and output.
 
+The `report` input can carry `report_features` columns after the vector, such as the report's
+priority levels. Those columns skip the projection and go straight into the trunk input. With the
+default of zero, the graph is the vector-only one.
+
 A label is NaN where the head has no example for the row, and a NaN label adds no gradient, so one
 network trains every head on rows that only some heads cover.
 
@@ -36,13 +40,14 @@ ONNX_OPSET = 17
 
 
 class _Model(nn.Module):
-    def __init__(self, *, heads: int, kinds: int, config: NetworkConfig) -> None:
+    def __init__(self, *, heads: int, kinds: int, config: NetworkConfig, report_features: int = 0) -> None:
         super().__init__()
         self.kinds = kinds
+        self.report_features = report_features
         k, h = config.projection_dim, config.trunk_dim
         self.projection = nn.Linear(EMBEDDING_DIMENSIONS, k)
         self.input_dropout = nn.Dropout(config.dropout)
-        self.trunk = nn.Linear(k + kinds * (2 * k + 1), h)
+        self.trunk = nn.Linear(k + report_features + kinds * (2 * k + 1), h)
         self.output_dropout = nn.Dropout(config.dropout)
         self.heads = nn.Linear(h, heads)
         for layer in (self.projection, self.trunk, self.heads):
@@ -52,9 +57,14 @@ class _Model(nn.Module):
     def forward(
         self, report: torch.Tensor, project: torch.Tensor | None = None, has_history: torch.Tensor | None = None
     ) -> torch.Tensor:
-        """(N, heads) logits from `report` (N, D), `project` (N, kinds, D) and `has_history` (N, kinds)."""
-        projected = self.projection(report * INPUT_SCALE)
+        """(N, heads) logits from `report` (N, D + report_features), `project` (N, kinds, D) and
+        `has_history` (N, kinds)."""
+        # Sliced only when there are extra columns, so a vector-only graph stays as it was exported.
+        vector = report[:, :EMBEDDING_DIMENSIONS] if self.report_features else report
+        projected = self.projection(vector * INPUT_SCALE)
         parts = [projected]
+        if self.report_features:
+            parts.append(report[:, EMBEDDING_DIMENSIONS:])
         if self.kinds:
             if project is None or has_history is None:
                 raise ValueError("a network built with context needs project vectors")
@@ -89,16 +99,27 @@ def masked_binary_cross_entropy(logits: torch.Tensor, labels: torch.Tensor) -> t
 
 
 class MultiHeadNetwork:
-    def __init__(self, *, heads: Sequence[str], with_context: bool, kinds: int, config: NetworkConfig) -> None:
+    def __init__(
+        self,
+        *,
+        heads: Sequence[str],
+        with_context: bool,
+        kinds: int,
+        config: NetworkConfig,
+        report_features: int = 0,
+    ) -> None:
         self.head_names = tuple(heads)
         self.with_context = with_context
         self.kinds = kinds if with_context else 0
+        self.report_features = report_features
         self.config = config
         # Every random draw (initialization, shuffle, dropout) comes from this seeded state, and the
         # global torch state stays as it was.
         self._rng_state = torch.Generator().manual_seed(config.seed).get_state()
         with self._seeded():
-            self.model = _Model(heads=len(self.head_names), kinds=self.kinds, config=config)
+            self.model = _Model(
+                heads=len(self.head_names), kinds=self.kinds, config=config, report_features=report_features
+            )
         weights = [parameter for name, parameter in self.model.named_parameters() if name.endswith("weight")]
         biases = [parameter for name, parameter in self.model.named_parameters() if name.endswith("bias")]
         self._optimizer = torch.optim.AdamW(
@@ -171,13 +192,13 @@ class MultiHeadNetwork:
 def export_onnx(network: MultiHeadNetwork, path: Path) -> tuple[str, ...]:
     """Write the network to `path` as an ONNX graph and return its head order.
 
-    The inputs are `report` (N, D) and, for a network with context, `project` (N, kinds, D) and
+    The inputs are `report` (N, D + report_features) and, for a network with context, `project` (N, kinds, D) and
     `has_history` (N, kinds), all float32. The one output is `probabilities` (N, heads), in the
     returned head order. N is a dynamic axis.
     """
     module = _Probabilities(network.model).eval()
     batch = 2
-    example: tuple[torch.Tensor, ...] = (torch.zeros(batch, EMBEDDING_DIMENSIONS),)
+    example: tuple[torch.Tensor, ...] = (torch.zeros(batch, EMBEDDING_DIMENSIONS + network.report_features),)
     if network.with_context:
         example += (torch.zeros(batch, network.kinds, EMBEDDING_DIMENSIONS), torch.zeros(batch, network.kinds))
     input_names = list(ONNX_INPUTS[: len(example)])

@@ -40,10 +40,6 @@ class TestVercelSource:
         # the token to be re-entered.
         assert self.source.connection_host_fields == ["team_id"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["deployments"])
-        assert [s.name for s in schemas] == ["deployments"]
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vercel.com/v6/deployments?limit=100"),

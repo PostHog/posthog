@@ -1993,6 +1993,15 @@ export const fileSystemTypes = {
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
     },
+    canvas: {
+        name: 'Canvas',
+        iconType: 'canvas',
+        flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
+        href: (ref: string) => urls.canvasDetail(ref),
+        listHref: () => urls.analyticsList({ type: 'canvas' }),
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+        filterKey: 'canvas',
+    },
     cohort: {
         name: 'Cohort',
         iconType: 'cohort' as FileSystemIconType,
@@ -2987,13 +2996,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'notebook',
         href: urls.notebooks(),
         searchKeywords: ['documents', 'scratchpad'],
-        searchTabs: [
-            {
-                name: 'Reusable widgets',
-                href: urls.notebooks('widgets'),
-                flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
-            },
-        ],
+        searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
     },

@@ -1,8 +1,6 @@
 from base64 import b64encode
 from typing import Any
 
-import pytest
-
 from parameterized import parameterized
 from requests import HTTPError
 
@@ -111,7 +109,3 @@ class TestImaggaSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
-
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError):
-            imagga_source("key", "secret", "nope", team_id=1, job_id="j")

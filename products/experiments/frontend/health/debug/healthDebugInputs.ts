@@ -29,7 +29,7 @@ export interface HealthDebugReleaseCondition {
 
 export interface HealthDebugFlagChange {
     changedAt: string
-    /** What changed: the split, or a setting that decides the variant draw. */
+    /** What changed: the split, a setting that decides the variant draw, or the release conditions. */
     changed: string
     before: string
     after: string
@@ -213,7 +213,7 @@ export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): Heal
 
 const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, string> = {
     read: 'Read',
-    not_needed: 'Not read: the forced-variant check does not need it',
+    not_needed: 'Not read: no check needs it',
     no_query_access: 'Not read: you may not query events',
     denied_properties: 'Not read: you are denied a flag call property that the scan reads',
     no_flag_version: "Not read: the flag has no version, so its calls can't be matched to it",
@@ -227,7 +227,7 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
         {
             label: 'Status',
             value: serverValue(state, (inputs) => TRAFFIC_STATUS_LABELS[inputs.condition_set_traffic_status]),
-            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis.',
+            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check reads them when such an override was removed after launch. The flag-state check reads them when the experiment is running and the flag has a 0% rollout.',
         },
         ...(traffic
             ? [
@@ -239,6 +239,11 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
                       help: 'Only these calls name the condition that served them. Local evaluation and bootstrapped values name none.',
                   },
                   { label: 'People served by a named condition', value: formatCount(people) },
+                  {
+                      label: 'People assigned outside the flag service',
+                      value: formatCount(traffic.people_assigned_outside),
+                      help: 'People who got a variant from a call without a flag version that is no local evaluation, from an hour after the window starts. With a 0% rollout, 10 or more of them show that the variants are assigned outside PostHog.',
+                  },
               ]
             : []),
     ]
