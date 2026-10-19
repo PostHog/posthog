@@ -425,6 +425,16 @@ function DictionaryField({
         onChange?.({ ...input, value: val }) // oxlint-disable-line react-hooks/exhaustive-deps
     }, [entries, onChange])
 
+    // Clear changes or a save response replaces the value. Rebuild the rows from it, but not from an echo of our own update.
+    useEffect(() => {
+        const incoming = Object.entries(input.value ?? {})
+        // Duplicate keys collapse in the emitted value, so compare against that rather than the raw rows.
+        if (!objectsEqual(incoming, Object.entries(Object.fromEntries(prevFilteredEntriesRef.current)))) {
+            prevFilteredEntriesRef.current = incoming
+            setEntries(incoming)
+        }
+    }, [input.value])
+
     const handleEnableIncludeObject = (): void => {
         setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
     }
