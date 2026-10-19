@@ -427,7 +427,7 @@ export interface inboxFiltersLogicMeta {
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
         isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
-        modelSortAvailable: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
+        modelSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSortField: (
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
@@ -753,11 +753,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (scope: InboxScope, user: UserType | null): boolean =>
                 !!user?.uuid && (scope === INBOX_SCOPE_FOR_YOU || parseTeammateInboxScope(scope) === user.uuid),
         ],
-        // Staff only, the same rule as the `ranking` field the backend returns.
+        // The flag is the rollout. The backend also lets every staff user sort by the model, but the menu stays
+        // behind the flag so that staff on an instance with no scores do not get it.
         modelSortAvailable: [
-            (s) => [s.featureFlags, s.user],
-            (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
-                !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT] && !!user?.is_staff,
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT],
         ],
         // The sort the list requests and renders with. A persisted sort the menu no longer offers, or a
         // model sort persisted while it was available, falls back to the default.

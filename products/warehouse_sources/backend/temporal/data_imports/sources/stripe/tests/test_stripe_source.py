@@ -27,9 +27,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import ScriptedResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
+    StripeBalanceHistoryAllCustomersConfig,
     StripeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
@@ -95,6 +99,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     StripeTransientError,
+    StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
@@ -493,6 +498,34 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "stripe_error,expected_start",
+        [
+            ("Invalid request (check your request parameters)", "Stripe couldn't read your account"),
+            ("This API call cannot be made with a publishable API key.", "Your Stripe API key is a publishable key"),
+        ],
+    )
+    def test_validate_credentials_validation_error_hides_raw_stripe_text(self, stripe_error, expected_start):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+                side_effect=StripeValidationError({"Customer": stripe_error}),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.capture_exception"
+            ),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert message.startswith(expected_start)
+        assert stripe_error not in message
 
     @pytest.mark.parametrize(
         "body,expected",
@@ -936,6 +969,27 @@ class TestInvoiceListWithAllLines:
                     params={}, logger=MagicMock(), client_factory=lambda _throttled: client
                 ).auto_paging_iter()
             )
+
+
+@parameterized.expand([("switch_off", False, ["cus_credit"]), ("switch_on", True, ["cus_credit", "cus_zero"])])
+def test_balance_history_switch_decides_which_customers_are_swept(_name, enabled, expected_customers):
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/customers":
+            customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
+            return ScriptedResponse(json={"object": "list", "data": customers, "has_more": False, "url": request.path})
+        customer = request.path.split("/")[3]
+        transaction = {"id": f"cbtxn_{customer}", "object": "customer_balance_transaction", "created": 1700000000}
+        return ScriptedResponse(json={"object": "list", "data": [transaction], "has_more": False, "url": request.path})
+
+    config = StripeSourceConfig(
+        auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"),
+        balance_history_all_customers=StripeBalanceHistoryAllCustomersConfig(enabled=enabled),
+    )
+    result = SourceDriver(StripeSource(), config).run(CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, script)
+
+    assert result.raised is None
+    rows = [row for table in result.rows for row in table.to_pylist()]
+    assert sorted(row["customer"] for row in rows) == expected_customers
 
 
 class TestScrubClientSecrets:

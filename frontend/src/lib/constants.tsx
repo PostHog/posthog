@@ -199,7 +199,6 @@ export const FEATURE_FLAGS = {
     ACCESS_CONTROL_DETAIL_PANEL: 'access-control-detail-panel', // owner: @a-lider #team-platform-features, gates the member and role access detail side panel
     ACCESS_CONTROL_RESOLUTION_PREVIEW: 'access-control-resolution-preview', // owner: @a-lider #team-platform-features, gates the access resolution preview settings section and its banner
     AEO_CITATION_TRACKING: 'aeo-citation-tracking', // owner: @lricoy #team-web-analytics, gates the AEO citation-tracking POC (products/aeo) runner and any future readout UI
-    AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST: 'ai-observability-instrumentation-checklist', // owner: #team-ai-observability, gates the instrumentation checklist card and empty states
     AI_OBSERVABILITY_SELF_DRIVING: 'ai-observability-daily-digest-scout', // owner: #team-ai-observability, gates the AI observability Self-driving tab
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
     BATCH_EXPORT_ALERTS: 'batch-export-alerts', // owner: #team-batch-exports
@@ -375,13 +374,14 @@ export const FEATURE_FLAGS = {
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
-    INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the staff-only ranking model sort options and the probability tag on inbox cards
+    INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
     INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
+    INSIGHT_DATA_CHECKS: 'insight-data-checks', // owner: @sampennington #team-product-analytics, checks the events behind an insight and shows the result on the insight page
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
@@ -523,14 +523,13 @@ export const FEATURE_FLAGS = {
     REPLAY_DEBUG_WITH_AI: 'replay-debug-with-ai', // owner: @clr182 #team-replay, player button that sends the recording JSON to PostHog AI
     REPLAY_EVENT_MATCH_SCOPE: 'replay-event-match-scope', // owner: @pauldambra #team-replay, shows the "Match the whole session / only during recording" filter select
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
-    REPLAY_FOLLOW_LIVE: 'replay-follow-live', // owner: #team-replay, player toggle that keeps an ongoing recording playing as new data arrives
     REPLAY_NEGATIVE_EVENT_FILTERS: 'replay-negative-event-filters', // owner: @arnohillen #team-replay
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT: 'replay-recommended-recordings-filter-experiment', // owner: @arnohillen #team-replay multivariate=control,test
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_SCANNER_DASHBOARD: 'replay-vision-scanner-dashboard', // owner: #team-replay, one-click dashboard offer on the scanner overview and its MCP tool
-    REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT: 'replay-vision-watch-in-list-experiment', // owner: #team-replay multivariate=control,in-list,watch-tab,both. Compare the variant string, a truthy check turns on for control too
+    REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT: 'replay-vision-watch-in-list-experiment-v2', // owner: #team-replay multivariate=control,in-list. Compare the variant string, a truthy check turns on for control too
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access

@@ -1,12 +1,15 @@
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 
 from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode
+from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode, ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.flag_state import flag_state
-from products.experiments.backend.health.context import HealthContext, parse_flag_state
+from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, parse_flag_state
+from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 
 # The flag documents and cases of the `experimentWarning` test in
 # frontend/src/scenes/experiments/experimentLogic.test.ts, so that both sides answer alike. A running
@@ -40,15 +43,29 @@ SHIPPED_TO_SOME = {
     "multivariate": SHIPPED_VARIANT["multivariate"],
 }
 
-RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
-ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
-DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
+
+def _traffic(people_assigned_outside: int) -> ConditionSetTraffic:
+    return ConditionSetTraffic(
+        since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
+        team_timezone="Europe/Berlin",
+        people_by_set={},
+        calls=3 * people_assigned_outside,
+        remotely_evaluated_calls=0,
+        people_assigned_outside=people_assigned_outside,
+    )
 
 
 def _context(
-    status: dict[str, bool], *, active: bool, filters: dict[str, Any], deleted: bool = False, archived: bool = False
+    status: Status,
+    *,
+    active: bool,
+    filters: dict[str, Any],
+    deleted: bool = False,
+    archived: bool = False,
+    traffic: ConditionSetTraffic | None = None,
 ) -> HealthContext:
-    return HealthContext(
+    return replace(
+        RUNNING_CONTEXT,
         **status,
         is_paused=status["is_running"] and not active,
         archived=archived,
@@ -58,13 +75,7 @@ def _context(
             groups=filters.get("groups"),
             variants=(filters.get("multivariate") or {}).get("variants"),
         ),
-        baseline_variant_key=None,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
-        flag_history=None,
-        condition_set_traffic=None,
-        excluded_variant_keys=frozenset(),
+        condition_set_traffic=traffic,
     )
 
 
@@ -90,6 +101,16 @@ class TestFlagState(TestCase):
             (
                 "running_zero_rollout",
                 _context(RUNNING, active=True, filters=ZERO_ROLLOUT),
+                (ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING, "running_but_no_rollout", None),
+            ),
+            (
+                "running_zero_rollout_with_variants_assigned_outside",
+                _context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(10)),
+                (ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING, "assigned_outside_flag_service", None),
+            ),
+            (
+                "running_zero_rollout_with_too_few_assigned_outside",
+                _context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(9)),
                 (ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING, "running_but_no_rollout", None),
             ),
             (
@@ -167,3 +188,21 @@ class TestFlagState(TestCase):
         code, subcode, variant_key = expected
         self.assertEqual((finding.code, finding.subcode), (code, subcode))
         self.assertEqual(finding.evidence.get("variant_key"), variant_key)
+
+    def test_variants_assigned_outside_the_flag_service_are_info(self) -> None:
+        finding = flag_state(_context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(1234)))
+
+        assert finding is not None
+        self.assertEqual(
+            (finding.severity, finding.title, finding.detail, dict(finding.evidence)),
+            (
+                ExperimentHealthFindingSeverity.INFO,
+                "Variants are assigned outside PostHog",
+                "The linked feature flag has a 0% rollout, so PostHog assigns no variants. But 1,234 users got a "
+                "variant since October 12, 2026 at 4:04 PM CEST from flag calls that PostHog didn't evaluate, so your "
+                "own code assigns the variants, directly or through a bootstrap. These users count in the results. "
+                "The flag's release conditions and variant split don't decide who gets which variant. If PostHog "
+                "should assign the variants, increase the rollout and stop assigning them in your code.",
+                {"people_assigned_outside": 1234, "assigned_outside_since": "2026-10-12T14:04:00+00:00"},
+            ),
+        )

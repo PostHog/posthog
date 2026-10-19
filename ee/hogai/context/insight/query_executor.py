@@ -37,9 +37,11 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
+    BaseHogQLError,
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
     QueryError,
+    ResolutionError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
 )
@@ -122,12 +124,37 @@ logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 
+# Splits the most common HogQL query errors, which share one `code_name`, so analytics can count each
+# without recording the message. The message can quote the caller's query.
+HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX = (
+    ("Unable to resolve field", "hogql_unresolved_field"),
+    ("Unknown table `", "hogql_unknown_table"),
+    ("Unsupported function call", "hogql_unsupported_function"),
+)
+
 
 def get_clickhouse_error_code(error: BaseException | None) -> str | None:
     if not isinstance(error, InternalCHQueryError):
         return None
     code = look_up_clickhouse_error_code_meta(error).name.lower()
     return code if internal_ch_error_user_message(code) else None
+
+
+def hogql_error_code(error: BaseException | None) -> str | None:
+    """Return a code for a HogQL error that holds no caller input, or None for any other error."""
+    if not isinstance(error, BaseHogQLError):
+        return None
+    message = str(error)
+    for prefix, code in HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX:
+        if message.startswith(prefix):
+            return code
+    if isinstance(error, ExposedHogQLError):
+        return error.code_name
+    if isinstance(error, HogQLNotImplementedError):
+        return "hogql_not_implemented"
+    if isinstance(error, ResolutionError):
+        return "hogql_resolution_error"
+    return "hogql_internal_error"
 
 
 def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
@@ -139,9 +166,10 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
 
     if isinstance(cause, TableAccessDeniedError):
         return MaxToolFatalError(str(error), error_type="permission")
+    if isinstance(cause, (QueryError, HogQLSyntaxError)):
+        return MaxToolRetryableError(str(error), error_type="validation", error_code=hogql_error_code(cause))
     # User-safe errors can also describe outages; only known input errors should skip exception capture.
-    error_type: MaxToolErrorType = "validation" if isinstance(cause, (QueryError, HogQLSyntaxError)) else "internal"
-    return MaxToolRetryableError(str(error), error_type=error_type)
+    return MaxToolRetryableError(str(error), error_type="internal")
 
 
 @frozen

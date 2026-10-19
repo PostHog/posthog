@@ -9,6 +9,7 @@ import json
 import base64
 import decimal
 import datetime as dt
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
@@ -44,7 +45,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

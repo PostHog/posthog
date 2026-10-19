@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -89,12 +90,24 @@ _REBALANCED = {
         },
     }
 }
+_WITH_A_SECOND_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]},
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     team_timezone="UTC",
     people_by_set={1: 120, 2: 880},
     calls=2000,
     remotely_evaluated_calls=2000,
+    people_assigned_outside=0,
 )
 _HEALTH_METRIC = {
     "kind": "ExperimentMetric",
@@ -760,6 +773,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED, ("bucketing_changed_mid_run", "key_changed")],
                 (timedelta(days=1), {"key": "health-findings-renamed"}),
             ),
+            (
+                "condition_added_after_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
+                (timedelta(days=1), _WITH_A_SECOND_CONDITION),
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -948,6 +968,54 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
+            ("variants_assigned_outside", 300, ("assigned_outside_flag_service", "info")),
+            ("no_one_assigned_outside", 0, ("running_but_no_rollout", "warning")),
+        ]
+    )
+    def test_health_reads_the_calls_of_a_flag_with_no_rollout(
+        self, _name: str, people_assigned_outside: int, expected: tuple[str, str]
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-no-rollout-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 0}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="health-no-rollout",
+            feature_flag=flag,
+            start_date=timezone.now() - timedelta(days=3),
+            metrics=[_HEALTH_METRIC],
+        )
+        traffic = replace(_HEALTH_TRAFFIC, people_by_set={}, people_assigned_outside=people_assigned_outside)
+
+        with patch(
+            "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
+            side_effect=[traffic],
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            [
+                (finding["subcode"], finding["severity"])
+                for finding in response.json()["findings"]
+                if finding["code"] == "flag_off_while_running"
+            ],
+            [expected],
+        )
+
+    @parameterized.expand(
+        [
             ("staff_session", True, None, status.HTTP_200_OK, ("read", [120, 880], "ok", "ok")),
             (
                 "staff_token_without_query_scope",
@@ -1089,9 +1157,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 history["checked"],
                 history["not_checked_reason"],
-                [change["counted"] for change in history["split_changes"]],
+                [change["counted"] for change in history["changes"]],
             ),
             expected,
+        )
+        self.assertEqual(
+            [(change["kind"], change["changed"], change["before"], change["after"]) for change in history["changes"]],
+            [("split", "Split", "control 50%, test 50%", "control 80%, test 20%")] if rebalance else [],
         )
 
     def _deny_event_property(self, name: str) -> None:

@@ -7820,7 +7820,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-list": {
-        "description": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
+        "description": "List active datasets in the current project by default. Filter by search text, UUIDs, or tags, or set `archived` to list archived datasets. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List datasets",
@@ -8090,7 +8090,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Listing models needs no key, but running any llm_judge evaluation needs one of the team's own provider keys, so enabling fails without a usable key. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Listing models needs no key, but running any llm_judge evaluation needs one of the team's own provider keys, so enabling fails without a usable key. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -8364,7 +8364,7 @@
         "feature_flag": "ai-observability-offline-evaluations"
     },
     "llma-offline-experiment-list": {
-        "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, or upload status. Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
+        "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, tags, or upload status. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND). Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List offline experiments",
@@ -8423,6 +8423,21 @@
         },
         "feature_flag": "ai-observability-offline-evaluations"
     },
+    "llma-offline-experiment-update": {
+        "description": "Replace the tags on an offline experiment in the current project. Send an empty tags array to clear them. Tags are organizational metadata and do not change the experiment's results or upload lifecycle.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment tags",
+        "title": "Update offline experiment tags",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ai-observability-offline-evaluations"
+    },
     "llma-offline-experiment-upload": {
         "description": "Persist externally computed scores and their shared items in one atomic request. Submit 1–1,000 results, keyed by item_id and exact scorer_version_id, with up to 1,000 item declarations. Reuse caller-generated item IDs and unchanged content for retries; a result is unique per item/scorer version. Existing items can be referenced without repeating their declaration or payload. This tool does not execute evaluators. Item payloads allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk uploads. Correct validation errors before retrying; never generate new IDs merely to retry an uncertain response.",
         "category": "AI observability",
@@ -8439,7 +8454,7 @@
         "feature_flag": "ai-observability-offline-evaluations"
     },
     "llma-offline-scorer-history": {
-        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
+        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Read offline scorer history",
@@ -8762,7 +8777,7 @@
         }
     },
     "llma-score-definition-list": {
-        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata, tags, and the current config snapshot.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List scorers",
@@ -14732,7 +14747,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-get": {
-        "description": "Get one warehouse suggestion by id, including `evidence`: the read counts and usage window that led to it. Use this to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
+        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Get a warehouse suggestion",
@@ -14747,7 +14762,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come strongest first within each kind. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts from warehouse-suggestions-get.",
+        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
@@ -15260,6 +15275,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-setup-status": {
+        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. When data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Check messaging setup",
+        "title": "Check messaging setup",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-mcp-onboarding"
     },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
