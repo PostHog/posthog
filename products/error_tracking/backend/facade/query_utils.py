@@ -8,8 +8,9 @@ from zoneinfo import ZoneInfo
 from posthog.hogql.escape_sql import escape_hogql_string
 
 from posthog.dataclasses import frozen
-from posthog.enums import LabeledStrEnum
 from posthog.utils import relative_date_parse
+
+from products.error_tracking.backend.facade.contracts import IssueTrendDirection
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
 MAX_STACK_FRAMES = 50
@@ -53,6 +54,7 @@ def normalize_volume_resolution(volume_resolution: int) -> int:
 
 
 CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
+RELEASE_EVENT_SELECTS = ["properties.$exception_releases"]
 DEFAULT_EVENT_CONTEXT_INCLUDES = ["exception", "environment", "navigation", "correlation"]
 EVENT_CONTEXT_PROPERTY_SELECTS = {
     "exception": [
@@ -527,8 +529,10 @@ def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
     )
 
 
-# first_seen is the timestamp of the fingerprint's first event, so this window only absorbs late events.
-FIRST_EVENT_WINDOW = timedelta(days=1)
+# A late event can carry a timestamp before first_seen, but no first event is after it.
+FIRST_EVENT_LOOKBACK = timedelta(days=1)
+# EventsQuery bounds are exclusive, so the window ends just after first_seen.
+FIRST_EVENT_LOOKAHEAD = timedelta(seconds=1)
 
 
 def parse_timestamp(value: object) -> datetime | None:
@@ -544,7 +548,7 @@ def first_event_window(first_seen: object) -> tuple[str, str] | None:
     first_seen_at = parse_timestamp(first_seen)
     if first_seen_at is None:
         return None
-    return (first_seen_at - FIRST_EVENT_WINDOW).isoformat(), (first_seen_at + FIRST_EVENT_WINDOW).isoformat()
+    return (first_seen_at - FIRST_EVENT_LOOKBACK).isoformat(), (first_seen_at + FIRST_EVENT_LOOKAHEAD).isoformat()
 
 
 @frozen
@@ -645,6 +649,14 @@ def build_impact(issue: dict[str, object]) -> dict[str, object]:
     )
 
 
+def volume_bucket_records(issue: dict[str, object]) -> list[dict[str, object]]:
+    aggregations = as_record(issue.get("aggregations")) or {}
+    volume_buckets = aggregations.get("volume_buckets")
+    if not isinstance(volume_buckets, list):
+        return []
+    return [record for bucket in volume_buckets if (record := as_record(bucket)) is not None]
+
+
 def build_sparkline(issue: dict[str, object]) -> list[float] | None:
     aggregations = as_record(issue.get("aggregations")) or {}
     volume_range = aggregations.get("volumeRange")
@@ -656,25 +668,8 @@ def build_sparkline(issue: dict[str, object]) -> list[float] | None:
                 return None
             numeric_values.append(numeric_value)
         return numeric_values
-    volume_buckets = aggregations.get("volume_buckets")
-    if isinstance(volume_buckets, list):
-        numeric_values = []
-        for bucket in volume_buckets:
-            record = as_record(bucket)
-            if record is None:
-                continue
-            value = to_number(record.get("value"))
-            if value is not None:
-                numeric_values.append(value)
-        return numeric_values or None
-    return None
-
-
-class IssueTrendDirection(LabeledStrEnum):
-    NEW = "new"
-    INCREASING = "increasing"
-    DECREASING = "decreasing"
-    STABLE = "stable"
+    values = [value for record in volume_bucket_records(issue) if (value := to_number(record.get("value"))) is not None]
+    return values or None
 
 
 # The fewest volume buckets that split the date range into two halves.
@@ -687,21 +682,14 @@ def trend_direction(previous: int, current: int, first_seen: object, current_fro
     current_from_at = parse_timestamp(current_from)
     if previous == 0 and current > 0 and first_seen_at and current_from_at and first_seen_at >= current_from_at:
         return IssueTrendDirection.NEW
-    if current > previous and current - previous >= previous * TREND_CHANGE_FRACTION:
-        return IssueTrendDirection.INCREASING
-    if current < previous and previous - current >= previous * TREND_CHANGE_FRACTION:
-        return IssueTrendDirection.DECREASING
+    change = current - previous
+    if change and abs(change) >= previous * TREND_CHANGE_FRACTION:
+        return IssueTrendDirection.INCREASING if change > 0 else IssueTrendDirection.DECREASING
     return IssueTrendDirection.STABLE
 
 
 def build_trend(issue: dict[str, object]) -> dict[str, object] | None:
-    aggregations = as_record(issue.get("aggregations")) or {}
-    raw_buckets = aggregations.get("volume_buckets")
-    buckets = (
-        [record for bucket in raw_buckets if (record := as_record(bucket)) is not None]
-        if isinstance(raw_buckets, list)
-        else []
-    )
+    buckets = volume_bucket_records(issue)
     half = len(buckets) // 2
     if half == 0:
         return None
@@ -709,17 +697,16 @@ def build_trend(issue: dict[str, object]) -> dict[str, object] | None:
     previous_buckets, current_buckets = buckets[:half], buckets[-half:]
     previous = int(sum(to_number(bucket.get("value")) or 0 for bucket in previous_buckets))
     current = int(sum(to_number(bucket.get("value")) or 0 for bucket in current_buckets))
+    current_from = current_buckets[0].get("label")
     return compact_dict(
         {
-            "direction": trend_direction(
-                previous, current, issue.get("first_seen"), current_buckets[0].get("label")
-            ).value,
+            "direction": trend_direction(previous, current, issue.get("first_seen"), current_from).value,
             "current_occurrences": current,
             "previous_occurrences": previous,
             "change_percent": round((current - previous) / previous * 100) if previous else None,
             "previous_from": previous_buckets[0].get("label"),
             "previous_to": buckets[half].get("label"),
-            "current_from": current_buckets[0].get("label"),
+            "current_from": current_from,
         }
     )
 

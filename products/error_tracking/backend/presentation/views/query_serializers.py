@@ -11,7 +11,7 @@ from posthog.schema import ErrorTrackingOrderBy
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.facade.query_utils import IssueTrendDirection
+from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -352,10 +352,11 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
 
 class ErrorTrackingIssueTrendSerializer(serializers.Serializer):
     direction = serializers.ChoiceField(
-        choices=IssueTrendDirection.choices,
+        choices=contracts.IssueTrendDirection.choices,
         help_text=(
             "Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means "
-            "a change of at least 25%. 'new' means first_seen is in the second half. 'stable' means a smaller change."
+            f"a change of at least {TREND_CHANGE_FRACTION:.0%}. 'new' means first_seen is in the second half. "
+            "'stable' means a smaller change."
         ),
     )
     current_occurrences = serializers.IntegerField(help_text="Occurrences in the second half of dateRange.")

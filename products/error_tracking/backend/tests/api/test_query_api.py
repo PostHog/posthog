@@ -622,19 +622,20 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         self.create_exception_event(
             timestamp=first_seen,
+            properties={"$exception_releases": {"release-id-1": {"version": "2026.04.10"}}},
+        )
+        # Arrived after the fingerprint was created, but happened first.
+        self.create_exception_event(
+            timestamp=first_seen - timedelta(hours=2),
             properties={
                 "$exception_releases": {
                     "release-id-0": {
-                        "version": "2026.04.10",
+                        "version": "2026.04.09",
                         "project": "posthog-js",
-                        "timestamp": "2026-04-10T09:00:00Z",
+                        "timestamp": "2026-04-09T09:00:00Z",
                     }
                 }
             },
-        )
-        self.create_exception_event(
-            timestamp=first_seen + timedelta(hours=6),
-            properties={"$exception_releases": {"release-id-2": {"version": "2026.04.10-hotfix"}}},
         )
         self.create_exception_event(
             properties={
@@ -703,9 +704,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             "current_from": "2026-04-24T00:00:00+00:00",
         }
         assert data["first_release"] == {
-            "version": "2026.04.10",
+            "version": "2026.04.09",
             "project": "posthog-js",
-            "timestamp": "2026-04-10T09:00:00Z",
+            "timestamp": "2026-04-09T09:00:00Z",
         }
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)

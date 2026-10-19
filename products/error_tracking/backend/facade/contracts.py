@@ -16,7 +16,17 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
+
+
+class IssueTrendDirection(LabeledStrEnum):
+    NEW = "new"
+    INCREASING = "increasing"
+    DECREASING = "decreasing"
+    STABLE = "stable"
+
 
 # Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"

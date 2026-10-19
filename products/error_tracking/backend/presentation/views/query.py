@@ -40,6 +40,7 @@ from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_PROPERTIES,
     ISSUE_BREAKDOWN_QUERY_VALUES,
     ISSUE_FIELDS,
+    RELEASE_EVENT_SELECTS,
     TREND_VOLUME_RESOLUTION,
     breakdown_query_date_range,
     build_date_range,
@@ -213,12 +214,19 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             before=date_range.get("date_to"),
             order="DESC",
             filter_test_accounts=filter_test_accounts,
+            select=CONTEXT_EVENT_SELECTS,
         )
         first_event_properties: dict[str, object] = {}
         if (window := first_event_window(issue.get("first_seen"))) is not None:
             # Test accounts stay in, because first_seen counts their events too.
             first_event_properties = self._issue_event_properties(
-                request, issue_id, after=window[0], before=window[1], order="ASC", filter_test_accounts=False
+                request,
+                issue_id,
+                after=window[0],
+                before=window[1],
+                order="ASC",
+                filter_test_accounts=False,
+                select=RELEASE_EVENT_SELECTS,
             )
         payload = compact_dict(
             {
@@ -247,12 +255,13 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         before: object,
         order: Literal["ASC", "DESC"],
         filter_test_accounts: bool,
+        select: list[str],
     ) -> dict[str, object]:
         try:
             context_event_query = EventsQuery(
                 kind="EventsQuery",
                 event="$exception",
-                select=CONTEXT_EVENT_SELECTS,
+                select=select,
                 where=build_issue_where(issue_id),
                 filterTestAccounts=filter_test_accounts,
                 after=after,
