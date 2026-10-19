@@ -527,7 +527,7 @@ describe('ActionFilterRow', () => {
             expect(duplicated[1]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
         })
 
-        it('dispatches selectFilter and calls onRenameClick on rename', async () => {
+        it('calls onRenameClick on rename', async () => {
             const { logic } = setup()
             const onRenameClick = jest.fn()
             renderRow(logic, { ...INLINE_CONTEXT, hideRename: false, onRenameClick })

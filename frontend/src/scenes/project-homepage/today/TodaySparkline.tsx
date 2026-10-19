@@ -44,7 +44,7 @@ export function TodaySparkline({
     labels: string[]
     tone: TodayTone
     emphasizeLast: number
-    formatValue: (value: number) => string
+    formatValue?: (value: number) => string
 }): JSX.Element {
     const theme = useChartTheme()
     const palette = useTodayTonePalette()
@@ -70,18 +70,18 @@ export function TodaySparkline({
             showGrid: false,
             showAxisLines: false,
             showTickMarks: false,
-            showCrosshair: true,
+            showCrosshair: !!formatValue,
             curve: 'linear',
             floatBaseline: true,
             margins: { top: 4, right: 4, bottom: 4, left: 1 },
-            tooltip: { enabled: true, placement: 'follow-data' },
+            tooltip: { enabled: !!formatValue, placement: 'follow-data' },
         }),
-        []
+        [formatValue]
     )
     const tooltip = useCallback(
         (context: TooltipContext): JSX.Element | null => {
             const value = context.seriesData[0]?.value
-            if (value === undefined || Number.isNaN(value)) {
+            if (!formatValue || value === undefined || Number.isNaN(value)) {
                 return null
             }
             return (

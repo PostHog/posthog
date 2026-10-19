@@ -180,6 +180,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Buttons:
   - Button vs Link: performs an action → Button; changes URL → the host router's Link (use `render={<Link />}` on Button when it must look like one)
   - Icon-only: `size="icon"` (or `icon-xs` / `icon-sm` / `icon-lg`), `aria-label` required, and always wrap in a Tooltip with the same string
+  - Size: buttons and select or picker triggers use the default size (`size="icon"` when icon-only). Use `sm` or `xs` only for a special case, such as a dense table cell, or when the design asks for it
   - In-flight action: `loading`, not a separate spinner
   - Disabled: state the reason; tooltips work by default (`focusableWhenDisabled` is true), so don't turn it off
 - Switch vs Checkbox vs Toggle:
@@ -189,6 +190,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Picking a value:
   - RadioGroup: 2–5 options that should all be visible at once
   - Select: fixed options, no text input, up to ~15 items
+  - Select and Combobox triggers follow the button size rule. Their popup items are always default size, so an `sm` trigger opens a menu bigger than itself. This includes a `Button` that opens a picker
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
   - Autocomplete: free text with optional suggestions; search, command pickers
 - Picking an action:
@@ -196,6 +198,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - ContextMenu: right-click only; never the only path to an action
   - Menubar: persistent app-level menus
   - Never Select for actions; never restyle Buttons into menu rows (use `Item variant="menuItem"`)
+- A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
 - Text and numbers:
   - Input: single-line text
@@ -240,6 +243,12 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Disclosure:
   - Collapsible: single section
   - Accordion: set of sections
+- Scrolling:
+  - Default: a plain scroller with an edge fade, `overflow-y-auto scroll-mask-y-4 scroll-py-4`. This is the pattern quill's menus, Select and Combobox use. The fade is CSS only, while `ScrollArea` runs JavaScript and React state updates on every scroll
+  - `scroll-py-4` keeps a keyboard-focused row clear of the fade. The mask fades the content itself, so keep sticky headers and other fixed controls outside the scroller
+  - Use `ScrollArea` only when you need what it adds: custom, always-visible or hidden scrollbars (`alwaysShowScrollbars`, `hideScrollbars`), scroll-to-edge buttons (`showScrollToButton`), or a dialog body (`DialogBody` renders one by default)
+  - The fade needs scroll-driven animations (Chrome, Edge, Safari 26 and later). Firefox and reduced-motion users get no fade, and the content still scrolls normally
+  - The web app's Tailwind build loads `tailwindcss-scroll-mask` (`common/tailwind/tailwind.css`), so every `scroll-mask-*` utility works in app code
 - Chat components: only in agent/conversation surfaces
   - Questionnaire: questions the agent needs answered before continuing; never an ad-hoc form in chat
   - ChatTaskList: the agent's plan; never a hand-rolled checklist
@@ -263,6 +272,10 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 ## 5. Typography, colour, spacing, motion, icons
 
 - Text: use `Heading` (semantic level via `render={<h2 />}`, decoupled from size) and `Text`; never hand-roll `<p className="text-xs text-muted-foreground">`
+- Icons: use `IconPlus` for add and new actions, never `IconPlusSmall`. The small glyph looks undersized next to the other icons in a row of icon buttons
+- Body text uses the `text-xs` size: `<Text size="xs">`. `Text` defaults to `base`, so always pass `size="xs"` for body copy
+- Space a section's contents with the parent's `gap-*` (`gap-2` within a section). When a button sits beside the section's title, use `gap-1`, because the button makes the title row taller. Never give the contents, headings included, a bottom margin. The web app's global styles add margins to `h1`–`h6` and `p`, so pass `className="m-0"` on a `Heading`'s or `Text`'s `render` element
+- An inline link inside a sentence uses the same text size as the sentence: `<Button variant="link" size="inline">`. The other `Button` sizes set a control height and their own font size, so they never match the text around them. Don't patch one with `h-auto p-0`
 - <TODO: remaining short imperative rules; link to detail files with "read when…">
 
 ## 6. Don't

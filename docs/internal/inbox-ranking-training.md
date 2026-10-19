@@ -189,7 +189,7 @@ Models trained before thresholds existed have none, and no other value stands in
 
 - Population: D's newborn pool.
 - Score: per report and model key, the earliest scored event in D with this deployment's `environment`.
-- `model_role`: `served` when the event's roles hold it, else the first role (`daily_candidate`, `cross_family`, `pinned`), else `candidate`.
+- `model_role`: `served` when the event's roles hold it, else the first role (`recent`, `cross_family`, `pinned`), else `candidate`. Grades written before the `recent` role carry `daily_candidate` for the same read.
 - `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
 - Asset metadata: `served_pool_coverage`, `pool_coverage_by_model`, rows per model version, and the heads without a threshold.
 
