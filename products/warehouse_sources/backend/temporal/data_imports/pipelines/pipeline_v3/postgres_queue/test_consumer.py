@@ -2279,10 +2279,18 @@ class TestReconcileFailedRuns:
     @pytest.fixture(autouse=True)
     def _hold_sweep_slot(self):
         """Grant the fleet-wide sweep slot by default — these tests exercise the sweep body, not the slot."""
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.try_acquire_reconcile_sweep_slot",
-            new_callable=AsyncMock,
-            return_value=True,
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.try_acquire_reconcile_sweep_slot",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            # The aged-out pass has its own tests against a real queue in test_jobs_db.py.
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_aged_out_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
             yield
 

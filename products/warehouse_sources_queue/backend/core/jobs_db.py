@@ -97,7 +97,8 @@ PARTITION_PRUNING_INTERVAL = "14 days"
 # batch's file still exists. Applies only to the outer claim
 # candidates and the recovery sweep — never to the head-of-line/failed-run/
 # schema-busy gates, which must keep seeing rows aged past this window for as
-# long as they exist.
+# long as they exist. A 'pending' or 'waiting_retry' batch past this window can
+# never load, so the reconcile sweep fails its run (see `get_aged_out_runs`).
 CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
 
 # One claim reads a window of the queue, not the whole claimable set, so its cost
@@ -926,6 +927,67 @@ def _stranded_candidate_runs_sql() -> str:
     """
 
 
+def _aged_out_candidate_runs_sql() -> str:
+    """Runs that hold a 'pending' or 'waiting_retry' batch older than ``CLAIM_ELIGIBILITY_INTERVAL``.
+
+    The claim query never offers such a batch again, and the run gates do not
+    read 'pending' rows. So the later batches of the run stay claimable, and
+    the run can load past the batch that will never load. The reconcile sweep
+    fails these runs before their final batch can complete the job.
+
+    The candidate states are exactly ``sb_claimable_idx``'s, for the same reason
+    as in :func:`_orphaned_candidate_runs_sql`. Runs that hold a 'failed' batch
+    are left to the failed-run reconcile and the orphan drain. The ``OFFSET 0``
+    fence keeps that gate one ``sb_run_gate_idx`` probe per candidate run.
+    """
+    return f"""
+        WITH aged_runs AS (
+            SELECT
+                b.run_uuid,
+                b.team_id,
+                b.schema_id,
+                MAX(b.job_id) AS job_id,
+                MAX(b.metadata->>'workflow_run_id') AS workflow_run_id,
+                MIN(b.created_at) AS oldest_created_at,
+                MIN(b.batch_index) AS first_aged_out_batch_index,
+                count(*) AS aged_out_batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b.created_at <= now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.run_uuid, b.team_id, b.schema_id
+        )
+        SELECT
+            r.run_uuid, r.team_id, r.schema_id, r.job_id, r.workflow_run_id,
+            r.first_aged_out_batch_index, r.aged_out_batches
+        FROM aged_runs r
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM {BATCH_TABLE} bf
+            WHERE bf.run_uuid = r.run_uuid
+              AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND bf.latest_state = 'failed'
+            OFFSET 0
+        )
+        ORDER BY r.oldest_created_at ASC
+        LIMIT %(limit)s
+    """
+
+
+# Reads the earlier batches of one run through ``sb_run_uuid_bi_idx``. The team and
+# schema filters guard against a run_uuid collision across groups.
+_UNFINISHED_EARLIER_BATCHES_SQL = f"""
+    SELECT count(*), MIN(b.batch_index), COALESCE(array_agg(DISTINCT b.latest_state), '{{}}')
+    FROM {BATCH_TABLE} b
+    WHERE b.run_uuid = %(run_uuid)s
+      AND b.batch_index < %(before_batch_index)s
+      AND b.team_id = %(team_id)s
+      AND b.schema_id = %(schema_id)s
+      AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+      AND b.latest_state <> 'succeeded'
+"""
+
+
 def _stale_executing_sql(scope_sql: str = "") -> str:
     """Shared body of the stale-executing sweep (async consumer and its sync ops twin).
 
@@ -1079,6 +1141,33 @@ class StrandedRunRef:
     schema_id: str
     workflow_run_id: str | None
     non_terminal_batches: int
+
+
+@dataclass(frozen=True, slots=True)
+class AgedOutRunRef:
+    """A run with a batch that aged out of ``CLAIM_ELIGIBILITY_INTERVAL`` before it loaded.
+
+    The batch will never load, because no claim offers it again and its parquet
+    goes with the bucket lifecycle rule. The run can therefore never complete
+    correctly, and the reconcile sweep fails it.
+    """
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    workflow_run_id: str | None
+    first_aged_out_batch_index: int
+    aged_out_batches: int
+
+
+@dataclass(frozen=True, slots=True)
+class UnfinishedEarlierBatches:
+    """The batches of a run, before a given batch_index, whose latest state is not 'succeeded'."""
+
+    count: int
+    first_batch_index: int | None
+    states: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1880,6 +1969,47 @@ class BatchQueue:
         raise AssertionError("unreachable")
 
     @staticmethod
+    def get_unfinished_earlier_batches_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        run_uuid: str,
+        before_batch_index: int,
+        connect_timeout_seconds: int = 10,
+    ) -> UnfinishedEarlierBatches:
+        """The batches of a run before ``before_batch_index`` that did not reach 'succeeded'.
+
+        The loader asks this before a final batch completes its job. A batch that
+        a run skipped (aged out, failed, still queued) means that the run is not
+        complete, so the staged cursor must not advance past it. Runs on the same
+        small sync pool as :meth:`verify_group_lease_sync`, with the same retry for a
+        connection the queue DB dropped while idle.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        params = {
+            "team_id": team_id,
+            "schema_id": schema_id,
+            "run_uuid": run_uuid,
+            "before_batch_index": before_batch_index,
+        }
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    row = conn.execute(_UNFINISHED_EARLIER_BATCHES_SQL, params).fetchone()
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+                    continue
+                assert row is not None
+                count, first_batch_index, states = row
+                return UnfinishedEarlierBatches(
+                    count=count, first_batch_index=first_batch_index, states=tuple(sorted(states))
+                )
+        raise AssertionError("unreachable")
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -2237,6 +2367,35 @@ class BatchQueue:
                 schema_id=row["schema_id"],
                 workflow_run_id=row["workflow_run_id"],
                 non_terminal_batches=row["non_terminal_batches"],
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    async def get_aged_out_runs(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        limit: int,
+    ) -> list[AgedOutRunRef]:
+        """Runs with a non-terminal batch past ``CLAIM_ELIGIBILITY_INTERVAL``, oldest first.
+
+        The stranded-run sweep cannot catch these. It spares a group that makes
+        progress, and a long serialized run makes progress on its later batches
+        while an earlier one ages out. See :func:`_aged_out_candidate_runs_sql`.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(_aged_out_candidate_runs_sql(), {"limit": limit})
+            rows = await cur.fetchall()
+
+        return [
+            AgedOutRunRef(
+                run_uuid=row["run_uuid"],
+                job_id=row["job_id"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                workflow_run_id=row["workflow_run_id"],
+                first_aged_out_batch_index=row["first_aged_out_batch_index"],
+                aged_out_batches=row["aged_out_batches"],
             )
             for row in rows
         ]

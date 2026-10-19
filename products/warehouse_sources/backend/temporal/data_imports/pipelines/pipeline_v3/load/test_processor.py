@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
     post_load_phase,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
+    IncompleteRunError,
     _apply_partitioning,
     _enrich_cdc_rows,
     _file_count_after_write,
@@ -53,6 +55,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
+from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
+
+_COMPLETE_RUN = UnfinishedEarlierBatches(count=0, first_batch_index=None, states=())
 
 
 @pytest.fixture(autouse=True)
@@ -64,6 +69,16 @@ def _no_close_old_connections():
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _unfinished_earlier_batches() -> Iterator[MagicMock]:
+    # The completion check reads the queue DB, which these unit tests do not have.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
+        return_value=_COMPLETE_RUN,
+    ) as check:
+        yield check
 
 
 @pytest.fixture(autouse=True)
@@ -519,6 +534,50 @@ class TestMarkJobCompleted:
         mock_finish_row_tracking.assert_not_awaited()
         mock_release.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "aged_out_batch_never_loaded",
+                UnfinishedEarlierBatches(count=1, first_batch_index=2, states=("pending",)),
+            ),
+            ("earlier_batch_failed", UnfinishedEarlierBatches(count=1, first_batch_index=0, states=("failed",))),
+            (
+                "several_batches_left",
+                UnfinishedEarlierBatches(count=3, first_batch_index=1, states=("pending", "waiting_retry")),
+            ),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.release_v3_pipeline_lock")
+    @patch(f"{_PROCESSOR}.ExternalDataSchema.objects")
+    @patch(f"{_PROCESSOR}.update_external_job_status")
+    def test_a_run_with_an_unfinished_earlier_batch_does_not_complete(
+        self,
+        _case: str,
+        unfinished: UnfinishedEarlierBatches,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        signal = self._make_signal()
+        signal.batch_index = 5
+
+        with (
+            patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync", return_value=unfinished) as check,
+            pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR),
+        ):
+            _mark_job_completed(signal)
+
+        assert check.call_args.kwargs == {
+            "team_id": 1,
+            "schema_id": "schema-1",
+            "run_uuid": "run-abc-a1",
+            "before_batch_index": 5,
+        }
+        mock_update.assert_not_called()
+        mock_schema_objects.get.return_value.promote_staged_incremental_values.assert_not_called()
+        # The consumer fails the run on this error, and its fail path releases the lock.
+        mock_release.assert_not_called()
+
 
 class TestRedeliveredFinalBatchPostLoad:
     @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
@@ -819,6 +878,9 @@ class TestProcessMessages:
         # Without the flag the post-import workflow opens the table again to measure a size that
         # post-load already recorded.
         mock_trigger.assert_called_once_with(ANY, True)
+        # The completion check counts the batches below this index as earlier writes. The tail index
+        # would count the set's own members, which are still executing, and fail every coalesced run.
+        assert mock_mark_completed.call_args.args[0].batch_index == 0
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet")

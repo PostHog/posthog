@@ -17,6 +17,11 @@ IDEMPOTENCY_HIT_TOTAL = Counter(
     "Total idempotency cache hits (batch already processed)",
 )
 
+INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL = Counter(
+    "warehouse_load_incomplete_run_completions_refused_total",
+    "Final batches that did not complete their job because an earlier batch of the run did not load",
+)
+
 APPEND_ROLLBACK_TOTAL = Counter(
     "warehouse_load_append_rollback_total",
     "Append rollback attempts by outcome",

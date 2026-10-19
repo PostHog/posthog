@@ -1459,6 +1459,187 @@ class TestReconcileAbandonedRuns:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestAgedOutRuns:
+    CONSUMER_MOD = TestReconcileAbandonedRuns.CONSUMER_MOD
+
+    async def _insert_aged(
+        self, conn: psycopg.AsyncConnection[Any], *, state: str = "pending", age: str = "7 days", **overrides: Any
+    ) -> str:
+        bid = await _insert_batch(conn, **overrides)
+        if state != "pending":
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '{age}' WHERE id = %s", (bid,))
+        return bid
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "state,age,expected",
+        [
+            ("pending", "7 days", ["run-1"]),
+            ("waiting_retry", "7 days", ["run-1"]),
+            # Still inside the claim window, so a consumer can still load it.
+            ("pending", "6 days", []),
+            ("waiting_retry", "6 days", []),
+            # The stale-executing sweep and the failed-run reconcile own these states.
+            ("executing", "7 days", []),
+            ("failed", "7 days", []),
+            ("succeeded", "7 days", []),
+        ],
+    )
+    async def test_finds_runs_with_a_batch_no_claim_can_reach(self, conn, state, age, expected):
+        await self._insert_aged(conn, state=state, age=age, batch_index=0, metadata={"workflow_run_id": "wf-1"})
+        await _insert_batch(conn, batch_index=1)
+
+        refs = await BatchQueue.get_aged_out_runs(conn, limit=10)
+
+        assert [r.run_uuid for r in refs] == expected
+        if expected:
+            ref = refs[0]
+            assert (ref.job_id, ref.workflow_run_id, ref.first_aged_out_batch_index, ref.aged_out_batches) == (
+                "job-1",
+                "wf-1",
+                0,
+                1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_leaves_runs_with_a_failed_batch_to_the_failed_run_reconcile(self, conn):
+        await self._insert_aged(conn, batch_index=0)
+        failed = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+
+        assert await BatchQueue.get_aged_out_runs(conn, limit=10) == []
+
+    @pytest.mark.asyncio
+    async def test_oldest_run_first_so_the_limit_cannot_starve_the_backlog(self, conn):
+        for run_uuid, age in (("run-new", "7 days"), ("run-old", "9 days"), ("run-mid", "8 days")):
+            await self._insert_aged(conn, age=age, run_uuid=run_uuid)
+
+        refs = await BatchQueue.get_aged_out_runs(conn, limit=2)
+
+        assert [r.run_uuid for r in refs] == ["run-old", "run-mid"]
+
+    @pytest.mark.asyncio
+    async def test_candidate_scan_can_use_the_claimable_index(self, conn):
+        from products.warehouse_sources_queue.backend.core.jobs_db import _aged_out_candidate_runs_sql
+
+        await self._insert_aged(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _aged_out_candidate_runs_sql(), {"limit": 100})
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+
+    @pytest.mark.asyncio
+    async def test_reconcile_fails_the_run_so_its_later_batches_never_load(self, conn):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
+            AGED_OUT_RUN_ERROR,
+        )
+
+        # A long serialized run: batch 0 aged out while the loader worked other groups, and the
+        # final batch is still fresh enough to claim. Loading it would complete the job.
+        metadata = {"workflow_run_id": "wf-long"}
+        await self._insert_aged(conn, batch_index=0, run_uuid="run-long", job_id="job-long", metadata=metadata)
+        await _insert_batch(
+            conn, batch_index=1, run_uuid="run-long", job_id="job-long", metadata=metadata, is_final_batch=True
+        )
+        await _insert_batch(conn, run_uuid="run-other", job_id="job-other", schema_id="schema-2")
+
+        adapter = DeltaBatchConsumerAdapter()
+        with (
+            patch(f"{self.CONSUMER_MOD}.mark_job_failed_if_not_terminal", return_value=True) as mock_fail_job,
+            patch(f"{self.CONSUMER_MOD}.release_v3_pipeline_lock", return_value=True) as mock_release,
+        ):
+            await adapter.reconcile_failed_runs(conn, grace_seconds=120, lookback_seconds=86400, limit=100)
+
+        rows = await (
+            await conn.execute(
+                f"SELECT latest_state FROM {BATCH_TABLE} WHERE run_uuid = 'run-long' ORDER BY batch_index"
+            )
+        ).fetchall()
+        assert [r[0] for r in rows] == ["failed", "failed"]
+        mock_fail_job.assert_called_once_with(job_id="job-long", team_id=1, error=AGED_OUT_RUN_ERROR)
+        mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-long")
+
+        claimed = await _claim(conn, limit=10)
+        assert [b.run_uuid for b in claimed] == ["run-other"]
+        await _release(conn, batches=claimed)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUnfinishedEarlierBatchesSync:
+    @pytest.fixture(autouse=True)
+    def _fresh_pool(self):
+        _SYNC_POOLS.clear()
+        yield
+        for pool in _SYNC_POOLS.values():
+            for pooled in pool._idle:
+                pooled.close()
+        _SYNC_POOLS.clear()
+
+    def _check(self, db_url: str, *, before_batch_index: int = 3, run_uuid: str = "run-1"):
+        return BatchQueue.get_unfinished_earlier_batches_sync(
+            db_url,
+            team_id=1,
+            schema_id="schema-1",
+            run_uuid=run_uuid,
+            before_batch_index=before_batch_index,
+            connect_timeout_seconds=5,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "earlier_states,expected_count,expected_first,expected_states",
+        [
+            (["succeeded", "succeeded", "succeeded"], 0, None, ()),
+            # An aged-out batch never moves past 'pending'.
+            (["succeeded", "pending", "succeeded"], 1, 1, ("pending",)),
+            (["failed", "succeeded", "waiting_retry"], 2, 0, ("failed", "waiting_retry")),
+            (["succeeded", "succeeded", "executing"], 1, 2, ("executing",)),
+            # A lane leaves gaps in its batch indexes, and a gap is not a missing batch.
+            (["succeeded", None, "succeeded"], 0, None, ()),
+        ],
+    )
+    async def test_reports_earlier_batches_that_did_not_succeed(
+        self, conn, _db_url, earlier_states, expected_count, expected_first, expected_states
+    ):
+        for index, state in enumerate(earlier_states):
+            if state is None:
+                continue
+            bid = await _insert_batch(conn, batch_index=index)
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+        # The batches of the write being completed are still executing, and must not count.
+        final = await _insert_batch(conn, batch_index=3, is_final_batch=True)
+        await BatchQueue.update_status(conn, batch_id=final, job_state="executing", attempt=1)
+
+        unfinished = self._check(_db_url)
+
+        assert (unfinished.count, unfinished.first_batch_index, unfinished.states) == (
+            expected_count,
+            expected_first,
+            expected_states,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "other",
+        [
+            {"run_uuid": "run-2"},
+            {"schema_id": "schema-2"},
+            {"team_id": 2},
+        ],
+    )
+    async def test_ignores_batches_of_other_runs_and_groups(self, conn, _db_url, other):
+        await _insert_batch(conn, batch_index=0, **other)
+
+        assert self._check(_db_url).count == 0
+
+
+@pytest.mark.django_db(transaction=True)
 class TestClaimWindowSkipsForeignLeasedGroups:
     @pytest.mark.asyncio
     async def test_foreign_leased_group_does_not_occupy_the_window(self, conn, conn_b):

@@ -98,6 +98,13 @@ RUNS_TERMINALIZED_STALE_TOTAL = Counter(
     "staleness threshold) that the reconcile sweep failed before the retention prune would",
 )
 
+RUNS_FAILED_AGED_OUT_TOTAL = Counter(
+    "warehouse_pg_consumer_runs_failed_aged_out_total",
+    "Runs the reconcile sweep failed because a batch aged out of the claim window before it "
+    "loaded. Without the sweep, the later batches of such a run could complete the job past "
+    "the batch that never loaded",
+)
+
 # The loader's data-freshness signal: it rises whenever loading stalls,
 # regardless of why (wedged consumers, claim-query degradation, crashloops).
 # One elected pod per fleet samples it (see clear_queue_sample_gauges), so

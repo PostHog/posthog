@@ -94,6 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
@@ -118,6 +119,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import prepar
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined, OwnershipLostError
+from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -125,6 +127,20 @@ logger = structlog.get_logger(__name__)
 # show a table fragmenting over a multi-hundred-batch load, rare enough that the listing it needs
 # stays off the per-batch path.
 FILE_COUNT_LOG_SAMPLE_EVERY = 100
+
+# Shown to the customer verbatim as latest_error. The consumer also matches it to fail the run
+# without retries, because the earlier batches cannot load on a later attempt of this run.
+INCOMPLETE_RUN_ERROR = (
+    "Some batches of this sync run did not load, so the sync did not complete. "
+    "The next scheduled sync retries automatically. No action is needed."
+)
+
+
+class IncompleteRunError(Exception):
+    """A final batch arrived while earlier batches of its run had not loaded."""
+
+    def __init__(self) -> None:
+        super().__init__(INCOMPLETE_RUN_ERROR)
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
@@ -519,7 +535,45 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
         capture_exception(e)
 
 
+def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
+    """Raise when an earlier batch of the run did not load, before the job completes.
+
+    The claim gates do not see a batch that aged out of the claim window, so the later batches of
+    its run can still load. Completing such a run would promote the staged cursor past rows that
+    never loaded, and the next sync would never read them again. A failed job keeps the committed
+    cursor, so the next sync extracts those rows again.
+
+    ``batch_index`` is the first batch this write loaded for the run, so every batch of the run
+    below it loaded in an earlier write.
+    """
+    unfinished = BatchQueue.get_unfinished_earlier_batches_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        run_uuid=export_signal.run_uuid,
+        before_batch_index=export_signal.batch_index,
+    )
+    if unfinished.count == 0:
+        return
+
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
+    logger.error(
+        "run_completion_refused_unfinished_batches",
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        external_data_job_id=export_signal.job_id,
+        run_uuid=export_signal.run_uuid,
+        before_batch_index=export_signal.batch_index,
+        unfinished_batches=unfinished.count,
+        first_unfinished_batch_index=unfinished.first_batch_index,
+        unfinished_states=list(unfinished.states),
+    )
+    raise IncompleteRunError()
+
+
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+    _refuse_incomplete_run(export_signal)
+
     # Reconnect stale connections before the transaction; close_old_connections must never
     # run inside an atomic block since it can drop the connection mid-transaction.
     close_old_connections()
