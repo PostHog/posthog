@@ -1,6 +1,5 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-const URL_PROPERTIES = ['$current_url', '$referrer', '$initial_current_url', '$initial_referrer']
 const FILTER_PARAMS = ['filters_override', 'query_filters']
 
 /** Metric variables in a dashboard or insight URL keep only their names, so their queries, options and selected values
@@ -35,15 +34,17 @@ export function redactMetricVariableUrl(url: string): string {
     return parsed.toString()
 }
 
+/** Every URL property, such as `$current_url` or `$session_entry_url`, so a new one in the SDK is covered too. */
 function redactProperties(properties: Record<string, any> | undefined): Record<string, any> | undefined {
-    if (!properties || !URL_PROPERTIES.some((key) => typeof properties[key] === 'string')) {
+    const keys = Object.keys(properties ?? {}).filter(
+        (key) => typeof properties![key] === 'string' && properties![key].includes('metricVariables')
+    )
+    if (!properties || !keys.length) {
         return properties
     }
     const redacted = { ...properties }
-    for (const key of URL_PROPERTIES) {
-        if (typeof redacted[key] === 'string') {
-            redacted[key] = redactMetricVariableUrl(redacted[key])
-        }
+    for (const key of keys) {
+        redacted[key] = redactMetricVariableUrl(redacted[key])
     }
     return redacted
 }
