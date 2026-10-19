@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
     DEFAULT_INSIGHTS_LOOKBACK_DAYS,
     DEFAULT_MEDIA_INSIGHT_METRICS,
+    ENDPOINTS_REREAD_EVERY_SYNC,
     GRAPH_API_HOST,
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
@@ -746,10 +747,12 @@ def get_rows(
 
     since: Optional[int] = None
     if config.supports_time_window:
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
+        if (
+            should_use_incremental_field
+            and db_incremental_field_last_value is not None
+            and endpoint not in ENDPOINTS_REREAD_EVERY_SYNC
+        ):
             since = _to_unix_seconds(db_incremental_field_last_value)
-            if since is not None and config.incremental_lookback is not None:
-                since -= int(config.incremental_lookback.total_seconds())
         if since is None:
             since = _to_unix_seconds(start_date)
 

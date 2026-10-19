@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
@@ -30,11 +29,6 @@ PAGE_FIELDS = "name,instagram_business_account{id,username,name}"
 
 # Rows per page. Meta caps the media edge at 100 and silently clamps anything larger.
 PAGE_SIZE = 100
-
-# The media edge filters on creation time, but like and comment counts keep changing after a
-# post goes live. Each incremental sync re-reads this trailing window so recent posts get fresh
-# counts. Older posts keep the counts from their last read; a full refresh updates every post.
-MEDIA_INCREMENTAL_LOOKBACK = timedelta(days=90)
 
 # Account insights are a daily time series; Meta rejects a since/until span wider than
 # 30 days, so a backfill walks the range in windows.
@@ -90,8 +84,6 @@ class InstagramEndpointConfig:
     # True only where the Graph edge genuinely honours `since`/`until`. Everything else
     # is a full refresh — a client-side filter would still walk every page.
     supports_time_window: bool = False
-    # Trailing window an incremental sync re-reads behind the stored watermark.
-    incremental_lookback: Optional[timedelta] = None
     # Columns carrying Meta's `+0000` offset, normalized to ISO 8601 on the way out.
     timestamp_fields: tuple[str, ...] = field(default_factory=tuple)
 
@@ -117,7 +109,6 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         partition_key="timestamp",
         sort_mode="desc",
         supports_time_window=True,
-        incremental_lookback=MEDIA_INCREMENTAL_LOOKBACK,
         timestamp_fields=("timestamp",),
     ),
     # Stories only exist for 24 hours, so there is nothing to sync incrementally.
@@ -171,6 +162,7 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(INSTAGRAM_ENDPOINTS.keys())
+ENDPOINTS_REREAD_EVERY_SYNC: frozenset[str] = frozenset({"media"})
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in INSTAGRAM_ENDPOINTS.items()

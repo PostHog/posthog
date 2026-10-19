@@ -350,7 +350,7 @@ class TestInstagramEdges:
         assert [row["id"] for row in result.rows] == ["1"]
         assert len(result.requests) == 1
 
-    def test_incremental_media_sync_re_reads_the_lookback_window_behind_the_watermark(self) -> None:
+    def test_an_incremental_media_sync_re_reads_every_post_instead_of_resuming_at_the_watermark(self) -> None:
         result = _drive(
             "media",
             [ScriptedResponse(json={"data": []})],
@@ -359,7 +359,7 @@ class TestInstagramEdges:
         )
 
         assert result.raised is None
-        assert result.params("since") == [str(1704067200 - 90 * 86400)]
+        assert result.params("since") == [None]
 
     def test_a_full_refresh_media_sync_sends_no_time_window(self) -> None:
         result = _drive(

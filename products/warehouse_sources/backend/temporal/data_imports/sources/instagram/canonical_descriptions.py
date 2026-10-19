@@ -24,7 +24,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "media": {
-        "description": "Posts, reels and carousels published by the account, newest first. Limited to the 10,000 most recently created media. Incremental syncs re-read the last 90 days of posts to refresh like and comment counts. Use a full refresh to update counts on older posts.",
+        "description": "Posts, reels and carousels published by the account, newest first. Limited to the 10,000 most recently created media. Every sync re-reads each post from the start date on, so like and comment counts stay current.",
         "docs_url": _MEDIA_DOCS,
         "columns": {
             "id": "Media identifier.",
