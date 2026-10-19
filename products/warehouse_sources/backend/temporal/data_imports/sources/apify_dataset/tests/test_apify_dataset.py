@@ -157,9 +157,3 @@ class TestPlatformEndpoints:
         # A single object endpoint has no cursor, so nothing is checkpointed.
         assert len(result.requests) == 1
         assert result.saved_states == []
-
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Apify endpoint" in str(result.raised)

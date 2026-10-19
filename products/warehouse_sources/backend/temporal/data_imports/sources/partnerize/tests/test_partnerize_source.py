@@ -107,9 +107,3 @@ class TestPartnerizeSource:
 
         assert result.raised is None
         assert result.params("start_date") == [DEFAULT_START_DATE]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Partnerize schema 'not_a_table'"

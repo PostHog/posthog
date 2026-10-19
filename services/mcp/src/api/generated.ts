@@ -26781,6 +26781,11 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface CreateStaticCohortForFlagResponse {
+      /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
+      readonly cohort: Cohort;
+    }
+
     /**
      * * `try_next` - try_next
      * * `consider` - consider
@@ -131526,6 +131531,10 @@ export namespace Schemas {
      * @maximum 1000
      */
     limit?: number;
+    /**
+     * Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:*` identity). Omit to return entries from every writer.
+     */
+    skill_name?: string;
     /**
      * ILIKE substring match against `content`. Omit to return the most recent entries.
      */
