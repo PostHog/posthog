@@ -12,6 +12,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
 import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
+import { MySignatureSection } from './MySignatureSection'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
 
 interface DnsRecord {
@@ -318,6 +319,7 @@ export function EmailSection(): JSX.Element {
                     />
                 )}
                 <AddEmailForm />
+                {emailConfigs.length > 0 && <MySignatureSection />}
             </div>
         </SceneSection>
     )

@@ -18,6 +18,7 @@ from posthog.comment.formatting import rich_content_to_html, rich_content_to_mar
 from posthog.models.comment import Comment as CommentModel
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.conversations.backend.email_signature import agent_signature_html, agent_signature_text
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
@@ -25,7 +26,7 @@ from products.conversations.backend.mailgun import (
     MailgunTransientError,
     send_mime,
 )
-from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.models import AgentSignature, EmailMessageMapping, EmailOutboxMessage, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -188,6 +189,15 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     else:
         txt_body = comment.content or ""
         html_body = f"<p>{html_mod.escape(comment.content or '')}</p>"
+
+    signature = (
+        AgentSignature.objects.for_team(outbox.team_id).filter(user_id=comment.created_by_id).first()
+        if comment.created_by_id
+        else None
+    )
+    if signature and signature.text:
+        html_body += agent_signature_html(signature.text, comment.created_by.email, signature.include_profile_picture)
+        txt_body += agent_signature_text(signature.text)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None

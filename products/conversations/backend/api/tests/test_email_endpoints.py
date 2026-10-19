@@ -1,4 +1,9 @@
 from datetime import timedelta
+from email import (
+    message_from_bytes,
+    policy as email_policy,
+)
+from email.message import EmailMessage
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -27,6 +32,7 @@ from products.conversations.backend.mailgun import (
     MailgunTransientError,
 )
 from products.conversations.backend.models import (
+    AgentSignature,
     EmailChannel,
     EmailChannelConnectionStatus,
     EmailChannelKind,
@@ -2006,6 +2012,39 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         assert outbox.status == EmailOutboxMessage.Status.SENT
         assert outbox.sent_at is not None
+
+    @parameterized.expand(
+        [
+            ("no_signature", None, True),
+            ("with_picture", "Ann & Co\nSupport lead", True),
+            ("without_picture", "Ann & Co\nSupport lead", False),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_agent_signature(
+        self, _name: str, signature_text: str | None, include_picture: bool, mock_send_mime: MagicMock
+    ):
+        if signature_text is not None:
+            AgentSignature.objects.for_team(self.team.id).create(
+                team=self.team, user=self.user, text=signature_text, include_profile_picture=include_picture
+            )
+        ticket = self._create_ticket(self._create_config("support@example.com", "aaa111"))
+
+        self._run_reply(ticket)
+
+        parsed = message_from_bytes(mock_send_mime.call_args[0][1], policy=email_policy.default)
+        assert isinstance(parsed, EmailMessage)
+        text_part = parsed.get_body(preferencelist=("plain",))
+        html_part = parsed.get_body(preferencelist=("html",))
+        assert text_part is not None and html_part is not None
+        text_body = text_part.get_content().replace("\r\n", "\n")
+        html_body = html_part.get_content()
+        has_signature = signature_text is not None
+        assert text_body.startswith("Reply from agent")
+        assert ("-- \nAnn & Co\nSupport lead" in text_body) is has_signature
+        assert ("Ann &amp; Co<br>Support lead" in html_body) is has_signature
+        assert ("https://www.gravatar.com/avatar/" in html_body) is (has_signature and include_picture)
+        assert "Ann & Co" not in html_body
 
     @parameterized.expand(
         [

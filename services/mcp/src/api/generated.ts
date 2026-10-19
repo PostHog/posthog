@@ -11773,6 +11773,16 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
+    export interface AgentSignature {
+      /**
+         * Plain-text signature added to the end of support emails you send from this project. Line breaks are kept. Empty means no signature.
+         * @maxLength 1000
+         */
+      text: string;
+      /** Whether to show your Gravatar profile picture next to the signature. */
+      include_profile_picture: boolean;
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
