@@ -25,6 +25,9 @@ SERVED_ROLE = RANKING_SERVED_ROLE
 # scores for several days and a paired read compares it against the served model without a second
 # scoring pass.
 RECENT_ROLE = "recent"
+# The newest version of another trained family, scored alongside so its online grade reads the same
+# reports as the served model's, before anyone promotes it.
+CHALLENGER_ROLE = "challenger"
 # Another family's champion, scored alongside so a later interleaving needs no rescoring.
 CROSS_FAMILY_ROLE = "cross_family"
 # A model an owner keeps in the manifest through the `pin` override, so a `served` override can
