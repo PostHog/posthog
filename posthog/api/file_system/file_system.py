@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
+    _coerce_refs_for_lookup,
     denied_short_id_refs,
     entries_missing_access_level,
 )
@@ -51,6 +52,8 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import EE_AVAILABLE
@@ -62,6 +65,11 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 
 # One message for every reason a restore is refused (missing, already live, or off-limits), so the
 # endpoint can't be used to learn which refs exist.
+# The file system rows whose objects carry tags, with the model field the row's `ref` names.
+TAGGED_FILE_SYSTEM_TYPES: tuple[tuple[str, str, str, str], ...] = (
+    ("dashboard", "dashboards", "Dashboard", "id"),
+    ("insight", "product_analytics", "Insight", "short_id"),
+)
 UNDO_DELETE_REFUSED = "Couldn't restore this. It may already be restored, or you may not have access to it."
 
 # Paths the product itself builds are at most three segments deep ("Unfiled/Insights/<name>"), so
@@ -100,6 +108,10 @@ class FileSystemListQuerySerializer(serializers.Serializer):
     include_content_type = serializers.BooleanField(
         default=False,
         help_text="Include meta.content_type for notebooks and insights on this page, without their contents.",
+    )
+    include_tags = serializers.BooleanField(
+        default=False,
+        help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
 
 
@@ -579,13 +591,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
-    def _add_object_types(self, results: builtins.list[dict[str, object]], *, include_content_type: bool) -> None:
+    def _add_object_types(
+        self, results: builtins.list[dict[str, object]], *, include_content_type: bool, include_tags: bool = False
+    ) -> None:
         entry_types = ("notebook", "insight") if include_content_type else ("insight",)
+        tagged_types = {entry_type for entry_type, *_ in TAGGED_FILE_SYSTEM_TYPES} if include_tags else set()
         entry_teams = {
             str(entry_id): team_id
             for entry_id, team_id in FileSystem.objects.filter(
                 team__project_id=self.team.project_id,
-                id__in=[item["id"] for item in results if item.get("type") in entry_types],
+                id__in=[
+                    item["id"]
+                    for item in results
+                    if item.get("type") in entry_types or item.get("type") in tagged_types
+                ],
             ).values_list("id", "team_id")
         }
         denied: set[tuple[str, str, int]] = set()
@@ -652,18 +671,50 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
                     if source_kind == "HogQLQuery":
                         content_types[(entry_type, team_id, ref)] = "application/sql"
+        tags_by_entry: dict[tuple[str, int, str], builtins.list[str]] = {}
+        if include_tags:
+            for entry_type, app_label, model_name, ref_field in TAGGED_FILE_SYSTEM_TYPES:
+                tag_refs: builtins.list[str] = []
+                for item in results:
+                    ref = item.get("ref")
+                    if (
+                        item.get("type") == entry_type
+                        and item.get("user_access_level") != "none"
+                        and isinstance(ref, str)
+                        and ref
+                    ):
+                        tag_refs.append(ref)
+                model = apps.get_model(app_label, model_name)
+                lookup_refs = _coerce_refs_for_lookup(model, ref_field, tag_refs)
+                if not lookup_refs:
+                    continue
+                rows = model.objects.filter(
+                    team__project_id=self.team.project_id, deleted=False, **{f"{ref_field}__in": lookup_refs}
+                ).values_list("pk", "team_id", ref_field)
+                key_by_pk = {pk: (team_id, str(ref)) for pk, team_id, ref in rows}
+                if not key_by_pk:
+                    continue
+                tagged = TaggedItem.objects.for_objects(model, key_by_pk.keys()).values_list(
+                    object_column_for(model), "tag__name"
+                )
+                for pk, tag_name in tagged:
+                    team_id, ref = key_by_pk[pk]
+                    if (entry_type, ref, team_id) not in denied:
+                        tags_by_entry.setdefault((entry_type, team_id, ref), []).append(tag_name)
         for item in results:
-            if item.get("type") not in entry_types:
+            if item.get("type") not in entry_types and item.get("type") not in tagged_types:
                 continue
             meta = item.get("meta")
             metadata = {**(meta if isinstance(meta, dict) else {})}
             team_id = entry_teams.get(str(item["id"]), -1)
             ref = str(item.get("ref"))
+            if include_tags and item.get("type") in tagged_types:
+                metadata["tags"] = sorted(tags_by_entry.get((str(item["type"]), team_id, ref), []))
             if item.get("type") == "insight":
                 metadata["insight_type"] = insight_types.get((team_id, ref))
                 if metadata["insight_type"] == "bi":
                     item["href"] = f"/bi/{ref}"
-            if include_content_type:
+            if include_content_type and item.get("type") in entry_types:
                 metadata["content_type"] = content_types.get((str(item["type"]), team_id, ref), "application/json")
             item["meta"] = metadata
 
@@ -682,6 +733,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._add_object_types(
             response.data.get("results", []),
             include_content_type=query_serializer.validated_data["include_content_type"],
+            include_tags=query_serializer.validated_data["include_tags"],
         )
         return response
 
