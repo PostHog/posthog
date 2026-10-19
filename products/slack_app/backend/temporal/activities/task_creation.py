@@ -533,6 +533,9 @@ def build_thread_context_update(
     return ThreadContextUpdate(block=block, watermark=new_watermark, messages=in_window)
 
 
+MENTION_WORKFLOW_ID_PREFIX = "slack-app-mention-processing-"
+
+
 def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str:
     """Construct the dispatch workflow id from webhook inputs.
 
@@ -548,7 +551,7 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
     if inputs.untagged_followup_confirmed:
         suffix = f"{suffix}:confirmed"
-    return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
+    return f"{MENTION_WORKFLOW_ID_PREFIX}{inputs.slack_team_id}:{suffix}"
 
 
 @activity.defn

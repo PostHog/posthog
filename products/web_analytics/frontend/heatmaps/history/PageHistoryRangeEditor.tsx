@@ -43,8 +43,7 @@ export function PageHistoryRangeEditor({ id }: { id: string }): JSX.Element | nu
             }
             data-attr="heatmap-page-history-range-editor"
         >
-            <p>View several days of interactions on one saved screenshot.</p>
-            <div className="flex flex-wrap gap-3 mb-3">
+            <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                     <LemonLabel htmlFor="heatmap-history-from">From</LemonLabel>
                     <LemonSelect
@@ -68,14 +67,14 @@ export function PageHistoryRangeEditor({ id }: { id: string }): JSX.Element | nu
             </div>
             {rangeDraftBackground ? (
                 <div
-                    className="rounded border bg-surface-secondary p-3 mb-3"
+                    className="rounded border bg-surface-secondary p-3 mb-4"
                     data-attr="heatmap-page-history-range-preview"
                 >
                     <strong>
                         <span>{`Interactions: ${formatHistoryDateRange({ date_from: rangeDraftCaptures[0].captured_on, date_to: rangeDraftBackground.captured_on })}`}</span>
                     </strong>
                     <div className="flex items-center gap-3 mt-2">
-                        <div className="relative w-24 h-16 shrink-0 rounded bg-surface-primary flex items-center justify-center overflow-hidden">
+                        <div className="relative w-32 h-24 shrink-0 rounded bg-surface-primary flex items-center justify-center overflow-hidden">
                             <IconCamera className="text-muted text-xl" />
                             {rangeDraftBackground.thumbnail_url ? (
                                 <img
@@ -103,12 +102,8 @@ export function PageHistoryRangeEditor({ id }: { id: string }): JSX.Element | nu
                 </LemonBanner>
             )}
             <LemonBanner type="warning">
-                All interactions will be positioned on this screenshot. Page changes can move older clicks onto
-                different elements. Inspect individual days if the layout changed.
+                Page changes may misalign clicks across these days. View individual days if the layout changed.
             </LemonBanner>
-            <p className="text-xs text-muted mt-2 mb-0">
-                Range endpoints need an available screenshot with the same screen width and timezone.
-            </p>
         </LemonModal>
     )
 }

@@ -1976,10 +1976,10 @@ Today (10): `applicants`, `bills`, `general_ledger_accounts`, `leases`, `rental_
 
 Diffed against: <https://developer.buildium.com/>
 
-- [ ] `Bank accounts (GET /v1/bankaccounts)` — resolve OperatingBankAccountId in rental properties and identify accounts used for property finances (high)
-- [ ] `General ledger entries and transactions (GET /v1/generalledger; GET /v1/generalledger/transactions)` — analyze account activity and transaction details to report property income, expenses, and cash flow (high)
-- [ ] `Lease transactions (GET /v1/leases/{leaseId}/transactions)` — analyze tenant charges, payments, credits, and collection timing (high)
-- [ ] `Lease outstanding balances (GET /v1/leases/outstandingbalances)` — measure delinquency and unpaid rent across properties and leases (high)
+- [x] `Bank accounts (GET /v1/bankaccounts)` — resolve OperatingBankAccountId in rental properties and identify accounts used for property finances (high)
+- [x] `General ledger entries and transactions (GET /v1/generalledger; GET /v1/generalledger/transactions)` — analyze account activity and transaction details to report property income, expenses, and cash flow (high)
+- [x] `Lease transactions (GET /v1/leases/{leaseId}/transactions)` — analyze tenant charges, payments, credits, and collection timing (high)
+- [x] `Lease outstanding balances (GET /v1/leases/outstandingbalances)` — measure delinquency and unpaid rent across properties and leases (high)
 - [ ] `Rent schedules (GET /v1/leases/rent)` — build rent roll reports and track scheduled rent changes over time (high)
 - [ ] `Bill payments (GET /v1/bills/{billId}/payments)` — analyze vendor payments and reconcile billed costs with cash paid (high)
 - [ ] `Tasks (GET /v1/tasks)` — resolve task IDs in work orders and include resident, owner, contact, and maintenance requests (high)
@@ -7326,10 +7326,10 @@ Diffed against: <https://raw.githubusercontent.com/linode/linode-api-openapi/mai
 - [x] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
 - [x] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
 - [x] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
-- [ ] `linode/instances/{linodeId}/transfer/{year}/{month}` — per-instance monthly bandwidth usage, the breakdown behind account-level transfer (medium)
-- [ ] `images` — custom and recovery images with size and expiry; a billed resource with no coverage today (medium)
-- [ ] `databases/instances (plus databases/types)` — managed database inventory, a billed service class entirely absent from the current tables (medium)
-- [ ] `lke/clusters/{clusterId}/pools` — node pool composition and autoscaling settings - the breakdown of the LKE clusters we already sync (medium)
+- [x] `linode/instances/{linodeId}/transfer/{year}/{month}` — per-instance monthly bandwidth usage, the breakdown behind account-level transfer (medium)
+- [x] `images` — custom and recovery images with size and expiry; a billed resource with no coverage today (medium)
+- [x] `databases/instances (plus databases/types)` — managed database inventory, a billed service class entirely absent from the current tables (medium)
+- [x] `lke/clusters/{clusterId}/pools` — node pool composition and autoscaling settings - the breakdown of the LKE clusters we already sync (medium)
 - [ ] `nodebalancers/{nodeBalancerId}/configs (+ /nodes)` — backend node membership per nodebalancer, resolving which instances sit behind each load balancer (medium)
 - [ ] `object-storage/buckets (+ object-storage/transfer, quotas usage)` — per-bucket size and object count plus transfer usage for storage cost attribution (medium)
 - [ ] `support/tickets (+ /{ticketId}/replies)` — support ticket volume and response history (medium)
@@ -8043,11 +8043,11 @@ Diffed against: <https://developer.mixpanel.com/reference/query-api>
 - [x] `funnels query (GET /api/query/funnels — reference/funnels-query)` — funnel conversion is Mixpanel's headline metric and is entirely absent (high) — added as `funnel_steps`, fanned out over every saved funnel
 - [x] `saved funnels list (reference/funnels-list-saved)` — lookup table of saved funnel definitions and their IDs, required to drive the funnels query (high) — added as `funnels`
 - [x] `retention query (reference/retention-query)` — cohort retention, a core Mixpanel report with no equivalent today (high) — added as `retention` (compounded retention across all events, because birth retention needs a user-chosen `born_event`)
-- [ ] `segmentation query (reference/segmentation-query, plus numeric/sum/average variants)` — event counts broken down by property — the main breakdown dimension API (high)
+- [ ] `segmentation query (reference/segmentation-query, plus numeric/sum/average variants)` — event counts broken down by property — the main breakdown dimension API (high). Not added: each call needs one user-chosen `event` (and an `on` property for the breakdown and the numeric variants), and one query per event does not fit the Query API limit of 60 queries per hour.
 - [ ] `insights query (reference/insights-query)` — returns the data behind saved Insights reports (high). Not added: each call needs a report `bookmark_id`, no Query API endpoint lists saved reports, and the `series` shape varies per report.
-- [ ] `Lexicon schemas (reference/list-all-schemas-for-project, list-schemas-for-entity)` — lookup table of event and property definitions that names and types everything in the export table (high)
-- [ ] `lookup tables (reference/list-lookup-tables)` — literally the project's lookup tables, used to resolve IDs on synced events and profiles (high)
-- [ ] `activity stream (reference/activity-stream-query)` — per-user chronological event feed joining engage profiles to their activity (medium)
+- [x] `Lexicon schemas (reference/list-all-schemas-for-project, list-schemas-for-entity)` — lookup table of event and property definitions that names and types everything in the export table (high) — added as `lexicon_schemas` from the project-wide list, which already covers every entity type
+- [x] `lookup tables (reference/list-lookup-tables)` — literally the project's lookup tables, used to resolve IDs on synced events and profiles (high) — added as `lookup_tables` (id and name only: the API has no endpoint that reads lookup table rows)
+- [ ] `activity stream (reference/activity-stream-query)` — per-user chronological event feed joining engage profiles to their activity (medium). Not added: Mixpanel marks `stream/query` as in maintenance mode, each call needs a list of `distinct_ids` (a fan-out over every profile under the 60 queries per hour limit), and the same events are in the `export` table.
 - [ ] `event taxonomy queries (reference/query-top-events, query-events-top-properties, query-events-top-property-values, query-event-properties)` — dimension/cardinality tables for event and property discovery (medium)
 - [ ] `retention frequency query (reference/retention-frequency-query)` — addiction/frequency view complementing retention (medium)
 - [ ] `experiments (reference/list-experiments, get-experiment)` — experiment definitions and state, needed to attribute events to variants (medium)

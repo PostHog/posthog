@@ -280,9 +280,33 @@ The destination keeps the date range; Web analytics property filters are not for
 An explicit open end date clears any end date saved during a previous Marketing analytics visit.
 Dismissal persists per project in the browser.
 
+### Paid traffic experiment
+
+`web-analytics-marketing-cross-sell-v2` splits teams with paid traffic into `control` and `test`.
+The flag is read only after the Channels response shows paid traffic, so teams without paid traffic are never exposed.
+`control` keeps the suggestion above.
+`test` changes three surfaces:
+
+| Surface                                                                                             | Shows when                                                                               | Leads to                                                                          |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Quantified card under the Sources table                                                             | Paid traffic meets the threshold, no ad source is connected, and the card is not snoozed | The wizard for the top detected ad platform, or source setup                      |
+| "See ad spend" link next to the row label, shown on row hover, in the Channel and UTM source tables | A paid channel row, or a UTM source that maps to an enabled ad platform                  | Marketing analytics when connected, otherwise the platform wizard or source setup |
+| Banner above the dashboard                                                                          | A session filter on a paid `$channel_type` or a mapped `$entry_utm_source`               | The same destination as the row action                                            |
+
+The threshold is at least 50 paid visitors and a 3% share of the top channel rows.
+The flag payload can override it with `min_visitors` and `min_share`.
+Platform detection loads the UTM source table node only for teams that see the quantified card.
+It maps each `utm_source` through the default and custom source mappings that Marketing analytics uses.
+The platform wizard finishes with "Return to Marketing analytics", which opens Marketing analytics with the Web analytics date range.
+"Not now" on the card or the banner snoozes both for 30 days per project. A second dismissal hides them for good.
+
 ### Cross-sell attribution
 
 `web analytics marketing cross sell clicked` records `cross_sell_id`, `cross_sell_clicked_at` (Unix milliseconds), `team_id`, the table breakdown, and whether ad sources were already connected.
+It also records the surface: `cross_sell_placement` (`sources_table`, `table_row` or `filter_hint`), `cross_sell_variant`, and the targeted `platform`.
+`web analytics marketing cross sell shown` fires once per session for each project, placement and variant, with the paid visitor count, paid share and detected platforms where known.
+Row actions do not report `shown`.
+`web analytics marketing cross sell dismissed` records the surface and the dismissal count.
 `web analytics marketing cross sell source created` records the same attribution plus `source_id` and `source_type`, only after the source creation API succeeds.
 The model is the first Advertising source created after the latest click within 24 hours, in the same browser tab, project and identified user.
 Session storage preserves the click across a same-tab OAuth redirect and reload; a successful connection consumes it.
