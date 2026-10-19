@@ -341,9 +341,15 @@ def decide_champion(
     return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
 
 
+@frozen
+class FamilyAssets:
+    candidate: dagster.AssetsDefinition
+    champion: dagster.AssetsDefinition
+
+
 def family_assets(
     family: ModelFamily, *, candidate_name: str, champion_name: str, after: Sequence[str] = ()
-) -> tuple[dagster.AssetsDefinition, dagster.AssetsDefinition]:
+) -> FamilyAssets:
     """The candidate and champion assets of one `nn` family. `after` holds the assets the candidate
     waits for, for memory and not for data."""
 
@@ -362,18 +368,20 @@ def family_assets(
         metadata = decide_champion(context, s3_client(), dataset_bucket(), context.partition_key, family)
         context.add_output_metadata(metadata or {"skipped": dagster.MetadataValue.bool(True)})
 
-    return candidate, champion
+    return FamilyAssets(candidate=candidate, champion=champion)
 
 
-inbox_ranking_nn_model_candidate, inbox_ranking_nn_model_champion = family_assets(
-    NN_FAMILY, candidate_name=NN_CANDIDATE_ASSET, champion_name=NN_CHAMPION_ASSET
-)
-inbox_ranking_nn_with_prio_model_candidate, inbox_ranking_nn_with_prio_model_champion = family_assets(
+_NN_ASSETS = family_assets(NN_FAMILY, candidate_name=NN_CANDIDATE_ASSET, champion_name=NN_CHAMPION_ASSET)
+inbox_ranking_nn_model_candidate = _NN_ASSETS.candidate
+inbox_ranking_nn_model_champion = _NN_ASSETS.champion
+_NN_WITH_PRIO_ASSETS = family_assets(
     NN_WITH_PRIO_FAMILY,
     candidate_name=NN_WITH_PRIO_CANDIDATE_ASSET,
     champion_name=NN_WITH_PRIO_CHAMPION_ASSET,
     after=[NN_CHAMPION_ASSET],
 )
+inbox_ranking_nn_with_prio_model_candidate = _NN_WITH_PRIO_ASSETS.candidate
+inbox_ranking_nn_with_prio_model_champion = _NN_WITH_PRIO_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
