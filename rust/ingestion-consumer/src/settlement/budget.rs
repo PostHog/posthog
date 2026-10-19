@@ -46,8 +46,6 @@ impl<A: Accounting> PartitionBudget<A> {
         }
     }
 
-    /// Only a commit lowers a partition's uncommitted charge, so only the
-    /// partitions it covers can resume.
     fn commit(&self, offsets: HashMap<TopicPartition, Offset>) -> Commit {
         let mut paused = self.paused.lock().unwrap();
         let mut resume = Vec::new();
