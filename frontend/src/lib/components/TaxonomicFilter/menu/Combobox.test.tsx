@@ -747,16 +747,26 @@ describe('MenuFilterCombobox', () => {
             expect(screen.queryByText(/URL contains/)).not.toBeInTheDocument()
         })
 
-        it('does not offer Pageview URLs as a navigable category', async () => {
+        it.each([
+            { groupType: TaxonomicFilterGroupType.PageviewUrls, name: 'Pageview URLs' },
+            { groupType: TaxonomicFilterGroupType.EmailAddresses, name: 'Email addresses' },
+            { groupType: TaxonomicFilterGroupType.AutocaptureEvents, name: 'Autocapture events' },
+        ])('does not offer $name as a navigable category', async ({ groupType, name }) => {
             const user = userEvent.setup()
             mockUrlValues(['https://app.posthog.com/checkout'])
 
             renderAll({
-                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PageviewUrls],
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    groupType,
+                ],
             })
 
             await user.click(screen.getByLabelText('Filter category'))
-            expect(within(await openedCategoryPopup()).queryByText('Pageview URLs')).not.toBeInTheDocument()
+            const popup = within(await openedCategoryPopup())
+            expect(popup.getByText('Person properties')).toBeInTheDocument()
+            expect(popup.queryByText(name)).not.toBeInTheDocument()
         })
 
         it('commits the typed query as the value so it becomes $current_url contains <query>', async () => {
@@ -1172,7 +1182,7 @@ describe('MenuFilterCombobox', () => {
         await waitFor(() =>
             expect(captureMock).toHaveBeenCalledWith(
                 'taxonomic filter empty result',
-                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+                expect.objectContaining({ searchQuery: 'zzz_no_match', scope: 'all' })
             )
         )
     })
