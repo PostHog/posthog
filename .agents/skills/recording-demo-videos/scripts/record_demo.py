@@ -161,7 +161,7 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
         "hideText": hide_text,
     }
     return (
-        "(() => { const C = "
+        "(() => { if (window.top !== window) return; const C = "
         + json.dumps(config)
         + r""";
   // Hidden from the first frame of every page, before the app renders them.
@@ -195,18 +195,16 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
     const paint = () => { cursor.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
     paint();
     window.__demoMoveCursor = (nx, ny) => { x = nx; y = ny; paint(); };
-    document.addEventListener('mousemove', e => { x = e.clientX; y = e.clientY; paint(); }, true);
-    document.addEventListener('mousedown', e => {
-      s = 0.85; paint();
+    window.__demoClick = (cx, cy) => {
+      s = 0.85; paint(); setTimeout(() => { s = 1; paint(); }, 140);
       const ring = document.createElement('div');
-      ring.style.cssText = 'position:fixed;left:' + e.clientX + 'px;top:' + e.clientY + 'px;width:40px;height:40px;'
+      ring.style.cssText = 'position:fixed;left:' + cx + 'px;top:' + cy + 'px;width:40px;height:40px;'
         + 'margin:-20px 0 0 -20px;border-radius:50%;border:3px solid ' + C.accent + ';z-index:2147483646;pointer-events:none;'
         + 'transform:scale(.3);opacity:.9;transition:transform .45s ease-out,opacity .45s ease-out';
       document.body.appendChild(ring);
       requestAnimationFrame(() => requestAnimationFrame(() => { ring.style.transform = 'scale(1.4)'; ring.style.opacity = '0'; }));
       setTimeout(() => ring.remove(), 500);
-    }, true);
-    document.addEventListener('mouseup', () => { s = 1; paint(); }, true);
+    };
   };
   const hide = () => {
     for (const sel of C.hideSelectors) document.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
@@ -469,12 +467,18 @@ class Recorder:
         if self.pop:
             self.sounds.append((self.video_now() + 0.05, self.pop))
 
-    async def waited(self, coro: Any, keep: float = CUT_KEEP_SECONDS) -> None:
+    async def show(self, page: Page, html: str) -> None:
+        await page.set_content(html)
+        await page.evaluate(
+            "document.fonts.ready.then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))"
+        )
+
+    async def waited(self, coro: Any, keep: float = CUT_KEEP_SECONDS, shortest: float = 0.4, tail: float = 0.2) -> None:
         start = self.now()
         await coro
         end = self.now()
-        if end - start > keep + 0.4:
-            self.cuts.append((round(start + keep, 2), round(end - 0.2, 2)))
+        if end - start > keep + shortest:
+            self.cuts.append((round(start + keep, 2), round(end - tail, 2)))
 
     def url(self, path: str) -> str:
         path = self.vars.real(path)
@@ -517,8 +521,15 @@ class Recorder:
             eased = 4 * t**3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
             arc = math.sin(math.pi * eased) * bend
             await page.mouse.move(x0 + (x - x0) * eased, y0 + (y - y0) * eased - arc)
+            await page.evaluate(
+                "([x, y]) => window.__demoMoveCursor && window.__demoMoveCursor(x, y)",
+                [x0 + (x - x0) * eased, y0 + (y - y0) * eased - arc],
+            )
             await asyncio.sleep(1 / FPS)
         self.mouse = (x, y)
+
+    async def click_effect(self, page: Page) -> None:
+        await page.evaluate("([x, y]) => window.__demoClick && window.__demoClick(x, y)", list(self.mouse))
 
     async def restore_cursor(self, page: Page) -> None:
         # A new page starts without a pointer. Put it back where it was, so it does not jump in from a corner.
@@ -555,7 +566,8 @@ class Recorder:
             self.brand.hog(spec.get("hog")),
             dark=dark,
         )
-        await page.set_content(html)
+        # The video runs a little behind the clock, so the cut runs past the moment the card is ready.
+        await self.waited(self.show(page, html), keep=0, shortest=0.05, tail=-0.3)
         self.speak(key)
         await asyncio.sleep(spec.get("hold", 1.0 if self.voice else 2.5))
         await self.finish_speaking()
@@ -572,7 +584,12 @@ class Recorder:
             lines.append('    -H "Content-Type: application/json" \\')
             lines.append(f"    -d '{json.dumps(self.vars.shown(body), indent=2)}'")
         command = "\n".join(lines).rstrip(" \\")
-        await page.set_content(terminal_html(self.brand, self.vars.shown(spec.get("title", ""))))
+        await self.waited(
+            self.show(page, terminal_html(self.brand, self.vars.shown(spec.get("title", "")))),
+            keep=0,
+            shortest=0.05,
+            tail=-0.3,
+        )
         self.speak(key)
         await page.evaluate(
             """async (t) => { const el = document.getElementById('cmd');
@@ -629,12 +646,14 @@ class Recorder:
         if "click" in step:
             loc = self.locate(page, step["click"])
             await self.glide(page, loc)
+            await self.click_effect(page)
             await loc.click()
         if "type" in step:
             spec = step["type"]
             if "target" in spec:
                 loc = self.locate(page, spec["target"])
                 await self.glide(page, loc)
+                await self.click_effect(page)
                 await loc.click()
             for key in spec.get("keys", []):
                 name, _, times = key.partition(" x")
