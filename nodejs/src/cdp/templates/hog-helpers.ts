@@ -13,19 +13,26 @@ export const hogApiErrorMessageFn = `fun apiErrorMessage(response) {
 }`
 
 // Ticket trackers sit outside PostHog's access controls, and a GitHub or GitLab repository can be
-// public, so a frame line carries only code location: the last three path segments, the line and the
-// function name. It never reads code_variables or source context, which can hold user data or secrets.
+// public, so a frame line carries only the file name, the line and the function name. Directories can
+// hold a username or a path token, so they are dropped. A file or function name with a long run of
+// letters and digits that includes a digit looks like a key or token, so it becomes [redacted]. The
+// function never reads code_variables or source context, which can hold user data or secrets.
 // Each frames[i] read makes the VM measure the whole array. To stay inside the execution time limit, the
 // loop reads at most the last 50 frames and skips stacks over 2000 frames. The try block keeps a bad trace
 // from losing the ticket.
-export const hogErrorTrackingStacktraceFn = `fun errorTrackingFramePath(source) {
+export const hogErrorTrackingStacktraceFn = `fun errorTrackingFrameText(value) {
+  let text := toString(value)
+  let run := extractRegex(text, '([A-Za-z0-9+/=]{24,})')
+  if (notEmpty(run) and match(run, '[0-9]')) {
+    return '[redacted]'
+  }
+  return text
+}
+
+fun errorTrackingFileName(source) {
   let path := splitByString('#', splitByString('?', replaceAll(source, '\\\\', '/'))[1])[1]
   let parts := splitByString('/', path)
-  let count := length(parts)
-  if (count <= 3) {
-    return path
-  }
-  return concat(parts[count - 2], '/', parts[count - 1], '/', parts[count])
+  return parts[length(parts)]
 }
 
 fun errorTrackingStacktrace(exceptionList) {
@@ -40,16 +47,14 @@ fun errorTrackingStacktrace(exceptionList) {
     for (let i := last; i >= first and length(lines) < 5; i := i - 1) {
       let frame := frames[i]
       if (frame.resolved and frame.in_app) {
-        let line := '  File "unknown"'
-        if (notEmpty(frame.source)) {
-          line := concat('  File "', errorTrackingFramePath(frame.source), '"')
-        }
+        let fileName := notEmpty(frame.source) ? errorTrackingFileName(frame.source) : ''
+        let line := concat('  File "', notEmpty(fileName) ? errorTrackingFrameText(fileName) : 'unknown', '"')
         if (notEmpty(frame.line)) {
           line := concat(line, ', line: ', frame.line)
         }
         let name := frame.resolved_name ?? frame.mangled_name
         if (notEmpty(name)) {
-          line := concat(line, ', in: ', name)
+          line := concat(line, ', in: ', errorTrackingFrameText(name))
         }
         lines := arrayPushBack(lines, replaceAll(substring(line, 1, 200), '\`', '\\''))
       }

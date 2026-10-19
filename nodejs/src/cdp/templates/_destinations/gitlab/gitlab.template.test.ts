@@ -43,7 +43,7 @@ describe('gitlab template', () => {
         expect(response.error).toBeUndefined()
         const body = parseJSON((response.invocation.queueParameters as any).body)
         expect(body.description).toEqual(
-            'Invalid Date\n\n\n```\n  File "src/checkout.ts", line: 42, in: parseDate\n```\n\n[View in PostHog](https://us.posthog.com/projects/1/error-tracking/issue-uuid)'
+            'Invalid Date\n\n\n```\n  File "checkout.ts", line: 42, in: parseDate\n```\n\n[View in PostHog](https://us.posthog.com/projects/1/error-tracking/issue-uuid)'
         )
     })
 })

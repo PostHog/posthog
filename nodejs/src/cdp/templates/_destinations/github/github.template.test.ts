@@ -48,7 +48,7 @@ describe('github template', () => {
 
     it.each<[string, Record<string, any>, string, string]>([
         [
-            'adds the context lines and the resolved in-app frames, crash site first',
+            'adds the context lines and the resolved in-app frames, crash site first, with no secrets',
             {
                 $exception_types: ['RangeError'],
                 $exception_values: ['Invalid Date\nvalue: abc'],
@@ -64,9 +64,16 @@ describe('github template', () => {
                                     in_app: false,
                                 },
                                 {
+                                    source: '/home/bob/app.py',
+                                    line: 7,
+                                    resolved_name: 'handler_EXAMPLE0123456789abcdefghij',
+                                    resolved: true,
+                                    in_app: true,
+                                },
+                                {
                                     source: '/Users/alice/projects/shop/src/main.ts',
                                     line: 3,
-                                    resolved_name: 'main',
+                                    resolved_name: 'handleCheckoutSubmitButtonClickEvent',
                                     resolved: true,
                                     in_app: true,
                                     code_variables: { password: 'hunter2' },
@@ -94,7 +101,7 @@ describe('github template', () => {
                 $recording_status: 'active',
             },
             'RangeError: Invalid Date value: abc',
-            'Invalid Date\nvalue: abc\n\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "js/src/checkout.ts", line: 42, in: parse\'Date\'\n  File "shop/src/main.ts", line: 3, in: main\n```',
+            'Invalid Date\nvalue: abc\n\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: parse\'Date\'\n  File "main.ts", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n```',
         ],
         [
             'leaves out missing lines, replay when recording was off, and a trace with no resolved frame',
@@ -117,7 +124,7 @@ describe('github template', () => {
                 $exception_list: [{ stacktrace: { frames: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(appFrame) } }],
             },
             'RangeError: Invalid Date',
-            'Invalid Date\n\n\n```\n  File "src/g.ts", line: 1, in: g\n  File "src/f.ts", line: 1, in: f\n  File "src/e.ts", line: 1, in: e\n  File "src/d.ts", line: 1, in: d\n  File "src/c.ts", line: 1, in: c\n```',
+            'Invalid Date\n\n\n```\n  File "g.ts", line: 1, in: g\n  File "f.ts", line: 1, in: f\n  File "e.ts", line: 1, in: e\n  File "d.ts", line: 1, in: d\n  File "c.ts", line: 1, in: c\n```',
         ],
         [
             'reads only the last 50 frames of a deep stack',
@@ -146,7 +153,7 @@ describe('github template', () => {
         expect(response.error).toBeUndefined()
         const body = parseJSON((response.invocation.queueParameters as any).body)
         expect(body.title).toEqual(expectedTitle)
-        for (const secret of ['token=', 'access_token', 'alice', 'hunter2', 'sk_live']) {
+        for (const secret of ['token=', 'access_token', 'alice', 'bob', 'EXAMPLE0123', 'hunter2', 'sk_live']) {
             expect(JSON.stringify(body)).not.toContain(secret)
         }
         expect(body.body).toEqual(
