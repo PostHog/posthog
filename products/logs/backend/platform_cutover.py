@@ -41,6 +41,8 @@ class CutoverSkip(StrEnum):
     CHECK_DUE = "check_due"
     # A team on live delivery can have the platform copy inside a firing of its own.
     PLATFORM_FIRING = "platform_firing"
+    # The copy lives on the project, and the platform does not store which environment it checks.
+    ENVIRONMENT = "environment"
 
 
 @frozen
@@ -82,6 +84,8 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
         at = now or timezone.now()
         if alert.platform_owned:
             return CutoverSkip.ALREADY_MOVED
+        if in_an_environment(alert):
+            return CutoverSkip.ENVIRONMENT
         if alert.state in FIRING_STATES:
             return CutoverSkip.FIRING
         if _logs_check_owed(alert.id, at):
@@ -155,6 +159,11 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
         alert.next_check_at = handback.next_check_at
         alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
+
+
+def in_an_environment(alert: LogsAlertConfiguration) -> bool:
+    """Whether the alert belongs to a child environment, whose copy would live on its project."""
+    return alert.team.parent_team_id is not None
 
 
 def hand_over(alert: LogsAlertConfiguration, at: datetime) -> bool:

@@ -1,4 +1,5 @@
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -41,6 +42,7 @@ from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
     disable_platform_alert_configurations,
+    platform_upsert_of,
 )
 from products.logs.backend.platform_cutover import cut_over_team, hand_over
 from products.logs.backend.presentation.views.alerts_api import (
@@ -2355,6 +2357,40 @@ class TestLogsAlertAPI(APIBaseTest):
             "Edited on the platform",
             50,
             ("service_name",),
+        )
+
+    def test_the_platform_api_refuses_an_edit_of_an_environments_alert(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        alert = LogsAlertConfiguration.objects.create(
+            team=environment,
+            name="Environment errors",
+            filters={"severityLevels": ["error"]},
+            threshold_count=10,
+            owner="platform",
+        )
+        # The copy lands on the project, as every copy of an environment's alert does.
+        with team_scope(self.team.id):
+            copy = platform_testing.create_configuration(**{**asdict(platform_upsert_of(alert)), "owner": "platform"})
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/",
+                {"name": "Renamed", "enabled": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        alert.refresh_from_db()
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
+            )
+        assert view is not None
+        assert (alert.name, alert.enabled, view.name, view.enabled) == (
+            "Environment errors",
+            True,
+            "Environment errors",
+            True,
         )
 
     def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
