@@ -11,7 +11,13 @@ from requests import Response, Session
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import BACKLINK_FIELDS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
+    BACKLINK_FIELDS,
+    ENDPOINTS,
+    ORGANIC_KEYWORD_FIELDS,
+    RANK_TRACKER_FIELDS,
+    REFDOMAIN_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -169,6 +175,40 @@ TARGET = {
                 "protocol": ["https"],
             },
         ),
+        (
+            "organic_keywords",
+            "keywords",
+            [
+                {"keyword": "posthog", "keyword_country": "us", "sum_traffic": 50},
+                {"keyword": "posthog", "keyword_country": "gb", "sum_traffic": 10},
+            ],
+            [
+                {"keyword": "posthog", "keyword_country": "us", "sum_traffic": 50},
+                {"keyword": "posthog", "keyword_country": "gb", "sum_traffic": 10},
+            ],
+            {
+                "select": [",".join(ORGANIC_KEYWORD_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["sum_traffic:desc"],
+                "date": ["2026-10-13"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
+        (
+            "referring_domains",
+            "refdomains",
+            [{"domain": "a.example", "domain_rating": 80}, {"domain": "b.example", "domain_rating": 40}],
+            [{"domain": "a.example", "domain_rating": 80}, {"domain": "b.example", "domain_rating": 40}],
+            {
+                "select": [",".join(REFDOMAIN_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["domain_rating:desc"],
+                "history": ["live"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -199,8 +239,37 @@ def test_target_report_resolves_site_audit_target(
     assert target_request.query["project_id"] == ("123",)
     assert report_request.path == f"/v3/{ENDPOINTS[table]['path']}"
     query = {name: list(values) for name, values in report_request.query.items()}
-    history_params = {"date_from": [expected_date_from]} if table != "backlinks" else {}
+    history_params = {"date_from": [expected_date_from]} if ENDPOINTS[table].get("history") else {}
     assert query == {"output": ["json"], "target": ["https://example.com/"], **expected_params, **history_params}
+
+
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_rank_tracker_reads_each_device() -> None:
+    row = {"keyword": "posthog", "country": "us", "location": "United States", "language": "en", "position": 1}
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        "rank_tracker_overview",
+        [
+            ScriptedResponse(json={"overviews": [row]}),
+            ScriptedResponse(json={"overviews": [{**row, "position": 3}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {**row, "project_id": "123", "device": "desktop"},
+        {**row, "position": 3, "project_id": "123", "device": "mobile"},
+    ]
+    for request, device in zip(result.requests, ["desktop", "mobile"], strict=True):
+        assert request.path == "/v3/rank-tracker/overview"
+        assert {name: list(values) for name, values in request.query.items()} == {
+            "output": ["json"],
+            "select": [",".join(RANK_TRACKER_FIELDS)],
+            "limit": ["10000"],
+            "order_by": ["keyword:asc"],
+            "project_id": ["123"],
+            "date": ["2026-10-13"],
+            "device": [device],
+        }
 
 
 @pytest.mark.parametrize("healthscores", [[], [{"project_id": "123", "target_url": None}]])

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -323,6 +324,13 @@ class StripeSource(
                         placeholder="acct_...",
                         caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="balance_history_all_customers",
+                        label="Sync balance history for every customer",
+                        caption="By default, the CustomerBalanceTransaction table only includes customers whose balance isn't zero. Turn this on to also include customers whose balance went back to zero. The sync then makes one Stripe request per customer, so it takes longer.",
+                        default=False,
+                        fields=[],
                     ),
                 ],
             ),
@@ -724,6 +732,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # the parent API while the fan-out telemetry reports otherwise.
             use_warehouse_parent=inputs.fanout_warehouse_reuse,
             api_key_provider=lambda: self._get_api_key_closing_connection(config, inputs.team_id),
+            include_zero_balance_customers=bool(
+                config.balance_history_all_customers and config.balance_history_all_customers.enabled
+            ),
         )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
