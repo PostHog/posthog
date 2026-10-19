@@ -2815,14 +2815,14 @@ Today (8): `audit_log`, `entitlements`, `members`, `packages`, `repositories`, `
 
 Diffed against: <https://api.cloudsmith.io/openapi/?format=openapi>
 
-- [ ] `Package usage metrics (GET /metrics/packages/{owner}/{repo}/)` — analyze package downloads over time and identify heavily used versions (high)
-- [ ] `Quota history (GET /quota/history/{owner}/)` — track bandwidth and storage consumption over time to forecast package hosting costs (high)
-- [ ] `Package dependencies (GET /packages/{owner}/{repo}/{identifier}/dependencies/)` — connect packages to direct and transitive dependencies for vulnerability impact analysis (medium)
+- [ ] `Package usage metrics (GET /metrics/packages/{owner}/{repo}/)` — analyze package downloads over time and identify heavily used versions (high); skipped, the endpoint returns one repository-wide summary object (active and inactive package counts plus download and bandwidth aggregates), not per-package or per-period rows
+- [x] `Quota history (GET /quota/history/{owner}/)` — track bandwidth and storage consumption over time to forecast package hosting costs (high). Added as `quota_history`.
+- [x] `Package dependencies (GET /packages/{owner}/{repo}/{identifier}/dependencies/)` — connect packages to direct and transitive dependencies for vulnerability impact analysis (medium). Added as `package_dependencies` (fan-out over repositories, then packages).
 - [ ] `Entitlement usage metrics (GET /metrics/entitlements/{owner}/)` — attribute package consumption to customers or distribution entitlements (medium)
 - [ ] `Team members (GET /orgs/{org}/teams/{team}/members)` — connect synced teams to organization members for access and ownership analysis (medium)
 - [ ] `License policy violations (GET /orgs/{org}/license-policy-violation/)` — identify packages that breach license policies and measure compliance exposure (medium)
 - [ ] `Vulnerability policy violations (GET /orgs/{org}/vulnerability-policy-violation/)` — distinguish policy failures from scan findings and prioritize affected packages (medium)
-- [ ] `Repository audit log (GET /audit-log/{owner}/{repo}/)` — analyze repository activity through its dedicated log beyond the namespace log currently synced (medium)
+- [x] `Repository audit log (GET /audit-log/{owner}/{repo}/)` — analyze repository activity through its dedicated log beyond the namespace log currently synced (medium). Added as `repository_audit_log` (fan-out over repositories).
 
 Note: The official OpenAPI specification was parsed for all GET operations and response schemas. Existing repository requests already cover packages, entitlements, and webhooks; the audit table calls the namespace log. Dependencies need requests per package, while team membership needs requests per team. Credentials, policy configuration, and upload operations were excluded.
 
@@ -3095,13 +3095,13 @@ Today (8): `Checklists`, `ChecklistTemplates`, `Groups`, `Photos`, `Projects`, `
 
 Diffed against: <https://raw.githubusercontent.com/CompanyCam/openapi-spec/main/openapi.yaml>
 
-- [ ] `Assigned users (GET /v2/projects/{project_id}/assigned_users)` — connect projects to assigned staff and compare project workload by person (high)
-- [ ] `Photo tags (GET /v2/photos/{photo_id}/tags)` — connect synced photos to synced tags for image classification analysis (high)
-- [ ] `Project labels (GET /v2/projects/{project_id}/labels)` — add project classifications that are absent from the project list for reporting (medium)
+- [x] `Assigned users (GET /v2/projects/{project_id}/assigned_users)` — connect projects to assigned staff and compare project workload by person (high)
+- [x] `Photo tags (GET /v2/photos/{photo_id}/tags)` — connect synced photos to synced tags for image classification analysis (high)
+- [x] `Project labels (GET /v2/projects/{project_id}/labels)` — add project classifications that are absent from the project list for reporting (medium)
 - [ ] `Project collaborators (GET /v2/projects/{project_id}/collaborators)` — analyze external collaboration and company participation on projects (medium)
 - [ ] `Project comments (GET /v2/projects/{project_id}/comments)` — analyze project communication and identify unresolved work discussions (medium)
 - [ ] `Photo comments (GET /v2/photos/{photo_id}/comments)` — connect field discussions to documented photos and identify recurring issues (medium)
-- [ ] `Project documents (GET /v2/projects/{project_id}/documents)` — measure project documentation and connect document metadata to project activity (medium)
+- [x] `Project documents (GET /v2/projects/{project_id}/documents)` — measure project documentation and connect document metadata to project activity (medium)
 
 Note: The official OpenAPI specification was parsed for all GET operations and project, photo, group, and checklist schemas. The project list lacks assigned users and labels; photos lack their tag relationships. Groups already embed users, and checklists already embed tasks and sections. Missing resources need requests per project or photo; uploads and webhooks were excluded.
 
@@ -3683,14 +3683,14 @@ Note: The v2 Deploy API is tiny — 15 GET operations. Everything queryable as a
 
 ## Depot — gaps
 
-Today (1): `job_attempts`
+Today (4): `artifacts`, `failure_diagnoses`, `job_attempts`, `job_metrics`
 
 Diffed against: <https://depot.dev/openapi/depot-ci/v1.json>
 
-- [ ] `Job metrics (POST /depot.ci.v1.CIService/GetJobMetrics)` — measure CPU and memory use across attempts to identify inefficient jobs and improve runner sizing (high)
+- [x] `Job metrics (POST /depot.ci.v1.CIService/GetJobMetrics)` — measure CPU and memory use across attempts to identify inefficient jobs and improve runner sizing (high)
 - [ ] `Job attempt logs (POST /depot.ci.v1.CIService/GetJobAttemptLogs)` — analyze failure messages and workflow step activity across imported attempts (medium)
-- [ ] `Failure diagnosis (POST /depot.ci.v1.CIService/GetFailureDiagnosis)` — group recurring failures by fingerprint and compare causes across runs, workflows, and attempts (medium)
-- [ ] `Artifacts (POST /depot.ci.v1.CIService/ListArtifacts)` — track artifact counts, sizes, and production times by workflow and job (medium)
+- [x] `Failure diagnosis (POST /depot.ci.v1.CIService/GetFailureDiagnosis)` — group recurring failures by fingerprint and compare causes across runs, workflows, and attempts (medium)
+- [x] `Artifacts (POST /depot.ci.v1.CIService/ListArtifacts)` — track artifact counts, sizes, and production times by workflow and job (medium)
 
 Note: Parsed the official CI OpenAPI document and read the operation descriptions. Depot uses POST for read RPCs; job_attempts already includes run, workflow, job, and attempt metadata. Missing metrics, logs, diagnoses, and artifact collections need parent-ID fan-out; GetJobAttemptMetrics offers an alternative for individual attempts. Secrets, variables, downloads, and execution commands were excluded; the audit covers Depot CI.
 
@@ -3718,15 +3718,15 @@ Note: `Groups` covers all three group operations. `/v1/mgmt/group/all` returns e
 
 ## Develocity — **thin**
 
-Today (3): `builds`, `gradle_builds`, `maven_builds`
+Today (5): `build_failures`, `build_tests`, `builds`, `gradle_builds`, `maven_builds`
 
 Diffed against: <https://docs.develocity.ai/downloads/develocity-api-specification/develocity-api-specification-2026.3.0.yaml>
 
-- [ ] `Build tests (GET /api/tests/build/{id})` — analyze individual test outcomes, durations, and retries beyond aggregate build test performance (high)
-- [ ] `Failure groups (GET /api/failures/groups)` — track recurring build and test failures, affected builds, and first and last occurrences (high)
-- [ ] `Test cases (GET /api/tests/cases)` — measure failure and flakiness rates for individual tests across builds (medium)
+- [x] `Build tests (GET /api/tests/build/{id})` — analyze individual test outcomes, durations, and retries beyond aggregate build test performance (high). Added as `build_tests` (fan-out over `builds`).
+- ~~`Failure groups (GET /api/failures/groups)` — track recurring build and test failures, affected builds, and first and last occurrences (high)~~ — skipped: groups have no identifier, their counts depend on the `buildStartTime` window of the query, and the response has no pagination past 1000 groups. `build_failures` carries the per-build failure rows.
+- ~~`Test cases (GET /api/tests/cases)` — measure failure and flakiness rates for individual tests across builds (medium)~~ — skipped: it takes one exact container name per call (so a fan-out over every container) and returns only outcome counts for the query window. `build_tests` carries the per-build outcomes these counts come from.
 - [ ] `Test containers (GET /api/tests/containers)` — compare test suite outcomes and locate containers with persistent failures or flaky tests (medium)
-- [ ] `Build failures (GET /api/failures/builds/{id})` — attach failure messages and affected tasks or tests to imported builds (medium)
+- [x] `Build failures (GET /api/failures/builds/{id})` — attach failure messages and affected tasks or tests to imported builds (medium). Added as `build_failures` (fan-out over `builds`).
 - [ ] `Gradle dependencies (GET /api/builds/{id}/gradle-dependencies)` — analyze dependency versions and origins across Gradle builds (medium)
 - [ ] `Maven dependencies (GET /api/builds/{id}/maven-dependencies)` — analyze dependency versions and origins across Maven builds (medium)
 
@@ -3862,11 +3862,11 @@ Today (6): `envelope_documents`, `envelope_recipients`, `envelopes`, `folders`, 
 
 Diffed against: <https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/esignature.rest.swagger-v2.1.json>
 
-- [ ] `Envelope audit events (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/audit_events)` — reconstruct envelope activity and signing history beyond the latest status (high)
-- [ ] `Envelope form data (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/form_data)` — analyze submitted contract fields and recipient responses across envelopes (high)
+- [x] `Envelope audit events (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/audit_events)` — reconstruct envelope activity and signing history beyond the latest status (high)
+- [x] `Envelope form data (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/form_data)` — analyze submitted contract fields and recipient responses across envelopes (high)
 - [ ] `Envelope custom fields (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/custom_fields)` — join envelopes to business records using sender-defined field values (medium)
-- [ ] `Envelope templates (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/templates)` — associate imported envelopes with templates to compare completion rates and turnaround times (medium)
-- [ ] `Bulk send batch summaries (GET /v2.1/accounts/{accountId}/bulk_send_batch)` — measure bulk signing campaign volume, delivery progress, and errors (medium)
+- [x] `Envelope templates (GET /v2.1/accounts/{accountId}/envelopes/{envelopeId}/templates)` — associate imported envelopes with templates to compare completion rates and turnaround times (medium)
+- [x] `Bulk send batch summaries (GET /v2.1/accounts/{accountId}/bulk_send_batch)` — measure bulk signing campaign volume, delivery progress, and errors (medium)
 - [ ] `Bulk send batch envelopes (GET /v2.1/accounts/{accountId}/bulk_send_batch/{bulkSendBatchId}/envelopes)` — associate imported envelopes with bulk campaigns for campaign completion analysis (medium)
 - [ ] `PowerForms and form data (GET /v2.1/accounts/{accountId}/powerforms; GET /v2.1/accounts/{accountId}/powerforms/{powerFormId}/form_data)` — analyze self-service form submissions and their envelope outcomes (medium)
 - [ ] `Billing invoices (GET /v2.1/accounts/{accountId}/billing_invoices)` — compare account charges and invoice balances with envelope activity (medium)
@@ -3883,12 +3883,12 @@ Diffed against: <https://raw.githubusercontent.com/dodopayments/dodopayments-pyt
 - [x] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
 - [x] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
 - [x] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
-- [ ] `Credit entitlement ledger (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/ledger)` — track credit consumption and balance changes by customer and entitlement (high)
-- [ ] `Credit entitlement grants (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/grants)` — analyze granted credits, expiry, and remaining quantities by customer (medium)
-- [ ] `Customer wallets (GET /customers/{customer_id}/wallets)` — measure customer wallet balances and prepaid funds by currency (medium)
+- [x] `Credit entitlement ledger (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/ledger)` — track credit consumption and balance changes by customer and entitlement (high)
+- [x] `Credit entitlement grants (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/grants)` — analyze granted credits, expiry, and remaining quantities by customer (medium)
+- [x] `Customer wallets (GET /customers/{customer_id}/wallets)` — measure customer wallet balances and prepaid funds by currency (medium)
 - [ ] `Customer wallet ledger entries (GET /customers/{customer_id}/wallets/ledger-entries)` — reconcile wallet credits and debits with customer payment activity (medium)
 - [ ] `Entitlement grants (GET /entitlements/{id}/grants)` — associate entitlement definitions with customer access grants and subscription references (medium)
-- [ ] `Customer emails (GET /customers/{customer_id}/emails)` — analyze transactional email delivery activity by customer and message type (medium)
+- [x] `Customer emails (GET /customers/{customer_id}/emails)` — analyze transactional email delivery activity by customer and message type (medium)
 
 Note: Extracted every GET path from the official Python SDK operation index and checked selected resource modules and response types. The advertised documentation spec URL returned HTML, so the SDK provided the usable reference. Existing tables cover top-level billing and catalog collections; missing resources need payment, payout, subscription, customer, or entitlement fan-out. Webhooks, payment-method plumbing, invoice PDFs, and duplicate CSV exports were excluded.
 
@@ -4465,7 +4465,7 @@ Note: Developer docs, reference routes, sitemap, and spec candidates returned Cl
 
 ## Fastly — **thin**
 
-Today (15): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `historical_stats`, `invoices`, `origin_inspector`, `pops`, `service_acls`, `service_authorizations`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
+Today (16): `acl_entries`, `ai_usage_metrics`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `historical_stats`, `invoices`, `origin_inspector`, `pops`, `service_acls`, `service_authorizations`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
 
 Diffed against: <https://www.fastly.com/documentation/reference/api/>
 
@@ -4480,6 +4480,7 @@ Diffed against: <https://www.fastly.com/documentation/reference/api/>
 - [ ] `account/customer (and its users list)` — lookup resolving customer ids on services and users; today only current_user is synced (medium)
 - [x] `account/service-authorization` — user-to-service permission membership table (medium)
 - [x] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
+- [x] `ai-runtime-control/usage-metrics` — AI gateway request, session and token usage per virtual key, provider and model (medium)
 
 Note: Coverage is service configuration objects, the account/billing family, and the historical stats and Origin Inspector halves of metrics-stats; the domain inspector and bots halves are not exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
 
@@ -5962,7 +5963,7 @@ Note: Static endpoint list; source dir products/warehouse_sources/backend/tempor
 
 ## Honeycomb — gaps
 
-Today (11): `board_views`, `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `slo_counts_history`, `slos`, `triggers`
+Today (13): `board_views`, `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `signal_historical_anomalies`, `signals`, `slo_counts_history`, `slos`, `triggers`
 
 Diffed against: <https://api-docs.honeycomb.io/api/openapi-public.yaml>
 
@@ -5975,6 +5976,8 @@ Diffed against: <https://api-docs.honeycomb.io/api/openapi-public.yaml>
 - [ ] `/1/reporting/slos/historical` — weekly historical SLO breakdown across multiple SLOs in one call (medium)
 - [ ] `/1/query_annotations/{datasetSlug}` — named/annotated queries used to label saved analyses (low)
 - [ ] `/1/marker_settings/{datasetSlug}` — lookup resolving marker types to display settings for the markers we sync (low)
+- [x] `/1/signals` — Anomaly Detection Signals: the services whose error rate or presence Honeycomb monitors (medium). Added as `signals` (cursor-paginated, full refresh; needs the Manage Signals permission, off by default).
+- [x] `/1/signals/{signalId}/historical_anomalies` — resolved anomalies per Signal (medium). Added as `signal_historical_anomalies` (fan-out over `signals`, incremental on `started_at` via the `start_time`/`end_time` window; off by default).
 
 Note: Diffed against the machine-readable OpenAPI spec (api-docs.honeycomb.io/api/openapi-public.yaml). Coverage of top-level v1 resources is good; the gaps are the SLO measurement sub-resources and the v2 environments lookup.
 
@@ -6178,6 +6181,7 @@ Diffed against: <https://integrations.impact.com/llms-full.txt/4>
 - [ ] `Deals (GET /Advertisers/{AccountSID}/Deals)` — compare promotional offers and their effective dates with conversion performance (medium)
 - [ ] `Catalog Items (GET /Advertisers/{AccountSID}/Catalogs/{CatalogId}/Items)` — analyze affiliate product inventory, pricing, and availability by catalog (medium)
 - [ ] `Campaign Notes (GET /Advertisers/{AccountSID}/Campaigns/{CampaignId}/Notes)` — retain partner management activity and discussion context for campaign analysis (low)
+- [x] `Survey responses (GET /Advertisers/{AccountSID}/Programs/{ProgramId}/Surveys/{SurveyId}/Responses)` — partner answers to program surveys, joinable to partners and campaigns (medium)
 
 Note: Parsed embedded OpenAPI blocks in the official paginated documentation, including Brand API v14 pages and nested collections. Contracts, action updates, and both invoice item tables are already covered. Click and report exports require job polling and downloads; action items and catalog items need parent fan-out. Submissions and configuration are excluded.
 
@@ -6720,6 +6724,7 @@ Diffed against: <https://docs.kalshi.com/openapi.yaml>
 - [ ] `Orders (GET /trade-api/v2/portfolio/orders; GET /trade-api/v2/historical/orders)` — compare submitted, executed, and canceled orders across current and archived history (medium)
 - [ ] `Market orderbook (GET /trade-api/v2/markets/{ticker}/orderbook)` — measure market depth and available liquidity at each price level (medium)
 - [ ] `Series fee changes (GET /trade-api/v2/series/fee_changes)` — explain trading cost changes across series and time (medium)
+- [x] `Weather index (GET /trade-api/v2/live_data/weather/{city})` — analyze the minute-resolution city temperature index behind hourly temperature markets (medium)
 
 Note: Parsed every GET operation in the official Trade API OpenAPI specification. Historical endpoints contain archived records absent from current collections. Portfolio tables require authenticated requests; the current source only reads public market data. Order book history requires periodic snapshots; API keys, exchange status, and trading actions were excluded.
 
