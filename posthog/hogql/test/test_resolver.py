@@ -552,7 +552,7 @@ class TestResolver(BaseTest):
                 "SELECT zz FROM events e JOIN persons p ON e.person_id = p.id",
                 {"properties", "event"},
                 set(),
-                None,
+                " If a field name exists in multiple tables, qualify it with the table name or alias.",
             ),
             (
                 "column_aliased_table",
@@ -564,7 +564,7 @@ class TestResolver(BaseTest):
         ]
     )
     def test_unresolved_field_without_close_match_lists_available_fields(
-        self, _name: str, query: str, listed: set[str], not_listed: set[str], property_hint: str | None
+        self, _name: str, query: str, listed: set[str], not_listed: set[str], expected_hint: str | None
     ) -> None:
         with self.assertRaises(QueryError) as ctx:
             resolve_types(self._select(query), self.context, dialect="clickhouse")
@@ -574,7 +574,41 @@ class TestResolver(BaseTest):
         fields = set(fields_part.split(", "))
         self.assertLessEqual(listed, fields, message)
         self.assertFalse(not_listed & fields, message)
-        self.assertEqual(hint, property_hint or "", message)
+        self.assertEqual(hint, expected_hint or "", message)
+
+    @parameterized.expand(
+        [
+            (
+                "aliases_first",
+                "SELECT beta AS picked, zz FROM (SELECT 1 AS gamma, 2 AS beta, 3 AS alpha) AS t",
+                "picked, gamma, beta, alpha.",
+            ),
+            (
+                "joined_tables",
+                "SELECT zz FROM (SELECT 1 AS shared, 2 AS left_only) AS l "
+                "JOIN (SELECT 1 AS shared, 2 AS right_only) AS r ON l.shared = r.shared",
+                "shared, left_only, right_only."
+                " If a field name exists in multiple tables, qualify it with the table name or alias.",
+            ),
+        ]
+    )
+    def test_unresolved_field_lists_columns_in_order(self, _name: str, query: str, expected: str) -> None:
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+        self.assertEqual(str(ctx.exception), f"Unable to resolve field: zz. Available fields: {expected}")
+
+    @parameterized.expand([(30, ""), (31, ", and 1 more")])
+    def test_unresolved_field_caps_available_columns(self, column_count: int, expected_more: str) -> None:
+        columns = [f"column_{index:02}" for index in range(column_count, 0, -1)]
+        select = ", ".join(f"1 AS {column}" for column in columns)
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(f"SELECT zz FROM (SELECT {select}) AS t"), self.context, dialect="clickhouse")
+
+        expected_fields = ", ".join(columns[:30])
+        self.assertEqual(
+            str(ctx.exception), f"Unable to resolve field: zz. Available fields: {expected_fields}{expected_more}."
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):

@@ -158,7 +158,8 @@ def collect_selectable_field_names(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
 ) -> list[str]:
     """Names a query in `scope` can select, in declaration order: aliases first, then the columns
-    `SELECT *` would return. Joins, internal sub-tables and hidden fields are left out."""
+    `SELECT *` would return, including explicitly joined tables. Implicit join fields,
+    internal sub-tables and hidden fields are left out."""
     return _collect_field_names(scope, context, lambda table: table.get_asterisk().keys())
 
 
@@ -190,7 +191,12 @@ def available_fields_suffix(
         if len(node.chain) == 1 and _has_one_json_properties_field(scope, context)
         else ""
     )
-    return f". Available fields: {listed}{more}.{property_hint}"
+    join_hint = (
+        " If a field name exists in multiple tables, qualify it with the table name or alias."
+        if isinstance(scope, ast.SelectQueryType) and len(scope.tables) + len(scope.anonymous_tables) > 1
+        else ""
+    )
+    return f". Available fields: {listed}{more}.{property_hint}{join_hint}"
 
 
 def suggest_field_names(
