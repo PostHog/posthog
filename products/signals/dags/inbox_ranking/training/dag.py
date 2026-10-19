@@ -182,7 +182,6 @@ _LABEL_COLUMNS = (
     "pr_created_count",
     "pr_merged_count",
     "refund_count",
-    "feedback_positive_count",
     *ACTION_LABEL_COLUMNS,
     *PROVENANCE_LABEL_COLUMNS,
 )

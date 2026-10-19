@@ -4988,7 +4988,6 @@ describe('the editor a flag opens in', () => {
                         id: 'rule-experiment',
                         rule_type: 'experiment',
                         targeting: { properties: [] },
-                        experiment_id: 12,
                         paused: false,
                         variants: [
                             { key: 'control', weight: 50, value: false },

@@ -56,37 +56,37 @@ class TestGetResource:
 
     @parameterized.expand(
         [
-            ("products", False),
-            ("categories", False),
-            ("brands", False),
-            ("customers", False),
-            ("orders", False),
-            ("products", True),
-            ("categories", True),  # categories has no date_modified field: stays full refresh
-            ("brands", True),  # same for brands
-            ("customers", True),
-            ("orders", True),
+            (name, should_use_incremental_field, filter_param, cursor_path)
+            for should_use_incremental_field in (False, True)
+            for name, filter_param, cursor_path in [
+                ("products", "date_modified:min", "date_modified"),
+                ("customers", "date_modified:min", "date_modified"),
+                ("channels", "date_modified:min", "date_modified"),
+                ("orders", "min_date_modified", "date_modified"),
+                ("refunds", "created:min", "created"),
+                # No modification timestamp on these: they stay full refresh.
+                ("categories", None, None),
+                ("brands", None, None),
+                ("variants", None, None),
+            ]
         ]
     )
-    def test_write_disposition_and_incremental_param(self, name: str, should_use_incremental_field: bool) -> None:
+    def test_write_disposition_and_incremental_param(
+        self, name: str, should_use_incremental_field: bool, filter_param: str | None, cursor_path: str | None
+    ) -> None:
         resource = get_resource(name, should_use_incremental_field)
         endpoint = cast(Endpoint, resource["endpoint"])
         params = cast(dict[str, Any], endpoint["params"])
+        incremental_params = {key: value for key, value in params.items() if isinstance(value, dict)}
 
-        incremental_capable = name in ("products", "customers", "orders")
-        use_incremental = should_use_incremental_field and incremental_capable
-
-        if use_incremental:
+        if should_use_incremental_field and filter_param is not None:
             assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+            assert list(incremental_params) == [filter_param]
+            assert incremental_params[filter_param]["type"] == "incremental"
+            assert incremental_params[filter_param]["cursor_path"] == cursor_path
         else:
             assert resource["write_disposition"] == "replace"
-
-        incremental_key = "min_date_modified" if name == "orders" else "date_modified:min"
-        if use_incremental:
-            assert incremental_key in params
-            assert params[incremental_key]["type"] == "incremental"
-        else:
-            assert incremental_key not in params
+            assert incremental_params == {}
 
 
 class TestTimestampConverters:
@@ -192,6 +192,72 @@ class TestBigCommerceSourceResumeBehavior:
 
         assert result.raised is None
         assert result.requests[0].param("date_modified:min") == "2024-05-06T07:08:09Z"
+
+    def test_order_transactions_fan_out_over_every_order(self) -> None:
+        result = self._driver().run(
+            "order_transactions",
+            [
+                ScriptedResponse(json=[{"id": 101}, {"id": 102}, {"id": 103}]),
+                ScriptedResponse(json={"data": [{"id": 1, "order_id": 101}, {"id": 2, "order_id": 101}], "meta": {}}),
+                # Order deleted after the order listing was read.
+                ScriptedResponse(status=404, json={"status": 404, "title": "Order not found"}),
+                ScriptedResponse(status=204),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            "/stores/store123/v2/orders",
+            "/stores/store123/v3/orders/101/transactions",
+            "/stores/store123/v3/orders/102/transactions",
+            "/stores/store123/v3/orders/103/transactions",
+            "/stores/store123/v2/orders",
+        ]
+        assert result.params("page") == ["1", None, None, None, "2"]
+        assert [(row["order_id"], row["id"]) for row in result.rows] == [(101, 1), (101, 2)]
+        assert result.saved_states == [
+            BigCommerceResumeConfig(page=1, order_index=1),
+            BigCommerceResumeConfig(page=1, order_index=2),
+            BigCommerceResumeConfig(page=1, order_index=3),
+        ]
+
+    def test_order_transactions_resume_skips_completed_orders(self) -> None:
+        result = self._driver().run(
+            "order_transactions",
+            [
+                ScriptedResponse(json=[{"id": 101}, {"id": 102}]),
+                ScriptedResponse(json={"data": [{"id": 3, "order_id": 102}], "meta": {}}),
+                ScriptedResponse(json=[]),
+            ],
+            resume_state=BigCommerceResumeConfig(page=4, order_index=1),
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            "/stores/store123/v2/orders",
+            "/stores/store123/v3/orders/102/transactions",
+            "/stores/store123/v2/orders",
+        ]
+        assert result.params("page") == ["4", None, "5"]
+        assert result.rows == [{"id": 3, "order_id": 102}]
+
+    def test_refunds_stop_on_empty_page_without_pagination_meta(self) -> None:
+        last_value = datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC)
+        result = self._driver().run(
+            "refunds",
+            [
+                ScriptedResponse(json={"data": [{"id": 1}], "meta": {}}),
+                ScriptedResponse(json={"data": [], "meta": {}}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.requests[0].param("created:min") == "2024-05-06T07:08:09Z"
+        assert result.rows == [{"id": 1}]
 
     def test_v2_incremental_param_carries_rfc2822_timestamp(self) -> None:
         last_value = datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC)

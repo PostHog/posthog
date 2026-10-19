@@ -3551,6 +3551,16 @@ def _get_table(
                 table=table_name,
                 error=str(e),
             )
+            # `cursor.connection.transaction()` rolls back the BEGIN it opened when the probe
+            # raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+            # client-side deadline above canceled the probe mid-flight) instead of raising —
+            # silently leaving the session `InFailedSqlTransaction`. Clear it defensively so every
+            # later statement on this connection (the read-replica check, primary key lookup, the
+            # actual read) doesn't fail as a downstream symptom of this best-effort probe.
+            try:
+                cursor.connection.rollback()
+            except Exception:
+                pass
 
     columns = []
     for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:

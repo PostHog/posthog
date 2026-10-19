@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.context import FlagHistoryNotChecked, FlagState, HealthContext
+from products.experiments.backend.health.context import FlagHistoryNotChecked, FlagState, HealthContext, SplitChange
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -149,7 +149,7 @@ def _rollout_since(ctx: HealthContext) -> str:
     if history is None:
         return ""
     effect = net_effect(
-        history.split_changes if isinstance(history, FlagHistoryNotChecked) else history.counted_split_changes
+        history.of_kind(SplitChange) if isinstance(history, FlagHistoryNotChecked) else history.counted(SplitChange)
     )
     if effect is None or effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
         return ""
