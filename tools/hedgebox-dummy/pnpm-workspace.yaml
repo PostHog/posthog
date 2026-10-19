@@ -7,6 +7,8 @@ trustPolicyExclude:
     - eslint-import-resolver-typescript@3.10.1
     - semver@6.3.1
     - undici-types@6.21.0
+# phrocs installs without a terminal, so rebuild node_modules from older pnpm without asking.
+confirmModulesPurge: false
 
 # These install without their build scripts.
 allowBuilds:
