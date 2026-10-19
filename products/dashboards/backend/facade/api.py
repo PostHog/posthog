@@ -283,7 +283,7 @@ def insights_with_dashboard_edit_access(
     for tile in tiles:
         access = access_by_team[tile.dashboard.team_id]
         if tile.insight_id is not None and (
-            not access.has_object_access_limit(tile.dashboard)
+            not access.has_object_access_limit("dashboard", str(tile.dashboard_id))
             or access.check_access_level_for_object(tile.dashboard, "editor")
         ):
             editable.add(tile.insight_id)

@@ -862,13 +862,10 @@ class UserAccessControl:
         # If there are access controls we pick the highest level the user has
         return self._highest_access_from_rows(resource, access_controls).access_level
 
-    def has_object_access_limit(self, obj: Model) -> bool:
-        resource = model_to_resource(obj)
-        if resource is None:
-            return False
+    def has_object_access_limit(self, resource: APIScopeObject, resource_id: str) -> bool:
         return any(
             row.limit_resource_access
-            for row in self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.pk)))
+            for row in self._get_access_controls(self._access_controls_filters_for_object(resource, resource_id))
         )
 
     def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
