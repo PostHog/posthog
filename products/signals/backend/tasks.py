@@ -80,6 +80,27 @@ from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
 logger = structlog.get_logger(__name__)
 
 
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
+    from products.signals.backend.onboarding_completion import (
+        InboxOnboardingReconciler,  # noqa: PLC0415 - keep onboarding dependencies off task discovery
+        RepositoryCheckUnavailable,
+    )
+
+    try:
+        pending = InboxOnboardingReconciler(team_id, priority=Priority.BATCH).run()
+    except RepositoryCheckUnavailable as error:
+        reconcile_inbox_onboarding.apply_async(
+            args=[team_id],
+            kwargs={"failed_checks": failed_checks + 1},
+            countdown=max(min(60 * 2 ** min(failed_checks, 4), 900), error.retry_after),
+        )
+        return
+    if pending:
+        reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
+
+
 @shared_task(
     name="products.signals.backend.tasks.refresh_pull_request_participants",
     ignore_result=True,
