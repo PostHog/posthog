@@ -1,6 +1,7 @@
 import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
+from functools import partialmethod
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
@@ -1990,3 +1992,34 @@ class TestTableHandleReuse:
             rows = DeltaTable(tmp).to_pyarrow_table()
             assert rows.sort_by("id").column("id").to_pylist() == [0, 1, 4, 5, 6, 6, 7, 8, 100]
             assert rows.schema.names == ["id", "name", "added"]
+
+
+class TestCompactionDuringLoad:
+    @parameterized.expand(
+        [
+            ("a_long_load_compacts_between_batches", False, 1),
+            ("the_final_batch_leaves_compaction_to_post_load", True, 11),
+        ]
+    )
+    def test_compaction_between_batches(self, _name: str, last_is_final: bool, expected_files: int) -> None:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(f"{_PROCESSOR}.FILE_COUNT_LOG_SAMPLE_EVERY", 10),
+            patch.object(
+                DeltaMaintenance,
+                "compact_if_fragmented",
+                partialmethod(DeltaMaintenance.compact_if_fragmented, threshold=4),
+            ),
+        ):
+            write_deltalake(tmp, TestTableHandleReuse._SEED)
+            with TestTableHandleReuse()._loader(tmp, []):
+                for index in range(1, 11):
+                    process_message(
+                        TestTableHandleReuse._batch(
+                            index, sync_type="append", is_final_batch=last_is_final and index == 10, total_rows=32
+                        )
+                    )
+
+            table = DeltaTable(tmp)
+            assert len(table.file_uris()) == expected_files
+            assert table.to_pyarrow_table().num_rows == 32

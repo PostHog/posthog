@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.aut
     maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
@@ -91,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+    DELTA_COMPACT_DURING_LOAD_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
@@ -348,6 +350,21 @@ def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: Ex
     feature, and collecting it means listing every file in the table.
     """
     return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+
+
+def _compacts_during_load(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
+    """Whether a non-final batch checks the table for compaction (see `DeltaMaintenance.compact_during_load`).
+
+    Not for batch 0: the table then holds the files of one batch only.
+    Not for CDC: each CDC run is short and ends with its own post-load pass.
+    Not for partial data loading: it publishes the files that each batch adds, and a compaction
+    between batches replaces files that it already published.
+    """
+    return (
+        export_signal.batch_index > 0
+        and export_signal.cdc_write_mode is None
+        and not _partial_data_loading_applies(export_signal, schema)
+    )
 
 
 async def _handle_partial_data_loading(
@@ -1479,6 +1496,11 @@ def _process_message_reported(
                 internal_schema=internal_schema,
                 verify_ownership=verify_ownership,
             )
+
+        if not finals and sample_file_count and _compacts_during_load(export_signal, schema):
+            with timer.step("compact_during_load"):
+                compacted = async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_load)()
+            DELTA_COMPACT_DURING_LOAD_TOTAL.labels(outcome="compacted" if compacted else "skipped").inc()
 
         # A run that completed here ran its post-load maintenance, and the next run can reset the
         # table, so only a write that stays inside one unfinished run hands its handle on.
