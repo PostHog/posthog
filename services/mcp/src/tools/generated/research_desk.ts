@@ -58,24 +58,6 @@ const researchDeskSessionsList = (): ToolBase<
     },
 })
 
-const ResearchDeskSourcesListSchema = () => z.object({})
-
-const researchDeskSourcesList = (): ToolBase<
-    ReturnType<typeof ResearchDeskSourcesListSchema>,
-    WithPostHogUrl<Schemas.ResearchSourceDTO[]>
-> => ({
-    name: 'research-desk-sources-list',
-    schema: ResearchDeskSourcesListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof ResearchDeskSourcesListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ResearchSourceDTO[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/research_desk/sources/`,
-        })
-        return await withPostHogUrl(context, result, '/')
-    },
-})
-
 const ResearchDeskSourcesCreateSchema = () => {
     const ResearchDeskSourcesCreateBody = orvalSchemas.ResearchDeskSourcesCreateBody()
     return ResearchDeskSourcesCreateBody
@@ -111,6 +93,24 @@ const researchDeskSourcesCreate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const ResearchDeskSourcesListSchema = () => z.object({})
+
+const researchDeskSourcesList = (): ToolBase<
+    ReturnType<typeof ResearchDeskSourcesListSchema>,
+    WithPostHogUrl<Schemas.ResearchSourceDTO[]>
+> => ({
+    name: 'research-desk-sources-list',
+    schema: ResearchDeskSourcesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ResearchDeskSourcesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ResearchSourceDTO[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/research_desk/sources/`,
+        })
+        return await withPostHogUrl(context, result, '/')
     },
 })
 
@@ -155,7 +155,7 @@ const researchDeskSourcesUpdate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'research-desk-contact-check': researchDeskContactCheck,
     'research-desk-sessions-list': researchDeskSessionsList,
-    'research-desk-sources-list': researchDeskSourcesList,
     'research-desk-sources-create': researchDeskSourcesCreate,
+    'research-desk-sources-list': researchDeskSourcesList,
     'research-desk-sources-update': researchDeskSourcesUpdate,
 }
