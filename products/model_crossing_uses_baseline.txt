@@ -459,7 +459,6 @@ posthog.User dashboards.Text.last_modified_by reverse-accessor(modified_text_til
 posthog.User data_modeling.DAG.created_by reverse-accessor(dag_set) 1
 posthog.User data_modeling.DataModelingJob.created_by reverse-accessor(datamodelingjob_set) 1
 posthog.User data_modeling.DataWarehouseManagedViewSet.created_by reverse-accessor(datawarehousemanagedviewset_set) 1
-posthog.User data_modeling.DataWarehouseModelPath.created_by reverse-accessor(datawarehousemodelpath_set) 1
 posthog.User data_modeling.DataWarehouseSavedQuery.created_by reverse-accessor(datawarehousesavedquery_set) 1
 posthog.User data_modeling.DataWarehouseSavedQueryDraft.created_by reverse-accessor(datawarehousesavedquerydraft_set) 1
 posthog.User data_modeling.Edge.created_by reverse-accessor(edge_set) 1
@@ -759,7 +758,6 @@ warehouse_sources.DataWarehouseTable products.data_catalog.evals.seeders write(c
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.logic.node_frequency instance-many(exclude) 1
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.logic.saved_query_dag_sync instance-single 2
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.management.commands.cleanup_orphaned_matview_tables instance-many(filter) 1
-warehouse_sources.DataWarehouseTable products.data_modeling.backend.models.modeling instance-single 4
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.direct_clickhouse write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.direct_motherduck write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.direct_mysql write(create) 1
