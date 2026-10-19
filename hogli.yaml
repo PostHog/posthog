@@ -1290,3 +1290,7 @@ environment:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
         hidden: true
+    build:forecast-model:
+        bin_script: export_forecast_model.py
+        description: 'Export the Timestral forecasting model to ONNX for the HogQL forecast function'
+        hidden: true

@@ -26,6 +26,9 @@ CAP_K = 1e4
 EXTREME = 1e30
 # Positions of p10, p50 and p90 among the 21 quantile levels 0.01, 0.05, 0.1, ..., 0.95, 0.99.
 P10, P50, P90 = 2, 10, 18
+# Threads one ONNX session may use for one operator. Web processes share the pod's cores, so a forecast
+# must not take every core.
+ONNX_INTRA_OP_THREADS = 2
 
 
 def validate_forecast_access(team: "Team") -> None:
@@ -141,7 +144,10 @@ def _model() -> Forecaster:
     path = Path(settings.HOGQL_FORECAST_MODEL_PATH)
     if not path.exists():
         raise QueryError("forecast is not set up on this server. Run bin/export_forecast_model.py to create the model.")
-    return Forecaster(onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"]))
+    options = onnxruntime.SessionOptions()
+    options.intra_op_num_threads = ONNX_INTRA_OP_THREADS
+    options.inter_op_num_threads = 1
+    return Forecaster(onnxruntime.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"]))
 
 
 def evaluate_forecast(spec: ForecastCall, values: list[object]) -> list[object]:
