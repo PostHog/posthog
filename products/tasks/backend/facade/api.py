@@ -228,6 +228,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "is_current_task_run_actor",
     "mint_private_gateway_token",
     "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
@@ -2847,6 +2848,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "include_live_context",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
+        # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
+        # would count as a root run and start more generations, and a parent that reset its count
+        # would lift its fan-out cap.
+        "agent_parent_task_id",
+        "agent_parent_run_id",
+        "agent_started_run_count",
         "resume_from_run_id",
         "run_source",
         "pr_base_branch",
@@ -9600,6 +9607,8 @@ def run_task(
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
         ("claude_model_access", claude_model_access),
         ("codex_model_access", codex_model_access),
+        ("agent_parent_task_id", validated_data.get("agent_parent_task_id")),
+        ("agent_parent_run_id", validated_data.get("agent_parent_run_id")),
     ):
         if value is not None:
             extra_state = extra_state or {}
@@ -9650,6 +9659,12 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
+
+        # A resumed child run stays a child, so its sandbox still cannot start more runs. The keys
+        # are PATCH-protected, so this server-side copy is the only way they reach a successor run.
+        for lineage_key in ("agent_parent_task_id", "agent_parent_run_id"):
+            if lineage_key not in extra_state and (lineage_value := (previous_run.state or {}).get(lineage_key)):
+                extra_state[lineage_key] = lineage_value
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
@@ -12387,3 +12402,14 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
+
+
+def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415
+        get_task_run_actor_user,
+        user_has_current_team_access,
+    )
+
+    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
+    actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
+    return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)

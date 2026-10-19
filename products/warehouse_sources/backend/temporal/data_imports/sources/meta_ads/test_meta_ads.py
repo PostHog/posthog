@@ -1585,6 +1585,12 @@ class TestRetryableErrors:
                 "fbtrace_id AaBbCcDdEeFf00112233)",
                 "too busy",
             ),
+            (
+                'Meta API request failed: 400 - {"error":{"message":"Invalid parameter","type":'
+                '"OAuthException","code":100,"error_subcode":2446211,"is_transient":false,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "Advantage+ creative",
+            ),
         ],
     )
     def test_retry_exhausted_message_replaces_the_raw_meta_response(

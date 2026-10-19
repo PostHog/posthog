@@ -271,6 +271,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
     PLANE = "Plane", "Plane"
+    SCARF = "Scarf", "Scarf"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
@@ -1459,6 +1460,11 @@ class ExternalDataSourceType(LabeledStrEnum):
     NORTHBEAM = "Northbeam", "Northbeam"
     NAVERADS = "NaverAds", "NaverAds"
     CHANNELIO = "ChannelIO", "ChannelIO"
+    AIRSHIP = "Airship", "Airship"
+    CREEM = "Creem", "Creem"
+    LEANTIME = "Leantime", "Leantime"
+    TESTOMATIO = "Testomatio", "Testomatio"
+    GOOGLEADMOB = "GoogleAdMob", "GoogleAdMob"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

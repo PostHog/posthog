@@ -1838,19 +1838,9 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
 
 def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. ``sync_frequency_interval`` is null once the view's DAG runs on a shared
-    schedule (the frequency lives on the DAG node), which leaves the next run unknown rather than
-    guessable — so both schedule fields stay None."""
-    interval = saved_query.sync_frequency_interval
-    next_sync_at = (
-        saved_query.last_run_at + interval if interval is not None and saved_query.last_run_at is not None else None
-    )
-    return _ProfileWarehouseMeta(
-        table_name=saved_query.name,
-        sync_frequency_interval_seconds=interval.total_seconds() if interval is not None else None,
-        next_sync_at=next_sync_at,
-        saved_query_name=saved_query.name,
-    )
+    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
+    unknown rather than guessable — so both schedule fields stay None."""
+    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
 
 
 def _resolve_profile_warehouse_meta(

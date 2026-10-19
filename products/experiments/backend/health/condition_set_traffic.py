@@ -37,13 +37,16 @@ from posthog.exceptions_capture import capture_exception
 from posthog.utils import safe_cache_add
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
-from products.experiments.backend.health.checks.forced_variant import (
-    TRAFFIC_WINDOW,
-    has_too_few_people,
-    needs_condition_set_traffic,
-)
+from products.experiments.backend.health.checks.conditions_changed import removed_overrides_to_grade
+from products.experiments.backend.health.checks.forced_variant import overrides_to_grade
 from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext
 from products.experiments.backend.health.exposure_gate import UNKNOWN, cache_failed_scan
+from products.experiments.backend.health.pinned_share import (
+    TRAFFIC_WINDOW,
+    PinnedConditions,
+    PinnedShareUnknownReason,
+    grade_pinned_share,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     exposure_event_name_filter,
@@ -89,6 +92,24 @@ def load_condition_set_traffic(
     except Exception as error:
         capture_exception(error)
         return None
+
+
+def needs_condition_set_traffic(ctx: HealthContext) -> bool:
+    """Whether a check grades its finding by the users that pinned conditions served: the forced-variant check for
+    the overrides in place, and the release-condition check for an override removed after launch."""
+    return ctx.is_launched and any(pins.weighted for pins in _pins_to_grade(ctx))
+
+
+def has_too_few_people(ctx: HealthContext, traffic: ConditionSetTraffic) -> bool:
+    """Whether a check leaves the share of `traffic` unknown only because too few people count."""
+    return any(
+        pins.weighted and grade_pinned_share(pins, traffic).unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE
+        for pins in _pins_to_grade(ctx)
+    )
+
+
+def _pins_to_grade(ctx: HealthContext) -> list[PinnedConditions]:
+    return [pins for pins in (overrides_to_grade(ctx), removed_overrides_to_grade(ctx)) if pins is not None]
 
 
 def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:

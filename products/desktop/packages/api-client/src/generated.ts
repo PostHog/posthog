@@ -9158,7 +9158,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
@@ -9171,7 +9170,6 @@ export namespace Schemas {
         | "azure_openai"
         | "together_ai"
         | "minimax"
-        | "zeabur"
         | "system_one"
         | "openai_compatible";
     /**
@@ -9955,6 +9953,7 @@ export namespace Schemas {
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9968,7 +9967,8 @@ export namespace Schemas {
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
-        | "bucketing_changed_mid_run";
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10013,6 +10013,7 @@ export namespace Schemas {
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -11133,6 +11134,7 @@ export namespace Schemas {
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -12321,6 +12323,11 @@ export namespace Schemas {
      * * `Northbeam` - Northbeam
      * * `NaverAds` - NaverAds
      * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12522,6 +12529,7 @@ export namespace Schemas {
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
         | "Plane"
+        | "Scarf"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -13709,7 +13717,12 @@ export namespace Schemas {
         | "LaravelCloud"
         | "Northbeam"
         | "NaverAds"
-        | "ChannelIO";
+        | "ChannelIO"
+        | "Airship"
+        | "Creem"
+        | "Leantime"
+        | "Testomatio"
+        | "GoogleAdMob";
     /**
      * * `web` - web
      * * `api` - api
@@ -13919,6 +13932,7 @@ export namespace Schemas {
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
          * * `Plane` - Plane
+         * * `Scarf` - Scarf
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob
@@ -15107,6 +15121,11 @@ export namespace Schemas {
          * * `Northbeam` - Northbeam
          * * `NaverAds` - NaverAds
          * * `ChannelIO` - ChannelIO
+         * * `Airship` - Airship
+         * * `Creem` - Creem
+         * * `Leantime` - Leantime
+         * * `Testomatio` - Testomatio
+         * * `GoogleAdMob` - GoogleAdMob
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

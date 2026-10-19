@@ -5,9 +5,7 @@ import { getExperimentStatus } from '../../experimentStatus'
 import type {
     ExperimentHealthInputsApi,
     ExperimentHealthInputsExposuresApi,
-    ExperimentHealthInputsFlagHistoryApi,
     ExperimentHealthInputsTrafficStatusEnumApi,
-    ExperimentHealthInputsVariantApi,
     HealthExposureInputsStatusEnumApi,
 } from '../../generated/api.schemas'
 import type { SetupFact } from '../../setupInspector/SetupFactsTable'
@@ -31,7 +29,7 @@ export interface HealthDebugReleaseCondition {
 
 export interface HealthDebugFlagChange {
     changedAt: string
-    /** What changed: the split, or a setting that decides the variant draw. */
+    /** What changed: the split, a setting that decides the variant draw, or the release conditions. */
     changed: string
     before: string
     after: string
@@ -51,16 +49,6 @@ function serverValue(state: HealthInputsState, read: (inputs: ExperimentHealthIn
         return 'Loading…'
     }
     return state.error ? `Not loaded: ${state.error}` : 'Not loaded'
-}
-
-function percentage(value: number | null): string {
-    return value === null ? 'unset' : `${value}%`
-}
-
-export function describeSplit(variants: ExperimentHealthInputsVariantApi[]): string {
-    return variants.length
-        ? variants.map((variant) => `${variant.key ?? 'no key'} ${percentage(variant.rollout_percentage)}`).join(', ')
-        : 'none'
 }
 
 function yesNoUnknown(value: boolean | null): string {
@@ -134,7 +122,7 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         },
         {
             label: 'Variants',
-            value: serverValue(state, ({ flag }) => (flag ? describeSplit(flag.variants) : 'No flag')),
+            value: serverValue(state, ({ flag }) => (flag ? flag.split_text : 'No flag')),
         },
     ]
 }
@@ -152,17 +140,13 @@ export function buildReleaseConditions(inputs: ExperimentHealthInputsApi | null)
     }))
 }
 
-function allFlagChanges(history: ExperimentHealthInputsFlagHistoryApi): { counted: boolean }[] {
-    return [...history.split_changes, ...history.bucketing_changes]
-}
-
 function describeFlagHistoryStatus(inputs: ExperimentHealthInputsApi): string {
     const history = inputs.flag_history
     if (history) {
         if (!history.checked) {
             return `Not compared: ${history.not_checked_reason}`
         }
-        const changes = allFlagChanges(history)
+        const changes = history.changes
         const total = changes.length
         const counted = changes.filter((change) => change.counted).length
         if (total === 0) {
@@ -189,18 +173,9 @@ function describeFlagHistoryStatus(inputs: ExperimentHealthInputsApi): string {
     return 'Not read: the read failed'
 }
 
-const SET_BACK_FACTS = [
-    { kind: 'split_changes', field: 'split_exposed_between', label: 'Exposed between the first and last split change' },
-    {
-        kind: 'bucketing_changes',
-        field: 'bucketing_exposed_between',
-        label: 'Exposed between the first and last bucketing change',
-    },
-] as const
-
 export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
     const history = state.inputs?.flag_history ?? null
-    const hasCountedChange = !!history && allFlagChanges(history).some((change) => change.counted)
+    const hasCountedChange = !!history && history.changes.some((change) => change.counted)
     return [
         {
             label: 'Status',
@@ -216,54 +191,29 @@ export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
                       label: 'Exposed before the first counted change',
                       value: yesNoUnknown(history.exposed_before_first),
                   },
-                  ...SET_BACK_FACTS.filter(({ kind }) => history[kind].some((change) => change.counted)).map(
-                      ({ field, label }) => ({
-                          label,
-                          value: yesNoUnknown(history[field]),
-                          help: 'Asked only when the last counted change of this kind sets back what the first changed.',
-                      })
-                  ),
+                  ...history.exposed_between.map(({ question, exposed }) => ({
+                      label: question,
+                      value: yesNoUnknown(exposed),
+                      help: 'Asked only when the last counted change of this kind sets back what the first changed.',
+                  })),
               ]
             : []),
     ]
 }
 
-const BUCKETING_SETTING_LABELS: Record<string, string> = {
-    key: 'Key',
-    aggregation: 'Match by group type',
-    bucketing_identifier: 'Bucketing identifier',
-    experience_continuity: 'Persist across authentication',
-}
-
 export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): HealthDebugFlagChange[] {
-    const history = inputs?.flag_history
-    if (!history) {
-        return []
-    }
-    const changes = [
-        ...history.split_changes.map((change) => ({
-            at: change.changed_at,
-            changed: 'Split',
-            before: describeSplit(change.before),
-            after: describeSplit(change.after),
-            counted: change.counted,
-        })),
-        ...history.bucketing_changes.map((change) => ({
-            at: change.changed_at,
-            changed: BUCKETING_SETTING_LABELS[change.setting] ?? change.setting,
-            before: change.before ?? 'none',
-            after: change.after ?? 'none',
-            counted: change.counted,
-        })),
-    ]
-    return changes
-        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-        .map(({ at, ...change }) => ({ changedAt: formatTimestamp(at), ...change }))
+    return (inputs?.flag_history?.changes ?? []).map((change) => ({
+        changedAt: formatTimestamp(change.changed_at),
+        changed: change.changed,
+        before: change.before,
+        after: change.after,
+        counted: change.counted,
+    }))
 }
 
 const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, string> = {
     read: 'Read',
-    not_needed: 'Not read: the forced-variant check does not need it',
+    not_needed: 'Not read: no check needs it',
     no_query_access: 'Not read: you may not query events',
     denied_properties: 'Not read: you are denied a flag call property that the scan reads',
     no_flag_version: "Not read: the flag has no version, so its calls can't be matched to it",
@@ -277,7 +227,7 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
         {
             label: 'Status',
             value: serverValue(state, (inputs) => TRAFFIC_STATUS_LABELS[inputs.condition_set_traffic_status]),
-            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis.',
+            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check reads them when such an override was removed after launch.',
         },
         ...(traffic
             ? [

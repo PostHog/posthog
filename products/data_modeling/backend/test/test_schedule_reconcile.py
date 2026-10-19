@@ -542,14 +542,11 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
         assert has_run.type == NodeType.MAT_VIEW
 
     def test_conversion_to_tiers_repairs_stranded_nodes(self):
-        # The v1 sweep that follows conversion is what makes a view-typed node go dark, so the
-        # repair has to happen as part of converting, not on some later pass.
         dag = DAG.get_or_create_default(self.team)
         stranded = self._backed(dag, "stranded", NodeType.VIEW)
         set_declared_target(stranded, M15)
 
         with (
-            mock.patch(f"{RECONCILE}.sync_connect", return_value=no_existing_schedules()),
             mock.patch(f"{RECONCILE}.async_connect", return_value=no_existing_schedules()),
             mock.patch(f"{RECONCILE}.a_create_schedule"),
         ):
@@ -612,27 +609,15 @@ class TestDeleteDagSchedules(SimpleTestCase):
 
 
 class TestDeleteTeamDataModelingSchedules(BaseTest):
-    def test_sweeps_both_halves_for_a_team_converted_to_dag_schedules(self):
-        # Conversion nulls sync_frequency_interval, so no field can decide which half to sweep.
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="converted_query",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            sync_frequency_interval=None,
-        )
+    def test_deletes_the_schedules_of_every_dag_of_the_team(self):
         dag = DAG.objects.create(team=self.team, name="Default")
 
-        with (
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule") as delete_query,
-            mock.patch(
-                f"{RECONCILE}.delete_dag_schedules",
-                return_value=DagScheduleTeardown(ok=True, deleted=(str(dag.id),)),
-            ) as delete_dag,
-        ):
+        with mock.patch(
+            f"{RECONCILE}.delete_dag_schedules",
+            return_value=DagScheduleTeardown(ok=True, deleted=(str(dag.id),)),
+        ) as delete_dag:
             delete_team_data_modeling_schedules(self.team.id)
 
-        delete_query.assert_called_once_with(mock.ANY, schedule_id=str(saved_query.id))
         delete_dag.assert_called_once_with(str(dag.id))
 
     def test_raises_when_a_dag_teardown_fails_so_the_activity_retries(self):
