@@ -57,6 +57,14 @@ def _runner(
     return runner
 
 
+def _lord_howe_runner_across_dst_end() -> MagicMock:
+    # Lord Howe Island is UTC+11 in summer and UTC+10:30 after DST ends in April.
+    lord_howe = ZoneInfo("Australia/Lord_Howe")
+    runner = _runner(True, tz=lord_howe)
+    runner.query_date_range.date_to.return_value = datetime(2026, 4, 30, 23, 59, 59, tzinfo=lord_howe)
+    return runner
+
+
 def _result(ready: bool, job_ids: list[uuid.UUID]) -> LazyComputationResult:
     return LazyComputationResult(ready=ready, job_ids=job_ids if ready else [])
 
@@ -72,6 +80,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 _NEW_YORK,
                 datetime(2026, 2, 1, 5, tzinfo=UTC),
             ),
+            ("whole_hour_east_of_utc", None, ZoneInfo("Asia/Tokyo"), datetime(2026, 2, 28, 15, tzinfo=UTC)),
         ]
     )
     def test_opted_in_query_checks_the_utc_range_up_to_now(self, _name, compare_from, tz, expected_start):
@@ -91,6 +100,14 @@ class TestDimensionalReadSelection(SimpleTestCase):
             ("opted_out", _runner(False), False, _JOB_IDS),
             ("property_access_rules", _runner(True), True, _JOB_IDS),
             ("test_account_filters", _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS), False, _JOB_IDS),
+            ("half_hour_timezone", _runner(True, tz=ZoneInfo("Asia/Kolkata")), False, _JOB_IDS),
+            (
+                "half_hour_timezone_in_compare_period_only",
+                _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=ZoneInfo("Asia/Kolkata"))),
+                False,
+                _JOB_IDS,
+            ),
+            ("half_hour_offset_after_dst_ends", _lord_howe_runner_across_dst_end(), False, _JOB_IDS),
             ("not_ready", _runner(True), False, None),
             ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
         ]

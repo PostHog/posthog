@@ -7,7 +7,7 @@ generations at once, and without the filter `sumMerge`/`uniqMerge` would count e
 generation.
 """
 
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Union
 
 from django.utils import timezone
@@ -56,6 +56,12 @@ def ready_dimensional_job_ids(
     start = runner.query_date_range.date_from()
     if runner.query_compare_to_date_range:
         start = min(start, runner.query_compare_to_date_range.date_from())
+    # The buckets are whole UTC hours. A half-hour offset puts each project-local day boundary
+    # inside a bucket, so the read would drop or add part of an hour at both ends. The offset
+    # can change with DST inside the range, so every bound gets the check.
+    if not all(_is_whole_hour_offset(bound) for bound in (start, runner.query_date_range.date_to())):
+        return None
+
     # A range can end after now, for example at the end of the current day in the project
     # timezone. No rows exist past now, and the writer does not build the next UTC day yet.
     end = min(runner.query_date_range.date_to(), timezone.now())
@@ -64,6 +70,11 @@ def ready_dimensional_job_ids(
     except Exception:
         logger.exception("web_dimensional_job_ids_lookup_failed", team_id=runner.team.pk)
         return None
+
+
+def _is_whole_hour_offset(moment: datetime) -> bool:
+    offset = moment.utcoffset() or timedelta(0)
+    return offset % timedelta(hours=1) == timedelta(0)
 
 
 class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
