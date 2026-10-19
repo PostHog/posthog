@@ -328,7 +328,9 @@ It records a message only when every check passes, in this order:
 6. Neither the main lane nor the v3 mirror blocked the session.
 
 The recorder reads the team list from Postgres every five minutes.
+A refresh that takes more than 60 seconds fails.
 After 20 failed refreshes in a row it admits no team until a refresh succeeds, so an opt-out is never ignored for long.
+It also admits no team when its list is older than 20 refresh intervals plus their timeouts, whatever the refresh task does.
 It consumes the replay topic and its overflow topic.
 
 ### Gate
@@ -405,6 +407,7 @@ A sealed index value uses the v3 JSON envelope with `"v": 4`.
 ### Blocks
 
 A block holds the replay messages of one session from one Kafka partition in one flush, as JSON lines of `[window_id, event]`, compressed with zstd level 3.
+The recorder streams each block into the encoder, so the zstd frame does not state its decompressed size. Read a block as a stream.
 
 - posthog-js compresses some fields of an event and marks the event `cv: "2024-10"`. The recorder expands those fields to plain JSON and removes the `cv` key, as the replay player does, because the gzip strings do not compress again. An event that does not decode stays exactly as it arrived.
 - An inline image becomes `image:v4:{team_id}:{YYYY-MM-DD}:{hash}` in the block, where the date is its key day.
@@ -442,6 +445,11 @@ A session row is a fold over its block rows: sort them by `first_ts_ms`, then me
 Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the one with the highest `viewport_ts_ms`.
 `events_before_first_full_snapshot` counts the events before the session's first full snapshot, so the fold stops adding it after the first block that has a full snapshot.
 `max_gap_ms` also counts the gap between one block's last event and the next block's first event. When blocks overlap, for example the main and overflow topics, it is an upper bound.
+`active_ms` is the active time that a block's events add to the session.
+The recorder runs the segmentation of `segmentation.ts` over the whole session, not over one block, so the blocks sum to the session's active time wherever the flushes cut it.
+Blocks that overlap in time, such as main and overflow blocks in one flush, do not count the same time twice.
+A block's `active_ms` can include time before its first event when the block continues an active segment of an earlier block.
+This holds for the blocks that one recorder process inspected. After a rebalance or a restart, up to 5 seconds of a segment that spans the handover is lost. When two processes record overlapping parts of one session, the overlap can count twice.
 `fold_session` in `replay-core-v4` implements this fold.
 
 | Group       | Columns                                                                                                                                                                                                                                               |
@@ -460,8 +468,8 @@ Counts sum, times take the minimum or maximum, flags take the logical or, `host`
 - `full_snapshots` counts only snapshots that decoded.
 - `events_before_first_full_snapshot` counts the session's events before its first decoded full snapshot.
 - `navigations` counts URL changes from Meta events and from posthog-js `$url_changed` events, so single-page apps count too.
-- `node_cap_reached` is true when the recorder could not check a window for orphan mutations: the window passed the node cap, a snapshot or mutation did not decode, or the window was evicted and came back.
-- `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance. Its playability columns then describe only the part of the session the recorder saw.
+- `node_cap_reached` is true when the recorder could not check a window for orphan mutations: the window passed the node cap, a snapshot or mutation did not decode, the window was evicted and came back, or the recorder dropped the session's DOM state to stay within its memory budget.
+- `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
 
 ### Remote images
 
