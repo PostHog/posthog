@@ -5,22 +5,24 @@ Over-the-air JavaScript updates are in [OTA.md](OTA.md). The CI workflows are in
 
 ## Store records this app uses
 
-This app replaces the existing "PostHog" mobile app on both stores.
-The store build keeps that app's identity, so a store update replaces the old app on people's phones.
+This app replaces the existing "PostHog" iOS app and uses a new Google Play app record.
+The iOS store build keeps the existing identity, so an update replaces the old app on people's phones.
+Android uses `com.posthog.mobile`, which installs separately from the older `com.posthog.code.mobile` app.
 Development and preview builds use their own identities, see [Build variants](#build-variants).
 
 | Field | Value |
 | --- | --- |
 | App name | PostHog |
-| iOS bundle id and Android package | `com.posthog.code.mobile` |
+| iOS bundle id | `com.posthog.code.mobile` |
+| Android package | `com.posthog.mobile` |
 | Expo owner and slug | `posthog` / `posthog` |
 | EAS project id | `4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` |
 | App Store Connect app id | `6762366098` |
 | Google Play track for submissions | `internal` |
 
 The old app's source is `products/desktop/apps/mobile`, and its workflows are "Desktop Mobile Build" and "Desktop Mobile Promote".
-Both apps share the same records and the same remote build-number counter.
-Stop building the old app before the first build of this one goes to a store.
+Both iOS apps share the same store record and remote build-number counter.
+Stop building the old iOS app before the first build of this one goes to the store.
 
 The old app shipped as version `1.0.0`. This app starts at `1.1.0`, so its builds do not collide with a released `1.0.0` in App Store Connect.
 The version also sets the runtime version for updates, see [OTA.md](OTA.md#runtime-version).
@@ -59,11 +61,11 @@ Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.confi
 The three variants install side by side on one device. They do not share sign-in, settings or the widget's data.
 The names, id suffixes and schemes are in `src/lib/appVariants.json`.
 
-| Variant | Profile | App name | iOS bundle id and Android package | URL scheme | iOS App Group | Icon |
-| --- | --- | --- | --- | --- | --- | --- |
-| `development` | `development` | PostHog Dev | `com.posthog.code.mobile.dev` | `posthog-dev` | `group.com.posthog.code.mobile.dev` | `icon-dev.png`, amber DEV band |
-| `preview` | `preview` | PostHog Preview | `com.posthog.code.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band |
-| `production` | `production` | PostHog | `com.posthog.code.mobile` | `posthog` | `group.com.posthog.code.mobile` | `app.icon` on iOS 26, `icon.png` elsewhere |
+| Variant | Profile | App name | iOS bundle id | Android package | URL scheme | iOS App Group | Icon |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `development` | `development` | PostHog Dev | `com.posthog.code.mobile.dev` | `com.posthog.mobile.dev` | `posthog-dev` | `group.com.posthog.code.mobile.dev` | `icon-dev.png`, amber DEV band |
+| `preview` | `preview` | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band |
+| `production` | `production` | PostHog | `com.posthog.code.mobile` | `com.posthog.mobile` | `posthog` | `group.com.posthog.code.mobile` | `app.icon` on iOS 26, `icon.png` elsewhere |
 
 - The widget extension's bundle id is the app's id plus `.HedgehogWidget`, for example `com.posthog.code.mobile.dev.HedgehogWidget`.
 - The production profile also sets `EXPO_PUBLIC_SIGNUP_LINK=0`, so store builds hide "Create an account".
@@ -100,8 +102,9 @@ Someone with these accounts does each step once. An agent cannot do them.
    ```
 
 4. Check the signing credentials with `eas credentials`.
-   The old app already built with this bundle id, so EAS should hold the iOS distribution certificate, the provisioning profiles and the Android upload keystore.
-   Reuse them. Do not generate a new Android keystore: Google Play rejects bundles signed with a different upload key.
+   Reuse the existing iOS distribution certificate and provisioning profiles.
+   Set up an Android upload keystore for `com.posthog.mobile` before its first build.
+   Reuse that keystore for subsequent releases: Google Play rejects bundles signed with a different upload key.
 5. Register the internal identities from [Build variants](#build-variants) in the Apple Developer account, under Certificates, Identifiers & Profiles:
    - App IDs `com.posthog.code.mobile.dev`, `com.posthog.code.mobile.dev.HedgehogWidget`, `com.posthog.code.mobile.preview` and `com.posthog.code.mobile.preview.HedgehogWidget`.
    - App Groups `group.com.posthog.code.mobile.dev` and `group.com.posthog.code.mobile.preview`.
@@ -373,10 +376,10 @@ key; do not uninstall the existing app automatically, because that clears its ap
 ### Verify the installation
 
 ```sh
-adb -s "$ANDROID_SERIAL" shell dumpsys package com.posthog.code.mobile
-adb -s "$ANDROID_SERIAL" shell am force-stop com.posthog.code.mobile
-adb -s "$ANDROID_SERIAL" shell am start -W -n com.posthog.code.mobile/.MainActivity
-adb -s "$ANDROID_SERIAL" shell pidof com.posthog.code.mobile
+adb -s "$ANDROID_SERIAL" shell dumpsys package com.posthog.mobile
+adb -s "$ANDROID_SERIAL" shell am force-stop com.posthog.mobile
+adb -s "$ANDROID_SERIAL" shell am start -W -n com.posthog.mobile/.MainActivity
+adb -s "$ANDROID_SERIAL" shell pidof com.posthog.mobile
 adb -s "$ANDROID_SERIAL" exec-out screencap -p > /tmp/posthog-mobile-android-install.png
 ```
 
@@ -457,6 +460,17 @@ Testers install from the EAS build page. iOS testers need a registered device.
 ## Ship to TestFlight and the Play internal track
 
 Only production builds can go to TestFlight. Preview builds use ad hoc signing, which App Store Connect does not take.
+Google Play also uses the `production` build profile: it creates an app bundle with the store package,
+while `preview` creates an APK with a separate package for direct installation.
+
+For the first Google Play release, create a free app record for `com.posthog.mobile` in Play Console.
+An account owner must approve the policy, Play App Signing and export declarations.
+On **Testing > Internal testing**, create and select a tester email list, then upload the production `.aab`
+under **Create new release**. Review and publish to the internal track, then share the opt-in link from
+the **Testers** tab. Tester email addresses must belong to Google accounts.
+The store listing and other setup tasks can be completed before expanding beyond internal testing.
+See [Google Play internal testing](https://support.google.com/googleplay/android-developer/answer/9845334)
+and [Expo manual submission](https://docs.expo.dev/submit/android-manual/).
 
 From your machine:
 

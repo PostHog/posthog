@@ -28,9 +28,9 @@ Someone with access to the Apple Developer team, the Firebase project and the `p
 
 | Variant | iOS bundle id | Android package |
 | --- | --- | --- |
-| Store (`production`) | `com.posthog.code.mobile` | `com.posthog.code.mobile` |
-| `preview` | `com.posthog.code.mobile.preview` | `com.posthog.code.mobile.preview` |
-| `development` | `com.posthog.code.mobile.dev` | `com.posthog.code.mobile.dev` |
+| Store (`production`) | `com.posthog.code.mobile` | `com.posthog.mobile` |
+| `preview` | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` |
+| `development` | `com.posthog.code.mobile.dev` | `com.posthog.mobile.dev` |
 
 **iOS: APNs key.**
 

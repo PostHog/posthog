@@ -44,7 +44,8 @@ const ICONS: Record<AppVariant, { png: string; adaptive: string }> = {
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     const variant = readVariant()
     const { name, idSuffix, scheme } = variantTable.variants[variant]
-    const appId = `${variantTable.productionAppId}${idSuffix}`
+    const appId = `${variantTable.productionAppIds.ios}${idSuffix}`
+    const androidPackage = `${variantTable.productionAppIds.android}${idSuffix}`
     // The HedgehogWidget target and both Swift readers of the shared store derive the same name from the bundle id.
     const appGroup = `group.${appId}`
     const icons = ICONS[variant]
@@ -108,7 +109,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             },
         },
         android: {
-            package: appId,
+            package: androidPackage,
             googleServicesFile: googleServicesFile(projectRoot),
             adaptiveIcon: {
                 foregroundImage: icons.adaptive,
