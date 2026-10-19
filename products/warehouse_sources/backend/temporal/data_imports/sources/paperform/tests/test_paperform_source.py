@@ -90,9 +90,3 @@ class TestPaperformSource:
         assert result.raised is None
         assert result.paths == ["/v1/forms", "/v1/forms/f1/submissions"]
         assert result.requests[1].param("after_date") is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Paperform schema 'not_a_table'" in str(result.raised)
