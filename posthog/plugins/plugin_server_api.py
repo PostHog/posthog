@@ -352,10 +352,11 @@ def create_batch_hog_flow_job_invocation(
     batch_job_id: UUIDT,
     max_audience_size: int | None = None,
     filters: dict | None = None,
+    realtime_cohort: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size, "filters": filters},
+        json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
         headers=get_internal_api_headers(),
     )
 

@@ -1,6 +1,10 @@
 """Save-time checks on a workflow's steps that need the database or shared parsing rules."""
 
-from products.workflows.backend.services.batch_audience_cohorts import find_behavioral_cohort_name
+from products.workflows.backend.services.batch_audience_cohorts import (
+    find_behavioral_cohort_name,
+    find_realtime_behavioral_cohort,
+    realtime_audience_cohort,
+)
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.utils.durations import (
     DURATION_PATTERN,
@@ -16,6 +20,8 @@ __all__ = [
     "duration_minutes",
     "find_behavioral_cohort_name",
     "find_clock_function",
+    "find_realtime_behavioral_cohort",
     "is_duration",
     "is_signed_duration",
+    "realtime_audience_cohort",
 ]

@@ -269,8 +269,10 @@ from products.workflows.backend.facade.validation import (
     duration_minutes,
     find_behavioral_cohort_name,
     find_clock_function,
+    find_realtime_behavioral_cohort,
     is_duration,
     is_signed_duration,
+    realtime_audience_cohort,
 )
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
@@ -1406,12 +1408,13 @@ class HogFlowActionSerializer(serializers.Serializer):
         except serializers.ValidationError as error:
             raise serializers.ValidationError({"cohort_id": error.detail})
 
-    def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
+    def _reject_behavioral_cohorts_in_audience(self, filters: dict, *, allow_realtime: bool) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
         # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
         # membership is frozen and precalculated — matching the audience-picker exemption in
         # _build_cohort_dependency_graph in products/cohorts/backend/models/dependencies.py.
+        properties = filters.get("properties")
         if not isinstance(properties, list):
             return
         cohort_ids = [
@@ -1421,7 +1424,39 @@ class HogFlowActionSerializer(serializers.Serializer):
         ]
         if not cohort_ids:
             return
-        cohort_name = find_behavioral_cohort_name(self.context["get_team"]().project_id, cohort_ids)
+        project_id = self.context["get_team"]().project_id
+
+        # Behind the cohort-conditions flag, a realtime cohort can be a batch trigger's whole audience:
+        # the batch resolver then pages its members from the realtime pipeline's Postgres table, which
+        # holds no person properties. A schedule trigger starts one run with no person, so it never
+        # reads the audience this way. An active flow keeps an audience it saved under the flag.
+        realtime_cohort = find_realtime_behavioral_cohort(project_id, cohort_ids) if allow_realtime else None
+        if realtime_cohort is not None and (
+            realtime_cohort.pk in (self.context.get("stored_realtime_audience_cohort_ids") or set())
+            or self._cohort_conditions_enabled()
+        ):
+            if realtime_audience_cohort(project_id, filters) is None:
+                raise serializers.ValidationError(
+                    {
+                        "filters": (
+                            f"Cohort '{realtime_cohort.name}' is a realtime cohort, so the audience can only be "
+                            "the people in it, with no other conditions and no test account filter. Add any "
+                            "other conditions to the cohort itself."
+                        )
+                    }
+                )
+            if not realtime_cohort.is_flag_compatible:
+                raise serializers.ValidationError(
+                    {
+                        "filters": (
+                            f"Cohort '{realtime_cohort.name}' isn't ready yet. You can send to it once it "
+                            "finishes calculating."
+                        )
+                    }
+                )
+            return
+
+        cohort_name = find_behavioral_cohort_name(project_id, cohort_ids)
         if cohort_name is not None:
             raise serializers.ValidationError(
                 {
@@ -1657,7 +1692,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
-                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+                        self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
                 # per call, so the trigger has nothing to configure.
@@ -1668,7 +1703,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if strict:
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
-                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+                        self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=False)
             elif data.get("config", {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES:
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
                 # per synced row, filtering only against the row payload. The table_name must match
@@ -3106,6 +3141,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and action.get("id")
             and action.get("type") == "trigger"
             and (action.get("config") or {}).get("type") == "cohort"
+        }
+
+        # Realtime cohorts an active flow's batch or schedule audience already sends to, so a flag
+        # dial-down polices new adoption only, like stored_cohort_conditions below.
+        self.context["stored_realtime_audience_cohort_ids"] = {
+            cohort_id
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+            for cohort_id in filter_cohort_ids((action.get("config") or {}).get("filters"))
         }
 
         self.context["stored_cohort_conditions"] = {
