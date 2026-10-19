@@ -11650,10 +11650,6 @@ snapshots:
         hash: v1.k794b7964.84ca5122b26e214bb2ea40b015f0bf55afd75cd6abec7e6d6cfe00de3b5ad8ea._GlqfH7tjBLXdxhchkhBD2clKmbEeDZULIdtixR_jFs
     scenes-app-inbox-scene--empty--light:
         hash: v1.k794b7964.4cee88bf59c8c1b370ff46b4736e633840efa59c3838ffc2786cb93de6dbd243.W6FHb5RbypUEu_iic0_kjWiIn_nGVrGkrPBnMHmHAVk
-    scenes-app-inbox-scene--empty-control--dark:
-        hash: v1.k794b7964.5e28f5af2e473353cabf39d86622329c32e5915319a81dd01903b51993624c54.494fGxNe7_4yzWNIBi-5tznI-vpk9xe9xFyRvFwy1q4
-    scenes-app-inbox-scene--empty-control--light:
-        hash: v1.k794b7964.431f125fea9dc6821a2b6aa2fe4a6048a062f2cea5b1b00bf9514dfd09d73d94.qHtjAAbwC3PJIjqfcS2E448V78OIM4tz30bKu77Omdw
     scenes-app-inbox-scene--empty-with-many-scouts--dark:
         hash: v1.k794b7964.f317ce431f7683d0d3f243cce6a7431ccaace370e74c3d25c93339c00c9bad63.yDLBiHj337vJez3JG8kG__Fg6XNWkVyA8tGu9nPtn-I
     scenes-app-inbox-scene--empty-with-many-scouts--light:

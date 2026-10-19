@@ -28,7 +28,6 @@ jest.mock('../cards/ReportCard', () => ({
 jest.mock('../shell/InboxReportFilters', () => ({ InboxReportFilters: () => null }))
 jest.mock('../shell/InboxScopeFilter', () => ({ InboxScopeFilter: () => null }))
 jest.mock('../shell/InboxBulkSelectionBar', () => ({ InboxBulkSelectionBar: () => null }))
-jest.mock('../SelfDrivingInstallingHint', () => ({ SelfDrivingInstallingHint: () => null }))
 
 interface SectionCountStub {
     match: (params: URLSearchParams) => boolean
@@ -52,6 +51,8 @@ const ONLY_NOT_ACTIONABLE: SectionCountStub[] = [
 function mockReportCounts(stubs: SectionCountStub[]): void {
     useMocks({
         get: {
+            '/api/projects/:team_id/signals/source_configs': { results: [] },
+            '/api/projects/:team_id/signals/scout/configs': [],
             '/api/projects/:team_id/signals/reports/available_reviewers': {},
             '/api/projects/:team_id/signals/reports/': ({ request }) => {
                 const params = new URL(request.url).searchParams
@@ -144,9 +145,13 @@ describe('ReportsTab', () => {
 
     // The empty verdict must cover every state the current user can see, not only the counted
     // ones: a staff user on a project whose reports are all judged not actionable still has work
-    // to review, so "nothing yet" would be wrong for them and right for everyone else.
+    // to review, so the waiting state would be wrong for them and right for everyone else.
     it.each([
-        { name: 'staff is not told "nothing yet" when only Not actionable has reports', isStaff: true, empty: false },
+        {
+            name: 'staff does not see the waiting state when only Not actionable has reports',
+            isStaff: true,
+            empty: false,
+        },
         { name: 'non-staff sees the empty state for the same project', isStaff: false, empty: true },
     ])('$name', async ({ isStaff, empty }) => {
         mockReportCounts(ONLY_NOT_ACTIONABLE)
@@ -157,11 +162,11 @@ describe('ReportsTab', () => {
         render(<ReportsTab />)
         await waitForCountsToSettle()
 
-        expect(screen.queryByText('Nothing in your inbox yet') !== null).toBe(empty)
+        expect(screen.queryByText('Your agents are working in the background') !== null).toBe(empty)
     })
 
-    // "Nothing yet" claims the project has no reports. A search or scope that matches nothing must
-    // not make that claim, or the user loses the way back to the full list.
+    // A search or scope that matches nothing must keep the filter controls available so the user
+    // can get back to the full list.
     it.each([
         {
             name: 'a search that matches nothing',
@@ -182,7 +187,7 @@ describe('ReportsTab', () => {
         await waitForCountsToSettle()
 
         await waitFor(() => expect(screen.getByText(copy)).toBeInTheDocument())
-        expect(screen.queryByText('Nothing in your inbox yet')).toBeNull()
+        expect(screen.queryByText('Your agents are working in the background')).toBeNull()
     })
 
     // The whole point of the flat list: one merged run over the selected states. The default
