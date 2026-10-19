@@ -2,8 +2,6 @@ from datetime import datetime, timedelta
 from textwrap import dedent
 from typing import Any, Literal, Self
 
-from django.conf import settings
-
 import structlog
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
@@ -386,7 +384,6 @@ class FilterSessionRecordingsTool(MaxTool):
         session_id = recording.get("session_id")
         if session_id:
             parts.append(f"session_id={session_id}")
-            parts.append(f"Recording: {settings.SITE_URL}/project/{self._team.id}/replay/{session_id}")
 
         # Person/distinct_id
         distinct_id = recording.get("distinct_id", "Unknown")

@@ -140,11 +140,12 @@ def summarize_observation(obs: "ReplayObservation") -> str:
     return plain_snippet(obs.error_reason) if obs.error_reason else ""
 
 
-def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
+def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool, show_ids: bool = False) -> str:
     prefix = f"{obs.created_at:%Y-%m-%d}"
     session = str(obs.session_id)
     # `scanner_name` is annotated by the search hydration so no scanner row is joined; fall back to the relation.
     scanner_name = getattr(obs, "scanner_name", None) or (obs.scanner.name if show_scanner and obs.scanner else "")
     scanner_part = f" {scanner_name}" if show_scanner and scanner_name else ""
-    ids = f"observation_id={obs.id}, session_id={session}"
+    # Max passes these ids to follow-up tools; other readers only need the session.
+    ids = f"observation_id={obs.id}, session_id={session}" if show_ids else f"session {session}"
     return f"- ({ids}, {prefix}){scanner_part} {summarize_output(output)}".rstrip()

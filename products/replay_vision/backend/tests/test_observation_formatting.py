@@ -13,7 +13,6 @@ from products.replay_vision.backend.observation_formatting import (
 class _FakeObs:
     def __init__(self, scanner_result: dict | None = None, error_reason: str = "") -> None:
         self.created_at = date(2026, 6, 1)
-        self.id = "obs-1"
         self.session_id = "sess-1"
         self.scanner = None
         self.scanner_result = scanner_result

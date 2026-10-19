@@ -142,8 +142,8 @@ The best-matching observations, ranked by semantic closeness, each with its `obs
 `session_id` (the recording id), the scanner it came from, verdict/score/tags, and the reasoning snippet.
 Cite the matching recordings and synthesize the reasons rather than restating each row.
 
-Pass `observation_id` to retry_replay_vision_observation and label_replay_vision_observation. Pass
-`session_id` to scan_replay_vision_sessions. The two ids are not interchangeable.
+Pass `observation_id` to label_replay_vision_observation and `session_id` to scan_replay_vision_sessions.
+The two ids are not interchangeable.
 """
 
 VALID_SCANNER_TYPES = {t.value for t in ScannerType}
@@ -547,7 +547,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
             output = read_output(result.observation)
             if output is None:
                 continue
-            lines.append(format_line(result.observation, output, show_scanner=cross_scanner))
+            lines.append(format_line(result.observation, output, show_scanner=cross_scanner, show_ids=True))
             matched_ids.append(str(result.observation.id))
 
         if not lines:
@@ -864,8 +864,7 @@ observations can be retried; a succeeded one already has its answer.
 
 def _observation_not_found(observation_id: str) -> tuple[str, dict[str, Any]]:
     return (
-        f"Observation {observation_id} not found. Pass the `observation_id` from search_replay_vision_observations, "
-        "not the recording's `session_id`.",
+        f"Observation {observation_id} not found. Pass an `observation_id`, not a recording's `session_id`.",
         {"error": "not_found"},
     )
 
@@ -873,8 +872,7 @@ def _observation_not_found(observation_id: str) -> tuple[str, dict[str, Any]]:
 class RetryObservationArgs(BaseModel):
     observation_id: str = Field(
         description=(
-            "The `observation_id` of the failed or ineligible observation, from search_replay_vision_observations. "
-            "A recording's `session_id` does not work here."
+            "The `observation_id` of the failed or ineligible observation. A recording's `session_id` does not work here."
         )
     )
 
