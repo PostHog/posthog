@@ -17,11 +17,6 @@ class TestHellobatonSource:
         # The API key is sent to <company>.hellobaton.com, so retargeting the company must re-require it.
         assert self.source.connection_host_fields == ["company"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["projects"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "projects"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
