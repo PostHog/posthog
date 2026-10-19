@@ -654,7 +654,12 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         }
         for person_uuid in person_uuids
     ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+    sync_execute(
+        INSERT_PERSON_STATIC_COHORT,
+        persons,
+        settings={"async_insert": 1, "wait_for_async_insert": 1},
+        team_id=team_id,
+    )
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):

@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
@@ -37,6 +38,7 @@ from products.cohorts.backend.models.util import (
     get_nested_cohort_ids,
     get_static_cohort_size,
     insert_cohort_query_actors_into_ch,
+    insert_static_cohort,
     parse_error_code,
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
@@ -45,6 +47,15 @@ from products.cohorts.backend.models.util import (
 )
 
 MISSING_COHORT_ID = 12345
+
+
+class TestInsertStaticCohort(SimpleTestCase):
+    @patch("products.cohorts.backend.models.util.sync_execute")
+    def test_buffers_concurrent_inserts_and_waits_for_flush(self, execute: MagicMock) -> None:
+        insert_static_cohort([uuid4()], 12, team_id=34)
+
+        assert execute.call_args.kwargs["settings"] == {"async_insert": 1, "wait_for_async_insert": 1}
+        assert execute.call_args.kwargs["team_id"] == 34
 
 
 def _create_cohort(**kwargs):

@@ -12,6 +12,8 @@ from enum import StrEnum
 from django.db.models import F, Value
 from django.db.models.functions import Coalesce
 
+from posthog.dataclasses import frozen
+
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import is_person_in_cohort
 
@@ -25,6 +27,14 @@ class StaticCohortMembershipOutcome(StrEnum):
     NOT_STATIC = "not_static"
 
 
+@frozen
+class StaticCohortAccess:
+    cohort_id: int
+    team_id: int
+    created_by_id: int | None
+    status: StaticCohortMembershipOutcome
+
+
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
     """Whether the team owns that cohort.
 
@@ -34,8 +44,17 @@ def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
 
 
 def get_static_cohort_membership_status(*, team_id: int, cohort_id: int) -> StaticCohortMembershipOutcome:
+    return get_static_cohort_access(team_id=team_id, cohort_id=cohort_id).status
+
+
+def get_static_cohort_access(*, team_id: int, cohort_id: int) -> StaticCohortAccess:
     cohort = Cohort.objects.filter(team_id=team_id, id=cohort_id).first()
-    return _get_static_cohort_membership_status(cohort)
+    return StaticCohortAccess(
+        cohort_id=cohort_id,
+        team_id=team_id,
+        created_by_id=cohort.created_by_id if cohort is not None else None,
+        status=_get_static_cohort_membership_status(cohort),
+    )
 
 
 def add_resolved_person_to_static_cohort(
@@ -49,10 +68,13 @@ def add_resolved_person_to_static_cohort(
     if is_person_in_cohort(team_id, person_id, cohort_id):
         return StaticCohortMembershipOutcome.ALREADY_PRESENT
 
-    cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+    inserted_count = cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
         [(person_id, person_uuid)], team_id=team_id, raise_on_error=True, save_state=False
     )
-    Cohort.objects.filter(team_id=team_id, id=cohort_id).update(count=Coalesce(F("count"), Value(0)) + 1)
+    if inserted_count == 0:
+        return StaticCohortMembershipOutcome.ALREADY_PRESENT
+
+    Cohort.objects.filter(team_id=team_id, id=cohort_id).update(count=Coalesce(F("count"), Value(0)) + inserted_count)
     return StaticCohortMembershipOutcome.ADDED
 
 

@@ -108,6 +108,27 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         insert.assert_not_called()
 
     @patch(
+        "products.cohorts.backend.facade.api.is_person_in_cohort",
+        return_value=False,
+    )
+    @patch(
+        "products.workflows.backend.presentation.views.workflow_cohort_memberships.get_person_ids_and_uuids_by_uuids",
+        return_value=[(42, PERSON_UUID)],
+    )
+    @patch.object(Cohort, "insert_users_list_by_id_uuid_pairs_skip_validation", return_value=0)
+    def test_stale_membership_read_does_not_increment_count(self, insert: Any, _resolve: Any, _is_member: Any) -> None:
+        self.cohort.count = 10
+        self.cohort.save(update_fields=["count"])
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["result"] == "already_present"
+        self.cohort.refresh_from_db()
+        assert self.cohort.count == 10
+        insert.assert_called_once()
+
+    @patch(
         "products.workflows.backend.presentation.views.workflow_cohort_memberships.get_person_ids_and_uuids_by_uuids",
         return_value=[(42, PERSON_UUID)],
     )

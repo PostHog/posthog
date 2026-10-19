@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import timedelta
 
@@ -83,14 +84,27 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
         }
 
     def _deny_cohort_edit_access(self) -> None:
+        self._enable_member_access_control()
+        AccessControl.objects.create(team=self.team, resource="cohort", access_level="none")
+
+    def _deny_selected_cohort_edit_access(self) -> None:
+        self._enable_member_access_control()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(self.cohort.id),
+            access_level="none",
+        )
+
+    def _enable_member_access_control(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
-        self.organization.save(update_fields=["available_product_features"])
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save(update_fields=["available_product_features", "uses_most_specific_access_resolution"])
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save(update_fields=["level"])
-        AccessControl.objects.create(team=self.team, resource="cohort", access_level="none")
 
     def _active_workflow_with_static_cohort_draft(self) -> HogFlow:
         flow = self._flow()
@@ -174,6 +188,36 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
             self.url,
             self._flow(),
             format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == 403, response.json()
+        assert "cohort:write" in response.json()["detail"]
+
+    def test_form_encoded_action_requires_cohort_write(self) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="workflow writer",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["hog_flow:write"],
+        )
+        flow = self._flow()
+        payload: dict[str, str] = {"name": flow["name"], "status": flow["status"]}
+        for index, action in enumerate(flow["actions"]):
+            payload[f"actions[{index}]id"] = action["id"]
+            payload[f"actions[{index}]name"] = action["name"]
+            payload[f"actions[{index}]type"] = action["type"]
+            payload[f"actions[{index}]config"] = json.dumps(action["config"])
+        for index, edge in enumerate(flow["edges"]):
+            payload[f"edges[{index}]from"] = edge["from"]
+            payload[f"edges[{index}]to"] = edge["to"]
+            payload[f"edges[{index}]type"] = edge["type"]
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="multipart",
             headers={"authorization": f"Bearer {key}"},
         )
 
@@ -304,6 +348,32 @@ class TestStaticCohortWorkflowAction(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert "access to edit cohorts" in response.json()["detail"]
         enqueue.assert_not_called()
+
+    def test_save_requires_edit_access_to_selected_cohort(self) -> None:
+        self._deny_selected_cohort_edit_access()
+
+        response = self.client.post(self.url, self._flow(), format="json")
+
+        assert response.status_code == 400, response.json()
+        assert "access to edit cohorts" in str(response.json())
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_batch_job")
+    def test_live_execution_requires_edit_access_to_selected_cohort(self, create_batch_job: MagicMock) -> None:
+        self._enable_member_access_control()
+        create = self.client.post(self.url, self._flow(trigger_type="batch"), format="json")
+        assert create.status_code == 201, create.json()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(self.cohort.id),
+            access_level="none",
+        )
+
+        response = self.client.post(f"{self.url}/{create.json()['id']}/batch_jobs", {}, format="json")
+
+        assert response.status_code == 403, response.json()
+        assert "selected cohort" in response.json()["detail"]
+        create_batch_job.assert_not_called()
 
     @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
     def test_live_draft_invocation_requires_cohort_edit_access(self, invoke: MagicMock) -> None:

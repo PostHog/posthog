@@ -82,6 +82,7 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -121,7 +122,7 @@ from products.cdp.backend.presentation.serializers import (
     InputsSerializer,
     require_viewer_access_to_added_actions,
 )
-from products.cohorts.backend.facade.api import StaticCohortMembershipOutcome, get_static_cohort_membership_status
+from products.cohorts.backend.facade.api import StaticCohortMembershipOutcome, get_static_cohort_access
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -446,6 +447,20 @@ def _contains_static_cohort_action(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_static_cohort_action(item) for item in value)
     return False
+
+
+def _static_cohort_ids(actions: Any) -> set[int]:
+    cohort_ids: set[int] = set()
+    for flow_action in actions if isinstance(actions, list) else []:
+        config = (flow_action.get("config") or {}) if isinstance(flow_action, dict) else {}
+        if config.get("template_id") != _ADD_STATIC_COHORT_MEMBER_TEMPLATE_ID:
+            continue
+        inputs = config.get("inputs") or {}
+        cohort_id_input = inputs.get("cohort_id") if isinstance(inputs, dict) else None
+        cohort_id = cohort_id_input.get("value") if isinstance(cohort_id_input, dict) else None
+        if isinstance(cohort_id, int) and not isinstance(cohort_id, bool):
+            cohort_ids.add(cohort_id)
+    return cohort_ids
 
 
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
@@ -1655,11 +1670,17 @@ class HogFlowActionSerializer(serializers.Serializer):
         if not isinstance(cohort_id, int) or isinstance(cohort_id, bool) or cohort_id < 1:
             raise serializers.ValidationError({"inputs": {"cohort_id": "Select a static cohort."}})
 
+        request = self.context.get("request")
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        if scopes is not None and "*" not in scopes and "cohort:write" not in scopes:
+            raise exceptions.PermissionDenied("The static cohort step needs a key with the cohort:write scope.")
+
         get_team = self.context.get("get_team")
         if get_team is None:
             return
         team = get_team()
-        cohort_status = get_static_cohort_membership_status(team_id=team.id, cohort_id=cohort_id)
+        cohort_access = get_static_cohort_access(team_id=team.id, cohort_id=cohort_id)
+        cohort_status = cohort_access.status
         if cohort_status == StaticCohortMembershipOutcome.NOT_FOUND:
             raise serializers.ValidationError({"inputs": {"cohort_id": "Static cohort was not found."}})
         if cohort_status == StaticCohortMembershipOutcome.DELETED:
@@ -1667,13 +1688,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         if cohort_status == StaticCohortMembershipOutcome.NOT_STATIC:
             raise serializers.ValidationError({"inputs": {"cohort_id": "Select a static cohort."}})
 
-        request = self.context.get("request")
         user = getattr(request, "user", None)
         if (
             user is not None
             and user.is_authenticated
             and not isinstance(user, SyntheticUser)
-            and not UserAccessControl(user=user, team=team).check_access_level_for_resource("cohort", "editor")
+            and not UserAccessControl(user=user, team=team).check_access_level_for_ref(
+                ObjectAccessRef(
+                    resource="cohort",
+                    id=str(cohort_access.cohort_id),
+                    team_id=cohort_access.team_id,
+                    created_by_id=cohort_access.created_by_id,
+                ),
+                "editor",
+            )
         ):
             raise serializers.ValidationError({"inputs": {"cohort_id": "You do not have access to edit cohorts."}})
 
@@ -6209,10 +6237,24 @@ class HogFlowViewSet(
                 raise exceptions.PermissionDenied(error)
 
     def _require_static_cohort_caller_access(self, actions: Any) -> None:
-        if _contains_static_cohort_action(actions) and not self.user_access_control.check_access_level_for_resource(
-            "cohort", "editor"
-        ):
+        if not _contains_static_cohort_action(actions):
+            return
+        if not self.user_access_control.check_access_level_for_resource("cohort", "editor"):
             raise exceptions.PermissionDenied("You do not have access to edit cohorts.")
+        for cohort_id in _static_cohort_ids(actions):
+            cohort_access = get_static_cohort_access(team_id=self.team_id, cohort_id=cohort_id)
+            if cohort_access.status == StaticCohortMembershipOutcome.NOT_FOUND:
+                continue
+            if not self.user_access_control.check_access_level_for_ref(
+                ObjectAccessRef(
+                    resource="cohort",
+                    id=str(cohort_access.cohort_id),
+                    team_id=cohort_access.team_id,
+                    created_by_id=cohort_access.created_by_id,
+                ),
+                "editor",
+            ):
+                raise exceptions.PermissionDenied("You do not have access to edit the selected cohort.")
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])

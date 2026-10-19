@@ -470,6 +470,20 @@ class TestInsertUsersListWithBatchingPersonhog(BaseTest):
         cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.id)
         cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.id)
 
+    @patch("products.cohorts.backend.models.util.insert_cohort_members", return_value=0)
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_resolved_insert_returns_new_member_count(self, mock_insert_ch, mock_insert_members):
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = self._create_static_cohort()
+
+        with patch.object(cohort, "_get_existing_ch_member_uuids", return_value=set()):
+            inserted_count = cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+                [(person.id, str(person.uuid))], team_id=self.team.id, save_state=False
+            )
+
+        assert inserted_count == 0
+        mock_insert_members.assert_called_once()
+
     @parameterized.expand([(True,), (False,)])
     @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_capacity_error_surfaces_only_with_raise_on_error(self, raise_on_error, mock_insert_ch):
