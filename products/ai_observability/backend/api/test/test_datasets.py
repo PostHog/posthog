@@ -806,6 +806,32 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(Dataset.objects.for_team(self.team.id).count(), 1)
 
+    def test_dataset_limit_uses_the_team_override_evaluated_for_the_requesting_user(self) -> None:
+        payload = {"team_configs": {str(self.team.id): {"max_datasets": 2}}}
+        with (
+            patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 1),
+            patch(
+                "products.ai_observability.backend.dataset_service.posthoganalytics.get_feature_flag_payload",
+                return_value=payload,
+            ) as get_payload,
+        ):
+            self._create_dataset("First dataset")
+            self._create_dataset("Second dataset")
+            response = self.client.post(self.datasets_url, {"name": "Over the limit"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual((response.data["current_count"], response.data["limit"]), (2, 2))
+        get_payload.assert_called_with(
+            "llm-analytics-datasets",
+            str(self.user.distinct_id),
+            groups={"organization": str(self.organization.id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.organization.id)},
+                "project": {"id": str(self.team.id)},
+            },
+            send_feature_flag_events=False,
+        )
+
     def test_item_limit_counts_archived_items_without_creating_a_revision(self) -> None:
         dataset = self._create_dataset()
         item = self._create_item(dataset["id"])

@@ -9,6 +9,9 @@ from uuid import UUID
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Max
 
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
@@ -24,6 +27,13 @@ MAX_CLIENT_ITEM_ID_LENGTH = 255
 MAX_SOURCE_ID_LENGTH = 255
 MAX_DATASETS_PER_TEAM = 20
 MAX_VERSIONS_PER_ITEM = 40
+
+# The flag that gates the dataset API. Its payload also carries per-project overrides of
+# `MAX_DATASETS_PER_TEAM`, so a project that asks for more datasets gets them with no deploy:
+# {"team_configs": {"<team_id>": {"max_datasets": 50}}}
+DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
+PAYLOAD_TEAM_CONFIGS_KEY = "team_configs"
+PAYLOAD_MAX_DATASETS_KEY = "max_datasets"
 
 
 class DatasetValidationError(Exception):
@@ -391,6 +401,38 @@ def _create_item_version(
     return version
 
 
+def max_datasets_for_team(*, team: Team, user: User | None) -> int:
+    """The project's dataset limit: its override in the flag payload, or `MAX_DATASETS_PER_TEAM`.
+
+    The payload is evaluated for the requesting user with the organization and project groups
+    that `PostHogFeatureFlagPermission` uses, so it follows the same rollout that gates the API.
+    A missing, malformed, or unreadable override resolves to the default.
+    """
+    if user is None:
+        return MAX_DATASETS_PER_TEAM
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            DATASETS_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            send_feature_flag_events=False,
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+    except Exception as error:
+        capture_exception(error)
+        return MAX_DATASETS_PER_TEAM
+    team_configs = payload.get(PAYLOAD_TEAM_CONFIGS_KEY) if isinstance(payload, dict) else None
+    team_config = team_configs.get(project_id) if isinstance(team_configs, dict) else None
+    limit = team_config.get(PAYLOAD_MAX_DATASETS_KEY) if isinstance(team_config, dict) else None
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        return MAX_DATASETS_PER_TEAM
+    return limit
+
+
 @transaction.atomic
 def create_dataset(
     *,
@@ -402,16 +444,18 @@ def create_dataset(
 ) -> Dataset:
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
+    # Read before taking the lock, so a slow flag read never holds it.
+    limit = max_datasets_for_team(team=team, user=created_by)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
     current_count = Dataset.objects.for_team(team.id, canonical=True).count()
-    if current_count >= MAX_DATASETS_PER_TEAM:
+    if current_count >= limit:
         raise DatasetLimitExceeded(
             resource="datasets",
             current_count=current_count,
-            limit=MAX_DATASETS_PER_TEAM,
+            limit=limit,
             detail=(
-                f"No more datasets can be added to this project. The limit is {MAX_DATASETS_PER_TEAM}. "
+                f"No more datasets can be added to this project. The limit is {limit}. "
                 "Contact support if you need more."
             ),
         )
