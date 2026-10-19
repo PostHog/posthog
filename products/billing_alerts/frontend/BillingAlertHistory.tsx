@@ -11,10 +11,13 @@ import {
     AlertEvaluationHistoryPoint,
     AlertEvaluationThreshold,
 } from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
+import type {
+    BillingAlertConfigurationApi,
+    BillingAlertEventApi,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import { formatBillingValue, thresholdView } from './billingAlertDisplay'
 import { billingAlertHistoryLogic, HISTORY_PAGE_SIZE } from './billingAlertHistoryLogic'
-import type { BillingAlertConfigurationApi, BillingAlertEventApi } from './generated/api.schemas'
 
 export function eventValue(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): number | null {
     return thresholdView(alert).pickEventValue(event)

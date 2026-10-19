@@ -1,5 +1,9 @@
+import type {
+    BillingAlertConfigurationApi,
+    BillingAlertEventApi,
+} from 'products/billing/frontend/generated/api.schemas'
+
 import { eventValue, historyPoint, wouldFire } from './BillingAlertHistory'
-import type { BillingAlertConfigurationApi, BillingAlertEventApi } from './generated/api.schemas'
 
 function alert(thresholdType: BillingAlertConfigurationApi['threshold_type']): BillingAlertConfigurationApi {
     return {
