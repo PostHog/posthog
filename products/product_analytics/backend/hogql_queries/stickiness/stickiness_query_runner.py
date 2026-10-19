@@ -8,7 +8,6 @@ from django.utils.timezone import now
 from posthog.schema import (
     ActionsNode,
     CachedStickinessQueryResponse,
-    DataWarehouseEventsModifier,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
@@ -26,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.hogql_queries.data_warehouse_mixin import data_warehouse_events_modifier, series_hogql_modifiers
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -88,19 +88,11 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         )
 
     def update_hogql_modifiers(self) -> None:
-        datawarehouse_modifiers = []
-        for series in self.query.series:
-            if isinstance(series, DataWarehouseNode):
-                datawarehouse_modifiers.append(
-                    DataWarehouseEventsModifier(
-                        table_name=series.table_name,
-                        timestamp_field=series.timestamp_field,
-                        id_field=series.id_field,
-                        distinct_id_field=series.distinct_id_field,
-                    )
-                )
-
-        self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
+        self.modifiers.dataWarehouseEventsModifiers = [
+            data_warehouse_events_modifier(series)
+            for series in self.query.series
+            if isinstance(series, DataWarehouseNode)
+        ]
 
     def _refresh_frequency(self) -> timedelta:
         date_to = self.query_date_range.date_to()
@@ -323,7 +315,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 team=self.team,
                 user=self.user,
                 timings=self.timings,
-                modifiers=self.modifiers,
+                modifiers=series_hogql_modifiers(self.modifiers, self.series[index].series),
                 limit_context=self.limit_context,
             )
 

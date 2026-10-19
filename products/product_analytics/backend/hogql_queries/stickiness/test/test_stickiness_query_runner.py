@@ -386,7 +386,15 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         id_field="id",
                         distinct_id_field="id",
                         timestamp_field="event_time",
-                    )
+                    ),
+                    # A later series on the same table must not remap the timestamp of the first series.
+                    DataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="id",
+                        distinct_id_field="id",
+                        timestamp_field="timestamp",
+                    ),
                 ],
                 date_from="2023-01-01",
                 date_to="2023-01-07",
@@ -396,6 +404,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["label"] == table_name
         assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0]
         assert response.results[0]["days"] == [1, 2, 3, 4, 5, 6, 7]
+        assert response.results[1]["data"] == [2, 0, 0, 0, 0, 0, 0]
 
     def test_days(self):
         self._create_test_events()
