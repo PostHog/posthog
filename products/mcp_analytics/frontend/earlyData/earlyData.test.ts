@@ -1,3 +1,5 @@
+import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+
 import { buildActivitySummary } from './activitySummary'
 import { EarlyStats, buildNextSteps } from './nextSteps'
 
@@ -111,5 +113,21 @@ describe('early data derivations', () => {
             docsUrl: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
         })
         expect(steps[1].action).toMatchObject({ to: '/mcp-analytics/notifications' })
+    })
+
+    describe('alert step copy', () => {
+        const alertStep = buildNextSteps(
+            stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }),
+            false
+        )[0]
+
+        // Hog function alerts can only go to the destinations the new-alert dialog lists.
+        it.each(DESTINATION_OPTIONS.map(({ label }) => label))('offers %s', (label) => {
+            expect(alertStep.detail.toLowerCase()).toContain(label.toLowerCase())
+        })
+
+        it('does not offer email', () => {
+            expect(alertStep.detail).not.toMatch(/email/i)
+        })
     })
 })

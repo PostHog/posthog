@@ -15,8 +15,12 @@ export type NextStepAction =
     /** A self-contained instruction the user pastes into their coding agent, with the docs as the fallback. */
     | { kind: 'agent-prompt'; prompt: string; docsUrl: string }
 
+export type NextStepKey = 'intent' | 'notification' | 'sessions'
+
+export type NextStepInteraction = 'open' | 'docs'
+
 export interface NextStep {
-    key: 'intent' | 'notification' | 'sessions'
+    key: NextStepKey
     title: string
     detail: string
     action: NextStepAction
@@ -62,7 +66,7 @@ export function buildNextSteps(stats: EarlyStats, hasFailureNotification: boolea
         steps.push({
             key: 'notification',
             title: 'Get alerted when a tool call fails',
-            detail: `${stats.errorCalls} tool call${stats.errorCalls === 1 ? '' : 's'} failed in the last 30 days. Send new failures to Slack, email, or a webhook.`,
+            detail: `${stats.errorCalls} tool call${stats.errorCalls === 1 ? '' : 's'} failed in the last 30 days. Send new failures to Slack, Discord, Microsoft Teams, or a webhook.`,
             action: { kind: 'link', label: 'Set up an alert', to: urls.mcpAnalyticsNotifications() },
         })
     }

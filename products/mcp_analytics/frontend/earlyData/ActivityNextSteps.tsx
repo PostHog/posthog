@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
@@ -20,6 +20,7 @@ function AgentPromptAction({
     prompt: string
     docsUrl: string
 }): JSX.Element {
+    const { nextStepClicked } = useActions(mcpEarlyDataLogic)
     const [open, setOpen] = useState(false)
     return (
         <>
@@ -27,7 +28,10 @@ function AgentPromptAction({
                 type="secondary"
                 size="small"
                 icon={<IconSparkles />}
-                onClick={() => setOpen(true)}
+                onClick={() => {
+                    nextStepClicked(step.key, 'open')
+                    setOpen(true)
+                }}
                 data-attr={`mcp-analytics-activity-next-step-${step.key}`}
             >
                 Fix with your agent
@@ -37,6 +41,7 @@ function AgentPromptAction({
                 size="small"
                 to={docsUrl}
                 targetBlank
+                onClick={() => nextStepClicked(step.key, 'docs')}
                 data-attr={`mcp-analytics-activity-next-step-${step.key}-docs`}
             >
                 Docs
@@ -55,12 +60,14 @@ function AgentPromptAction({
 }
 
 function NextStepActions({ step }: { step: NextStep }): JSX.Element {
+    const { nextStepClicked } = useActions(mcpEarlyDataLogic)
     if (step.action.kind === 'link') {
         return (
             <LemonButton
                 type="secondary"
                 size="small"
                 to={step.action.to}
+                onClick={() => nextStepClicked(step.key, 'open')}
                 data-attr={`mcp-analytics-activity-next-step-${step.key}`}
             >
                 {step.action.label}
@@ -73,7 +80,7 @@ function NextStepActions({ step }: { step: NextStep }): JSX.Element {
 export function ActivityNextSteps(): JSX.Element | null {
     const { nextSteps } = useValues(mcpEarlyDataLogic)
 
-    if (nextSteps.length === 0) {
+    if (!nextSteps?.length) {
         return null
     }
 
