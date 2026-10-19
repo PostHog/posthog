@@ -446,6 +446,27 @@ export const VisionAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
+    .object({
+        reason: zod
+            .union([
+                zod
+                    .enum(['not_a_real_problem', 'already_known', 'not_my_area', 'other'])
+                    .describe(
+                        '\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+            ),
+    })
+    .describe('Why the calling user marked an observation not useful in What to watch.')
+
+/**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionObservationsLabelCreateBodyFeedbackDefault = ``
@@ -1009,6 +1030,27 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const VisionScannersObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
+    .object({
+        reason: zod
+            .union([
+                zod
+                    .enum(['not_a_real_problem', 'already_known', 'not_my_area', 'other'])
+                    .describe(
+                        '\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
+            ),
+    })
+    .describe('Why the calling user marked an observation not useful in What to watch.')
+
+/**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``
@@ -1293,6 +1335,8 @@ export const visionScannersDraftCreateBodyGoalMax = 2000
 
 export const visionScannersDraftCreateBodyMonthlyCreditBudgetMax = 100000000
 
+export const visionScannersDraftCreateBodyExperimentIdMax = 2147483647
+
 export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
     .object({
         goal: zod
@@ -1306,6 +1350,14 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+            ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.'
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")

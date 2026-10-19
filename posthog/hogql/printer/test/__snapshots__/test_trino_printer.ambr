@@ -326,6 +326,7 @@
       'recordingButton',
       'sparkline',
       'uniqueSurveySubmissionsFilter',
+      'withIcon',
     ]),
     'scalar': list([
       'IPv4ToIPv6',

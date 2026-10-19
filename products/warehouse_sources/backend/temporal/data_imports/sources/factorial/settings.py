@@ -39,6 +39,10 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
         name="terminations",
         path="/resources/employee_updates/terminations",
     ),
+    "new_hires": FactorialEndpointConfig(
+        name="new_hires",
+        path="/resources/employee_updates/new_hires",
+    ),
     "teams": FactorialEndpointConfig(
         name="teams",
         path="/resources/teams/teams",
@@ -95,6 +99,13 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
         # all-zero row per employee per day for everyone else.
         params={"include_time_range_category": "false", "include_non_attendable_employees": "false"},
     ),
+    "overtime_requests": FactorialEndpointConfig(
+        name="overtime_requests",
+        path="/resources/attendance/overtime_requests",
+        # The endpoint requires this flag. The approval flow is a nested per-request structure that
+        # the flat `status` / `approver_id` columns already summarize.
+        params={"include_approval_flow": "false"},
+    ),
     "expenses": FactorialEndpointConfig(
         name="expenses",
         path="/resources/expenses/expenses",
@@ -103,6 +114,13 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
     "cost_centers": FactorialEndpointConfig(
         name="cost_centers",
         path="/resources/finance/cost_centers",
+    ),
+    "cost_center_memberships": FactorialEndpointConfig(
+        name="cost_center_memberships",
+        path="/resources/finance/cost_center_memberships",
+        # The endpoint returns only currently active memberships by default, which would drop the
+        # ended allocations needed to attribute past cost.
+        params={"only_active": "false"},
     ),
     "payroll_supplements": FactorialEndpointConfig(
         name="payroll_supplements",
@@ -121,6 +139,14 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
     "projects": FactorialEndpointConfig(
         name="projects",
         path="/resources/project_management/projects",
+    ),
+    "job_catalog_roles": FactorialEndpointConfig(
+        name="job_catalog_roles",
+        path="/resources/job_catalog/roles",
+    ),
+    "job_catalog_levels": FactorialEndpointConfig(
+        name="job_catalog_levels",
+        path="/resources/job_catalog/levels",
     ),
     "candidates": FactorialEndpointConfig(
         name="candidates",

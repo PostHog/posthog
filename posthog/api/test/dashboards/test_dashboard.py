@@ -3,7 +3,13 @@ import datetime
 from collections.abc import Callable
 
 import time_machine
-from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import (
+    APIBaseTest,
+    FuzzyInt,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
+)
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -101,6 +107,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    def _fill_team_config_cache(self) -> None:
+        # The query runner reads these accessors. Each one caches its result in an lru_cache that outlives the test.
+        # The cache key is the Team. Team instances with the same pk compare equal.
+        # A read through self.team therefore also fills the cache for the request's Team.
+        _ = self.team.revenue_analytics_config
+        _ = self.team.marketing_analytics_config
+        _ = self.team.customer_analytics_config
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
@@ -1087,20 +1101,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # queries: the runner passes its already-loaded team, so the check skips the Team
             # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
-            with self.assertNumQueries(baseline + 11):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 9 once at least one insight materializes
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 9):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
@@ -1196,7 +1211,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert [r.get("items", None) for r in response["results"]] == [None, None]
         assert [r.get("tiles", None) for r in response["results"]] == [None, None]
 
-    @snapshot_postgres_queries
     def test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles(self) -> None:
         """
         this test only exists for the query snapshot
@@ -1207,15 +1221,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             AND "posthog_dashboardtile"."dashboard_id" IN (1,
          ```
         """
-        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-1"})
-        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        self._fill_team_config_cache()
+        with snapshot_postgres_queries_context(self):
+            dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-1"})
+            dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
+            self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
+            self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+            self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+            self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
 
-        # so DB has 5 tiles, but we only load need to 1
-        self.dashboard_api.get_dashboard(dashboard_one_id)
+            # so DB has 5 tiles, but we only load need to 1
+            self.dashboard_api.get_dashboard(dashboard_one_id)
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

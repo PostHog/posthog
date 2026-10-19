@@ -30,6 +30,7 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -151,6 +152,55 @@ class TestImageExporter(APIBaseTest):
 
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
+
+    @patch("products.exports.backend.tasks.image_exporter.report_creator_access_revoked")
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_creator_without_resource_access_is_reported_as_event_not_exception(
+        self,
+        mock_calculate: Any,
+        mock_capture: Any,
+        mock_report: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_calculate.side_effect = UserAccessControlError("web_analytics", "viewer")
+        self.exported_asset.created_by = self.user
+        self.exported_asset.save()
+
+        with self.assertRaises(UserAccessControlError):
+            image_exporter.export_image(self.exported_asset)
+
+        mock_capture.assert_not_called()
+        assert mock_report.call_args.kwargs["reason"] == "missing_resource_access"
+        assert mock_report.call_args.kwargs["properties"]["resource"] == "web_analytics"
+
+    @parameterized.expand(
+        [
+            ("user_query_error", QueryError("Unknown table"), False),
+            ("unexpected_error", ValueError("render failed"), True),
+        ]
+    )
+    def test_export_failure_reaches_error_tracking_only_when_not_a_user_error(
+        self,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+        _name: str,
+        error: Exception,
+        expect_captured: bool,
+    ) -> None:
+        mock_screenshot_asset.side_effect = error
+
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+            self.assertRaises(type(error)),
+        ):
+            image_exporter.export_image(self.exported_asset)
+
+        assert mock_capture.called is expect_captured
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
