@@ -301,8 +301,8 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
     @parameterized.expand([("resent_as_stored", " example-bucket"), ("resent_trimmed", "example-bucket")])
     def test_a_bucket_saved_before_trimming_can_still_be_edited(self, _name: str, resent: str) -> None:
-        destination = ExternalDataDestination.objects.create(
-            team=self.team,
+        destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
             type=ExternalDataDestination.Type.S3,
             name="exports",
             integration=self._integration(Integration.IntegrationKind.AWS_S3),
