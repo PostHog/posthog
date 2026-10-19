@@ -1,3 +1,7 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -133,11 +137,12 @@ describe('emailDomainStatusLogic', () => {
         expect(logic.values.status?.verified).toBe(true)
     })
 
-    it('stops polling once the domain is verified and refreshes the channel list', async () => {
+    it('stops polling once the domain is verified and refreshes the channel list and the default sender', async () => {
         backend.verifyDomain(DOMAIN)
         await mountAndLoad()
         expect(logic.values.status?.verified).toBe(true)
         expect(backend.requestsTo('integration_list').length).toBeGreaterThan(0)
+        await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeam'])
 
         await jest.advanceTimersByTimeAsync(MINUTE)
         expect(statusChecks()).toBe(1)

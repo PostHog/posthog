@@ -262,6 +262,8 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 cache.disposables.dispose('poll')
                 if (status.verified) {
                     actions.loadIntegrations()
+                    // Verifying the first sender makes it the project default on the server.
+                    teamLogic.findMounted()?.actions.loadCurrentTeam()
                 }
                 return
             }
