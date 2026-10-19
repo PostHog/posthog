@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.models.utils import (
     AMBIGUOUS_CHARS,
     BASE57,
+    ai_credential_value,
     convert_legacy_metric,
     convert_legacy_metrics,
     generate_random_oauth_access_token,
@@ -18,6 +19,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_project,
     generate_random_token_secret,
+    hash_key_value,
     int_to_base,
     mask_key_value,
     uuid7,
@@ -61,6 +63,11 @@ def test_mask_key_value():
     assert mask_key_value("phx_shortenedAB") == "********"  # String shorter than 16 chars
     assert mask_key_value("phx_00000000ABCD") == "phx_...ABCD"  # Exactly 8 chars
     assert mask_key_value("") == "********"  # Empty string
+
+
+def test_ai_credential_value_matches_gateway_vector():
+    # Twin of TestCredentialNodeParityVector in PostHog/ai-gateway; both derivations must agree byte for byte.
+    assert ai_credential_value(hash_key_value("phs_parity_vector")) == "1cf0cfd88962385d39a50f24133fd919"
 
 
 BASE57_SET = set(BASE57)

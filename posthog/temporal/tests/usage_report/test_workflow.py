@@ -14,15 +14,24 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import activity, workflow
+from temporalio.api.enums.v1 import PendingActivityState
 from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 
+from posthog.temporal.quota_limiting.run_quota_limiting import (
+    QuotaLimitingResult,
+    RunQuotaLimitingAllOrgsInputs,
+    RunQuotaLimitingInputs,
+    RunQuotaLimitingWorkflow,
+)
 from posthog.temporal.usage_report.activities import plan_usage_counters
 from posthog.temporal.usage_report.queries import QUERIES
 from posthog.temporal.usage_report.types import (
@@ -36,11 +45,14 @@ from posthog.temporal.usage_report.types import (
     WorkflowContext,
 )
 from posthog.temporal.usage_report.workflow import (
+    AGGREGATION_QUEUE_PATCH_ID,
+    LOGS_DISTINCT_PATTERNS_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
     QUERY_CONCURRENCY,
     SANDBOX_COMPUTE_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
+    _queries_for_logs_distinct_patterns_patch,
     _queries_for_sandbox_compute_patch,
     build_context,
 )
@@ -56,6 +68,15 @@ from posthog.usage_counters import (
 def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
     assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
     assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
+
+
+def test_logs_distinct_patterns_query_is_versioned_for_existing_histories() -> None:
+    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME not in [
+        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, False)
+    ]
+    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME in [
+        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, True)
+    ]
 
 
 @parameterized.expand(
@@ -82,9 +103,18 @@ def test_build_context_reports_full_day_at_offset(
 
 
 @pytest.mark.asyncio
-async def test_workflow_rejects_negative_day_offset() -> None:
-    # Without the guard, a manual-trigger typo like day_offset=-1 reports a
-    # future empty day and marks it "complete" for billing.
+@pytest.mark.parametrize(
+    "inputs, invalid_field",
+    [
+        # A negative offset reports a future empty day and marks it "complete" for billing.
+        (RunUsageReportsInputs(day_offset=-1), "day_offset"),
+        # A malformed id fails aggregation only after every gather query has run.
+        (RunUsageReportsInputs(organization_ids=["not-a-uuid"]), "organization_ids"),
+    ],
+)
+async def test_workflow_rejects_invalid_inputs_before_running_queries(
+    inputs: RunUsageReportsInputs, invalid_field: str
+) -> None:
     ran_queries: list[str] = []
 
     @activity.defn(name="run-usage-report-query")
@@ -103,7 +133,7 @@ async def test_workflow_rejects_negative_day_offset() -> None:
             with pytest.raises(WorkflowFailureError) as exc_info:
                 await env.client.execute_workflow(
                     RunUsageReportsWorkflow.run,
-                    RunUsageReportsInputs(day_offset=-1),
+                    inputs,
                     id=str(uuid.uuid4()),
                     task_queue=worker.task_queue,
                 )
@@ -111,7 +141,7 @@ async def test_workflow_rejects_negative_day_offset() -> None:
     cause = exc_info.value.cause
     assert isinstance(cause, ApplicationError)
     assert cause.non_retryable
-    assert "day_offset" in str(cause)
+    assert invalid_field in str(cause)
     assert ran_queries == []
 
 
@@ -130,6 +160,8 @@ async def test_workflow_rejects_negative_day_offset() -> None:
         "concurrency",
         "serial_counters",
         "counter_query_failure",
+        "pre_aggregation_queue",
+        "aggregation_queue",
     ],
 )
 async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: pytest.LogCaptureFixture) -> None:
@@ -145,6 +177,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     query_started = asyncio.Event()
     counter_started = asyncio.Event()
     release_queries = asyncio.Event()
+    aggregation_started = asyncio.Event()
+    release_aggregation = asyncio.Event()
+    active_aggregations = 0
+    max_active_aggregations = 0
     starts: asyncio.Queue[str] = asyncio.Queue()
     releases: dict[str, asyncio.Event] = {}
     active_queries: set[str] = set()
@@ -153,6 +189,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     max_active_counters = 0
     fails = report_behavior in {"activity_failure", "query_failure", "pre_patch_query_failure", "counter_query_failure"}
     pre_patch = report_behavior.startswith("pre_patch")
+    legacy_aggregation_queue = pre_patch or report_behavior == "pre_aggregation_queue"
     parallel_counters = not pre_patch and report_behavior != "serial_counters"
     expected_counter_report = RunQueryToS3Result(
         query_name="usage_counters", s3_key="queries/counters.json", duration_ms=1
@@ -228,23 +265,54 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
 
     @activity.defn(name="aggregate-and-chunk-org-reports")
     async def aggregate_mock(inputs: AggregateInputs) -> AggregateResult:
+        nonlocal active_aggregations, max_active_aggregations
         aggregate_payloads.append(inputs)
         aggregated_with.append([r.query_name for r in inputs.query_results])
-        return expected_aggregate
+        active_aggregations += 1
+        max_active_aggregations = max(max_active_aggregations, active_aggregations)
+        aggregation_started.set()
+        try:
+            if report_behavior == "aggregation_queue":
+                await release_aggregation.wait()
+            return expected_aggregate
+        finally:
+            active_aggregations -= 1
+
+    @activity.defn(name="run-quota-limiting-all-orgs")
+    async def quota_mock(inputs: RunQuotaLimitingAllOrgsInputs) -> QuotaLimitingResult:
+        return QuotaLimitingResult(orgs_processed=1)
 
     @activity.defn(name="usage-reports-enqueue-pointer-message")
     async def pointer_mock(inputs: EnqueuePointerInputs) -> None:
         pointer_payloads.append(inputs)
 
     task_queue = str(uuid.uuid4())
+    aggregation_queue = f"{task_queue}-aggregation"
     workflow_id = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[RunUsageReportsWorkflow],
-            activities=[query_mock, aggregate_mock, pointer_mock, plan_mock, fetch_mock, legacy_counter_mock],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+    with override_settings(USAGE_REPORT_AGGREGATION_TASK_QUEUE=aggregation_queue):
+        async with (
+            await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env,
+            Worker(
+                env.client,
+                task_queue=aggregation_queue,
+                activities=[aggregate_mock],
+                max_concurrent_activities=1,
+            ),
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunUsageReportsWorkflow, RunQuotaLimitingWorkflow],
+                activities=[
+                    query_mock,
+                    aggregate_mock,
+                    pointer_mock,
+                    plan_mock,
+                    fetch_mock,
+                    legacy_counter_mock,
+                    quota_mock,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
         ):
             patched = workflow.patched
             with (
@@ -254,10 +322,11 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                         False
                         if (pre_patch and name == USAGE_COUNTER_SERVICE_PATCH_ID)
                         or (report_behavior == "serial_counters" and name == PARALLEL_COUNTER_QUERIES_PATCH_ID)
+                        or (legacy_aggregation_queue and name == AGGREGATION_QUEUE_PATCH_ID)
                         else patched(name)
                     ),
                 )
-                if pre_patch or report_behavior == "serial_counters"
+                if legacy_aggregation_queue or report_behavior == "serial_counters"
                 else nullcontext()
             ):
                 try:
@@ -279,38 +348,77 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                                 ]
                                 for name in batch:
                                     releases[name].set()
+                        if report_behavior == "aggregation_queue":
+                            await asyncio.wait_for(aggregation_started.wait(), timeout=10)
+                            second = await env.client.start_workflow(
+                                RunUsageReportsWorkflow.run,
+                                RunUsageReportsInputs(day_offset=0),
+                                id=str(uuid.uuid4()),
+                                task_queue=task_queue,
+                                execution_timeout=timedelta(minutes=2),
+                            )
+                            async with asyncio.timeout(30):
+                                async for event in second.fetch_history_events(wait_new_event=True):
+                                    if (
+                                        event.activity_task_scheduled_event_attributes.activity_type.name
+                                        == "aggregate-and-chunk-org-reports"
+                                    ):
+                                        break
+                                quota = await env.client.execute_workflow(
+                                    RunQuotaLimitingWorkflow.run,
+                                    RunQuotaLimitingInputs(),
+                                    id=str(uuid.uuid4()),
+                                    task_queue=task_queue,
+                                    execution_timeout=timedelta(minutes=2),
+                                )
+                                assert quota.orgs_processed == 1
+                                pending = (await second.describe()).raw_description.pending_activities
+                                assert len(pending) == 1
+                                assert pending[0].state == PendingActivityState.PENDING_ACTIVITY_STATE_SCHEDULED
+                                assert len(aggregate_payloads) == 1
+                                release_aggregation.set()
+                                assert await second.result() == expected_aggregate.model_dump()
+                            assert max_active_aggregations == 1
                         result = await asyncio.wait_for(run, timeout=30 if fails else 120)
                 finally:
                     release_queries.set()
+                    release_aggregation.set()
                     for release in releases.values():
                         release.set()
 
-        # Verify the per-query activity scheduling carried `summary=spec.name`
-        # so the Temporal UI shows which query is running.
-        handle = env.client.get_workflow_handle(workflow_id)
-        history = await handle.fetch_history()
-        scheduled_summaries: dict[str, str] = {}
-        async for event in handle.fetch_history_events():
-            attrs = event.activity_task_scheduled_event_attributes
-            if attrs.activity_type.name not in {"run-usage-report-query", "run-legacy-usage-counter"}:
-                continue
-            assert event.user_metadata.HasField("summary"), f"activity {attrs.activity_id} scheduled without a summary"
-            (decoded_summary,) = pydantic_data_converter.payload_converter.from_payloads(
-                [event.user_metadata.summary], [str]
-            )
-            scheduled_summaries[attrs.activity_id] = decoded_summary
+            # Each query activity carries a readable summary in the Temporal UI.
+            handle = env.client.get_workflow_handle(workflow_id)
+            history = await handle.fetch_history()
+            scheduled_summaries: dict[str, str] = {}
+            async for event in handle.fetch_history_events():
+                attrs = event.activity_task_scheduled_event_attributes
+                if attrs.activity_type.name == "aggregate-and-chunk-org-reports":
+                    assert attrs.task_queue.name == (task_queue if legacy_aggregation_queue else aggregation_queue)
+                if attrs.activity_type.name not in {"run-usage-report-query", "run-legacy-usage-counter"}:
+                    continue
+                assert event.user_metadata.HasField("summary"), (
+                    f"activity {attrs.activity_id} scheduled without a summary"
+                )
+                (decoded_summary,) = pydantic_data_converter.payload_converter.from_payloads(
+                    [event.user_metadata.summary], [str]
+                )
+                scheduled_summaries[attrs.activity_id] = decoded_summary
 
     counter_names = plans[0].query_names if plans else set()
     expected_names = [spec.name for spec in QUERIES if spec.name not in counter_names]
-    await Replayer(
-        workflows=[RunUsageReportsWorkflow],
-        data_converter=pydantic_data_converter,
-        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-    ).replay_workflow(history)
+    with override_settings(USAGE_REPORT_AGGREGATION_TASK_QUEUE=aggregation_queue):
+        await Replayer(
+            workflows=[RunUsageReportsWorkflow],
+            data_converter=pydantic_data_converter,
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)
     if fails:
         assert set(seen_query_names) <= set(expected_names)
         assert aggregated_with == []
         assert pointer_payloads == []
+        return
+    if report_behavior == "aggregation_queue":
+        assert len(aggregate_payloads) == len(pointer_payloads) == 2
         return
 
     # Queries run with bounded concurrency, so completion order is not

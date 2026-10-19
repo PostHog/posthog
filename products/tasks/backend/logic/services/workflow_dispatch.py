@@ -513,9 +513,7 @@ def enqueue_or_start_workflow(
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
         else:
             with transaction.atomic():
-                locked_run = (
-                    TaskRun.objects.select_for_update().select_related("task", "task__team").get(id=task_run.id)
-                )
+                locked_run = TaskRun.objects.select_for_update().get(id=task_run.id)
                 create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )

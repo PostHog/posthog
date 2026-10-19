@@ -54,6 +54,8 @@ export interface MaxRecordingEventFilter {
     name?: string
     /** Optional property filters for this event only. */
     properties?: AssistantPropertyFilter[]
+    /** Set to true to match sessions that did NOT contain this event. Only set it when the tool description says excluding sessions by event is supported. */
+    negation?: boolean
 }
 
 export type MaxUniversalFilterValue =

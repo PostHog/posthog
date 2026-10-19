@@ -7940,7 +7940,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert refreshed.json()["installations"] == []
 
     @patch("products.cdp.backend.internal_events.produce_internal_event")
-    def test_invalid_credential_discard_is_private_and_retained(self, produce: MagicMock) -> None:
+    def test_invalid_credential_is_flagged_with_a_private_audit_record(self, produce: MagicMock) -> None:
         integration = UserIntegration.objects.create(
             user=self.user,
             kind="github",
@@ -7949,6 +7949,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
                 "originating_organization_id": str(self.organization.id),
                 "github_user": {"id": 101, "login": "synthetic-reader"},
                 "user_refresh_token_expires_at": 1,
+                "user_token_refreshed_at": int(time.time()) - 7200,
             },
             sensitive_config={"user_access_token": "synthetic-private-secret"},
         )
@@ -7962,10 +7963,27 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert log.team_id is None
         assert log.organization_id == self.organization.id
         assert log.detail is not None
-        assert log.detail["trigger"]["payload"]["event"] == "credential_deleted"
-        assert not UserIntegration.objects.filter(pk=integration_id).exists()
+        assert log.detail["trigger"]["payload"]["event"] == "credential_reauthorization_required"
+        assert 7200 <= log.detail["trigger"]["payload"]["token_age_seconds"] < 7500
+        assert UserIntegration.objects.filter(pk=integration_id).exists()
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
+
+    def test_flagging_a_credential_deleted_by_a_disconnect_records_nothing(self) -> None:
+        integration = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="9008",
+            config={"originating_organization_id": str(self.organization.id)},
+            sensitive_config={"user_access_token": "synthetic-private-secret"},
+        )
+        stale = UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        UserIntegration.objects.filter(pk=integration.pk).delete()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
+
+        assert not ActivityLog.objects.filter(item_id=str(integration.pk), activity="github_diagnostic").exists()
 
     def test_github_audit_filters_unknown_fields_from_discovery_logs(self) -> None:
         candidate = {"installation_id": "9007", "account_name": "synthetic-owner", "token": "synthetic-secret"}

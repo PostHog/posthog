@@ -289,9 +289,12 @@ class MetricResultStore:
         query_from: datetime,
         result: dict[str, Any],
         query_id: str | None,
-    ) -> None:
-        """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing."""
-        self._record_for_run(
+    ) -> bool:
+        """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing.
+
+        Returns whether the result was stored.
+        """
+        return self._record_for_run(
             recalculation_id,
             calculation_config,
             window=window,
@@ -429,7 +432,7 @@ class MetricResultStore:
         result: dict[str, Any] | None,
         error_message: str | None,
         query_id: str | None,
-    ) -> None:
+    ) -> bool:
         team_id = calculation_config.settings.team_id
         with transaction.atomic():
             # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
@@ -447,7 +450,7 @@ class MetricResultStore:
                     metric_uuid=calculation_config.metric_id,
                     recalculation_status=current_status,
                 )
-                return
+                return False
 
             self._upsert(
                 calculation_config.metric_id,
@@ -461,6 +464,7 @@ class MetricResultStore:
                 query_id=query_id,
                 completed_at=django_timezone.now() if status == _COMPLETED else None,
             )
+            return True
 
     def _upsert(
         self,

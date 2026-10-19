@@ -19,12 +19,16 @@ class SeriesPoint:
     value: float | None  # None = missing data point this interval
 
 
-@dataclass
+@frozen
 class ComparableSeries:
     label: str  # series / breakdown label, used in breach messages
     points: list[SeriesPoint]  # chronologically ascending; extractor guarantees order
     current_index: int  # comparison anchor; previous = current_index - 1
     is_current_interval: bool = False  # anchor is the ongoing (incomplete) interval — affects breach wording
+    # The raw identity a caller keys per-series state on. Labels are formatted for display and two
+    # series can render the same one, such as multi-breakdown values ["a::b", "c"] and ["a", "b::c"].
+    # None when the label is the only identity the extractor has.
+    identity: str | None = None
 
 
 @frozen
@@ -68,6 +72,9 @@ class ExtractionResult:
     # trends extractor sets it today; the PERCENTAGE-threshold path ignores it (relative % ratios).
     value_formatter: Callable[[float], str] | None = None
     evaluated_interval: EvaluatedInterval | None = None
+    # The query folded breakdown values past its limit into one "Other" series, so a value missing
+    # from ``series`` may still exist and breach.
+    truncated: bool = False
 
 
 def zero_sentinel_series() -> ComparableSeries:

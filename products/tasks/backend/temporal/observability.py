@@ -8,10 +8,12 @@ from temporalio import activity, workflow
 from posthog.temporal.common.logger import get_logger
 
 from products.tasks.backend.models import LogLevel
+from products.tasks.backend.temporal.metrics import StepTimer
 
 logger = get_logger(__name__)
 
 
+@StepTimer("agent_log")
 def emit_agent_log(run_id: str, level: LogLevel, message: str) -> None:
     """Emit a console-style agent event for user-facing logs.
 
@@ -116,6 +118,23 @@ def log_activity_execution(
             return result
     """
     bound_logger = logger.bind(**context)
+
+    for key in (
+        "run_id",
+        "task_id",
+        "origin_product",
+        "environment",
+        "mode",
+        "run_source",
+        "runtime_adapter",
+        "provider",
+        "runtime",
+        "sandbox_backend",
+        "boot_path",
+        "used_snapshot",
+    ):
+        if key in context:
+            posthoganalytics.tag("run_environment" if key == "environment" else key, context[key])
 
     if activity.in_activity():
         info = activity.info()

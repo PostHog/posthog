@@ -26,6 +26,7 @@ from products.business_knowledge.backend.github_repos import (
     search_repositories,
     select_github_repos,
 )
+from products.business_knowledge.backend.libraries import LibraryNotFound, get_library
 
 from .repository_serializers import (
     RepositoryConnectionSerializer,
@@ -163,11 +164,14 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def search(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        library_id = request.validated_query_data.get("library_id")
+        self._require_library(library_id)
         outcome = search_repositories(
             self.team,
             cast(User, request.user),
             request.validated_query_data["query"],
             request.validated_query_data.get("repo") or None,
+            library_id=library_id,
         )
         return Response(RepositorySearchResponseSerializer(_search_payload(outcome)).data)
 
@@ -189,13 +193,24 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def read_file(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        library_id = request.validated_query_data.get("library_id")
+        self._require_library(library_id)
         loaded = read_repository_file(
             self.team,
             cast(User, request.user),
             request.validated_query_data["repo"],
             request.validated_query_data["path"],
+            library_id=library_id,
         )
         return Response(RepositoryFileSerializer(_file_payload(loaded)).data)
+
+    def _require_library(self, library_id: Any) -> None:
+        if library_id is None:
+            return
+        try:
+            get_library(self.team_id, library_id)
+        except LibraryNotFound:
+            raise exceptions.NotFound() from None
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, GithubReposError):

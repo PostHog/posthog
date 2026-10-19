@@ -6,7 +6,6 @@ import { Button, Skeleton } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { TodayBriefingItemRow } from './TodayBriefingItemRow'
 import { type TodayForYouRow } from './todayForYouRows'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
@@ -31,8 +30,6 @@ function TodayRowsSkeleton(): JSX.Element {
 
 function renderRow(row: TodayForYouRow): JSX.Element {
     switch (row.kind) {
-        case 'briefing':
-            return <TodayBriefingItemRow key={row.key} item={row.item} done={row.done} />
         case 'report':
             return <TodayReportRow key={row.key} report={row.report} source={row.source} done={row.done} />
         case 'highlight':

@@ -1,7 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 export type TodayReportIcon =
     | 'pr'
@@ -63,7 +65,7 @@ const FALLBACK_SOURCE: TodayReportSource = {
 }
 
 export function reportTitle(report: Pick<SignalReport, 'title'>): string {
-    return report.title?.trim() || 'Untitled report'
+    return capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))
 }
 
 export function sourceLabel(source: string): string {

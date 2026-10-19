@@ -47,6 +47,9 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         return {
             "401 Client Error": "Your DebugBear API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error": "Your DebugBear API key doesn't have permission for this request. Use an Admin API key (Account settings > API Keys) and reconnect.",
+            # Raised by `_iter_rum_metrics_for_project` after DebugBear 400s on a project with no
+            # RUM data; the raw message already names the project and the likely fix.
+            "DebugBear rejected the RUM metrics request": None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

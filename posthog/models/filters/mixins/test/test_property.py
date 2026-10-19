@@ -235,7 +235,7 @@ def test_property_group_multi_level_json_parsing():
 
 
 @pytest.mark.parametrize(
-    "invalid_property,expected_fields,expected_exception",
+    "invalid_property,expected_fields,expected_exception,expected_fingerprint",
     [
         # Behavioral leaf missing its required event_type: fails Property.__init__'s own
         # attr-presence checks (PropertyValidationError, raised directly).
@@ -243,6 +243,7 @@ def test_property_group_multi_level_json_parsing():
             {"key": "$pageview", "type": "behavioral", "value": "performed_event"},
             ["key", "type", "value"],
             PropertyValidationError,
+            "parse_properties.PropertyValidationError.behavioral.performed_event.event_type",
             id="missing_event_type",
         ),
         # Behavioral leaf with a value that doesn't match any known BehavioralPropertyType
@@ -252,6 +253,7 @@ def test_property_group_multi_level_json_parsing():
             {"key": "$pageview", "type": "behavioral", "value": "not_a_real_behavior", "event_type": "events"},
             ["event_type", "key", "type", "value"],
             PropertyValidationError,
+            "parse_properties.PropertyValidationError.behavioral.unknown.value",
             id="unknown_behavioral_value",
         ),
         # "group" property with an out-of-range group_type_index: fails via
@@ -262,12 +264,36 @@ def test_property_group_multi_level_json_parsing():
             {"key": "industry", "value": "tech", "type": "group", "group_type_index": 99},
             ["group_type_index", "key", "type", "value"],
             ValidationError,
+            "parse_properties.ValidationError.group",
             id="invalid_group_type_index",
+        ),
+        # Aliased behavioral leaf with no time window: fails the conditional check, whose
+        # message joins sets in hash order, so the fingerprint must come from the canonical value.
+        pytest.param(
+            {
+                "key": "$pageview",
+                "type": "behavioral",
+                "value": "performed_event_multiple_times",
+                "event_type": "events",
+                "operator_value": 2,
+            },
+            ["event_type", "key", "operator_value", "type", "value"],
+            PropertyValidationError,
+            "parse_properties.PropertyValidationError.behavioral.performed_event_multiple",
+            id="aliased_leaf_without_time_window",
+        ),
+        # Unrecognized property type: stored strings must not reach the fingerprint.
+        pytest.param(
+            {"key": "attr", "value": "x", "type": "not_a_type"},
+            ["key", "type", "value"],
+            PropertyValidationError,
+            "parse_properties.PropertyValidationError.unknown.type",
+            id="unknown_property_type",
         ),
     ],
 )
 def test_property_group_parsing_reports_and_skips_unparsable_property(
-    invalid_property, expected_fields, expected_exception
+    invalid_property, expected_fields, expected_exception, expected_fingerprint
 ):
     # A property that fails to construct used to be dropped by a bare `except: continue`
     # with no visibility at all. It must still be dropped (callers across the codebase
@@ -295,6 +321,7 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
     assert kwargs["additional_properties"] == {
         "property_type": invalid_property["type"],
         "property_fields": expected_fields,
+        "$exception_fingerprint": expected_fingerprint,
     }
 
 
@@ -315,7 +342,11 @@ def test_property_group_parsing_reports_non_mapping_property():
     mock_capture_exception.assert_called_once()
     args, kwargs = mock_capture_exception.call_args
     assert isinstance(args[0], TypeError)
-    assert kwargs["additional_properties"] == {"property_type": None, "property_fields": None}
+    assert kwargs["additional_properties"] == {
+        "property_type": None,
+        "property_fields": None,
+        "$exception_fingerprint": "parse_properties.TypeError.unknown",
+    }
 
 
 def test_property_group_parsing_disables_code_variable_capture_for_reported_exception():

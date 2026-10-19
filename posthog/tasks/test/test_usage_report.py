@@ -4,7 +4,7 @@ import base64
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -40,6 +40,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
+from posthog.clickhouse.logs.logs_pattern_buckets import TABLE_NAME as LOGS_PATTERN_BUCKETS_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -72,6 +73,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
@@ -508,6 +510,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "posthog-aspnetcore",
                 "posthog-elixir",
                 "posthog-unity",
+                "posthog-roblox",
             ]
 
             for sdk in sdks:
@@ -695,8 +698,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 49,
-                    "enhanced_persons_event_count_in_period": 48,
+                    "event_count_in_period": 50,
+                    "enhanced_persons_event_count_in_period": 49,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -736,6 +739,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "dotnet_events_count_in_period": 2,
                     "elixir_events_count_in_period": 1,
                     "unity_events_count_in_period": 1,
+                    "roblox_events_count_in_period": 1,
                     "rust_events_count_in_period": 0,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
@@ -789,8 +793,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 38,
-                            "enhanced_persons_event_count_in_period": 37,
+                            "event_count_in_period": 39,
+                            "enhanced_persons_event_count_in_period": 38,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -830,6 +834,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 2,
                             "elixir_events_count_in_period": 1,
                             "unity_events_count_in_period": 1,
+                            "roblox_events_count_in_period": 1,
                             "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
@@ -918,6 +923,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
+                            "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
@@ -1029,6 +1035,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "dotnet_events_count_in_period": 0,
                     "elixir_events_count_in_period": 0,
                     "unity_events_count_in_period": 0,
+                    "roblox_events_count_in_period": 0,
                     "rust_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
@@ -1123,6 +1130,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
+                            "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
@@ -3741,6 +3749,47 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert get_teams_with_sdk_logs_records_in_period(begin, end, [team_id]) == expected
         assert get_teams_with_sdk_logs_records_in_period(begin, end, []) == {sdk: [] for sdk in expected}
 
+    def test_logs_distinct_patterns_count_latest_version_across_period(self) -> None:
+        self._setup_teams()
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_PATTERN_BUCKETS_TABLE}")
+        begin = datetime(2026, 10, 16, tzinfo=UTC)
+        end = begin + timedelta(days=1)
+        team_id = self.org_1_team_1.id
+        other_team_id = self.org_1_team_2.id
+
+        def row(
+            team: int, bucket: datetime, version: int, pattern: str, service: str = "api", severity: str = "info"
+        ) -> str:
+            return json.dumps(
+                {
+                    "team_id": team,
+                    "time_bucket": bucket.strftime("%Y-%m-%d %H:%M:%S"),
+                    "service_name": service,
+                    "namespace": "",
+                    "environment": "",
+                    "severity_text": severity,
+                    "pattern_version": version,
+                    "pattern": pattern,
+                    "retention_days": 30,
+                    "log_count": 1,
+                }
+            )
+
+        rows = [
+            row(team_id, begin, 5, "old a"),
+            row(team_id, begin, 5, "old b"),
+            row(team_id, begin, 5, "old c"),
+            row(team_id, begin + timedelta(hours=12), 6, "a"),
+            row(team_id, begin + timedelta(hours=13), 6, "a", service="worker", severity="error"),
+            row(team_id, end - timedelta(minutes=5), 6, "b"),
+            row(team_id, begin - timedelta(minutes=5), 6, "before"),
+            row(team_id, end, 6, "after"),
+            row(other_team_id, begin, 5, "x"),
+        ]
+        sync_execute(f"INSERT INTO {LOGS_PATTERN_BUCKETS_TABLE} FORMAT JSONEachRow\n" + "\n".join(rows))
+
+        assert dict(get_teams_with_logs_distinct_patterns_in_period(begin, end)) == {team_id: 2, other_team_id: 1}
+
     @parameterized.expand(
         [
             # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
@@ -5665,20 +5714,56 @@ class TestSendUsageNoLicense(APIBaseTest):
 
         mock_post.assert_not_called()
 
-    def test_get_teams_for_usage_reports_only_fields(self) -> None:
-        teams = _get_teams_for_usage_reports()
-        team: Team = teams[0]
 
-        # these fields are included in the query, so shouldn't require additional queries
+class TestBillableTeams(TestCase):
+    @parameterized.expand([(1, None), (2, None), (10, []), (2, [str(UUID(int=3))])])
+    def test_get_teams_for_usage_reports(self, batch_size: int, organization_ids: list[str] | None) -> None:
+        org_last = Organization.objects.create(id=UUID(int=3), name="Last")
+        org_first = Organization.objects.create(id=UUID(int=1), name="First")
+        org_demo = Organization.objects.create(id=UUID(int=2), name="Demo only")
+        org_internal = Organization.objects.create(id=UUID(int=4), name="Internal", for_internal_metrics=True)
+        first_team = Team.objects.create(organization=org_first, name="First project")
+        last_team = Team.objects.create(organization=org_last, name="Last project")
+        second_team = Team.objects.create(organization=org_first, name="Second project")
+        Team.objects.create(organization=org_demo, is_demo=True)
+        Team.objects.create(organization=org_first, is_demo=True)
+        Team.objects.create(organization=org_internal)
+
+        org_count = 1 if organization_ids else 3
+        expected_queries = 2 * ((org_count + batch_size - 1) // batch_size) + int(org_count % batch_size == 0)
+        with (
+            patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", batch_size),
+            self.assertNumQueries(expected_queries),
+        ):
+            teams = list(_get_teams_for_usage_reports(organization_ids=organization_ids))
+
+        expected_teams = [last_team] if organization_ids else [first_team, second_team, last_team]
+        assert [team.id for team in teams] == [team.id for team in expected_teams]
         with self.assertNumQueries(0):
-            _ = team.id
-            _ = team.organization.id
-            _ = team.organization.name
-            _ = team.organization.created_at
+            for team, expected in zip(teams, expected_teams):
+                assert team.name == expected.name
+                assert team.organization.id == expected.organization.id
+                assert team.organization.name == expected.organization.name
+                assert team.organization.created_at == expected.organization.created_at
+            if not organization_ids:
+                assert teams[0].organization is teams[1].organization
 
-        # This field is not included in the original team query, so should require an additional query
         with self.assertNumQueries(1):
-            _ = team.organization.for_internal_metrics
+            assert teams[0].organization.for_internal_metrics is False
+
+    def test_team_moved_to_a_later_organization_during_the_scan_is_reported_once(self) -> None:
+        org_first = Organization.objects.create(id=UUID(int=1), name="First")
+        org_last = Organization.objects.create(id=UUID(int=2), name="Last")
+        moved_team = Team.objects.create(organization=org_first, name="Moved project")
+
+        with patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", 1):
+            teams = _get_teams_for_usage_reports()
+            first = next(teams)
+            Team.objects.filter(id=moved_team.id).update(organization=org_last)
+            rest = list(teams)
+
+        assert [team.id for team in [first, *rest]] == [moved_team.id]
+        assert first.organization.id == org_first.id
 
 
 @time_machine.travel("2021-10-10T23:01:00Z", tick=False)

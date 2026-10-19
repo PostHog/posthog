@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from unittest import TestCase
@@ -7,6 +8,7 @@ from parameterized import parameterized
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.context import HealthContext, parse_flag_state
+from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 
 # The flag documents and cases of the `experimentWarning` test in
 # frontend/src/scenes/experiments/experimentLogic.test.ts, so that both sides answer alike. A running
@@ -40,15 +42,12 @@ SHIPPED_TO_SOME = {
     "multivariate": SHIPPED_VARIANT["multivariate"],
 }
 
-RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
-ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
-DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
-
 
 def _context(
-    status: dict[str, bool], *, active: bool, filters: dict[str, Any], deleted: bool = False, archived: bool = False
+    status: Status, *, active: bool, filters: dict[str, Any], deleted: bool = False, archived: bool = False
 ) -> HealthContext:
-    return HealthContext(
+    return replace(
+        RUNNING_CONTEXT,
         **status,
         is_paused=status["is_running"] and not active,
         archived=archived,
@@ -58,10 +57,6 @@ def _context(
             groups=filters.get("groups"),
             variants=(filters.get("multivariate") or {}).get("variants"),
         ),
-        baseline_variant_key=None,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
     )
 
 

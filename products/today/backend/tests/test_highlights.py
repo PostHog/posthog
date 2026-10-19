@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,12 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.today.backend.facade import contracts
+from products.today.backend.facade.contracts import (
+    HighlightCandidate,
+    HighlightContext,
+    HighlightFindings,
+    HighlightSource,
+)
 from products.today.backend.facade.enums import (
     HighlightInterval,
     HighlightLabel,
@@ -27,8 +34,8 @@ from products.today.backend.facade.enums import (
     HighlightsStatus,
     HighlightUnit,
 )
-from products.today.backend.logic import highlight_types, highlights
-from products.today.backend.logic.highlight_types import Candidate, Context, Found, Source
+from products.today.backend.logic import highlight_registry, highlight_types, highlights
+from products.today.backend.logic.highlight_types import Context
 from products.today.backend.logic.highlights import MAX_ITEMS, rank
 from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
@@ -38,12 +45,14 @@ from products.today.backend.temporal.inputs import (
 )
 
 DAY = date(2026, 10, 13)
-FOUND = TypeAdapter(Found)
+FOUND = TypeAdapter(HighlightFindings)
 HIGHLIGHTS = TypeAdapter(contracts.Highlights)
 
 
-def candidate(key: str, family: str, importance: float, title: str | None = None, ref: str | None = None) -> Candidate:
-    return Candidate(
+def candidate(
+    key: str, family: str, importance: float, title: str | None = None, ref: str | None = None
+) -> HighlightCandidate:
+    return HighlightCandidate(
         key=key,
         label=HighlightLabel.RISK,
         family=family,
@@ -63,10 +72,11 @@ def metric(key: str) -> contracts.HighlightMetric:
 
 ALERT_RESULT = HighlightSourceResult(
     source_name="alerts",
-    found=FOUND.dump_json(Found(items=(candidate("alert", "alerts", 0.8),))).decode(),
+    found=FOUND.dump_json(HighlightFindings(items=(candidate("alert", "alerts", 0.8),))).decode(),
     failed=False,
 )
 FAILED_RESULT = HighlightSourceResult(source_name="errors", found=None, failed=True)
+PARTIAL_RESULT = HighlightSourceResult(source_name="alerts", found=ALERT_RESULT.found, failed=True)
 READY_CONTENT = HIGHLIGHTS.dump_python(
     contracts.Highlights(
         status=HighlightsStatus.READY,
@@ -127,18 +137,18 @@ class TestHighlightRanking(SimpleTestCase):
 class TestBuildHighlights(SimpleTestCase):
     def test_the_pulse_follows_the_source_order_and_the_items_follow_priority(self) -> None:
         sources = (
-            Source(name="key_metrics", find=lambda _c: Found(), pulse_order=2),
-            Source(name="routine", find=lambda _c: Found(), pulse_order=1),
-            Source(name="experiments", find=lambda _c: Found()),
-            Source(name="alerts", find=lambda _c: Found()),
+            HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
+            HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
+            HighlightSource(name="experiments", find=lambda _c: HighlightFindings()),
+            HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
         )
         found = {
-            "key_metrics": Found(pulse=(metric("k1"), metric("k2"), metric("k3"))),
-            "routine": Found(pulse=(metric("r1"), metric("r2"))),
-            "experiments": Found(
+            "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
+            "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
+            "experiments": HighlightFindings(
                 items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
             ),
-            "alerts": Found(items=(candidate("alert", "alerts", 0.5),)),
+            "alerts": HighlightFindings(items=(candidate("alert", "alerts", 0.5),)),
         }
 
         built = highlights.build_highlights(sources, found, Team(timezone="Europe/Prague"), DAY)
@@ -170,17 +180,19 @@ class TestBuildHighlights(SimpleTestCase):
         self, _name: str, interval: HighlightInterval, week_start_day: int | None, count: int, expected: list[date]
     ) -> None:
         tile = replace(metric("k"), series=[1.0] * count, interval=interval)
-        source = Source(name="metrics", find=lambda _c: Found())
+        source = HighlightSource(name="metrics", find=lambda _c: HighlightFindings())
 
         built = highlights.build_highlights(
-            (source,), {"metrics": Found(pulse=(tile,))}, Team(week_start_day=week_start_day), DAY
+            (source,), {"metrics": HighlightFindings(pulse=(tile,))}, Team(week_start_day=week_start_day), DAY
         )
 
         self.assertEqual(built.pulse[0].period_starts, expected)
 
 
 class TestRunSource(BaseTest):
-    def _run(self, source: Source, user: User | None = None, scopes: list[str] | None = None) -> HighlightSourceResult:
+    def _run(
+        self, source: HighlightSource, user: User | None = None, scopes: list[str] | None = None
+    ) -> HighlightSourceResult:
         inputs = HighlightSourceInputs(
             team_id=self.team.id,
             user_id=(user or self.user).id,
@@ -202,8 +214,10 @@ class TestRunSource(BaseTest):
     def test_a_source_runs_only_when_the_credential_covers_its_scopes(
         self, _name: str, scopes: list[str] | None, runs: bool
     ) -> None:
-        source = Source(
-            name="alerts", find=lambda _c: Found(items=(candidate("alert", "alerts", 0.8),)), scopes=("alert:read",)
+        source = HighlightSource(
+            name="alerts",
+            find=lambda _c: HighlightFindings(items=(candidate("alert", "alerts", 0.8),)),
+            scopes=("alert:read",),
         )
 
         result = self._run(source, scopes=scopes)
@@ -227,9 +241,9 @@ class TestRunSource(BaseTest):
         self.organization.save()
         if access_level:
             create_access_control(team_id=self.team.id, resource=resource, access_level=access_level)
-        source = Source(
+        source = HighlightSource(
             name="errors",
-            find=lambda _c: Found(items=(candidate("error", "errors", 0.8),)),
+            find=lambda _c: HighlightFindings(items=(candidate("error", "errors", 0.8),)),
             scopes=("warehouse_view:read",) if resource == "warehouse_objects" else ("error_tracking:read",),
         )
 
@@ -238,12 +252,12 @@ class TestRunSource(BaseTest):
         self.assertEqual(result.found is not None, runs)
 
     def test_a_broken_source_reports_a_failure_instead_of_raising(self) -> None:
-        def broken(_context: Context) -> Found:
+        def broken(_context: HighlightContext) -> HighlightFindings:
             raise ValueError("boom")
 
-        result = self._run(Source(name="broken", find=broken))
+        result = self._run(HighlightSource(name="broken", find=broken))
 
-        self.assertEqual((result.failed, FOUND.validate_json(result.found or "")), (True, Found()))
+        self.assertEqual((result.failed, FOUND.validate_json(result.found or "")), (True, HighlightFindings()))
 
 
 class TestFinalizeHighlights(BaseTest):
@@ -251,6 +265,7 @@ class TestFinalizeHighlights(BaseTest):
         [
             ("one source failed", [ALERT_RESULT, FAILED_RESULT], HighlightsStatus.READY, ["alert"], False),
             ("every source failed", [FAILED_RESULT], HighlightsStatus.FAILED, [], True),
+            ("every source failed but one kept an item", [PARTIAL_RESULT], HighlightsStatus.READY, ["alert"], False),
         ]
     )
     def test_a_ready_computation_replaces_the_older_rows(
@@ -299,8 +314,14 @@ class TestGetHighlights(BaseTest):
                 0,
                 ["k1"],
             ),
-            ("a recent computing row", {"created_at": timedelta(minutes=1)}, HighlightsStatus.COMPUTING, 0, []),
-            ("a lost computing row", {"created_at": timedelta(minutes=5)}, HighlightsStatus.COMPUTING, 1, []),
+            (
+                "a computing row inside the retry budget",
+                {"created_at": timedelta(minutes=3)},
+                HighlightsStatus.COMPUTING,
+                0,
+                [],
+            ),
+            ("a lost computing row", {"created_at": timedelta(minutes=6)}, HighlightsStatus.COMPUTING, 1, []),
             (
                 "a stale ready row",
                 {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=20)},
@@ -329,6 +350,14 @@ class TestGetHighlights(BaseTest):
                 1,
                 [],
             ),
+            (
+                "a ready row for the other pulse ranking",
+                {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=1)},
+                HighlightsStatus.COMPUTING,
+                1,
+                [],
+                "frecency",
+            ),
         ]
     )
     def test_the_request_never_waits_for_a_computation(
@@ -338,10 +367,15 @@ class TestGetHighlights(BaseTest):
         status: HighlightsStatus,
         starts: int,
         pulse: list[str],
+        ranking_later: str = "control",
     ) -> None:
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        with patch.object(highlights, "sync_connect", connect):
+        ranking = ["control"]
+        with (
+            patch.object(highlights, "sync_connect", connect),
+            patch.object(highlights, "pulse_ranking", side_effect=lambda _user, _team: ranking[0]),
+        ):
             if row is not None:
                 highlights.get_highlights(team=self.team, user=self.user, scopes=None)
                 now = timezone.now()
@@ -351,6 +385,7 @@ class TestGetHighlights(BaseTest):
                 )
                 connect.return_value.start_workflow.reset_mock()
                 cache.clear()
+                ranking[0] = ranking_later
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(
@@ -398,3 +433,36 @@ class TestDailyCache(BaseTest):
             found = context.guard("value", lambda: context.daily("value", compute), 0)
 
         self.assertEqual((found, calls, context.failures, captured.call_count), (0, [], ["value"], 0))
+
+
+def declaring(*sources: object) -> SimpleNamespace:
+    return SimpleNamespace(__name__="products.example.backend.facade.today_highlights", HIGHLIGHT_SOURCES=sources)
+
+
+def declaring_one(source: object) -> SimpleNamespace:
+    return SimpleNamespace(__name__="products.example.backend.facade.today_highlights", HIGHLIGHT_SOURCES=source)
+
+
+class TestLoadSources(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no declaration", SimpleNamespace(__name__="products.example.backend.facade.today_highlights")),
+            (
+                "a single source without a tuple",
+                declaring_one(HighlightSource(name="alerts", find=lambda _c: HighlightFindings())),
+            ),
+            ("not a source", declaring("alerts")),
+            ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
+            (
+                "a name taken twice",
+                declaring(
+                    HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
+                    HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
+                ),
+            ),
+        ]
+    )
+    def test_a_broken_declaration_raises(self, _name: str, module: SimpleNamespace) -> None:
+        with patch.object(highlight_registry, "load_product_modules", return_value=[module]):
+            with self.assertRaises(highlight_registry.HighlightRegistryError):
+                highlight_registry.load_sources.__wrapped__()

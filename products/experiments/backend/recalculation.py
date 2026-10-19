@@ -32,6 +32,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -42,15 +43,15 @@ from products.experiments.backend.temporal.models import (
     METRICS_RECALCULATION_WORKFLOW_NAME,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
-# stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
-# (discovery retries + per-metric calc retries + progress activities) so a legitimately-slow run can finish
-# without being clobbered, but tight enough that an operator can recover within an hour if the workflow
-# never started (Temporal connect failure, transient infra issue, etc.). See the rollback in
-# start_metrics_recalculation_workflow for the happy-path failure handling; this TTL is the defense-in-depth
-# backstop if that rollback itself fails.
+# stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
+# after the start activity: the calc budget (METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS), the failure
+# backstop and the finish step. test_in_progress_phase_ends_before_the_staleness_ttl keeps that sum below this
+# value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
+# can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
+# etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
+# is the defense-in-depth backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 # rate limiting manual reloads (including agents).
@@ -402,7 +403,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
-        metrics = discover_experiment_metrics(experiment)
+        metrics = get_metrics_for_calculation(experiment)
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=experiment.team,
             experiment=experiment,
@@ -410,20 +411,28 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             status=ExperimentMetricsRecalculation.Status.PENDING,
             created_by=user,
             total_metrics=len(metrics),
-            metric_uuids=[m.metric_uuid for m in metrics],
+            metric_uuids=[m.uuid for m in metrics],
         )
         return build_job_payload(recalc, is_existing=False)
 
 
+def active_recalculation_filter() -> Q:
+    """The rows that block a new recalculation: PENDING or IN_PROGRESS, inside the staleness bound.
+
+    The scheduled discovery applies the same filter to many experiments in one query, so the two
+    readers cannot disagree on which run is active.
+    """
+    threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+    return Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold) | Q(
+        status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold
+    )
+
+
 def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
         return (
             ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
-            .filter(
-                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
-                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
-            )
+            .filter(active_recalculation_filter())
             .order_by("-created_at")
             .first()
         )
