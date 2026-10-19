@@ -871,11 +871,12 @@ impl IngestionConsumer {
         let Ok(assignment) = self.consumer.assignment() else {
             return false;
         };
-        let assigned = assignment.elements();
-        !assigned.is_empty()
-            && assigned.iter().all(|element| {
-                paused.contains(&TopicPartition::new(element.topic(), element.partition()))
-            })
+        let assigned: Vec<TopicPartition> = assignment
+            .elements()
+            .iter()
+            .map(|element| TopicPartition::new(element.topic(), element.partition()))
+            .collect();
+        covers_the_assignment(&paused, &assigned)
     }
 
     /// A paused partition still serves rebalance callbacks and the poll interval, because polling never stops.
@@ -1111,6 +1112,10 @@ impl IngestionConsumer {
     }
 }
 
+fn covers_the_assignment(paused: &[TopicPartition], assigned: &[TopicPartition]) -> bool {
+    !assigned.is_empty() && assigned.iter().all(|partition| paused.contains(partition))
+}
+
 fn partition_list(topic_partition: &TopicPartition) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition(&topic_partition.topic, topic_partition.partition);
@@ -1308,6 +1313,34 @@ mod tests {
 
     fn credit(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
         apply_completion(in_flight, &completion, |_, _, _| Ok(())).unwrap();
+    }
+
+    struct PausedAssignment {
+        paused: &'static [i32],
+        assigned: &'static [i32],
+        expected: bool,
+    }
+
+    #[rstest::rstest]
+    #[case::nothing_paused(PausedAssignment { paused: &[], assigned: &[0, 1], expected: false })]
+    #[case::one_assigned_partition_fetching(PausedAssignment { paused: &[0], assigned: &[0, 1], expected: false })]
+    #[case::every_assigned_partition_paused(PausedAssignment { paused: &[0, 1], assigned: &[0, 1], expected: true })]
+    #[case::a_paused_partition_no_longer_assigned(PausedAssignment { paused: &[0, 2], assigned: &[0], expected: true })]
+    #[case::nothing_assigned(PausedAssignment { paused: &[0], assigned: &[], expected: false })]
+    fn collection_stops_only_while_every_assigned_partition_is_paused(
+        #[case] case: PausedAssignment,
+    ) {
+        let partitions = |numbers: &[i32]| -> Vec<TopicPartition> {
+            numbers
+                .iter()
+                .map(|&number| TopicPartition::new("events", number))
+                .collect()
+        };
+
+        assert_eq!(
+            covers_the_assignment(&partitions(case.paused), &partitions(case.assigned)),
+            case.expected
+        );
     }
 
     #[test]
