@@ -157,6 +157,21 @@ describe('sendCalendarLogic', () => {
         })
     })
 
+    it('ignores a failed request for a week the person already left', async () => {
+        let rejectFirst: (error: Error) => void = () => {}
+        jest.mocked(hogFlowsSendCalendarRetrieve)
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
+            .mockResolvedValueOnce([FLOW])
+
+        logic.actions.goForward()
+        await expectLogic(logic, () => logic.actions.goForward()).toDispatchActions(['loadScheduledFlowsSuccess'])
+        rejectFirst(new Error('Network error'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.scheduledFlows).toEqual([FLOW])
+    })
+
     it('puts the send back when the server rejects the move', async () => {
         jest.mocked(hogFlowsSchedulesPartialUpdate).mockRejectedValue({
             detail: 'Schedule must have at least one future occurrence.',

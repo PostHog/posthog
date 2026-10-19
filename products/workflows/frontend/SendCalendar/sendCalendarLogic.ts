@@ -110,7 +110,7 @@ export interface sendCalendarLogicActions {
     goToToday: () => {
         value: true
     }
-    loadScheduledFlows: () => any
+    loadScheduledFlows: (_: void) => void
     loadScheduledFlowsFailure: (
         error: string,
         errorObject?: any
@@ -120,10 +120,10 @@ export interface sendCalendarLogicActions {
     }
     loadScheduledFlowsSuccess: (
         scheduledFlows: SendCalendarFlowApi[],
-        payload?: any
+        payload?: void
     ) => {
         scheduledFlows: SendCalendarFlowApi[]
-        payload?: any
+        payload?: void
     }
     moveSend: (
         send: CalendarSend,
@@ -248,12 +248,19 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         scheduledFlows: [
             null as SendCalendarFlowApi[] | null,
             {
-                loadScheduledFlows: async (_, breakpoint) => {
+                loadScheduledFlows: async (_: void, breakpoint) => {
                     // The server returns only the runs inside the shown range, so each new range loads again.
-                    const flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
-                        start: values.range.start.toISOString(),
-                        end: values.range.end.toISOString(),
-                    })
+                    let flows: SendCalendarFlowApi[]
+                    try {
+                        flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
+                            start: values.range.start.toISOString(),
+                            end: values.range.end.toISOString(),
+                        })
+                    } catch (error) {
+                        // A failed request for a period the person already left must not show the error.
+                        breakpoint()
+                        throw error
+                    }
                     breakpoint()
                     return flows
                 },
