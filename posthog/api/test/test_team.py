@@ -1686,9 +1686,14 @@ def team_api_test_factory():
             else:
                 assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+        @parameterized.expand([("approved", True), ("opted_out", False)])
         @patch("posthog.event_usage.report_user_action")
         @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
-        def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
+        def test_can_add_product_intent(
+            self, _name: str, ai_data_processing_approved: bool, mock_report_user_action: MagicMock
+        ) -> None:
+            self.organization.is_ai_data_processing_approved = ai_data_processing_approved
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
                 {"product_type": "product_analytics", "intent_context": "onboarding product selected - primary"},
@@ -1710,6 +1715,7 @@ def team_api_test_factory():
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "is_ai_data_processing_approved": ai_data_processing_approved,
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
@@ -1756,6 +1762,7 @@ def team_api_test_factory():
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                         "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
+                        "is_ai_data_processing_approved": True,
                         "realm": get_instance_realm(),
                     },
                     team=self.team,
