@@ -10,53 +10,53 @@ tools:
     research-desk-contact-check:
         operation: research_desk_contact_check_list
         enabled: true
-        feature_flag: research-desk
         title: Check recent research contact
         description: >
             Check whether anyone at PostHog recently contacted these people or this company for customer research,
-            before you reach out for an interview. Pass emails, a company domain, or both. Returns every research
-            touch found (emails from recruiting workflows, recruiting surveys shown, MCP interview invitations,
-            "already contacted" cohorts, and interview sessions), newest first, with who owns each one.
-            recently_contacted is a warning, not a block: share it with the person and let them decide.
+            before you reach out for an interview. Pass emails, a company domain, or both. Returns every research touch
+            found (emails from recruiting workflows, recruiting surveys shown, MCP interview invitations, "already
+            contacted" cohorts, and interview sessions), newest first, with who owns each one. recently_contacted is a
+            warning, not a block: share it with the person and let them decide.
+        feature_flag: research-desk
     research-desk-sessions-list:
         operation: research_desk_sessions_list
         enabled: true
-        feature_flag: research-desk
+        list: true
         title: List research sessions
         description: >
             List customer interview sessions across PostHog teams, ordered by start time. Use start_after and
             start_before to find upcoming or recent sessions, for example to offer someone a session to join.
-        list: true
-    research-desk-sources-list:
-        operation: research_desk_sources_list
-        enabled: true
         feature_flag: research-desk
-        title: List research recruiting sources
-        description: >
-            List the workflows, surveys, cohorts, and event names registered as research recruiting sources. The
-            contact check counts touches only from active sources.
-        list: true
     research-desk-sources-create:
         operation: research_desk_sources_create
         enabled: true
-        feature_flag: research-desk
-        title: Register a research recruiting source
-        description: >
-            Register a workflow, survey, cohort, or event name whose events count as research outreach, so the
-            contact check sees it. Use this when you find a new interview recruiting workflow or survey. external_id
-            is the workflow ID, survey ID, cohort ID, or event name.
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
+        title: Register a research recruiting source
+        description: >
+            Register a workflow, survey, cohort, or event name whose events count as research outreach, so the contact
+            check sees it. Use this when you find a new interview recruiting workflow or survey. external_id is the
+            workflow ID, survey ID, cohort ID, or event name.
+        feature_flag: research-desk
+    research-desk-sources-list:
+        operation: research_desk_sources_list
+        enabled: true
+        list: true
+        title: List research recruiting sources
+        description: >
+            List the workflows, surveys, cohorts, and event names registered as research recruiting sources. The contact
+            check counts touches only from active sources.
+        feature_flag: research-desk
     research-desk-sources-update:
         operation: research_desk_sources_partial_update
         enabled: true
-        feature_flag: research-desk
-        title: Update a research recruiting source
-        description: >
-            Change a source's label, owner, or product area, or set active to false to stop counting it.
         annotations:
             readOnly: false
             destructive: false
             idempotent: true
+        title: Update a research recruiting source
+        description: |
+            Change a source's label, owner, or product area, or set active to false to stop counting it.
+        feature_flag: research-desk
