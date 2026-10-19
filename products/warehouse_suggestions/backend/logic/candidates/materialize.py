@@ -75,11 +75,9 @@ class _IncrementalProposer:
             return None
 
     def config_for(self, saved_query: SavedQueryDefinition) -> IncrementalConfig | None:
-        if not self._enabled:
+        if not self._enabled or self._database is None:
             return None
         column_types = get_saved_query_columns(self._team_id, saved_query.id)
-        if propose_incremental_config(saved_query.hogql, column_types) is None or self._database is None:
-            return None
         return propose_incremental_config(saved_query.hogql, column_types, database=self._database)
 
 
