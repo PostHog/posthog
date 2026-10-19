@@ -60,7 +60,7 @@ export function claudePlan(
 }
 
 // The model the agent service opened a session on, from its logged `session/new` request.
-const sessionModel = (entry: StoredLogEntry): string | undefined => {
+export const sessionModel = (entry: StoredLogEntry): string | undefined => {
   const { notification } = entry as {
     notification?: { method?: string; params?: { _meta?: { model?: string } } };
   };

@@ -159,7 +159,7 @@ export function App({
     localSessions,
     clear: clearLocal,
     localActive,
-    historyOf,
+    coldSessions,
     markActive,
     refreshActive: refreshLocalActive,
     prompts,
@@ -173,6 +173,11 @@ export function App({
     setFresh,
     flashNotice,
   });
+  // What each pane and the model picker see of a local chat: its running agent, or its saved conversation.
+  const shownSessions = useMemo(
+    () => new Map([...coldSessions, ...localSessions]),
+    [coldSessions, localSessions],
+  );
   // Cloud runs go through the engine; local chats through their own agent process.
   const control = cloudControl
     ? (taskId: string, runId: string): PiControl =>
@@ -288,7 +293,7 @@ export function App({
       startingOptions(loadPrefs().billing, placeFor(paneId)),
     layout,
     isLocal,
-    localSessions,
+    localSessions: shownSessions,
     control,
     composerFor,
     openModal,
@@ -576,12 +581,7 @@ export function App({
       paneTaskId={node.taskId}
       task={taskOf(node.taskId)}
       runs={runs ?? null}
-      local={isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined}
-      history={
-        isLocal(node.taskId) && !localSessions.has(node.taskId)
-          ? historyOf
-          : undefined
-      }
+      local={isLocal(node.taskId) ? shownSessions.get(node.taskId) : undefined}
       isLocalPane={runsLocally(node.id, node.taskId)}
       newChatPlace={placeFor(node.id)}
       banner={bannerLines({
