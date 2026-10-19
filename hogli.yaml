@@ -1290,3 +1290,7 @@ environment:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
         hidden: true
+    personhog:seed:changelog:
+        bin_script: personhog-seed-changelog
+        description: 'Seed config/changelog in local etcd'
+        hidden: true
