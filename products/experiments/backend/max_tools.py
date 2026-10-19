@@ -34,9 +34,12 @@ CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     using the `create_feature_flag` tool with 2 to 20 variants (conventionally control and test).
     The baseline defaults to the variant named "control" when present, else the first variant.
 
-    # Experiment Types
-    - **product**: For backend/API changes, server-side experiments
-    - **web**: For frontend UI changes, client-side experiments
+    # Scope
+    This tool creates code-based experiments (type "product"): the user implements the variants
+    in their own code via the feature flag, whether the change is server-side or client-side UI.
+    It cannot create no-code web experiments — those store DOM transforms this tool cannot author,
+    and are created with the PostHog toolbar on the user's own site. If the user asks for a
+    no-code / visual / toolbar experiment, point them to the toolbar instead of using this tool.
 
     # Workflow
     1. Create a multivariate feature flag with `create_feature_flag` (variants: control + test)
@@ -86,14 +89,6 @@ class CreateExperimentToolArgs(BaseModel):
         Control shows existing 3-step checkout, test shows new 1-page checkout."
         """).strip(),
     )
-    type: Literal["product", "web"] = Field(
-        default="product",
-        description=dedent("""
-        The experiment type:
-        - "product": For backend/API changes, server-side experiments (default)
-        - "web": For frontend UI changes, client-side experiments
-        """).strip(),
-    )
 
 
 class CreateExperimentTool(MaxTool):
@@ -109,7 +104,6 @@ class CreateExperimentTool(MaxTool):
         name: str,
         feature_flag_key: str,
         description: str | None = None,
-        type: Literal["product", "web"] = "product",
     ) -> tuple[str, dict[str, Any] | None]:
         if not name or not name.strip():
             return "Experiment name cannot be empty", {"error": "invalid_name"}
@@ -153,7 +147,9 @@ class CreateExperimentTool(MaxTool):
                 name=name,
                 feature_flag_key=feature_flag_key,
                 description=description or "",
-                type=type,
+                # Always "product": this tool cannot author the DOM transforms a no-code
+                # web experiment needs, so a `type="web"` row it creates is an empty shell.
+                type="product",
                 event_source=EventSource.POSTHOG_AI,
                 analytics_properties=analytics_properties,
             )
@@ -169,7 +165,7 @@ class CreateExperimentTool(MaxTool):
                     "experiment_id": experiment.id,
                     "experiment_name": experiment.name,
                     "feature_flag_key": feature_flag_key,
-                    "type": type,
+                    "type": experiment.type,
                     "url": experiment_url,
                 },
             )
