@@ -173,12 +173,26 @@ class TestMaterializeRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("sources_allow_nothing_finer", HOUR, [HOUR, DAY], WarehouseSuggestionRefreshIntervalBasis.SOURCE_SYNC),
-            ("reads_allow_nothing_finer", DAY, [DAY], WarehouseSuggestionRefreshIntervalBasis.READ_RATE),
+            (
+                "sources_allow_nothing_finer",
+                HOUR,
+                [HOUR, DAY],
+                True,
+                WarehouseSuggestionRefreshIntervalBasis.SOURCE_SYNC,
+            ),
+            (
+                "nothing_refreshes_faster",
+                HOUR,
+                [HOUR, DAY],
+                False,
+                WarehouseSuggestionRefreshIntervalBasis.FASTEST_SCHEDULE,
+            ),
+            ("reads_allow_nothing_finer", DAY, [DAY], False, WarehouseSuggestionRefreshIntervalBasis.READ_RATE),
             (
                 "finer_ones_save_too_little",
                 DAY,
                 [timedelta(hours=6), DAY],
+                False,
                 WarehouseSuggestionRefreshIntervalBasis.SAVINGS,
             ),
         ]
@@ -188,9 +202,14 @@ class TestMaterializeRules(SimpleTestCase):
         _name: str,
         interval: timedelta,
         read_allowed: list[timedelta],
+        limited_by_sources: bool,
         expected: WarehouseSuggestionRefreshIntervalBasis,
     ) -> None:
-        assert interval_basis(interval, [HOUR, timedelta(hours=6), DAY], read_allowed) == expected
+        basis = interval_basis(
+            interval, [HOUR, timedelta(hours=6), DAY], read_allowed, limited_by_sources=limited_by_sources
+        )
+
+        assert basis == expected
 
 
 class TestMaterializeRefreshMode(BaseTest):
@@ -249,11 +268,13 @@ class TestMaterializeRefreshMode(BaseTest):
             [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
 
         assert isinstance(draft.payload, MaterializePayload)
-        assert (draft.payload.refresh_mode, draft.payload.incremental_key, draft.payload.unique_key) == (
-            refresh_mode,
-            incremental_key,
-            unique_key,
-        )
+        expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0
+        assert (
+            draft.payload.refresh_mode,
+            draft.payload.incremental_key,
+            draft.payload.unique_key,
+            draft.payload.lookback_seconds,
+        ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
 
 
 class TestDeprecateCandidate(SimpleTestCase):

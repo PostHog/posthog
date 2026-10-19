@@ -13,6 +13,7 @@ from products.data_modeling.backend.facade.api import (
     IncrementalConfig,
     MissingDagNodeError,
     SavedQueryFrequencyBounds,
+    definition_database,
     get_saved_query_columns,
     incremental_enabled,
     propose_incremental_config,
@@ -69,7 +70,7 @@ class _IncrementalProposer:
     @cached_property
     def _database(self) -> Database | None:
         try:
-            return Database.create_for(team_id=self._team_id, bypass_warehouse_access_control=True)
+            return definition_database(self._team_id)
         except Exception as error:
             capture_exception(error)
             return None
@@ -169,7 +170,12 @@ class MaterializeCandidate(Candidate):
             freshness_after_seconds=interval_seconds + (freshness_today or 0),
             live_sources=sources.live,
             unknown_sources=sources.unknown,
-            refresh_interval_basis=interval_basis(estimate.interval, frequency.bounds.allowed, intervals),
+            refresh_interval_basis=interval_basis(
+                estimate.interval,
+                frequency.bounds.allowed,
+                intervals,
+                limited_by_sources=frequency.bounds.floor is not None,
+            ),
         )
         return _Proposal(
             payload=_with_refresh_mode(
@@ -207,10 +213,12 @@ def read_interval(reads: SubjectReads) -> timedelta:
 
 
 def interval_basis(
-    interval: timedelta, source_allowed: Iterable[timedelta], read_allowed: list[timedelta]
+    interval: timedelta, allowed: Iterable[timedelta], read_allowed: list[timedelta], *, limited_by_sources: bool
 ) -> WarehouseSuggestionRefreshIntervalBasis:
-    if interval == min(source_allowed):
-        return WarehouseSuggestionRefreshIntervalBasis.SOURCE_SYNC
+    if interval == min(allowed):
+        if limited_by_sources:
+            return WarehouseSuggestionRefreshIntervalBasis.SOURCE_SYNC
+        return WarehouseSuggestionRefreshIntervalBasis.FASTEST_SCHEDULE
     if interval == read_allowed[0]:
         return WarehouseSuggestionRefreshIntervalBasis.READ_RATE
     return WarehouseSuggestionRefreshIntervalBasis.SAVINGS

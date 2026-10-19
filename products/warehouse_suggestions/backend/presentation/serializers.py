@@ -91,9 +91,10 @@ class MaterializePayloadSerializer(DataclassSerializer):
     refresh_interval_basis = serializers.ChoiceField(
         choices=WarehouseSuggestionRefreshIntervalBasis.choices,
         allow_null=True,
-        help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. read_rate: "
-        "people read the view no more often. savings: a shorter interval would cost more than it saves. Null on "
-        "suggestions made before this was recorded.",
+        help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. "
+        "fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. "
+        "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
+        "recorded.",
     )
 
     class Meta:

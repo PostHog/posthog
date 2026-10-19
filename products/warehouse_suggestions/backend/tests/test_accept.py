@@ -38,6 +38,10 @@ FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_s
 DAY_SECONDS = 24 * 60 * 60
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+DAILY_COUNT_COLUMNS = {
+    "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
+}
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 MATERIALIZE_PAYLOAD = MaterializePayload(
     subject_name="orders",
@@ -210,6 +214,13 @@ class TestAcceptSuggestion(APIBaseTest):
                 status.HTTP_409_CONFLICT,
                 STORED_DAY_KEY,
             ),
+            (
+                "query_no_longer_groups",
+                "SELECT toStartOfDay(timestamp) AS day FROM events",
+                INCREMENTAL_DAY_PAYLOAD,
+                status.HTTP_409_CONFLICT,
+                STORED_DAY_KEY,
+            ),
             ("full_refresh_clears_leftover_keys", DAILY_COUNTS, MATERIALIZE_PAYLOAD, status.HTTP_200_OK, None),
         ]
     )
@@ -222,7 +233,7 @@ class TestAcceptSuggestion(APIBaseTest):
         expected_config: dict | None,
     ) -> None:
         DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(
-            query={"kind": "HogQLQuery", "query": hogql}, incremental_config=STORED_DAY_KEY
+            query={"kind": "HogQLQuery", "query": hogql}, columns=DAILY_COUNT_COLUMNS, incremental_config=STORED_DAY_KEY
         )
         suggestion = self._suggest_materialize(payload)
 
