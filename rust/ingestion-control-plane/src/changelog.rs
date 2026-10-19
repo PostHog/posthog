@@ -147,6 +147,7 @@ pub async fn retire(
     prefix: &str,
     topic: &str,
 ) -> anyhow::Result<()> {
+    let config = &config.personhog_kafka();
     let store = store(client, prefix);
     let live = store
         .get_changelog_config()
@@ -181,6 +182,7 @@ pub async fn start_migration(
     prefix: &str,
     topic: &str,
 ) -> anyhow::Result<MigrationRequest> {
+    let config = &config.personhog_kafka();
     let store = store(client, prefix);
     let live = store
         .get_changelog_config()
