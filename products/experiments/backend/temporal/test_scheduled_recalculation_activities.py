@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -299,7 +299,7 @@ class TestScheduledRecalculationActivities(BaseTest):
 
 @pytest.mark.parametrize("seconds_late", [0, 60])
 def test_start_picked_up_after_deadline_does_not_create_a_run(seconds_late):
-    deadline = timezone.now()
+    deadline = datetime(2026, 10, 19, 6, 50, tzinfo=UTC)
     with (
         time_machine.travel(deadline + timedelta(seconds=seconds_late), tick=False),
         patch(f"{MODULE}.close_old_connections"),

@@ -172,7 +172,7 @@ async def test_experiments_left_after_the_start_window_are_deferred(failure):
             raise ApplicationError("unknown dispatch outcome", non_retryable=True)
         return _started(experiment_id)
 
-    now = datetime.now(UTC)
+    now = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)
 
     async def wait(recalculation_id):
         nonlocal now
