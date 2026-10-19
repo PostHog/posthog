@@ -315,7 +315,7 @@ The worker skips general migration checks; the outbox table must exist before de
 All processes that enqueue deletion work, including the general-purpose Temporal worker, need the key table setting.
 Shared Django and Temporal workers cannot delete keys from the key table.
 
-### Admission
+## v4 dataset
 
 The recorder reads the Kafka key and headers of each message before it reads the payload.
 It records a message only when every check passes, in this order:
