@@ -78,6 +78,7 @@ import type {
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowSetupStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -1465,6 +1466,23 @@ export const workflowPeopleImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowSetupStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_setup/status/`
+}
+
+/**
+ * Whether a project is set up to send messages from workflows.
+ */
+export const workflowSetupStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSetupStatusApi> => {
+    return apiMutator<WorkflowSetupStatusApi>(getWorkflowSetupStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
