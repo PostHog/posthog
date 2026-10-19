@@ -21,7 +21,8 @@ import { useBroadcastAgentPanel } from './useBroadcastAgentPanel'
 export function BroadcastWizard(): JSX.Element {
     const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
-    const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
+    const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast, openInWorkflowEditor } =
+        useActions(broadcastWizardLogic)
     const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
     useBroadcastAgentPanel()
 
@@ -34,6 +35,13 @@ export function BroadcastWizard(): JSX.Element {
                     broadcastId ? (
                         <LemonMenu
                             items={[
+                                {
+                                    label: 'Open in workflow editor',
+                                    onClick: openInWorkflowEditor,
+                                    disabledReason:
+                                        saving || launching ? 'Wait for the broadcast to finish saving' : undefined,
+                                    'data-attr': 'broadcast-open-in-workflow-editor',
+                                },
                                 {
                                     label: 'Archive',
                                     status: 'danger',

@@ -21,9 +21,10 @@ from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS,
 # The one role a reader acts on, taken from the artefact schema so the manifest and the
 # `ranking_score` rows it produces name the served model the same way.
 SERVED_ROLE = RANKING_SERVED_ROLE
-# The served family's model for the partition being trained, carried so a paired read compares the
-# champion against the day's fit without a second scoring pass.
-DAILY_CANDIDATE_ROLE = "daily_candidate"
+# One of the newest versions of the served model's family, carried so each version collects online
+# scores for several days and a paired read compares it against the served model without a second
+# scoring pass.
+RECENT_ROLE = "recent"
 # Another family's champion, scored alongside so a later interleaving needs no rescoring.
 CROSS_FAMILY_ROLE = "cross_family"
 # A model an owner keeps in the manifest through the `pin` override, so a `served` override can
@@ -35,12 +36,18 @@ PINNED_ROLE = "pinned"
 SERVED_OVERRIDE_ROLE = "served_override"
 MANIFEST_SERVED_ROLE = "manifest_served"
 
-# The learner a model store loads the booster with. Every family is per-head XGBoost today, and a
-# model published before the field existed is one of those, so this is also the read fallback.
+# The learner a model store loads the model with. A model published before the field existed is
+# per-head XGBoost, so this is also the read fallback.
 DEFAULT_MODEL_KIND = "xgboost"
+# One ONNX graph that scores every head, in `ONNX_MODEL_FILE`, rather than one booster per head.
+ONNX_MODEL_KIND = "onnx"
+ONNX_MODEL_FILE = "model.onnx"
+# The suffix of a per-head booster file, `<head>.ubj`.
+HEAD_FILE_SUFFIX = ".ubj"
 
 MANIFEST_FILE = "manifest.json"
 METADATA_FILE = "metadata.json"
+PROJECT_VECTORS_FILE = "project_vectors.parquet"
 
 _SERVING_SEGMENT = "serving"
 
@@ -50,9 +57,15 @@ def serving_manifest_key(prefix: str) -> str:
 
 
 def serving_model_prefix(prefix: str, key: str) -> str:
-    """Where one model's `metadata.json` and head boosters sit. Keyed by `<name>@<version>`, so a
+    """Where one model's `metadata.json` and model files sit. Keyed by `<name>@<version>`, so a
     version is published once however many manifests name it."""
     return f"{prefix}/{_SERVING_SEGMENT}/models/{key}"
+
+
+def serving_project_vectors_key(prefix: str, partition_key: str) -> str:
+    """Where one day of `inbox_project_vectors` sits. Keyed by its `dt`, so a day is published once
+    however many manifests name it."""
+    return f"{prefix}/{_SERVING_SEGMENT}/project_vectors/{partition_key}/{PROJECT_VECTORS_FILE}"
 
 
 def model_key(model_name: str, model_version: str) -> str:
@@ -69,14 +82,25 @@ class ServingManifestEntry(BaseModel):
     key: str = Field(description="`<model_name>@<model_version>`, the identity every consumer uses.")
     model_name: str = Field(description="Feature family the model belongs to, e.g. `report_embeddings`.")
     model_version: str = Field(description="Training partition the model was fit on, as `YYYY-MM-DD`.")
-    model_kind: str = Field(description="Learner the model store loads the booster with, e.g. `xgboost`.")
+    model_kind: str = Field(description="Learner the model store loads the model with, `xgboost` or `onnx`.")
     roles: list[str] = Field(
         min_length=1,
         description=f"Why this model is in the manifest. Exactly one entry carries `{SERVED_ROLE}`.",
     )
     labels: dict[str, str] = Field(default_factory=dict, description="Free text about the entry, for a reader.")
-    prefix: str = Field(description="Object-store prefix holding this model's `metadata.json` and head boosters.")
-    heads: list[str] = Field(min_length=1, description="Outcome heads with a booster under `prefix`.")
+    prefix: str = Field(description="Object-store prefix holding this model's `metadata.json` and model files.")
+    heads: list[str] = Field(min_length=1, description="Outcome heads the model scores.")
+    model_file: str | None = Field(
+        default=None,
+        description=(
+            f"The one file under `prefix` that scores every head, e.g. `{ONNX_MODEL_FILE}`. "
+            f"Null when each head has its own `<head>{HEAD_FILE_SUFFIX}` booster."
+        ),
+    )
+    reads_project_vectors: bool = Field(
+        default=False,
+        description="True when the model also reads its team's project vectors, from the manifest's `project_vectors`.",
+    )
 
     @field_validator("key", "model_name", "model_version", "model_kind", "prefix")
     @classmethod
@@ -92,6 +116,19 @@ class ServingManifestEntry(BaseModel):
             raise ValueError(f"key {self.key!r} does not match its model {expected!r}")
         return self
 
+    @model_validator(mode="after")
+    def onnx_names_its_model_file(self) -> ServingManifestEntry:
+        if self.model_kind == ONNX_MODEL_KIND and self.model_file != ONNX_MODEL_FILE:
+            raise ValueError(f"an {ONNX_MODEL_KIND} entry must name {ONNX_MODEL_FILE}, got {self.model_file!r}")
+        return self
+
+    @property
+    def files(self) -> list[str]:
+        """The model files under `prefix`, without `metadata.json`."""
+        if self.model_file is not None:
+            return [self.model_file]
+        return [f"{head}{HEAD_FILE_SUFFIX}" for head in self.heads]
+
 
 class ServingManifest(BaseModel):
     """The models one scoring pass runs. A pass writes one `ranking_score` row naming all of them."""
@@ -102,6 +139,13 @@ class ServingManifest(BaseModel):
         # The cap is the artefact's, so a manifest can never produce a row `RankingScore` refuses.
         max_length=MAX_RANKING_MODEL_RESULTS,
         description="Every model the pass runs, served first.",
+    )
+    project_vectors: str | None = Field(
+        default=None,
+        description=(
+            "Object key of the one `inbox_project_vectors` day that every entry with `reads_project_vectors` reads. "
+            "Null when no entry reads them, or when this store has no copy, and then those entries score nothing."
+        ),
     )
 
     @field_validator("manifest_version")

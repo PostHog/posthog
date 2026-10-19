@@ -4,13 +4,12 @@
 //! **Per-key send order** ([`KeyOrderSentinel`]): for every routing key
 //! (the Kafka message key), messages must be handed to workers in Kafka offset
 //! order, and a message must never be re-sent after it was ACKed. Replays of
-//! un-ACKed messages on the retry paths ([`SendKind::Resend`]: send failure →
-//! deferred flush) are legal at-least-once behavior and are counted separately
-//! (`ingestion_consumer_key_replays_total`) rather than flagged; the same
-//! regression on a fresh assignment is a `send_below_last_sent` violation.
-//! Checked in the dispatcher at assignment time — the
-//! point that defines the intended per-key order — under the pin-table lock.
-//! Only messages produced with a Kafka key participate: null-key production
+//! un-ACKed messages on the retry paths ([`SendKind::Resend`]: a failed or
+//! partially acked send's replay) are legal at-least-once behavior and are
+//! counted separately (`ingestion_consumer_key_replays_total`) rather than
+//! flagged; the same regression on a fresh send is a `send_below_last_sent`
+//! violation. Checked by the batcher as it begins each send, the point that
+//! defines the intended per-key order. Only messages produced with a Kafka key participate: null-key production
 //! (e.g. overflow rerouting) spreads a routing key across partitions,
 //! deliberately forfeiting per-key order, so there is no invariant to check
 //! and offsets from different partitions are not comparable. Skipped messages
@@ -88,9 +87,9 @@ pub enum SendKind {
     /// single partition, so their offsets must only move forward; a regression
     /// is a [`KeyOrderViolationKind::SendBelowLastSent`] violation.
     Fresh,
-    /// A deferred-flush retry that re-routes messages whose earlier send
-    /// failed — repeating un-ACKed offsets is expected at-least-once behavior,
-    /// not a violation.
+    /// A replay of messages whose earlier send failed or came back
+    /// unfinished. Repeating un-ACKed offsets is expected at-least-once
+    /// behavior, not a violation.
     Resend,
 }
 
@@ -111,10 +110,10 @@ struct KeyState {
     last_acked: Option<i64>,
 }
 
-/// Tracks per-routing-key send/ACK progress and checks every assignment
-/// against it. State lives exactly as long as the key's pin: the dispatcher
-/// evicts it when the pin is evicted (all sends resolved, nothing deferred),
-/// so the map is bounded by in-flight work — the same bound as the pin table.
+/// Tracks per-routing-key send/ACK progress and checks every send against
+/// it. State lives exactly as long as the batcher tracks the key: the batcher
+/// evicts it when the key has nothing queued or in flight, so the map is
+/// bounded by the batcher's key table.
 ///
 /// A key whose state was evicted rebaselines on its next send. That is sound
 /// within a process: the key's messages arrive from its single partition in
@@ -358,9 +357,9 @@ impl SentinelBatch<'_> {
         }
     }
 
-    /// Drop a key's state. Call when its pin is evicted — every send has
-    /// resolved and nothing is deferred, so there is nothing left to order
-    /// against and future offsets are necessarily higher.
+    /// Drop a key's state. Call when the batcher drops the key, once every
+    /// send has resolved and nothing is queued, so there is nothing left to
+    /// order against and future offsets are necessarily higher.
     pub fn evict(&mut self, routing_key: &str) {
         if let Some(keys) = self.keys.as_mut() {
             keys.remove(routing_key);
@@ -374,6 +373,36 @@ impl Drop for SentinelBatch<'_> {
             gauge!("ingestion_consumer_key_sentinel_keys").set(keys.len() as f64);
         }
     }
+}
+
+/// The `max_offset` to pass to [`SentinelBatch::note_acked`] for one key's
+/// accepted messages, given as `(partition, offset, keyed)` in send order,
+/// while `unfinished`, as `(partition, offset)` in send order, go out again.
+/// `partition` is the run's first keyed partition, which `note_sent` tracks.
+/// `None` when nothing may be ACKed.
+pub fn ack_mark(
+    partition: i32,
+    accepted: impl IntoIterator<Item = (i32, i64, bool)>,
+    unfinished: impl IntoIterator<Item = (i32, i64)>,
+) -> Option<i64> {
+    // A resent message must stay above the mark. A partition revoked and
+    // regained inside one poll sends an offset twice, so send order is not
+    // offset order and the lowest unfinished offset bounds the mark.
+    let resend_from = unfinished
+        .into_iter()
+        .filter(|&(unfinished_partition, _)| unfinished_partition == partition)
+        .map(|(_, offset)| offset)
+        .min()
+        .unwrap_or(i64::MAX);
+    accepted
+        .into_iter()
+        // An unkeyed message lives on an arbitrary partition under a synthetic
+        // key, so it does not advance the mark.
+        .filter(|&(message_partition, offset, keyed)| {
+            keyed && message_partition == partition && offset < resend_from
+        })
+        .map(|(_, offset, _)| offset)
+        .max()
 }
 
 /// The consumer's rdkafka context: observes async commit results (a
@@ -392,7 +421,7 @@ pub struct SentinelContext {
     /// rebalances. Distinct from the offset ledger's generations, which move
     /// per partition and stamp offset accounting rather than stream order.
     assignment_epoch: Option<AssignmentEpoch>,
-    /// Called with the revoked `(topic, partition)` pairs, so the scheduler
+    /// Called with the revoked `(topic, partition)` pairs, so the batcher
     /// can drop their queued messages before the new owner replays them.
     revoke_hook: OnceLock<RevokeHook>,
 }
@@ -426,7 +455,7 @@ impl SentinelContext {
 
     /// A context with its own free-standing sentinels, ledger, and commit
     /// pacer, for tests and tools that build the Kafka consumer separately
-    /// from the dispatcher.
+    /// from the batcher.
     pub fn detached() -> Self {
         Self::new(
             Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
@@ -594,7 +623,7 @@ mod tests {
         sentinel
             .batch()
             .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh);
-        // Send failed (no ACK) → deferred flush re-sends the same messages.
+        // Send failed (no ACK) → the replay re-sends the same messages.
         assert!(sentinel
             .batch()
             .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Resend)
@@ -636,6 +665,39 @@ mod tests {
             .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, KeyOrderViolationKind::ResendAfterAck);
+    }
+
+    #[test]
+    fn a_partial_acks_mark_keeps_the_resend_of_its_unfinished_message_legal() {
+        let sentinel = KeyOrderSentinel::new();
+        sentinel.batch().note_sent(
+            "t:a",
+            &[msg_at(0, 1), msg_at(0, 2), msg_at(0, 3)],
+            SendKind::Fresh,
+        );
+        let mark = ack_mark(
+            0,
+            [(0, 1, true), (0, 3, true), (1, 9, false)],
+            [(1, 8), (0, 2)],
+        );
+        assert_eq!(mark, Some(1));
+        sentinel.batch().note_acked("t:a", mark.expect("a mark"));
+        assert!(sentinel
+            .batch()
+            .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_redelivered_offset_keeps_the_ack_mark_below_every_unfinished_message() {
+        // The run sent offset 1, 2, then 1 again, and the worker accepted the
+        // first copy only, so the unfinished list runs 2 then 1.
+        assert_eq!(ack_mark(0, [(0, 1, true)], [(0, 2), (0, 1)]), None);
+    }
+
+    #[test]
+    fn a_run_whose_tracked_partition_is_wholly_unfinished_acks_nothing() {
+        assert_eq!(ack_mark(0, [(1, 100, true)], [(0, 10)]), None);
     }
 
     #[test]

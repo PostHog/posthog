@@ -4,11 +4,8 @@
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
 on:
-    push:
-        branches:
-            - master
-    # No schedule trigger: the hourly full-matrix master run is on Depot CI, from the schedule
-    # trigger of .depot/workflows/ci-backend.yml.
+    # No push or schedule trigger: the master push and the hourly full-matrix master run are on
+    # Depot CI, from .depot/workflows/ci-backend.yml.
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -101,7 +98,6 @@ permissions:
     contents: read
     actions: read
     pull-requests: write
-    checks: read # the router reads this commit's earlier hand-off check
 
 jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
@@ -132,14 +128,10 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
-        # every other job needs this one, and the gates treat skipped as success.
-        # ready_for_review re-runs everything, so the merge gate is unaffected.
-        if: >-
-            github.event_name != 'pull_request'
-            || github.event.pull_request.draft != true
-            || startsWith(github.head_ref, 'trunk-merge/')
-            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+        # Depot CI runs every pull request event from .depot/workflows/ci-backend.yml, and
+        # its gate posts the required check. Every job that needs this one skips on a pull
+        # request, and the gate treats skipped as success.
+        if: github.event_name != 'pull_request'
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
@@ -171,9 +163,6 @@ jobs:
             sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
-            # Which engine runs this event's backend tests. Depot CI never decides on its
-            # own: it waits for the hand-off job below and runs only when that succeeded.
-            engine: ${{ steps.route.outputs.engine || 'github' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -182,9 +171,6 @@ jobs:
                   clean: false
                   sparse-checkout: |
                       .github/actions/paths-filter
-                      .github/scripts/ci_backend_route.py
-                      .github/scripts/ci_backend_relay.py
-                      .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -192,19 +178,12 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               # Skipped on master push: every output then defaults to true.
               if: github.event_name != 'push'
               id: filter
               with:
-                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  token: ${{ github.token }}
                   list-files: 'escape'
                   filters: |
                       backend:
@@ -506,41 +485,13 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
-            # Last, so the paths filter runs while Depot starts its run for this event.
-            - name: Pick the engine that runs the backend tests
-              id: route
-              if: github.event_name == 'pull_request'
-              env:
-                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
-                  MERGE_QUEUE_PERCENT: ${{ vars.CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT }}
-                  EVENT: ${{ github.event_name }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  HEAD_REF: ${{ github.head_ref }}
-                  # The script reads this commit's earlier hand-off check, the durable record
-                  # of the engine that already ran its tests and side effects, and the check of
-                  # the Depot wait job that names this event.
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
-              run: python3 .github/scripts/ci_backend_route.py
-
-    # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
-    # polls this check by name and runs the backend tests only when it concluded
-    # `success`, so a skipped hand-off keeps the event on GitHub Actions. Renaming
-    # this job breaks that lookup.
-    hand-off-to-depot:
-        name: Hand off backend tests to Depot CI
-        runs-on: ubuntu-24.04
-        timeout-minutes: 2
-        needs: [changes]
-        if: needs.changes.outputs.engine == 'depot'
-        permissions: {}
-        steps:
-            - run: echo "::notice::Depot CI runs the backend tests for this event. GitHub Actions runs none."
+                        # Desktop API client - regenerated by bin/build-desktop-api-client.sh
+                        - 'products/desktop/packages/api-client/src/generated.ts'
+                        - 'products/desktop/packages/api-client/endpoint-allowlist.json'
+                        # Pins typed-openapi exactly, so a generator bump changes this file and not only the desktop lockfile.
+                        - 'products/desktop/packages/api-client/package.json'
+                        - 'products/desktop/packages/api-client/scripts/**'
+                        - 'bin/build-desktop-api-client.sh'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -549,7 +500,7 @@ jobs:
         needs: [changes]
         # Master pushes skip the matrices (see the trigger comment); skipping this
         # root cascades to every downstream test job via their result checks.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && needs.changes.outputs.engine != 'depot'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
@@ -588,7 +539,7 @@ jobs:
         needs: changes
         # Skipped on master push: the merge queue already ran the full matrices for
         # every landed commit, and the hourly scheduled run keeps master coverage.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && needs.changes.outputs.engine != 'depot'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
@@ -1433,7 +1384,7 @@ jobs:
     # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
     sdk-major-guard:
         needs: [changes]
-        if: needs.changes.outputs.sdk_manifests == 'true' && needs.changes.outputs.engine != 'depot'
+        if: needs.changes.outputs.sdk_manifests == 'true'
         timeout-minutes: 5
         permissions: {}
         name: SDK major-version guard
@@ -1446,7 +1397,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && needs.changes.outputs.engine != 'depot'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true')
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1613,7 +1564,6 @@ jobs:
             needs.changes.outputs.product_yamls == 'true' &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
-            && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 5
         name: Validate product.yaml owners (ubuntu-24.04)
         runs-on: ubuntu-24.04
@@ -1687,7 +1637,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true' || needs.changes.outputs.migration_replay == 'true') && needs.changes.outputs.engine != 'depot'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true' || needs.changes.outputs.migration_replay == 'true')
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -1695,8 +1645,6 @@ jobs:
         # over two of them: it is there to cancel a hang, not to cap how long the
         # history takes.
         timeout-minutes: 60
-        outputs:
-            mig_schema_key: ${{ steps.mig-schema-key.outputs.key }}
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
         # installation permission — so the check lands in that app's own
@@ -2229,65 +2177,6 @@ jobs:
                       exit 1
                   fi
 
-            - name: Dump migrated schema
-              if: github.event_name == 'push'
-              run: |
-                  set -e
-                  set -o pipefail
-                  # Dump schema + django_migrations data so Django knows which migrations are applied
-                  # Run pg_dump inside container to ensure version match (host has pg_dump 16, container has 15)
-                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean --if-exists -U posthog posthog && \
-                   docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
-                  # Verify the dump is valid
-                  gunzip -t schema.sql.gz
-
-            - name: Upload migrated schema artifact
-              if: github.event_name == 'push'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: migrated-schema
-                  path: schema.sql.gz
-                  # Consumers only ever take the newest artifact, so a longer window just
-                  # adds pages to the artifacts listing that db:download-schema walks.
-                  retention-days: 7
-
-            - name: Save schema to Actions cache for PR shards
-              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
-              if: github.event_name == 'push'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-
-            - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover and the
-              # master restore key above (inputs, hash, and key prefix).
-              if: github.event_name == 'push'
-              id: mig-schema-key
-              run: |
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
-                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
-                      | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
-                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  if [ -z "$MIG_FILES" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "::notice::no migration files matched — skipping migration-set schema save"
-                  else
-                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Save schema to Actions cache (migration-set key)
-              if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: ${{ steps.mig-schema-key.outputs.key }}
-
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
@@ -2411,40 +2300,9 @@ jobs:
                       echo "Skipping CH migration section — script not present on this checkout"
                   fi
 
-    mirror-schema-cache:
-        needs: [check-migrations]
-        # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
-        # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
-        # Mirror the dump there so fork PRs prime instead of migrating from scratch.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        name: Mirror schema cache to GitHub cache
-        runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        permissions:
-            contents: read
-        steps:
-            - name: Download migrated schema artifact
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: migrated-schema
-
-            - name: Save schema to GitHub cache (merge-base key)
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-
-            - name: Save schema to GitHub cache (migration-set key)
-              if: github.ref == 'refs/heads/master' && needs.check-migrations.outputs.mig_schema_key != ''
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: ${{ needs.check-migrations.outputs.mig_schema_key }}
-
     check-openapi-types:
         needs: [changes]
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && needs.changes.outputs.engine != 'depot'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true')
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -2545,6 +2403,19 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # Installs only the desktop API client generator, not the Electron app. The desktop
+            # workspace defaults to the hoisted linker, which ignores --filter and installs every
+            # package, so the isolated linker is forced here. A branch that predates the generator
+            # move skips this step.
+            - name: Install desktop API client generator
+              working-directory: products/desktop
+              run: |
+                  if [ ! -f ../../bin/build-desktop-api-client.sh ]; then
+                      echo "This branch predates the desktop API client regen, so there is nothing to install."
+                      exit 0
+                  fi
+                  pnpm install --frozen-lockfile --filter @posthog/api-client --ignore-scripts --config.node-linker=isolated
 
             - name: Wait for Docker services
               env:
@@ -4069,7 +3940,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         # Only feeds the test matrices, which master pushes skip.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && needs.changes.outputs.engine != 'depot'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -4249,10 +4120,8 @@ jobs:
         permissions:
             contents: read
             actions: read # the failure rollup downloads each shard's JUnit artifact
-            checks: read # the relay reads Depot's gate check run
-        # Headroom for downloading every shard's JUnit for the failure rollup, or for
-        # waiting out a full Depot run when this job only relays its verdict.
-        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 95 || 8 }}
+        # Headroom for downloading every shard's JUnit for the failure rollup.
+        timeout-minutes: 8
         # Intentional !cancelled(): the gate inspects failed dependencies and fails
         # closed on live runs; a superseded run records cancelled, not failure.
         # The deterministic-failure disjuncts cover this workflow cancelling its
@@ -4263,37 +4132,13 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
-            - name: Check out the relay script
-              if: needs.changes.outputs.engine == 'depot'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: |
-                      .github/scripts/ci_backend_relay.py
-                      .github/scripts/ci_backend_depot_failures.py
-                  sparse-checkout-cone-mode: false
-                  persist-credentials: false
-            # The relay reads a failed run's steps and log lines with the Depot CLI. Without
-            # the CLI, the relay prints a warning and still reports the verdict.
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-              if: needs.changes.outputs.engine == 'depot'
-              continue-on-error: true
-            # The script finds this event's Depot run by the event in its wait job's check
-            # name, then waits for that run's gate. Its docstring explains why check times
-            # and pull request lists cannot identify the run.
-            - name: Relay the Depot verdict
-              if: needs.changes.outputs.engine == 'depot'
-              env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HEAD_REF: ${{ github.head_ref }}
-              # Unbuffered, so each poll shows in the live log instead of all at once when the step ends.
-              run: python3 -u .github/scripts/ci_backend_relay.py gate
+            # Kept on pull requests so the ruleset entry for this job stays satisfied until the
+            # Depot gate replaces it there.
+            - name: Point at the Depot gate
+              if: github.event_name == 'pull_request'
+              run: echo "::notice::Depot CI runs the backend tests for pull requests. The required check is 'Backend CI on Depot / Django Tests Pass on Depot'."
             - name: Summarize dependency results
-              if: needs.changes.outputs.engine != 'depot'
+              if: github.event_name != 'pull_request'
               run: |
                   {
                     echo "### Backend CI dependency results"
@@ -4326,7 +4171,7 @@ jobs:
             # on green runs (the common case) to avoid pulling every shard artifact for nothing.
             # continue-on-error so a flaky fetch can't fail this required gate.
             - name: Download shard JUnit results
-              if: always() && needs.changes.outputs.engine != 'depot' && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              if: always() && github.event_name != 'pull_request' && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -4335,7 +4180,7 @@ jobs:
             # Re-run attempts upload under suffixed names, so superseded attempts must be dropped
             # here or the rollup below lists attempt-1 failures the re-run already recovered.
             - name: Keep only each shard's latest attempt
-              if: always() && needs.changes.outputs.engine != 'depot' && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              if: always() && github.event_name != 'pull_request' && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
               continue-on-error: true
               run: |
                   cd /tmp/junit-gate 2>/dev/null || exit 0
@@ -4564,7 +4409,6 @@ jobs:
             !cancelled() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
-            && needs.changes.outputs.engine != 'depot'
             && needs.changes.result == 'success'
         permissions:
             contents: read
@@ -4687,7 +4531,7 @@ jobs:
                   version: '0.12.13'
             - name: Download junit artifacts
               if: steps.timing-reporter.outputs.available == 'true'
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./junit-artifacts
                   pattern: '{junit-results-backend,product-junit-results}-*'
@@ -4730,7 +4574,6 @@ jobs:
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
-            && needs.changes.outputs.engine != 'depot'
             && needs.changes.result == 'success'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -4754,14 +4597,14 @@ jobs:
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # a run where no shard emitted coverage data is not a failure
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./cov-artifacts
                   pattern: coverage-products-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # core coverage only present once the Core segment ran with --cov
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./core-artifacts
                   pattern: coverage-core-*

@@ -38,9 +38,19 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 from .marketing_search_query_runner import MarketingAnalyticsSearchQueryRunner
+from .search_conversion_query_runner import SearchConversionQueryRunner
 
 
 class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.feature_enabled_or_false",
+            return_value=True,
+        )
+        self.search_conversions_flag = flag.start()
+        self.addCleanup(flag.stop)
+
     def _table(self, name: str, columns: dict[str, str], csv: str) -> str:
         with TemporaryDirectory() as directory:
             path = Path(directory) / f"{name}.csv"
@@ -619,10 +629,233 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert result.posthogConversionGoals is None
         assert all(row.posthogConversions is None for row in result.results)
 
+    @parameterized.expand(
+        [
+            (AttributionMode.LAST_TOUCH, 1, False),
+            (AttributionMode.LAST_TOUCH, 1, True),
+            (AttributionMode.FIRST_TOUCH, 2, True),
+            (AttributionMode.LINEAR, 1.5, True),
+            (AttributionMode.POSITION_BASED, 1.5, True),
+            (AttributionMode.TIME_DECAY, 1 + 1 / (1 + 2 ** (1 / 42)), True),
+        ]
+    )
+    def test_keyword_goals_match_paid_terms_without_duplicating_credit(
+        self, model: AttributionMode, google_count: float, shared_sessions: bool
+    ) -> None:
+        self.team.modifiers = {"sessionTableVersion": SessionTableVersion.V3}
+        self.team._ma_multi_touch_flag = True  # type: ignore[attr-defined]
+        self.team._ma_precompute_flags = {"conversion": False, "costs": False, "live_sessions": shared_sessions}  # type: ignore[attr-defined]
+        config = self.team.marketing_analytics_config
+        config.attribution_mode = model
+        config.attribution_window_days = 7
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event="purchase",
+                name="Purchases",
+                conversion_goal_id="purchase",
+                conversion_goal_name="Purchases",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+                properties=[EventPropertyFilter(key="qualified", value=True, operator=PropertyOperator.EXACT)],
+            ).model_dump()
+        ]
+        config.save()
+        keywords = self._table(
+            "goal_keywords",
+            {
+                "customer_id": "Int64",
+                "campaign_id": "Int64",
+                "ad_group_id": "Int64",
+                "ad_group_criterion_criterion_id": "Int64",
+                "ad_group_criterion_keyword_text": "String",
+                "ad_group_criterion_keyword_match_type": "String",
+            },
+            "customer_id,campaign_id,ad_group_id,ad_group_criterion_criterion_id,ad_group_criterion_keyword_text,ad_group_criterion_keyword_match_type\n"
+            "1,10,100,1,Hedgehog,EXACT\n1,10,100,2,Multiple matches,EXACT\n"
+            "1,10,100,3,Multiple matches,PHRASE\n1,10,100,4,Multiple currencies,EXACT\n",
+        )
+        google = self._table(
+            "goal_google_stats",
+            {
+                "customer_id": "Int64",
+                "campaign_id": "Int64",
+                "ad_group_id": "Int64",
+                "ad_group_criterion_criterion_id": "Int64",
+                "customer_currency_code": "String",
+                "metrics_clicks": "Float64",
+                "metrics_impressions": "Float64",
+                "metrics_cost_micros": "Float64",
+                "metrics_conversions": "Float64",
+                "segments_date": "Date",
+                "segments_ad_network_type": "String",
+            },
+            "customer_id,campaign_id,ad_group_id,ad_group_criterion_criterion_id,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date,segments_ad_network_type\n"
+            "1,10,100,1,USD,10,100,30000000,7,2023-01-10,SEARCH\n"
+            "1,10,100,1,USD,5,50,8000000,2,2022-12-15,SEARCH\n"
+            "1,10,100,2,USD,1,10,1000000,1,2023-01-10,SEARCH\n"
+            "1,10,100,3,USD,1,10,1000000,1,2023-01-10,SEARCH\n"
+            "1,10,100,4,USD,1,10,1000000,1,2023-01-10,SEARCH\n"
+            "1,10,100,4,EUR,1,10,1000000,1,2023-01-10,SEARCH\n"
+            "1,10,100,99,USD,1,10,1000000,1,2023-01-10,SEARCH\n",
+        )
+        bing = self._table(
+            "goal_bing_stats",
+            {
+                "keyword": "String",
+                "bid_match_type": "String",
+                "currency_code": "String",
+                "clicks": "Float64",
+                "impressions": "Float64",
+                "spend": "Float64",
+                "conversions": "Float64",
+                "time_period": "Date",
+            },
+            "keyword,bid_match_type,currency_code,clicks,impressions,spend,conversions,time_period\n"
+            "Hedgehog,Exact,USD,5,50,20,4,2023-01-10\n",
+        )
+        organic = self._table(
+            "goal_organic_queries",
+            {"query": "String", "clicks": "Float64", "impressions": "Float64", "position": "Float64", "date": "Date"},
+            "query,clicks,impressions,position,date\nHedgehog,20,200,2,2023-01-10\n",
+        )
+        for person, source, term, day, qualified in [
+            ("google", "Google", "  HEDGEHOG  ", "2023-01-09", True),
+            ("bing", "Bing", "hedgehog", "2023-01-09", True),
+            ("journey", "google", "hedgehog", "2023-01-09", True),
+            ("missing-term", "google", "", "2023-01-09", True),
+            ("filtered", "google", "hedgehog", "2023-01-09", False),
+            ("expired", "google", "hedgehog", "2022-12-20", True),
+            ("previous", "google", "hedgehog", "2022-12-15", True),
+            ("organic", "", "hedgehog", "2023-01-09", True),
+            ("match-types", "google", "multiple matches", "2023-01-09", True),
+            ("currencies", "google", "multiple currencies", "2023-01-09", True),
+        ]:
+            create_person(team_id=self.team.pk, distinct_ids=[person])
+            at = f"{day}T10:00:00Z"
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=person,
+                timestamp=at,
+                properties={
+                    "$session_id": str(uuid7(at)),
+                    "$current_url": "https://example.com/pricing",
+                    "utm_source": source,
+                    "utm_medium": "cpc" if source else "",
+                    "utm_term": term,
+                    "gclid": "example-click" if source == "google" else "",
+                    "$referring_domain": "$direct" if source else "www.google.com",
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=person,
+                timestamp=f"{'2023-01-09' if person == 'expired' else day}T13:00:00Z",
+                properties={"qualified": qualified},
+            )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="journey",
+            timestamp="2023-01-09T11:00:00Z",
+            properties={
+                "$session_id": str(uuid7("2023-01-09T11:00:00Z")),
+                "$current_url": "https://example.com/pricing",
+                "utm_source": "newsletter",
+                "utm_medium": "email",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="google",
+            timestamp="2023-01-09T11:00:00Z",
+            properties={
+                "$session_id": str(uuid7("2023-01-09T11:00:00Z")),
+                "$current_url": "https://example.com/pricing",
+                "utm_source": "Google",
+                "utm_medium": "cpc",
+                "utm_term": "hedgehog",
+            },
+        )
+        flush_persons_and_events()
+        query = MarketingAnalyticsSearchQuery(
+            sources=[
+                MarketingAnalyticsSearchSource(sourceType="GoogleAds", statsTable=google, keywordTable=keywords),
+                MarketingAnalyticsSearchSource(sourceType="BingAds", statsTable=bing),
+                MarketingAnalyticsSearchSource(sourceType="GoogleSearchConsole", statsTable=organic),
+            ],
+            breakdown="keyword",
+            includePostHogConversions=True,
+            compareFilter=CompareFilter(compare=True),
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+        )
+        result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+
+        def full_report_conversions(runner: SearchConversionQueryRunner) -> dict[str, float]:
+            return {
+                row.breakdownValue: next(cell.conversions for cell in row.models if cell.model == model)
+                for row in runner.calculate().results
+            }
+
+        with patch.object(SearchConversionQueryRunner, "calculate_conversions", full_report_conversions):
+            full_report = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        for row, reference in zip(result.results, full_report.results, strict=True):
+            assert row.model_dump(exclude={"posthogConversions"}) == reference.model_dump(
+                exclude={"posthogConversions"}
+            )
+            assert row.posthogConversions is not None and reference.posthogConversions is not None
+            for goal, reference_goal in zip(row.posthogConversions, reference.posthogConversions, strict=True):
+                assert goal.model_dump() == pytest.approx(reference_goal.model_dump()), (row.platform, row.keyword)
+        assert result.posthogAttributionMode == model
+        assert (
+            result.posthogConversionsWarning
+            and "multiple match types or currencies" in result.posthogConversionsWarning
+        )
+        for row in result.results:
+            assert row.posthogConversions is not None
+            goal = row.posthogConversions[0]
+            if row.keyword == "hedgehog" and row.platform != "GoogleSearchConsole":
+                expected = google_count if row.platform == "GoogleAds" else 1
+                assert goal.conversions == pytest.approx(expected), row.platform
+                assert goal.costPerConversion == pytest.approx((30 if row.platform == "GoogleAds" else 20) / expected)
+                assert goal.previousConversions == (1 if row.platform == "GoogleAds" else 0)
+                assert goal.previousCostPerConversion == (8 if row.platform == "GoogleAds" else None)
+                assert row.conversions == (7 if row.platform == "GoogleAds" else 4)
+            else:
+                assert goal.conversions is None and goal.costPerConversion is None
+                assert goal.previousConversions is None and goal.previousCostPerConversion is None
+        query.includePostHogConversions = False
+        result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert result.posthogConversionGoals is None
+        assert all(row.posthogConversions is None for row in result.results)
+
 
 class TestMarketingSearchConversionBudget(BaseTest):
-    @parameterized.expand([(3, 3), (6, 5)])
-    def test_bounds_goal_queries_and_reports_excluded_goals(self, goal_count: int, expected_count: int) -> None:
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.feature_enabled_or_false",
+            return_value=True,
+        )
+        self.search_conversions_flag = flag.start()
+        self.addCleanup(flag.stop)
+
+    @parameterized.expand(
+        [
+            (3, 3, True, Breakdown1.PAGE),
+            (6, 5, True, Breakdown1.PAGE),
+            (3, 0, False, Breakdown1.PAGE),
+            (3, 3, True, Breakdown1.KEYWORD),
+            (3, 0, False, Breakdown1.KEYWORD),
+        ]
+    )
+    def test_bounds_goal_queries_and_reports_excluded_goals(
+        self, goal_count: int, expected_count: int, enabled: bool, breakdown: Breakdown1
+    ) -> None:
+        self.search_conversions_flag.return_value = enabled
         config = self.team.marketing_analytics_config
         goals = [
             ConversionGoalFilter1(
@@ -650,9 +883,10 @@ class TestMarketingSearchConversionBudget(BaseTest):
         config.save()
         metrics = MarketingAnalyticsSearchMetrics(clicks=1, impressions=10).model_dump()
         warehouse_row = {
-            "page": "https://example.com/pricing",
-            "platform": "GoogleSearchConsole",
-            "currency_count": 1,
+            "page": "https://example.com/pricing" if breakdown == Breakdown1.PAGE else None,
+            "keyword": "analytics" if breakdown == Breakdown1.KEYWORD else None,
+            "platform": "GoogleSearchConsole" if breakdown == Breakdown1.PAGE else "GoogleAds",
+            "attribution_row_count": 1,
             **metrics,
             **{f"previous_{key}": value for key, value in metrics.items()},
         }
@@ -662,15 +896,21 @@ class TestMarketingSearchConversionBudget(BaseTest):
                 return_value=HogQLQueryResponse(columns=list(warehouse_row), results=[list(warehouse_row.values())]),
             ),
             patch(
-                "products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner.execute_hogql_query",
+                "products.marketing_analytics.backend.hogql_queries.search_conversion_query_runner.execute_hogql_query",
                 return_value=HogQLQueryResponse(results=[]),
             ) as execute_attribution,
             patch.object(Database, "create_for", wraps=Database.create_for) as create_database,
         ):
             result = MarketingAnalyticsSearchQueryRunner(
                 query=MarketingAnalyticsSearchQuery(
-                    sources=[MarketingAnalyticsSearchSource(sourceType="GoogleSearchConsole", statsTable="pages")],
-                    breakdown="page",
+                    sources=[
+                        MarketingAnalyticsSearchSource(
+                            sourceType="GoogleSearchConsole" if breakdown == Breakdown1.PAGE else "GoogleAds",
+                            statsTable="stats",
+                            keywordTable="keywords" if breakdown == Breakdown1.KEYWORD else None,
+                        )
+                    ],
+                    breakdown=breakdown,
                     includePostHogConversions=True,
                     compareFilter=CompareFilter(compare=True),
                     dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
@@ -680,6 +920,11 @@ class TestMarketingSearchConversionBudget(BaseTest):
             ).calculate()
         assert execute_attribution.call_count == expected_count * 2
         assert create_database.call_count == 1
+        if not enabled:
+            assert result.posthogConversionGoals is None
+            assert result.results[0].posthogConversions is None
+            assert result.results[0].clicks == 1
+            return
         assert result.posthogConversionGoals is not None
         assert [goal.id for goal in result.posthogConversionGoals] == [
             f"goal-{index}" for index in range(1, expected_count + 1)
@@ -705,15 +950,28 @@ class TestMarketingSearchCacheAccessControl(BaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.addCleanup(cache.clear)
+        flag = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.feature_enabled_or_false",
+            return_value=True,
+        )
+        self.search_conversions_flag = flag.start()
+        self.addCleanup(flag.stop)
 
-    @parameterized.expand([True, False])
-    def test_live_resolution_rollout_partitions_search_conversion_cache(self, include_conversions: bool) -> None:
+    @parameterized.expand([(True, False), (False, False), (True, True), (False, True)])
+    def test_rollout_partitions_search_conversion_cache(
+        self, include_conversions: bool, toggle_conversion_flag: bool
+    ) -> None:
         query = MarketingAnalyticsSearchQuery(
             sources=[], breakdown="page", includePostHogConversions=include_conversions
         )
         keys = []
         for enabled in (False, True, False):
-            self.team._ma_precompute_flags = {"conversion": False, "costs": False, "live_sessions": enabled}  # type: ignore[attr-defined]
+            self.search_conversions_flag.return_value = enabled if toggle_conversion_flag else True
+            self.team._ma_precompute_flags = {  # type: ignore[attr-defined]
+                "conversion": False,
+                "costs": False,
+                "live_sessions": enabled if not toggle_conversion_flag else False,
+            }
             keys.append(
                 MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
             )

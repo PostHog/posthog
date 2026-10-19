@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_BUDGETS|AWSBUDGETS)_",),
+        npm=("@aws-sdk/client-budgets",),
+        cargo=("aws-sdk-budgets",),
+        go=("github.com/aws/aws-sdk-go-v2/service/budgets",),
+        maven=("software.amazon.awssdk:budgets", "com.amazonaws:aws-java-sdk-budgets"),
+        rubygems=("aws-sdk-budgets",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # The Budgets API carries no version token in its requests: the endpoint has no version path
     # segment and the `X-Amz-Target` prefix is unversioned, so there is nothing to pin.

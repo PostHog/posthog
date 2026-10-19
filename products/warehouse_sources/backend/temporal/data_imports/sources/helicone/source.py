@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]):
+    codebase_detection = detect(
+        env=("^HELICONE_", "^NEXT_PUBLIC_HELICONE_JAWN_SERVICE$"),
+        npm=(
+            "@helicone/helpers",
+            "@helicone/helicone",
+            "@helicone/async",
+            "@helicone/ai-sdk-provider",
+            "@helicone/generate",
+            "@helicone/prompts",
+            "@helicone/mcp",
+            "@helicone/export",
+            "@helicone/ai-gateway",
+            "@helicone/helix",
+            "helicone",
+            "helicone-openai",
+            "helicone-router",
+            "n8n-nodes-helicone",
+        ),
+        pypi=("helicone", "helicone-helpers", "helicone-async", "helicone-prompts", "llama-index-llms-helicone"),
+        go=("github.com/helicone/go-helicone-helpers",),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"

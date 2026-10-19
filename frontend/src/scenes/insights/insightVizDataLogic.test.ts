@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -37,6 +39,8 @@ import {
 import { insightDataLogic } from './insightDataLogic'
 
 const Insight123 = '123' as InsightShortId
+
+type PickerLogic = ReturnType<typeof entityFilterLogic.build>
 
 describe('insightVizDataLogic', () => {
     let builtInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
@@ -362,11 +366,28 @@ describe('insightVizDataLogic', () => {
             initial: { series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }] },
             update: { series: [{ ...warehouseSeries, kind: warehouseKind }] },
         })
+        const warehouseTrendsSeries = { ...warehouseSeries, kind: NodeKind.DataWarehouseNode }
+        const pageviewSeries = { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }
+        const flagCallsNode = {
+            id: 'posthog.flag_evaluations',
+            table_name: 'posthog.flag_evaluations',
+            name: 'Feature flag called',
+            timestamp_field: 'timestamp',
+            aggregation_target_field: 'person_id',
+        }
+        const flagCallsEntity = { ...flagCallsNode, type: 'data_warehouse' as const }
+        const flagCallsTrendsSeries = { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }
 
         it.each([
             addsWarehouseSeries(NodeKind.TrendsQuery, NodeKind.DataWarehouseNode),
             addsWarehouseSeries(NodeKind.FunnelsQuery, NodeKind.FunnelsDataWarehouseNode),
             addsWarehouseSeries(NodeKind.StickinessQuery, NodeKind.DataWarehouseNode),
+            {
+                kind: NodeKind.TrendsQuery,
+                added: 'series beside a flag calls series',
+                initial: { series: [pageviewSeries] },
+                update: { series: [flagCallsTrendsSeries, warehouseTrendsSeries] },
+            },
             {
                 kind: NodeKind.RetentionQuery,
                 added: 'target entity',
@@ -409,19 +430,53 @@ describe('insightVizDataLogic', () => {
                     filterTestAccounts: false,
                     properties: undefined,
                 })
+                expect(builtInsightVizDataLogic.values.globalFiltersUnsupported).toBe(true)
             }
         )
 
-        const warehouseTrendsSeries = { ...warehouseSeries, kind: NodeKind.DataWarehouseNode }
-        const pageviewSeries = { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }
-        const flagCallsNode = {
-            id: 'posthog.flag_evaluations',
-            table_name: 'posthog.flag_evaluations',
-            name: 'Feature flag called',
-            timestamp_field: 'timestamp',
-            aggregation_target_field: 'person_id',
-        }
-        const flagCallsEntity = { ...flagCallsNode, type: 'data_warehouse' as const }
+        it.each([
+            {
+                kind: NodeKind.TrendsQuery,
+                added: 'series',
+                initial: { series: [pageviewSeries] },
+                update: { series: [flagCallsTrendsSeries] },
+            },
+            {
+                kind: NodeKind.TrendsQuery,
+                added: 'series beside an event series',
+                initial: { series: [pageviewSeries] },
+                update: { series: [pageviewSeries, flagCallsTrendsSeries] },
+            },
+            {
+                kind: NodeKind.RetentionQuery,
+                added: 'target entity',
+                initial: { retentionFilter: { targetEntity: { id: '$pageview', type: 'events' } } },
+                update: { retentionFilter: { targetEntity: flagCallsEntity } },
+            },
+        ])(
+            'keeps filterTestAccounts and properties but clears sampling when adding a flag calls $added to $kind',
+            ({ kind, initial, update }) => {
+                const initialSource: Record<string, unknown> = {
+                    kind,
+                    filterTestAccounts: true,
+                    properties: [{ type: 'event', key: 'browser', value: 'Chrome', operator: 'exact' }],
+                    samplingFactor: 0.1,
+                    ...initial,
+                }
+                builtInsightVizDataLogic.actions.updateQuerySource(initialSource as QuerySourceUpdate)
+
+                const updateSource: Record<string, unknown> = { kind, ...update }
+                builtInsightVizDataLogic.actions.updateQuerySource(updateSource as QuerySourceUpdate)
+
+                expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                    kind,
+                    filterTestAccounts: true,
+                    properties: [expect.objectContaining({ key: 'browser' })],
+                    samplingFactor: undefined,
+                })
+                expect(builtInsightVizDataLogic.values.globalFiltersUnsupported).toBe(false)
+            }
+        )
 
         it('clears sampling when adding a data warehouse series to an insight with no other unsupported settings', () => {
             builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: 0.1 } as TrendsQuery)
@@ -462,28 +517,28 @@ describe('insightVizDataLogic', () => {
             {
                 name: 'an event breakdown when a flag calls series joins an event series',
                 breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
-                series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                series: [pageviewSeries, flagCallsTrendsSeries],
                 expected: undefined,
                 toasts: [expect.stringMatching(/^Feature flag called doesn't support this breakdown/)],
             },
             {
                 name: 'a flag response breakdown when a trends series changes to flag calls',
                 breakdownFilter: { breakdown_type: 'event', breakdown: '$feature_flag_response' },
-                series: [{ ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                series: [flagCallsTrendsSeries],
                 expected: { breakdown_type: 'data_warehouse', breakdown: 'response' },
                 toasts: [],
             },
             {
                 name: 'multiple breakdowns with a flag key one when a trends series changes to flag calls',
                 breakdownFilter: { breakdowns: [{ type: 'event', property: '$feature_flag' }] },
-                series: [{ ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                series: [flagCallsTrendsSeries],
                 expected: { breakdowns: [{ type: 'data_warehouse', property: 'flag_key' }] },
                 toasts: [],
             },
             {
                 name: 'a flag calls breakdown when an event series joins a flag calls series',
                 breakdownFilter: { breakdown_type: 'data_warehouse', breakdown: 'flag_key' },
-                series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                series: [pageviewSeries, flagCallsTrendsSeries],
                 expected: undefined,
                 toasts: [
                     expect.stringMatching(/^Feature flag called can't share a breakdown with event or action series/),
@@ -507,12 +562,30 @@ describe('insightVizDataLogic', () => {
             {
                 kind: NodeKind.FunnelsQuery,
                 flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] },
-                targets: (source: any) => [source.series[0].aggregation_target_field],
+                targets: (source: any) => [
+                    source.series[0].aggregation_target_field,
+                    source.series[0].created_at_field,
+                ],
+                byGroup: ['$group_1', undefined],
+                byPerson: ['person_id', undefined],
             },
             {
                 kind: NodeKind.LifecycleQuery,
-                flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.LifecycleDataWarehouseNode }] },
-                targets: (source: any) => [source.series[0].aggregation_target_field],
+                flagCalls: {
+                    series: [
+                        {
+                            ...flagCallsNode,
+                            kind: NodeKind.LifecycleDataWarehouseNode,
+                            created_at_field: 'person.created_at',
+                        },
+                    ],
+                },
+                targets: (source: any) => [
+                    source.series[0].aggregation_target_field,
+                    source.series[0].created_at_field,
+                ],
+                byGroup: ['$group_1', 'group_1.created_at'],
+                byPerson: ['person_id', 'person.created_at'],
             },
             {
                 kind: NodeKind.RetentionQuery,
@@ -520,18 +593,22 @@ describe('insightVizDataLogic', () => {
                 targets: (source: any) => [
                     source.retentionFilter.targetEntity.aggregation_target_field,
                     source.retentionFilter.returningEntity.aggregation_target_field,
+                    source.retentionFilter.targetEntity.created_at_field,
+                    source.retentionFilter.returningEntity.created_at_field,
                 ],
+                byGroup: ['$group_1', '$group_1', undefined, undefined],
+                byPerson: ['person_id', 'person_id', undefined, undefined],
             },
-        ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets }) => {
+        ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets, byGroup, byPerson }) => {
             const update = (source: Record<string, unknown>): void =>
                 builtInsightVizDataLogic.actions.updateQuerySource({ kind, ...source } as QuerySourceUpdate)
 
             update({ aggregation_group_type_index: 1 })
             update(flagCalls)
-            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['$group_1']))
+            expect(targets(builtInsightVizDataLogic.values.querySource)).toEqual(byGroup)
 
             update({ aggregation_group_type_index: undefined })
-            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['person_id']))
+            expect(targets(builtInsightVizDataLogic.values.querySource)).toEqual(byPerson)
         })
 
         it('counts funnel flag calls by the funnel aggregation expression', () => {
@@ -564,6 +641,34 @@ describe('insightVizDataLogic', () => {
             infoToast.mockRestore()
         })
 
+        it.each([
+            {
+                saved: 'another warehouse table',
+                series: warehouseTrendsSeries,
+                kept: { filterTestAccounts: false, properties: undefined },
+            },
+            {
+                saved: 'flag calls',
+                series: flagCallsTrendsSeries,
+                kept: { filterTestAccounts: true, properties: [expect.objectContaining({ key: 'browser' })] },
+            },
+        ])('resets sampling and the filters a saved $saved series cannot take', ({ series, kept }) => {
+            builtInsightDataLogic.actions.setQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [series],
+                    filterTestAccounts: true,
+                    properties: [{ type: 'event', key: 'browser', value: 'Chrome', operator: 'exact' }],
+                    samplingFactor: 0.1,
+                },
+            } as Node)
+
+            builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: undefined } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ ...kept, samplingFactor: undefined })
+        })
+
         it('keeps test accounts off when a later edit turns them on for a retention insight with a data warehouse entity', () => {
             builtInsightVizDataLogic.actions.updateQuerySource({
                 kind: NodeKind.RetentionQuery,
@@ -579,7 +684,86 @@ describe('insightVizDataLogic', () => {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: false,
             })
-            expect(builtInsightVizDataLogic.values.hasDataWarehouseEntity).toBe(true)
+            expect(builtInsightVizDataLogic.values.globalFiltersUnsupported).toBe(true)
+        })
+    })
+
+    describe('updateSeries', () => {
+        const pageview = { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }
+        const signUp = { kind: NodeKind.ActionsNode, id: 7, name: 'Sign up' }
+        const added = { kind: NodeKind.EventsNode, event: getDefaultEventName(), name: getDefaultEventLabel() }
+
+        it.each([
+            {
+                edit: 'adds a series with the default math',
+                source: { kind: NodeKind.TrendsQuery, series: [{ ...pageview, math: BaseMathType.UniqueUsers }] },
+                apply: (picker: PickerLogic) => picker.actions.addSeries(),
+                expected: [
+                    { ...pageview, math: BaseMathType.UniqueUsers },
+                    { ...added, math: BaseMathType.TotalCount },
+                ],
+            },
+            {
+                edit: 'changes a math',
+                source: { kind: NodeKind.TrendsQuery, series: [{ ...pageview, math: BaseMathType.TotalCount }] },
+                apply: (picker: PickerLogic) =>
+                    picker.actions.updateSeriesMath(0, { math: BaseMathType.WeeklyActiveUsers, math_hogql: undefined }),
+                expected: [{ ...pageview, math: BaseMathType.WeeklyActiveUsers }],
+            },
+            {
+                edit: 'removes a series',
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        { ...pageview, math: BaseMathType.TotalCount },
+                        { ...signUp, math: BaseMathType.TotalCount },
+                    ],
+                },
+                apply: (picker: PickerLogic) => picker.actions.removeSeries(0),
+                expected: [{ ...signUp, math: BaseMathType.TotalCount }],
+            },
+            {
+                edit: 'reorders series',
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        { ...pageview, math: BaseMathType.TotalCount },
+                        { ...signUp, math: BaseMathType.TotalCount },
+                    ],
+                },
+                apply: (picker: PickerLogic) => picker.actions.setLocalSeries([...picker.values.localSeries].reverse()),
+                expected: [
+                    { ...signUp, math: BaseMathType.TotalCount },
+                    { ...pageview, math: BaseMathType.TotalCount },
+                ],
+            },
+            {
+                edit: 'adds a stickiness series with an actors math',
+                source: { kind: NodeKind.StickinessQuery, series: [{ ...pageview, math: BaseMathType.UniqueUsers }] },
+                apply: (picker: PickerLogic) => picker.actions.addSeries(),
+                expected: [
+                    { ...pageview, math: BaseMathType.UniqueUsers },
+                    { ...added, math: BaseMathType.UniqueUsers },
+                ],
+            },
+            {
+                edit: 'moves an optional funnel step to the start',
+                source: { kind: NodeKind.FunnelsQuery, series: [pageview, { ...signUp, optionalInFunnel: true }] },
+                apply: (picker: PickerLogic) => picker.actions.setLocalSeries([...picker.values.localSeries].reverse()),
+                expected: [signUp, pageview],
+            },
+        ])('$edit', ({ source, apply, expected }) => {
+            builtInsightDataLogic.actions.setQuery({ kind: NodeKind.InsightVizNode, source } as Node)
+            const picker = entityFilterLogic({
+                typeKey: 'insight-series',
+                series: builtInsightVizDataLogic.values.series ?? [],
+                onChange: builtInsightVizDataLogic.actions.updateSeries,
+            })
+            picker.mount()
+
+            apply(picker)
+
+            expect(builtInsightVizDataLogic.values.series).toEqual(expected)
         })
     })
 

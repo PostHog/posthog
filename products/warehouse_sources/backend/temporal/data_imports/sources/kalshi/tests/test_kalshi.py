@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from parameterized import parameterized
@@ -7,11 +7,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kalshi import KalshiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kalshi import (
     KalshiResumeConfig,
+    _batch_markets,
+    _candlestick_market,
+    _CandlestickMarket,
     _to_epoch_seconds,
     validate_credentials,
 )
@@ -28,6 +32,25 @@ def _page(data_key: str, items: list[dict[str, Any]], *, cursor: str | None = No
     if cursor is not None:
         body["cursor"] = cursor
     return ScriptedResponse(json=body)
+
+
+def _epoch(moment: datetime) -> int:
+    return int(moment.timestamp())
+
+
+def _market(ticker: str, opened: datetime, closes: datetime) -> dict[str, Any]:
+    return {"ticker": ticker, "open_time": opened.isoformat(), "close_time": closes.isoformat()}
+
+
+def _candlesticks(*markets: tuple[str, list[int]]) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "markets": [
+                {"market_ticker": ticker, "candlesticks": [{"end_period_ts": ts, "volume_fp": "1.00"} for ts in ends]}
+                for ticker, ends in markets
+            ]
+        }
+    )
 
 
 class TestKalshiTransport:
@@ -47,19 +70,26 @@ class TestKalshiTransport:
         # API and quietly turn every incremental sync into a full scan.
         assert _to_epoch_seconds(value) == expected
 
-    def test_trades_incremental_sends_min_ts(self) -> None:
+    @parameterized.expand(
+        [
+            ("trades", "/trade-api/v2/markets/trades"),
+            ("historical_trades", "/trade-api/v2/historical/trades"),
+        ]
+    )
+    def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str) -> None:
         result = _driver().run(
-            "trades",
+            endpoint,
             [_page("trades", [{"trade_id": "t1"}])],
             incremental_field="created_time",
             db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
         )
 
         assert result.raised is None
+        assert result.paths == [path]
         assert result.requests[0].param("min_ts") == "1609459200"
-        assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS["trades"].page_size)
+        assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS[endpoint].page_size)
 
-    @parameterized.expand(["markets", "events", "milestones"])
+    @parameterized.expand(["markets", "events", "milestones", "historical_markets"])
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str) -> None:
         # Kalshi answers 200 and ignores params it doesn't recognise, so a filter wired onto an
         # endpoint that has none would look like it worked while syncing everything every run.
@@ -102,6 +132,7 @@ class TestKalshiTransport:
     @parameterized.expand(
         [
             ("trades", "desc"),
+            ("historical_trades", "desc"),
             ("markets", "asc"),
             ("series", "asc"),
         ]
@@ -155,3 +186,184 @@ class TestKalshiTransport:
             assert validate_credentials() is expected
 
         assert network.requests_log[0].path == "/trade-api/v2/exchange/status"
+
+
+class TestKalshiCandlesticks:
+    def test_walks_market_pages_and_batches_candlestick_requests(self) -> None:
+        now = datetime.now(UTC)
+        opened_a, opened_b = now - timedelta(days=3), now - timedelta(days=10)
+        closes = now + timedelta(days=30)
+        result = _driver().run(
+            "market_candlesticks",
+            route(
+                {
+                    "/markets": [
+                        _page(
+                            "markets",
+                            [
+                                _market("A", opened_a, closes),
+                                _market("B", opened_b, closes),
+                                # Not open yet, so it has no candlesticks to fetch.
+                                _market("LATER", now + timedelta(days=1), closes),
+                            ],
+                            cursor="c1",
+                        ),
+                        _page("markets", [_market("C", opened_a, closes)]),
+                    ],
+                    "/candlesticks": [
+                        _candlesticks(("A", [100, 200]), ("B", [300])),
+                        _candlesticks(("C", [])),
+                    ],
+                }
+            ),
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/trade-api/v2/markets",
+            "/trade-api/v2/markets/candlesticks",
+            "/trade-api/v2/markets",
+            "/trade-api/v2/markets/candlesticks",
+        ]
+        assert result.params("cursor") == [None, None, "c1", None]
+        assert result.params("mve_filter") == ["exclude", None, "exclude", None]
+        assert result.params("min_close_ts") == [None, None, None, None]
+        assert result.params("market_tickers") == [None, "A,B", None, "C"]
+        assert result.params("start_ts") == [None, str(_epoch(opened_b)), None, str(_epoch(opened_a))]
+        assert result.params("period_interval") == [None, "1440", None, "1440"]
+        assert result.rows == [
+            {"market_ticker": "A", "end_period_ts": 100, "volume_fp": "1.00"},
+            {"market_ticker": "A", "end_period_ts": 200, "volume_fp": "1.00"},
+            {"market_ticker": "B", "end_period_ts": 300, "volume_fp": "1.00"},
+        ]
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
+
+    @parameterized.expand(
+        [
+            ("watermark_after_open", 5, 3),
+            ("watermark_before_open", 30, 3),
+        ]
+    )
+    def test_incremental_sync_windows_markets_and_candlesticks(
+        self, _name: str, opened_days_ago: int, watermark_days_ago: int
+    ) -> None:
+        now = datetime.now(UTC)
+        opened = now - timedelta(days=opened_days_ago)
+        watermark = _epoch(now - timedelta(days=watermark_days_ago))
+        window_start = watermark - 86400
+        result = _driver().run(
+            "market_candlesticks",
+            route(
+                {
+                    "/markets": [_page("markets", [_market("A", opened, now + timedelta(days=1))])],
+                    "/candlesticks": [_candlesticks(("A", [watermark + 86400]))],
+                }
+            ),
+            incremental_field="end_period_ts",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert result.params("min_close_ts") == [str(window_start), None]
+        assert result.params("start_ts") == [None, str(max(_epoch(opened), window_start))]
+        assert result.rows == [{"market_ticker": "A", "end_period_ts": watermark + 86400, "volume_fp": "1.00"}]
+
+    def test_refetches_a_batch_in_halves_when_the_response_hits_the_cap(self) -> None:
+        now = datetime.now(UTC)
+        opened, closes = now - timedelta(days=2), now + timedelta(days=1)
+        result = _driver().run(
+            "market_candlesticks",
+            route(
+                {
+                    "/markets": [_page("markets", [_market("A", opened, closes), _market("B", opened, closes)])],
+                    "/candlesticks": [
+                        _candlesticks(("A", list(range(5_000))), ("B", list(range(5_000)))),
+                        _candlesticks(("A", [1])),
+                        _candlesticks(("B", [2])),
+                    ],
+                }
+            ),
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.params("market_tickers") == [None, "A,B", "A", "B"]
+        assert [(row["market_ticker"], row["end_period_ts"]) for row in result.rows] == [("A", 1), ("B", 2)]
+
+    def test_resumes_from_the_saved_market_page_and_stages_each_page_cursor(self) -> None:
+        now = datetime.now(UTC)
+        opened, closes = now - timedelta(days=2), now + timedelta(days=1)
+        result = _driver().run(
+            "market_candlesticks",
+            route(
+                {
+                    "/markets": [
+                        _page("markets", [_market("A", opened, closes)], cursor="c2"),
+                        _page("markets", [_market("B", opened, closes)]),
+                    ],
+                    "/candlesticks": [_candlesticks(("A", [1])), _candlesticks(("B", [2]))],
+                }
+            ),
+            should_use_incremental_field=False,
+            resume_state=KalshiResumeConfig(cursor="saved"),
+        )
+
+        assert result.raised is None
+        assert result.params("cursor") == ["saved", None, "c2", None]
+        # Each cursor is staged before the rows of the page it fetched, so a resume rereads that page.
+        assert result.saved_states == [KalshiResumeConfig(cursor="saved"), KalshiResumeConfig(cursor="c2")]
+        assert KalshiResumeConfig(cursor="c2") in result.committed_states
+
+    @parameterized.expand(
+        [
+            ("open_market", 10, 5, None, (-10, 0)),
+            ("closed_market_ends_at_close", 10, -2, None, (-10, -2)),
+            ("window_after_open", 10, 5, -3, (-3, 0)),
+            ("not_open_yet", -1, 5, None, None),
+            ("closed_before_window", 10, -5, -3, None),
+        ]
+    )
+    def test_candlestick_market_window(
+        self,
+        _name: str,
+        opened_days_ago: int,
+        closes_in_days: int,
+        window_days: int | None,
+        expected_days: tuple[int, int] | None,
+    ) -> None:
+        now = 1_800_000_000
+        day = 86400
+        market = {
+            "ticker": "A",
+            "open_time": datetime.fromtimestamp(now - opened_days_ago * day, UTC).isoformat(),
+            "close_time": datetime.fromtimestamp(now + closes_in_days * day, UTC).isoformat(),
+        }
+        window_start = None if window_days is None else now + window_days * day
+
+        result = _candlestick_market(market, window_start, now)
+
+        if expected_days is None:
+            assert result is None
+        else:
+            assert result == _CandlestickMarket(
+                ticker="A", start_ts=now + expected_days[0] * day, end_ts=now + expected_days[1] * day
+            )
+
+    @parameterized.expand(
+        [
+            # 150 short-lived markets split on the 100-ticker limit.
+            ("ticker_limit", 150, 1, [100, 50]),
+            # Each market can return about 1,002 candlesticks, so 9 fit under the 10,000 cap.
+            ("candlestick_cap", 20, 1000, [9, 9, 2]),
+            # One market alone over the cap still gets a request of its own.
+            ("single_oversized_market", 2, 20_000, [1, 1]),
+        ]
+    )
+    def test_batches_respect_ticker_and_candlestick_limits(
+        self, _name: str, count: int, days: int, expected_sizes: list[int]
+    ) -> None:
+        markets = [_CandlestickMarket(ticker=str(i), start_ts=0, end_ts=days * 86400) for i in range(count)]
+
+        assert [len(batch) for batch in _batch_markets(markets)] == expected_sizes

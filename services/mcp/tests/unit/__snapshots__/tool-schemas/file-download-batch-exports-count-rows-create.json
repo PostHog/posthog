@@ -285,6 +285,10 @@
                     "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
                     "type": ["boolean", "null"]
                 },
+                "negatedPersonFiltersNotIn": {
+                    "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
+                    "type": ["boolean", "null"]
+                },
                 "optimizeJoinedFilters": {
                     "type": ["boolean", "null"]
                 },
@@ -400,6 +404,10 @@
                         }
                     ]
                 },
+                "sessionTimestampBufferMinutes": {
+                    "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.",
+                    "type": ["number", "null"]
+                },
                 "timings": {
                     "type": ["boolean", "null"]
                 },
@@ -408,6 +416,10 @@
                     "type": ["boolean", "null"]
                 },
                 "useMaterializedViews": {
+                    "type": ["boolean", "null"]
+                },
+                "useNewEventsCluster": {
+                    "description": "Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.",
                     "type": ["boolean", "null"]
                 },
                 "useNewEventsSchema": {

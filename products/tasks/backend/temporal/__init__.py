@@ -13,7 +13,6 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
-from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -21,6 +20,7 @@ from .process_task.activities import (
     clone_repository_in_sandbox,
     collect_agent_shadow_result,
     complete_run_stream,
+    complete_signal_spend,
     create_resume_snapshot,
     create_sandbox_for_repository,
     emit_progress_activity,
@@ -74,7 +74,6 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
     ActivateDevStackImageWorkflow,
@@ -122,6 +121,7 @@ ACTIVITIES = [
     start_dev_stack_preview,
     wait_dev_stack_preview,
     update_task_run_status,
+    complete_signal_spend,
     get_pr_context,
     get_pr_babysit_snapshot,
     mark_pr_ready,
@@ -130,7 +130,6 @@ ACTIVITIES = [
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

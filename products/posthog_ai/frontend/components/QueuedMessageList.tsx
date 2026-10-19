@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconChevronDown, IconPencil, IconStack, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
@@ -7,6 +7,8 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { cn } from 'lib/utils/css-classes'
 
 import type { QueuedMessage } from '../logics/runInteractionLogic'
+import { splitLeadingCommentContexts } from '../utils/commentContext'
+import { CommentContextChip } from './CommentContextChip'
 
 export interface QueuedMessageListProps {
     messages: QueuedMessage[]
@@ -39,12 +41,14 @@ function QueuedMessageItem({
     onSave,
     onRemove,
 }: QueuedMessageItemProps): JSX.Element {
-    const [draft, setDraft] = useState(message.content)
+    const { prefix, contexts, text } = useMemo(() => splitLeadingCommentContexts(message.content), [message.content])
+    const [draft, setDraft] = useState(text)
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+    const save = (): void => onSave(message.id, `${prefix}${draft}`)
 
     useEffect(() => {
-        setDraft(message.content)
-    }, [message.content])
+        setDraft(text)
+    }, [text])
 
     useEffect(() => {
         if (isEditing) {
@@ -67,7 +71,7 @@ function QueuedMessageItem({
                     autoFocus
                     onPressCmdEnter={() => {
                         if (canSave) {
-                            onSave(message.id, draft)
+                            save()
                         }
                     }}
                 />
@@ -75,7 +79,7 @@ function QueuedMessageItem({
                     <LemonButton
                         size="xsmall"
                         icon={<IconCheck />}
-                        onClick={() => onSave(message.id, draft)}
+                        onClick={save}
                         disabledReason={canSave ? undefined : 'Message cannot be empty'}
                     >
                         Save
@@ -90,7 +94,12 @@ function QueuedMessageItem({
 
     return (
         <div className="flex items-center gap-2 py-1 px-2 rounded-md border border-primary bg-surface-primary">
-            <p className="flex-1 text-sm truncate mb-0">{message.content}</p>
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+                {contexts.map((context, index) => (
+                    <CommentContextChip key={index} context={context} />
+                ))}
+                <p className="min-w-0 flex-1 text-sm truncate mb-0">{text}</p>
+            </div>
             <div className="flex gap-0.5">
                 <LemonButton
                     size="xsmall"

@@ -7,7 +7,7 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final
@@ -21,12 +21,23 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    DeliveryPath,
     DestinationType,
     EventKindSpec,
     OwnedAlertDestination,
+    SourceKind,
 )
 
-from ..logic import alert_email, destination_configs, destinations, insight_alert_destinations
+from ..logic import (
+    delivery_destinations,
+    delivery_path,
+    destination_bucket_report,
+    destination_configs,
+    destination_eligibility,
+    destinations,
+    insight_alert_destinations,
+)
+from .contracts import AlertInternalEvent, DeliveryPathChoice, DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -211,10 +222,69 @@ def alert_internal_event_delivered(
     )
 
 
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Enqueue the events and wait for the broker. Raises `AlertInternalEventsNotDelivered` when it took not all of them.
+
+    Each event's `uuid` is what lets a receiver drop the copy a retry emits.
+    """
+    destinations.emit_alert_internal_events(
+        team_id=team_id, alert_id=alert_id, events=events, flush_timeout_seconds=flush_timeout_seconds
+    )
+
+
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
-    """Everything the shared platform delivers one alert's events to, including subscriber email."""
-    return alert_email.list_delivery_destination_groups(
+    """Everything the shared platform delivers one alert's events to, including subscriber email and
+    in-app notifications."""
+    return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def classify_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
+    """Every destination function of one alert, with what native delivery cannot carry for each."""
+    return destination_eligibility.classify_alert_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+    )
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    return destination_eligibility.bucket_for(eligibility)
+
+
+def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
+    """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
+    return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def team_delivery_paths(
+    *, source: SourceKind, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, DeliveryPathChoice]:
+    """Whether native delivery may send each alert's destinations now, and why not when it may not."""
+    return delivery_path.team_delivery_paths(
+        source=source, team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )
+
+
+def choose_delivery_path(
+    *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> DeliveryPath:
+    """The platform's delivery path chooser, which `products.alerts` registers when Django starts."""
+    return delivery_path.delivery_path(
+        source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )

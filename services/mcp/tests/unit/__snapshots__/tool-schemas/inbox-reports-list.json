@@ -75,7 +75,7 @@
             "type": "string"
         },
         "sort": {
-            "description": "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.",
+            "description": "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.",
             "type": "string"
         },
         "source_id": {

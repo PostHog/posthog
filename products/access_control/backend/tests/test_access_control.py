@@ -1333,7 +1333,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        baseline = 14  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
         # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
         # IDs, the project's replay gates
@@ -1495,8 +1495,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 2
-        assert app_context["current_team"]["id"] == self.team.id
-        assert app_context["current_team"]["user_access_level"] == "none"
+        assert app_context["current_team"] is None
 
 
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access

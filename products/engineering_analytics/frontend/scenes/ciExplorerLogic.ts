@@ -49,6 +49,7 @@ import {
 import { jobCacheKey } from '../lib/jobs'
 import { WorkflowRun, isDecisiveFailure } from '../lib/lifecycle'
 import { pushRoundOf } from '../lib/pushRounds'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { withScope } from '../lib/scope'
 import { PrCommitRuns, groupRunsByCommit } from './pullRequestDetailLogic'
 
@@ -406,9 +407,7 @@ export interface ciExplorerLogicMeta {
         breadcrumbs: (
             repoOwner: string,
             repoName: string,
-            number: number,
             sourceId: string | null,
-            pullRequestUrl: string,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
     }
@@ -805,33 +804,13 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 withScope(urls.engineeringAnalyticsPullRequest(repoOwner, repoName, number), searchParams, sourceId),
         ],
         breadcrumbs: [
-            (s, p) => [p.repoOwner, p.repoName, p.number, s.sourceId, s.pullRequestUrl, router.selectors.searchParams],
+            (s, p) => [p.repoOwner, p.repoName, s.sourceId, router.selectors.searchParams],
             (
                 repoOwner: string,
                 repoName: string,
-                number: number,
                 sourceId: string | null,
-                pullRequestUrl: string,
                 searchParams: Record<string, string | undefined>
-            ): Breadcrumb[] => [
-                {
-                    key: 'EngineeringAnalytics',
-                    name: 'Engineering analytics',
-                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: ['EngineeringAnalyticsPullRequest', `${repoOwner}/${repoName}#${number}`],
-                    name: `${repoOwner}/${repoName} #${number}`,
-                    path: pullRequestUrl,
-                    iconType: 'health',
-                },
-                {
-                    key: ['EngineeringAnalyticsCIExplorer', `${repoOwner}/${repoName}#${number}`],
-                    name: 'CI explorer',
-                    iconType: 'health',
-                },
-            ],
+            ): Breadcrumb[] => repoBreadcrumbs(`${repoOwner}/${repoName}`, searchParams, sourceId),
         ],
     }),
 
