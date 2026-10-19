@@ -32,6 +32,7 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     PropertyRemovalTarget,
     _cleaned_select_list,
+    _holds_rows,
     _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
@@ -170,6 +171,19 @@ def _truncate_flag_evaluations(client: Client) -> None:
 
 def _truncate_adhoc_events_deletion(client: Client) -> None:
     client.execute(f"TRUNCATE TABLE IF EXISTS {ADHOC_EVENTS_DELETION_TABLE}")
+
+
+def _insert_events_json_rows(rows: list[tuple], client: Client) -> None:
+    for team_id, event, uuid, timestamp, properties in rows:
+        client.execute(
+            "INSERT INTO sharded_events_json (team_id, event, uuid, timestamp, properties) "
+            "SELECT %(team_id)s, %(event)s, %(uuid)s, %(timestamp)s, %(properties)s",
+            {"team_id": team_id, "event": event, "uuid": uuid, "timestamp": timestamp, "properties": properties},
+        )
+
+
+def _truncate_events_json(client: Client) -> None:
+    client.execute("TRUNCATE TABLE IF EXISTS sharded_events_json")
 
 
 def _adhoc_pending_uuids(team_id: int, client: Client) -> set:
@@ -2731,6 +2745,71 @@ def test_deferred_event_removal_with_a_hogql_predicate_handles_flag_rows_without
     finally:
         cluster.any_host(_truncate_adhoc_events_deletion).result()
         cluster.any_host(_truncate_flag_evaluations).result()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "has_events_copy, native_properties, refusal",
+    [
+        # The predicate excludes the native copy. The drain deletes a queued uuid from every table, so
+        # queueing the flag row would delete that copy too.
+        pytest.param(False, '{"$browser": "Firefox"}', "sharded_events_json holds flag calls", id="only_a_native_copy"),
+        pytest.param(True, '{"$browser": "Chrome"}', None, id="events_and_native_copies"),
+    ],
+)
+def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
+    cluster: ClickhouseCluster, has_events_copy: bool, native_properties: str, refusal: str | None
+) -> None:
+    _, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-native-copy")
+    earlier = datetime.now(UTC) - timedelta(days=10)
+    flag_uuid = uuid4()
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(_truncate_events_json).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(ctx.team_id, "", '{"$browser": "Chrome"}', str(flag_uuid), earlier, earlier)],
+        )
+    ).result()
+    if has_events_copy:
+        cluster.any_host(
+            partial(
+                _insert_events_with_properties,
+                [(ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, flag_uuid, earlier, '{"$browser": "Chrome"}')],
+            )
+        ).result()
+    cluster.any_host(
+        partial(
+            _insert_events_json_rows,
+            [(ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, flag_uuid, earlier, native_properties)],
+        )
+    ).result()
+
+    try:
+        with pytest.raises(dagster.Failure, match=refusal) if refusal else nullcontext():
+            _run_event_deletion(cluster, ctx)
+        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == (
+            set() if refusal else {flag_uuid}
+        )
+    finally:
+        cluster.any_host(_truncate_adhoc_events_deletion).result()
+        cluster.any_host(_truncate_flag_evaluations).result()
+        cluster.any_host(_truncate_events_json).result()
+
+
+def test_holds_rows_reads_storage_on_another_cluster_when_the_proxy_reads_empty() -> None:
+    def resolved(value: object) -> Future:
+        future: Future = Future()
+        future.set_result(value)
+        return future
+
+    cluster = Mock(spec=ClickhouseCluster)
+    cluster.any_host_by_role.return_value = resolved([(0,)])
+    sibling = Mock(spec=ClickhouseCluster)
+    sibling.map_one_host_per_shard.return_value = resolved({"events-host": [(3,)]})
+
+    assert _holds_rows(cluster, TargetPlacement(target=EVENTS_JSON, cluster=sibling), "team_id = 1", {})
 
 
 @pytest.mark.django_db

@@ -245,9 +245,12 @@ The check for an events copy reads `sharded_events` only.
 In production, `sharded_events_json` holds no `$feature_flag_called` rows: the deployed ingestion view and the backfill both leave the event out, so a flag row has no copy there.
 The view this repo defines (`EVENTS_JSON_TABLE_MV_SQL`) still writes the event, so local, CI and self-hosted deployments do keep a copy.
 There, a flag row can keep its `sharded_events_json` copy after its `sharded_events` copy is gone, when an earlier immediate request matched the two events tables differently.
-The compiled predicate then decides for that row, and the drain deletes the `sharded_events_json` copy too, even when the native-JSON compile of the predicate excludes it.
-The check does not read `sharded_events_json`, because that table can sit on another cluster.
-A shard-local subquery cannot reach it there, and the `events_json` proxy can read an empty table.
+Queueing that row would also delete its `sharded_events_json` copy, even when the native-JSON compile of the predicate excludes it, because the drain deletes a queued uuid from every target.
+The check cannot look for that copy row by row, because `sharded_events_json` can sit on another cluster, where a shard-local subquery cannot reach it.
+So before a deferred request queues rows with no `sharded_events` copy, the gate counts the flag calls in the request's window on `sharded_events_json`.
+It counts through the `events_json` proxy, and also on the storage table through its own handle when that table sits on another cluster, because the proxy can read an empty table there.
+When it finds any, the request refuses while a row with no `sharded_events` copy matches the compiled predicate.
+Production stores no flag calls in `sharded_events_json`, so the gate finds none there.
 
 The compiled predicate never decides for a row that has an events copy.
 The drain deletes a queued uuid from every target, so a flag row that matched the flag-compiled predicate would take its events copy with it, even where the events-compiled predicate does not name that event.

@@ -32,6 +32,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    Query,
     wait_for_patch_part_replication,
 )
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
@@ -547,6 +548,16 @@ _IMMEDIATE_HOGQL_RETRY_HINT = (
 )
 
 
+def _hogql_unchecked_events_copy_reason(target: DeletionTarget, tables: list[str]) -> str:
+    return (
+        f"the request carries a HogQL predicate, and these rows have no copy in {target.copied_from}, but "
+        f"{', '.join(tables)} holds flag calls in the request's window. The deferred queue deletes a queued uuid "
+        "from every table, so queueing these rows could also delete a copy there that the predicate excludes. "
+        "This job cannot check those copies row by row. To proceed, re-file the request without the predicate. "
+        f"See {COVERAGE_DOC}."
+    )
+
+
 def _hogql_no_events_copy_reason(error: str) -> str:
     return (
         f"the request carries a HogQL predicate that cannot run on this table ({error}), and these rows have "
@@ -658,6 +669,48 @@ class EventRemovalPlacements:
     uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]]
 
 
+def _holds_rows(cluster: ClickhouseCluster, placement: TargetPlacement, predicate: str, params: dict) -> bool:
+    """Whether ``placement``'s target holds rows that match ``predicate``.
+
+    Reads the Distributed proxy, and also the storage table through its own handle when that table sits
+    on another cluster. The proxy reads only the cluster its engine names, so on a deployment whose
+    storage moved it can read an empty table, as ``_count_unswept_rows`` in posthog/dags/deletes.py notes.
+    """
+    if count_surviving_rows(cluster, placement.target, predicate, params):
+        return True
+    if placement.cluster is cluster:
+        return False
+    query = Query(
+        surviving_rows_sql(placement.target.data_table, predicate), params, settings={"max_execution_time": "1800"}
+    )
+    return any(rows and rows[0][0] for rows in placement.cluster.map_one_host_per_shard(query).result().values())
+
+
+def _events_tables_outside_copy_check(
+    cluster: ClickhouseCluster,
+    placements: list[TargetPlacement],
+    target: DeletionTarget,
+    criteria: tuple[str, dict],
+) -> list[str]:
+    """The events tables other than ``target.copied_from`` that hold events ``target`` copies, within ``criteria``.
+
+    The copy check reads only ``target.copied_from``, so a row it finds with no copy can still have one
+    in another events table. That table can sit on another cluster, where a shard-local subquery cannot
+    reach it.
+    """
+    predicate, params = criteria
+    if target.stored_events is not None:
+        predicate += " AND event IN %(copied_events)s"
+        params = {**params, "copied_events": sorted(target.stored_events)}
+    return [
+        p.target.data_table
+        for p in placements
+        if p.target.hogql_schema is not None
+        and p.target.data_table != target.copied_from
+        and _holds_rows(cluster, p, predicate, params)
+    ]
+
+
 def _event_removal_placements(
     cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
 ) -> EventRemovalPlacements:
@@ -691,11 +744,13 @@ def _event_removal_placements(
         deferred = reaches_target_through_event_uuids(deletion_request, target)
         if uncopied_predicate.compiled is None:
             reason = _hogql_no_events_copy_reason(uncopied_predicate.error)
-        elif deferred:
+        elif not deferred:
+            reason = _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON
+        elif tables := _events_tables_outside_copy_check(cluster, placements, target, criteria):
+            reason = _hogql_unchecked_events_copy_reason(target, tables)
+        else:
             uncopied.append((placement, uncopied_predicate))
             continue
-        else:
-            reason = _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON
         if not deferred:
             reason += _IMMEDIATE_HOGQL_RETRY_HINT
         for window in uncopied_predicate.windows(deletion_request, target):
