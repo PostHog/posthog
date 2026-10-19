@@ -26,7 +26,7 @@ from products.tasks.backend.constants import (
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
-from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.error_telemetry import task_run_failure_category, truncate_error_message
 from products.tasks.backend.feature_flags import (
     agent_otel_telemetry_enabled_for_state,
     is_agent_otel_telemetry_enabled,
@@ -131,6 +131,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         {
             "error_message": truncate_error_message(error_message),
             "error_type": "workflow_start_failed",
+            "failure_category": task_run_failure_category("workflow_start_failed", task_run.state),
             "duration_seconds": task_run._duration_seconds(),
         },
     )

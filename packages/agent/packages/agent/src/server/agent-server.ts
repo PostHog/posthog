@@ -20,6 +20,8 @@ import {
   type AcpMcpServer,
   type Adapter,
   buildPrOutput,
+  classifyGatewayLimitError,
+  type GatewayLimitCause,
   getErrorMessage,
   IDLE_RESUME_STOP_REASON,
   isIgnoredSkillPath,
@@ -1268,9 +1270,11 @@ export class AgentServer {
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
-    const errorMessage = redactSecrets(
+    const isCredentialFailure =
       error instanceof CredentialRelayError ||
-        error instanceof CodexSubscriptionTokenError
+      error instanceof CodexSubscriptionTokenError;
+    const errorMessage = redactSecrets(
+      isCredentialFailure
         ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
         : describeFatalError(error),
     );
@@ -1284,7 +1288,12 @@ export class AgentServer {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
           error_type: "agent_server_crash",
-          state: { agent_version: this.agentVersion },
+          state: {
+            agent_version: this.agentVersion,
+            ...(isCredentialFailure
+              ? { failure_category: "credential_not_delivered" }
+              : {}),
+          },
         },
       );
     } catch (updateError) {
@@ -2740,6 +2749,7 @@ export class AgentServer {
     classification: AgentErrorClassification;
     message: string;
     cause: string;
+    limitCause: GatewayLimitCause | null;
     madeProgress: boolean;
     usage?: NonNullable<PromptResponse["usage"]>;
   } {
@@ -2759,6 +2769,7 @@ export class AgentServer {
         classification: parsed.data.data.classification,
         message,
         cause,
+        limitCause: classifyGatewayLimitError(message, parsed.data.data.result),
         madeProgress: parsed.data.data.madeProgress ?? false,
         usage: parsed.data.data.usage,
       };
@@ -2769,6 +2780,7 @@ export class AgentServer {
       classification,
       message,
       cause: sanitizeAgentErrorCause(message, classification),
+      limitCause: classifyGatewayLimitError(message),
       madeProgress: false,
     };
   }
@@ -2987,7 +2999,7 @@ export class AgentServer {
     phase: "initial" | "resume" | "followup",
     error: unknown,
   ): Promise<TurnFailureDisposition> {
-    const { classification, message, cause, usage } =
+    const { classification, message, cause, limitCause, usage } =
       this.extractErrorClassification(error);
     const isUpstreamFailure =
       isRetryableUpstreamErrorClassification(classification);
@@ -3049,6 +3061,7 @@ export class AgentServer {
       : cause || displayMessage;
     await this.signalTaskComplete(payload, "error", persistedMessage, {
       errorCategory: classification,
+      failureCategory: limitCause ?? undefined,
     });
     return "terminal";
   }
@@ -4936,7 +4949,12 @@ export class AgentServer {
     payload: JwtPayload,
     stopReason: string,
     errorMessage?: string,
-    options?: { errorCategory?: AgentErrorClassification },
+    options?: {
+      errorCategory?: AgentErrorClassification;
+      // The gateway limit text does not survive into the persisted message,
+      // so the backend reads the cause from run state instead.
+      failureCategory?: GatewayLimitCause;
+    },
   ): Promise<void> {
     errorMessage = redactSecrets(errorMessage);
     const currentSession = this.session;
@@ -4988,7 +5006,12 @@ export class AgentServer {
         ...(options?.errorCategory
           ? { error_type: options.errorCategory }
           : {}),
-        state: { agent_version: this.agentVersion },
+        state: {
+          agent_version: this.agentVersion,
+          ...(options?.failureCategory
+            ? { failure_category: options.failureCategory }
+            : {}),
+        },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {

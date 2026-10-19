@@ -12,7 +12,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.signals.backend.facade.spend import complete_task_spend
 from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
-from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.error_telemetry import task_run_failure_category, truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
@@ -273,6 +273,10 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "error_message": truncate_error_message(input.error_message or task_run.error_message),
                     "error_type": input.error_type or "unspecified",
+                    "failure_category": task_run_failure_category(
+                        "agent_reported" if (task_run.state or {}).get("failure_error_type") else input.error_type,
+                        task_run.state,
+                    ),
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
                     **relay_state,

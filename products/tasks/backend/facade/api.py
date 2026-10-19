@@ -100,7 +100,7 @@ from products.tasks.backend.constants import (
     is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
-from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.error_telemetry import task_run_failure_category, truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
@@ -3651,6 +3651,7 @@ def update_task_run(
                 {
                     "error_message": truncate_error_message(run.error_message),
                     "error_type": validated_data.get("error_type") or "agent_reported",
+                    "failure_category": task_run_failure_category("agent_reported", run.state),
                     "duration_seconds": run._duration_seconds(),
                     **run.failure_sandbox_backend_properties(),
                 },

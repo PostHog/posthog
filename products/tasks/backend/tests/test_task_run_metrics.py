@@ -489,8 +489,27 @@ class TestTaskRunMetrics(TestCase):
 
     @parameterized.expand(
         [
-            ("modal", {}, {}, "agent_reported"),
-            ("hogland", {"sandbox_backend": "hogland"}, {"error_type": "agent_declined"}, "agent_declined"),
+            ("modal", {}, {}, "agent_reported", {}, "agent_error"),
+            (
+                "hogland",
+                {"sandbox_backend": "hogland"},
+                {"error_type": "agent_declined"},
+                "agent_declined",
+                {},
+                "agent_error",
+            ),
+            ("modal", {}, {}, "agent_reported", {"failure_category": "user_limit"}, "user_limit"),
+            (
+                "modal",
+                {},
+                {},
+                "agent_reported",
+                {"failure_category": "credential_not_delivered"},
+                "credential_not_delivered",
+            ),
+            ("modal", {}, {}, "agent_reported", {"failure_category": "something_else"}, "agent_error"),
+            ("modal", {}, {}, "agent_reported", {"failure_category": []}, "agent_error"),
+            ("modal", {}, {}, "agent_reported", {"failure_category": {}}, "agent_error"),
         ]
     )
     def test_patch_terminal_failure_captures_single_typed_task_run_failed(
@@ -499,6 +518,8 @@ class TestTaskRunMetrics(TestCase):
         sandbox_state: dict[str, str],
         error_type_payload: dict[str, str],
         expected_error_type: str,
+        reported_state: dict[str, object],
+        expected_category: str,
     ) -> None:
         from products.tasks.backend.facade import api as facade
 
@@ -517,13 +538,19 @@ class TestTaskRunMetrics(TestCase):
                     run.id,
                     self.task.id,
                     self.team.id,
-                    validated_data={"status": "failed", "error_message": long_error, **error_type_payload},
+                    validated_data={
+                        "status": "failed",
+                        "error_message": long_error,
+                        "state": reported_state,
+                        **error_type_payload,
+                    },
                 )
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
         assert props["error_type"] == expected_error_type
+        assert props["failure_category"] == expected_category
         assert props["sandbox_backend"] == sandbox_backend
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("Error: wizard exited with code 7")
