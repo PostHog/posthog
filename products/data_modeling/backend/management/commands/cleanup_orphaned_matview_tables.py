@@ -56,8 +56,7 @@ def has_live_dependents(saved_query: DataWarehouseSavedQuery) -> bool:
 
     `delete_node_from_dag` refuses the delete on the same condition. This is the cheap pre-filter
     for it: a query with a live dependent is skipped before the delete takes an advisory lock on
-    every DAG the query has a node in. Nodes in several DAGs is the population `consolidate_dags`
-    exists for.
+    every DAG the query has a node in.
     """
     nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query)
     return (
