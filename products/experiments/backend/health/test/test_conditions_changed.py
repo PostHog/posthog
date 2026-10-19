@@ -87,6 +87,7 @@ def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
         people_by_set=people_by_set,
         calls=calls,
         remotely_evaluated_calls=calls,
+        people_assigned_outside=0,
     )
 
 

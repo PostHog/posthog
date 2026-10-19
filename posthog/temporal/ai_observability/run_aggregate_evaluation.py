@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
 from posthog.temporal.ai_observability.metrics import increment_errors, increment_settle_poll
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
+    compact_backfill_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
@@ -487,6 +488,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         # A historical unit is settled by definition, so a backfill skips the settle wait and
         # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
         # so old histories never take this branch and it needs no patch marker.
