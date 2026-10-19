@@ -1,6 +1,7 @@
+import time
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Optional, Union
 
@@ -9,6 +10,7 @@ import dagster
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.dataclasses import frozen
 from posthog.settings import TEST
 
 # What a Dagster schedule function may return.
@@ -89,6 +91,61 @@ def describe_runs(
             if record.dagster_run.run_id != exclude_run_id
         )
     return blockers
+
+
+_FINISHED_RUN_STATUSES = (
+    dagster.DagsterRunStatus.SUCCESS,
+    dagster.DagsterRunStatus.FAILURE,
+    dagster.DagsterRunStatus.CANCELED,
+)
+
+
+@frozen
+class BlockingRunCheck:
+    since: datetime
+    finished_runs: frozenset[str]
+
+
+def wait_for_blocking_runs(
+    instance: dagster.DagsterInstance,
+    job_names: Iterable[str],
+    *,
+    run_id: str,
+    log: dagster.DagsterLogManager,
+    poll_seconds: int,
+) -> BlockingRunCheck:
+    """Wait until no run of these jobs is active, then return the watermark for blocking_runs_started_since."""
+    while True:
+        # The watermark comes before the scan. A run created during the scan then counts as created
+        # after it. Run storage can record a creation time to the whole second. The watermark
+        # therefore reaches one second back, and blocking_runs_started_since ignores runs that finished then.
+        since = datetime.now(UTC) - timedelta(seconds=1)
+        blockers = describe_runs(instance, job_names, exclude_run_id=run_id)
+        if not blockers:
+            break
+        log.info(f"Waiting {poll_seconds}s for these runs to finish: {'; '.join(blockers)}")
+        time.sleep(poll_seconds)
+    finished = describe_runs(
+        instance, job_names, statuses=_FINISHED_RUN_STATUSES, created_after=since, exclude_run_id=run_id
+    )
+    return BlockingRunCheck(since=since, finished_runs=frozenset(finished))
+
+
+def blocking_runs_started_since(
+    instance: dagster.DagsterInstance, job_names: Iterable[str], check: BlockingRunCheck, *, run_id: str
+) -> list[str]:
+    """Describe each run of these jobs that started after the check's watermark."""
+    return [
+        run
+        for run in describe_runs(
+            instance,
+            job_names,
+            statuses=(*EXECUTING_RUN_STATUSES, *_FINISHED_RUN_STATUSES),
+            created_after=check.since,
+            exclude_run_id=run_id,
+        )
+        if run not in check.finished_runs
+    ]
 
 
 def check_for_concurrent_runs(
