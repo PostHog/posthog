@@ -400,6 +400,16 @@ jobs:
             new-version: ${{ steps.release-metadata.outputs.new-version }}
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
         steps:
+            - name: Validate manual release branch
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  RELEASE_REF: ${{ github.ref }}
+              run: |
+                  if [ "$RELEASE_REF" != 'refs/heads/master' ]; then
+                      echo '::error::Run this workflow from master to retry a release.'
+                      exit 1
+                  fi
+
             - name: Checkout release metadata
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -418,6 +428,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_APP: scheduled-actions-posthog[bot]
                   RELEASE_COMMIT: ${{ inputs.release_commit || github.sha }}
+                  EVENT_NAME: ${{ github.event_name }}
                   REPOSITORY: ${{ github.repository }}
               run: |
                   release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
@@ -428,6 +439,10 @@ jobs:
                       exit 1
                   fi
                   if [ "$release_pr_count" -eq 0 ]; then
+                      if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+                          echo "::error::$RELEASE_COMMIT is not the merge commit of a merged posthog-symbol-data release pull request. Enter its merge commit SHA and retry."
+                          exit 1
+                      fi
                       echo "No merged posthog-symbol-data release pull request found for $RELEASE_COMMIT"
                       exit 0
                   fi
