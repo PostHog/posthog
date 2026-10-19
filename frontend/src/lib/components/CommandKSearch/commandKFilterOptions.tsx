@@ -98,7 +98,7 @@ interface ListPage {
     searchParam?: 'search'
 }
 
-/** List pages for types whose manifest registers no `listHref`. */
+/** List pages for types whose manifest registers no `listHref`. A manifest `listHref` also makes Library redirect the type to that page. */
 const LIST_PAGE_FALLBACKS: Record<string, ListPage> = {
     dashboard: { href: '/dashboard', searchParam: 'search' },
     notebook: { href: '/notebooks' },
