@@ -1,4 +1,6 @@
+import json
 import datetime
+from collections import Counter
 
 import pytest
 
@@ -6,27 +8,37 @@ from parameterized import parameterized
 
 from products.signals.dags.inbox_ranking.activity_summary import dag
 from products.signals.dags.inbox_ranking.activity_summary.render import (
-    AI_HEADER,
-    MAX_CHAIN_INTENTS,
+    ACTIVITY_HEADER,
+    ACTIVITY_LINE_CHARS,
+    ACTIVITY_LINES,
+    MAX_UNITS_PER_DAY,
     MCP_HEADER,
+    MCP_LINE_CHARS,
+    MCP_LINES,
     REPEATED_INTENT_DAILY_LIMIT,
-    UNITS_PER_SOURCE,
-    AiPrompt,
+    SECTIONS_MAX_CHARS,
+    TASK_LINE_CHARS,
+    TASK_LINES,
+    TASKS_HEADER,
+    ActivityItem,
+    Drop,
     McpCall,
     McpSession,
     PairActivity,
     ProjectionPrices,
+    TaskItem,
     Unit,
+    activity_units,
     build_input,
+    burst_cap,
     calibration_ratio,
-    cap_chain,
     clean_text,
-    collapse_repeats,
     job_intents,
-    mcp_chain,
+    mcp_unit,
     projection_rows,
     sample_units,
     sampling_seed,
+    task_units,
 )
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
@@ -36,48 +48,62 @@ def _at(days_ago: float, minutes: int = 0) -> datetime.datetime:
     return AS_OF - datetime.timedelta(days=days_ago) + datetime.timedelta(minutes=minutes)
 
 
-def _session(*intents: str, tool: str = "insight-create", days_ago: float = 1) -> McpSession:
+def _calls(*steps: tuple[str, str], days_ago: float = 1) -> McpSession:
     return McpSession(
         calls=tuple(
-            McpCall(at=_at(days_ago, minutes=index), tool=tool, intent=intent) for index, intent in enumerate(intents)
+            McpCall(at=_at(days_ago, minutes=index), tool=tool, intent=intent)
+            for index, (tool, intent) in enumerate(steps)
         )
     )
+
+
+def _session(*intents: str, tool: str = "insight-create", days_ago: float = 1) -> McpSession:
+    return _calls(*((tool, intent) for intent in intents), days_ago=days_ago)
+
+
+def _task(title: str, summary: str | None = None, tags: tuple[str, ...] = (), days_ago: float = 1) -> TaskItem:
+    return TaskItem(at=_at(days_ago), title=title, summary=summary, tags=tags)
+
+
+def _change(
+    scope: str, activity: str, name: str | None, client: str | None = None, days_ago: float = 1
+) -> ActivityItem:
+    return ActivityItem(at=_at(days_ago), scope=scope, activity=activity, name=name, client=client)
 
 
 @parameterized.expand(
     [
-        ("consecutive repeats collapse", ["a", "a", "b", "b", "a"], ["a", "b", "a"]),
         (
-            "short chain is kept whole",
-            [str(i) for i in range(MAX_CHAIN_INTENTS)],
-            [str(i) for i in range(MAX_CHAIN_INTENTS)],
+            "plumbing and upkeep calls drop out, the line is first step to last step",
+            _calls(
+                ("read-data-schema", "Check the event schema"),
+                ("insight-create", "Build a signup funnel"),
+                ("skill-update", "Save handover notes"),
+                ("stamphog-review-runs-create", "Request an approval review"),
+                ("dashboard-create", "Add the funnel to a dashboard"),
+            ),
+            "- 2026-10-18 (5 calls) Build a signup funnel → Add the funnel to a dashboard",
+            {Drop.PLUMBING_TOOL: 1, Drop.UPKEEP_TOOL: 2},
         ),
         (
-            "long chain keeps the head and the last intent",
-            [str(i) for i in range(40)],
-            [*(str(i) for i in range(MAX_CHAIN_INTENTS - 1)), "39"],
+            "repeated steps collapse to one",
+            _session("Build a funnel", "Build a funnel"),
+            "- 2026-10-18 (2 calls) Build a funnel",
+            {},
+        ),
+        (
+            "a session with one work call left is thin",
+            _calls(("project-get", "Find the project"), ("insight-create", "Build a funnel")),
+            None,
+            {Drop.PLUMBING_TOOL: 1, Drop.THIN_SESSION: 1},
         ),
     ]
 )
-def test_collapse_and_cap(_name: str, intents: list[str], expected: list[str]) -> None:
-    assert cap_chain(collapse_repeats(intents)) == expected
-
-
-def test_chain_drops_plumbing_calls_and_thin_sessions() -> None:
-    session = McpSession(
-        calls=(
-            McpCall(at=_at(1, 0), tool="read-data-schema", intent="Checking the event schema"),
-            McpCall(at=_at(1, 1), tool="insight-create", intent="Build a signup funnel"),
-            McpCall(at=_at(1, 2), tool="switch-project", intent="Switch to the main project"),
-            McpCall(at=_at(1, 3), tool="dashboard-create", intent="Add the funnel to a dashboard"),
-        )
-    )
-    unit = mcp_chain(session, frozenset())
-    assert unit is not None
-    assert unit.text == "Build a signup funnel --> Add the funnel to a dashboard"
-
-    only_plumbing = _session("Find the project", "Read the schema", tool="project-get")
-    assert mcp_chain(only_plumbing, frozenset()) is None
+def test_mcp_unit(_name: str, session: McpSession, expected: str | None, expected_drops: dict[str, int]) -> None:
+    drops: Counter[str] = Counter()
+    unit = mcp_unit(session, frozenset(), drops)
+    assert (unit.text if unit else None) == expected
+    assert dict(drops) == expected_drops
 
 
 def test_repeated_intent_on_one_day_is_treated_as_a_job() -> None:
@@ -88,10 +114,84 @@ def test_repeated_intent_on_one_day_is_treated_as_a_job() -> None:
         _session("Poll the dashboard", "Read the insight", days_ago=3) for _ in range(REPEATED_INTENT_DAILY_LIMIT)
     ]
     jobs = job_intents([*polling, *occasional])
+    drops: Counter[str] = Counter()
 
-    assert mcp_chain(polling[0], jobs) is None
-    unit = mcp_chain(occasional[0], jobs)
-    assert unit is not None and unit.text == "Poll the dashboard --> Read the insight"
+    assert mcp_unit(polling[0], jobs, drops) is None
+    unit = mcp_unit(occasional[0], jobs, drops)
+    assert unit is not None and unit.text.endswith("Poll the dashboard → Read the insight")
+    assert drops[Drop.REPEATED_JOB] == 2
+
+
+@parameterized.expand(
+    [
+        (
+            "a summary gives the goal, without its label, and the tags",
+            _task("why", summary="Goal: find why weekly signups dropped. Done: found a broken form.", tags=("growth",)),
+            "- 2026-10-18 [growth] find why weekly signups dropped. Done: found a broken form.",
+            {},
+        ),
+        (
+            "a helper task is dropped",
+            _task("[sandbox_prompt:repo_selection] You are a selection agent"),
+            None,
+            {Drop.SANDBOX_PROMPT_TASK: 1},
+        ),
+        ("a short title with no summary says nothing", _task("root cause"), None, {Drop.BARE_TITLE: 1}),
+        (
+            "a long title with no summary is kept",
+            _task("compare the retention of the two pricing plans over the last quarter"),
+            "- 2026-10-18 compare the retention of the two pricing plans over the last quarter",
+            {},
+        ),
+    ]
+)
+def test_task_units(_name: str, task: TaskItem, expected: str | None, expected_drops: dict[str, int]) -> None:
+    drops: Counter[str] = Counter()
+    units = task_units([task], drops)
+    assert [unit.text for unit in units] == ([expected] if expected else [])
+    assert dict(drops) == expected_drops
+
+
+def test_templated_task_titles_collapse_to_one_line_with_a_count() -> None:
+    tasks = [_task(f"Fix failing CI checks in PR #{number}", days_ago=number) for number in (1, 2, 3)]
+    units = task_units(tasks, Counter())
+    assert [unit.text for unit in units] == ["- 2026-10-18 Fix failing CI checks in PR #N (x3)"]
+
+
+def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
+    drops: Counter[str] = Counter()
+    items = [
+        _change("TaggedItem", "created", "growth"),
+        _change("Insight", "created", "Signup funnel", client="scout:feature-flags"),
+        _change("Notebook", "updated", "Daily report 2026-10-18"),
+        _change("AlertConfiguration", "created", None),
+        _change("Notebook", "updated", "Pricing notes", days_ago=1),
+        _change("Notebook", "updated", "Pricing notes", days_ago=2),
+        _change("Dashboard", "created", "Growth overview", days_ago=3),
+    ]
+
+    units = activity_units(items, drops)
+
+    assert [unit.text for unit in units] == [
+        '- 2026-10-16 created Dashboard "Growth overview"',
+        '- 2026-10-18 updated Notebook "Pricing notes" (x2)',
+    ]
+    assert dict(drops) == {
+        Drop.NOISY_SCOPE: 1,
+        Drop.SCOUT_CLIENT: 1,
+        Drop.AUTO_NAMED_OBJECT: 1,
+        Drop.UNNAMED_OBJECT: 1,
+    }
+
+
+def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
+    drops: Counter[str] = Counter()
+    units = [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)]
+
+    kept = burst_cap(units, drops)
+
+    assert [unit.text for unit in kept] == [f"unit {minute}" for minute in range(2, MAX_UNITS_PER_DAY + 2)]
+    assert drops[Drop.BURST_CAP] == 2
 
 
 @parameterized.expand(
@@ -121,52 +221,81 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
     units = [Unit(at=_at(days_ago), text=f"unit {days_ago}") for days_ago in range(28)]
     seed = sampling_seed("2026-10-18", 2, 7)
 
-    first = sample_units(units, limit=UNITS_PER_SOURCE, as_of=AS_OF, seed=seed)
-    assert first == sample_units(list(reversed(units)), limit=UNITS_PER_SOURCE, as_of=AS_OF, seed=seed)
-    assert len(first) == UNITS_PER_SOURCE
+    first = sample_units(units, limit=MCP_LINES, as_of=AS_OF, seed=seed)
+    assert first == sample_units(list(reversed(units)), limit=MCP_LINES, as_of=AS_OF, seed=seed)
+    assert len(first) == MCP_LINES
     assert first == sorted(first, key=lambda unit: unit.at)
 
     picked_ages = [
         (AS_OF - unit.at).days
         for partition in range(50)
-        for unit in sample_units(units, limit=UNITS_PER_SOURCE, as_of=AS_OF, seed=sampling_seed(str(partition), 2, 7))
+        for unit in sample_units(units, limit=MCP_LINES, as_of=AS_OF, seed=sampling_seed(str(partition), 2, 7))
     ]
     assert sum(1 for age in picked_ages if age < 7) > sum(1 for age in picked_ages if age >= 21)
 
 
-def test_build_input_renders_deduped_chains_then_prompts() -> None:
-    sessions = [
-        _session("Build a signup funnel", "Add it to a dashboard", days_ago=3),
-        _session("Build a signup funnel", "Add it to a dashboard", days_ago=1),
-        _session("Compare retention by plan", "Save the insight", days_ago=2),
-    ]
-    prompts = [
-        AiPrompt(at=_at(4), prompt="Why did signups drop?"),
-        AiPrompt(at=_at(2), prompt="Why did signups drop?"),
-        AiPrompt(at=_at(1), prompt="  "),
-    ]
-
-    rendered = build_input(sessions, prompts, jobs=frozenset(), as_of=AS_OF, seed=1)
+def test_build_input_renders_the_three_sections_in_order() -> None:
+    rendered = build_input(
+        [_session("Build a signup funnel", "Add it to a dashboard", days_ago=2)],
+        [_task("why", summary="Asked: why did signups drop?", tags=("growth",), days_ago=3)],
+        [_change("Dashboard", "created", "Growth overview", days_ago=1)],
+        jobs=frozenset(),
+        as_of=AS_OF,
+        seed=1,
+    )
 
     assert rendered is not None
     assert rendered.text == "\n".join(
         [
+            TASKS_HEADER,
+            "- 2026-10-16 [growth] why did signups drop?",
+            "",
             MCP_HEADER,
-            "Compare retention by plan --> Save the insight",
-            "Build a signup funnel --> Add it to a dashboard",
-            AI_HEADER,
-            "Why did signups drop?",
+            "- 2026-10-17 (2 calls) Build a signup funnel → Add it to a dashboard",
+            "",
+            ACTIVITY_HEADER,
+            '- 2026-10-18 created Dashboard "Growth overview"',
         ]
     )
-    assert (rendered.n_mcp_sessions, rendered.n_ai_conversations) == (2, 1)
+    assert (rendered.n_tasks, rendered.n_mcp_sessions, rendered.n_activity_lines) == (1, 1, 1)
     assert rendered.input_chars == len(rendered.text)
-    assert build_input([], [AiPrompt(at=_at(1), prompt="")], jobs=frozenset(), as_of=AS_OF, seed=1) is None
+    assert build_input([], [_task("root cause")], [], jobs=frozenset(), as_of=AS_OF, seed=1) is None
+
+
+def test_build_input_stays_inside_its_bounds_for_a_very_active_person() -> None:
+    runaway = "word " * 2000
+    sessions = [
+        _session(f"{day} {minute} {runaway}", f"{runaway} end", days_ago=day + minute / 100)
+        for day in range(28)
+        for minute in range(20)
+    ]
+    tasks = [
+        _task(runaway, summary=f"{day} {n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
+        for day in range(28)
+        for n in range(20)
+    ]
+    activity = [_change("Insight", "created", f"{runaway} {n}", days_ago=n % 28) for n in range(500)]
+
+    rendered = build_input(sessions, tasks, activity, jobs=frozenset(), as_of=AS_OF, seed=1)
+
+    assert rendered is not None
+    assert (rendered.n_tasks, rendered.n_mcp_sessions, rendered.n_activity_lines) == (
+        TASK_LINES,
+        MCP_LINES,
+        ACTIVITY_LINES,
+    )
+    tasks_text, mcp_text, activity_text = rendered.text.split("\n\n")
+    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= TASK_LINE_CHARS
+    assert max(len(line) for line in mcp_text.split("\n")[1:]) <= MCP_LINE_CHARS
+    assert max(len(line) for line in activity_text.split("\n")[1:]) <= ACTIVITY_LINE_CHARS
+    assert rendered.input_chars <= SECTIONS_MAX_CHARS
+    assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
 
 
 def test_projection_counts_eligible_pairs_and_caps_updates_by_cadence() -> None:
     activities = [
-        PairActivity(mcp_sessions=2, mcp_chain_chars=200.0, ai_conversations=0, ai_prompt_chars=0.0),
-        PairActivity(mcp_sessions=20, mcp_chain_chars=4000.0, ai_conversations=20, ai_prompt_chars=2000.0),
+        PairActivity(mcp_sessions=2, mcp_avg_line_chars=100.0),
+        PairActivity(mcp_sessions=40, mcp_avg_line_chars=150.0),
     ]
     prices = ProjectionPrices(
         prompt_overhead_tokens=0,
@@ -191,6 +320,8 @@ def test_calibration_ratio_ignores_unmatched_pairs() -> None:
 
 def test_asset_rows_match_their_schemas_and_skip_projects_outside_the_organization() -> None:
     window = dag.activity_window("2026-10-18")
+    member_own = dag.MemberProject(team_id=2, user_id=7)
+    member_customer = dag.MemberProject(team_id=99, user_id=7)
     sessions = {
         dag.PairKey(project="own-project", distinct_id="member"): [
             _session("Build a signup funnel", "Add it to a dashboard")
@@ -202,7 +333,8 @@ def test_asset_rows_match_their_schemas_and_skip_projects_outside_the_organizati
 
     rows = dag.input_rows(
         sessions=sessions,
-        prompts={},
+        tasks={member_customer: [_task("compare the retention of the two pricing plans over the last quarter")]},
+        activity={member_own: [_change("Dashboard", "created", "Growth overview")]},
         users={"member": 7},
         projects={"own-project": 2},
         window=window,
@@ -211,8 +343,9 @@ def test_asset_rows_match_their_schemas_and_skip_projects_outside_the_organizati
 
     assert [row["team_id"] for row in rows] == [2]
     assert set(rows[0]) == set(dag.INPUTS_SCHEMA.names)
+    assert json.loads(rows[0]["drops"]) == {}
     projection = projection_rows(
-        [PairActivity(mcp_sessions=5, mcp_chain_chars=500.0, ai_conversations=0, ai_prompt_chars=0.0)],
+        [PairActivity(mcp_sessions=5, mcp_avg_line_chars=100.0)],
         ratio=1.0,
         prices=ProjectionPrices(
             prompt_overhead_tokens=0,

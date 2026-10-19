@@ -5,15 +5,20 @@ Two assets on the shared daily partition, each writing Parquet under the dataset
     activity_summary_inputs/v1/dt=D/           one filtered, rendered input per (project, member)
     activity_summary_cost_projection/v1/dt=D/  eligible pairs, token percentiles and monthly volume
 
-Both read the dogfood project's events over the 28 days that end with D. The inputs asset covers only
-members of the dogfood project's organization with an `@posthog.com` email, in that organization's
-own projects, so no customer project's intents get in. The projection covers every pair in the
-events and writes counts only.
+The inputs asset covers only members of the dogfood project's organization with an `@posthog.com`
+email, in that organization's own projects, so no customer project's activity gets in. It reads
+three sources over the 28 days that end with D: the person's own MCP sessions from the dogfood
+project's events, the tasks they started in PostHog AI, Slack or the desktop app, and their
+activity log. The projection covers every MCP pair in the events and writes counts only.
 """
 
+import json
 import datetime
 from collections import defaultdict
+from collections.abc import Collection
 from typing import Any
+
+from django.db.models.fields.json import KeyTextTransform
 
 import dagster
 import pyarrow as pa
@@ -22,19 +27,23 @@ from posthog import settings
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 from posthog.dataclasses import frozen
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import ActivityLog, OrganizationMembership, Team, User
 
 from products.signals.dags.inbox_ranking.activity_summary import queries
 from products.signals.dags.inbox_ranking.activity_summary.render import (
+    MAX_ACTIVITY_ROWS_PER_PERSON,
+    MAX_TASKS_PER_PERSON,
     RENDER_VERSION,
     WINDOW_DAYS,
-    AiPrompt,
+    ActivityItem,
     McpCall,
     McpSession,
     PairActivity,
     ProjectionPrices,
+    TaskItem,
     build_input,
     calibration_ratio,
+    capped_sections_tokens,
     estimated_input_chars,
     job_intents,
     projection_rows,
@@ -55,11 +64,15 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID, labels_team
+from products.tasks.backend.facade.user_task_summaries import list_user_task_summaries
 
 INPUTS_TABLE = "activity_summary_inputs"
 COST_PROJECTION_TABLE = "activity_summary_cost_projection"
 
 COHORT_EMAIL_DOMAIN = "@posthog.com"
+# Tasks a person started: in PostHog AI, in Slack, or by hand in the web or desktop app. Scouts,
+# reports and workflows start tasks under a person's name too, and those are not the person's intent.
+TASK_ORIGIN_PRODUCTS = ("posthog_ai", "slack", "user_created")
 
 _TIMESTAMP = pa.timestamp("us", tz="UTC")
 
@@ -68,11 +81,17 @@ _INPUTS_FIELDS: list[tuple[str, pa.DataType]] = [
     ("user_id", pa.int64()),
     ("window_start", _TIMESTAMP),
     ("window_end", _TIMESTAMP),
+    ("n_tasks", pa.int32()),
     ("n_mcp_sessions", pa.int32()),
-    ("n_ai_conversations", pa.int32()),
+    ("n_activity_lines", pa.int32()),
     ("rendered_input", pa.string()),
+    ("task_chars", pa.int32()),
+    ("mcp_chars", pa.int32()),
+    ("activity_chars", pa.int32()),
     ("input_chars", pa.int32()),
     ("input_tokens_estimate", pa.int32()),
+    # JSON object of filter rule name to the units or calls it removed for this pair.
+    ("drops", pa.string()),
     ("render_version", pa.int32()),
 ]
 INPUTS_SCHEMA = pa.schema(_INPUTS_FIELDS)
@@ -112,6 +131,9 @@ class CostProjectionConfig(dagster.Config):
     output_price_per_million_tokens: float | None = None
     # The previous summary (~400 tokens) and the instructions (~500) that every update sends.
     prompt_overhead_tokens: int = 900
+    # The task and activity sections, which the projection does not read. Their caps bound them, and
+    # the default is that bound, so the projection errs high.
+    capped_sections_tokens: int = capped_sections_tokens()
     output_tokens_per_update: int = 500
 
 
@@ -163,6 +185,14 @@ class PairKey:
     distinct_id: str
 
 
+@frozen(order=True)
+class MemberProject:
+    """A (project, person) pair as Postgres names it: the team id and the user id."""
+
+    team_id: int
+    user_id: int
+
+
 def mcp_sessions_by_pair(rows: list[tuple[Any, ...]]) -> dict[PairKey, list[McpSession]]:
     sessions: dict[PairKey, list[McpSession]] = defaultdict(list)
     for distinct_id, project, _session_key, timestamps, tools, intents in rows:
@@ -174,18 +204,70 @@ def mcp_sessions_by_pair(rows: list[tuple[Any, ...]]) -> dict[PairKey, list[McpS
     return sessions
 
 
-def ai_prompts_by_pair(rows: list[tuple[Any, ...]]) -> dict[PairKey, list[AiPrompt]]:
-    prompts: dict[PairKey, list[AiPrompt]] = defaultdict(list)
-    for distinct_id, project, at, prompt in rows:
-        key = PairKey(project=str(project), distinct_id=str(distinct_id))
-        prompts[key].append(AiPrompt(at=ensure_utc(at) or at, prompt=str(prompt)))
-    return prompts
+def member_tasks(
+    user_ids: Collection[int], team_ids: Collection[int], window: Window
+) -> dict[MemberProject, list[TaskItem]]:
+    """Each member's own tasks, newest `MAX_TASKS_PER_PERSON` per member, keyed by project."""
+    tasks: dict[MemberProject, list[TaskItem]] = defaultdict(list)
+    for user_id in user_ids:
+        for task in list_user_task_summaries(
+            team_ids=team_ids,
+            user_id=user_id,
+            start=window.start,
+            end=window.end,
+            origin_products=TASK_ORIGIN_PRODUCTS,
+            limit=MAX_TASKS_PER_PERSON,
+        ):
+            tasks[MemberProject(team_id=task.team_id, user_id=user_id)].append(
+                TaskItem(
+                    at=ensure_utc(task.created_at) or task.created_at,
+                    title=task.title,
+                    summary=task.summary,
+                    tags=task.tags,
+                )
+            )
+    return tasks
+
+
+def member_activity(
+    user_ids: Collection[int], team_ids: Collection[int], window: Window
+) -> dict[MemberProject, list[ActivityItem]]:
+    """Each member's own activity log rows, newest `MAX_ACTIVITY_ROWS_PER_PERSON` per member.
+
+    System rows and rows written while someone impersonated the member are not the member's."""
+    activity: dict[MemberProject, list[ActivityItem]] = defaultdict(list)
+    for user_id in user_ids:
+        rows = (
+            ActivityLog.objects.filter(
+                team_id__in=list(team_ids),
+                user_id=user_id,
+                created_at__gte=window.start,
+                created_at__lt=window.end,
+            )
+            .exclude(is_system=True)
+            .exclude(was_impersonated=True)
+            .order_by("-created_at")
+            .annotate(name=KeyTextTransform("name", "detail"))
+            .values("team_id", "scope", "activity", "client", "created_at", "name")[:MAX_ACTIVITY_ROWS_PER_PERSON]
+        )
+        for row in rows:
+            activity[MemberProject(team_id=row["team_id"], user_id=user_id)].append(
+                ActivityItem(
+                    at=ensure_utc(row["created_at"]) or row["created_at"],
+                    scope=row["scope"],
+                    activity=row["activity"],
+                    name=row["name"],
+                    client=row["client"],
+                )
+            )
+    return activity
 
 
 def input_rows(
     *,
     sessions: dict[PairKey, list[McpSession]],
-    prompts: dict[PairKey, list[AiPrompt]],
+    tasks: dict[MemberProject, list[TaskItem]],
+    activity: dict[MemberProject, list[ActivityItem]],
     users: dict[str, int],
     projects: dict[str, int],
     window: Window,
@@ -197,32 +279,47 @@ def input_rows(
         sessions_by_person[pair.distinct_id].extend(person_sessions)
     jobs = {distinct_id: job_intents(person_sessions) for distinct_id, person_sessions in sessions_by_person.items()}
 
-    rows: list[dict[str, Any]] = []
-    for pair in sorted(sessions.keys() | prompts.keys()):
+    member_sessions: dict[MemberProject, list[McpSession]] = defaultdict(list)
+    member_jobs: dict[int, frozenset[tuple[datetime.date, str]]] = {}
+    for pair, pair_sessions in sessions.items():
         user_id = users.get(pair.distinct_id)
         team_id = projects.get(pair.project)
         if user_id is None or team_id is None:
             continue
+        member_sessions[MemberProject(team_id=team_id, user_id=user_id)].extend(pair_sessions)
+        member_jobs[user_id] = jobs.get(pair.distinct_id, frozenset())
+
+    allowed_teams = set(projects.values())
+    rows: list[dict[str, Any]] = []
+    for member in sorted(member_sessions.keys() | tasks.keys() | activity.keys()):
+        if member.team_id not in allowed_teams:
+            continue
         rendered = build_input(
-            sessions.get(pair, []),
-            prompts.get(pair, []),
-            jobs=jobs.get(pair.distinct_id, frozenset()),
+            member_sessions.get(member, []),
+            tasks.get(member, []),
+            activity.get(member, []),
+            jobs=member_jobs.get(member.user_id, frozenset()),
             as_of=window.end,
-            seed=sampling_seed(partition_key, team_id, user_id),
+            seed=sampling_seed(partition_key, member.team_id, member.user_id),
         )
         if rendered is None:
             continue
         rows.append(
             {
-                "team_id": team_id,
-                "user_id": user_id,
+                "team_id": member.team_id,
+                "user_id": member.user_id,
                 "window_start": window.start,
                 "window_end": window.end,
+                "n_tasks": rendered.n_tasks,
                 "n_mcp_sessions": rendered.n_mcp_sessions,
-                "n_ai_conversations": rendered.n_ai_conversations,
+                "n_activity_lines": rendered.n_activity_lines,
                 "rendered_input": rendered.text,
+                "task_chars": rendered.task_chars,
+                "mcp_chars": rendered.mcp_chars,
+                "activity_chars": rendered.activity_chars,
                 "input_chars": rendered.input_chars,
                 "input_tokens_estimate": rendered.input_tokens_estimate,
+                "drops": json.dumps(rendered.drops, sort_keys=True),
                 "render_version": RENDER_VERSION,
             }
         )
@@ -240,23 +337,22 @@ def activity_summary_inputs(context: dagster.AssetExecutionContext) -> None:
     projects = organization_projects(team.organization_id)
 
     _tag_queries(context, "activity_summary_inputs")
-    kwargs: dict[str, Any] = {
-        "team": team,
-        "window_start": window.start,
-        "window_end": window.end,
-        "distinct_ids": users.keys(),
-        "projects": projects.keys(),
-    }
     session_rows = queries.input_rows(
-        queries.INPUT_MCP_SESSIONS_SQL, query_type="activity_summary_input_mcp_sessions", **kwargs
+        queries.INPUT_MCP_SESSIONS_SQL,
+        query_type="activity_summary_input_mcp_sessions",
+        team=team,
+        window_start=window.start,
+        window_end=window.end,
+        distinct_ids=users.keys(),
+        projects=projects.keys(),
     )
-    prompt_rows = queries.input_rows(
-        queries.INPUT_AI_PROMPTS_SQL, query_type="activity_summary_input_ai_prompts", **kwargs
-    )
+    tasks = member_tasks(users.values(), projects.values(), window)
+    activity = member_activity(users.values(), projects.values(), window)
 
     rows = input_rows(
         sessions=mcp_sessions_by_pair(session_rows),
-        prompts=ai_prompts_by_pair(prompt_rows),
+        tasks=tasks,
+        activity=activity,
         users=users,
         projects=projects,
         window=window,
@@ -270,37 +366,27 @@ def activity_summary_inputs(context: dagster.AssetExecutionContext) -> None:
             "rows": dagster.MetadataValue.int(len(rows)),
             "cohort_users": dagster.MetadataValue.int(len(users)),
             "mcp_session_rows": dagster.MetadataValue.int(len(session_rows)),
-            "ai_prompt_rows": dagster.MetadataValue.int(len(prompt_rows)),
+            "task_pairs": dagster.MetadataValue.int(len(tasks)),
+            "activity_pairs": dagster.MetadataValue.int(len(activity)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
 
 
-def pair_activities(mcp_rows: list[tuple[Any, ...]], ai_rows: list[tuple[Any, ...]]) -> dict[PairKey, PairActivity]:
-    """Join the two projection queries on the pair. The key never leaves the run."""
-    mcp = {
-        PairKey(project=str(project), distinct_id=str(distinct_id)): (int(n), float(chars or 0))
-        for distinct_id, project, n, chars in mcp_rows
-    }
-    ai = {
-        PairKey(project=str(project), distinct_id=str(distinct_id)): (int(n), float(chars or 0))
-        for distinct_id, project, n, chars in ai_rows
-    }
+def pair_activities(mcp_rows: list[tuple[Any, ...]]) -> dict[PairKey, PairActivity]:
+    """The projection query's rows keyed by pair. The key never leaves the run."""
     return {
-        key: PairActivity(
-            mcp_sessions=mcp.get(key, (0, 0.0))[0],
-            mcp_chain_chars=mcp.get(key, (0, 0.0))[1],
-            ai_conversations=ai.get(key, (0, 0.0))[0],
-            ai_prompt_chars=ai.get(key, (0, 0.0))[1],
+        PairKey(project=str(project), distinct_id=str(distinct_id)): PairActivity(
+            mcp_sessions=int(sessions), mcp_avg_line_chars=float(chars or 0)
         )
-        for key in mcp.keys() | ai.keys()
+        for distinct_id, project, sessions, chars in mcp_rows
     }
 
 
 def cohort_calibration(
     activities: dict[PairKey, PairActivity], inputs: pa.Table | None, projects: dict[str, int]
 ) -> float:
-    """The rendered-to-estimated length ratio over the cohort pairs both assets cover."""
+    """The rendered-to-estimated MCP section length ratio over the cohort pairs both assets cover."""
     if inputs is None or inputs.num_rows == 0:
         return 1.0
     distinct_ids = {
@@ -312,15 +398,15 @@ def cohort_calibration(
     team_uuids = {team_id: team_uuid for team_uuid, team_id in projects.items()}
     actual: dict[PairKey, int] = {}
     estimated: dict[PairKey, int] = {}
-    for row in inputs.select(["team_id", "user_id", "input_chars"]).to_pylist():
+    for row in inputs.select(["team_id", "user_id", "mcp_chars"]).to_pylist():
         distinct_id = distinct_ids.get(row["user_id"])
         team_uuid = team_uuids.get(row["team_id"])
-        if distinct_id is None or team_uuid is None:
+        if distinct_id is None or team_uuid is None or not row["mcp_chars"]:
             continue
         pair = PairKey(project=team_uuid, distinct_id=distinct_id)
         if pair not in activities:
             continue
-        actual[pair] = row["input_chars"]
+        actual[pair] = row["mcp_chars"]
         estimated[pair] = estimated_input_chars(activities[pair])
     return calibration_ratio(actual, estimated)
 
@@ -334,20 +420,20 @@ def activity_summary_cost_projection(context: dagster.AssetExecutionContext, con
     team = labels_team()
 
     _tag_queries(context, "activity_summary_cost_projection")
-    kwargs: dict[str, Any] = {"team": team, "window_start": window.start, "window_end": window.end}
     mcp_rows = queries.projection_query_rows(
-        queries.PROJECTION_MCP_SQL, query_type="activity_summary_projection_mcp", **kwargs
+        queries.PROJECTION_MCP_SQL,
+        query_type="activity_summary_projection_mcp",
+        team=team,
+        window_start=window.start,
+        window_end=window.end,
     )
-    ai_rows = queries.projection_query_rows(
-        queries.PROJECTION_AI_SQL, query_type="activity_summary_projection_ai", **kwargs
-    )
-    activities = pair_activities(mcp_rows, ai_rows)
+    activities = pair_activities(mcp_rows)
 
     client = s3_client()
     bucket = dataset_bucket()
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     inputs = read_parquet_if_exists(
-        client, bucket, partition_object_key(prefix, INPUTS_TABLE, partition_key), ["team_id", "user_id", "input_chars"]
+        client, bucket, partition_object_key(prefix, INPUTS_TABLE, partition_key), ["team_id", "user_id", "mcp_chars"]
     )
     ratio = cohort_calibration(activities, inputs, organization_projects(team.organization_id))
 
@@ -357,7 +443,7 @@ def activity_summary_cost_projection(context: dagster.AssetExecutionContext, con
             list(activities.values()),
             ratio=ratio,
             prices=ProjectionPrices(
-                prompt_overhead_tokens=config.prompt_overhead_tokens,
+                prompt_overhead_tokens=config.prompt_overhead_tokens + config.capped_sections_tokens,
                 output_tokens_per_update=config.output_tokens_per_update,
                 input_price_per_million_tokens=config.input_price_per_million_tokens,
                 output_price_per_million_tokens=config.output_price_per_million_tokens,

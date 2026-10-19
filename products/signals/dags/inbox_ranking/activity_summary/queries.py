@@ -18,21 +18,21 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.signals.dags.inbox_ranking.activity_summary.render import (
-    CHAIN_SEPARATOR,
-    MAX_CHAIN_INTENTS,
-    MAX_PROMPT_CHARS,
-    MIN_CHAIN_INTENTS,
+    MAX_MCP_SESSIONS_PER_PERSON,
+    MAX_UNITS_PER_DAY,
+    MCP_LINE_PREFIX_CHARS,
+    MCP_STEP_CHARS,
+    MIN_WORK_CALLS,
     PLUMBING_TOOL_NAMES,
+    UPKEEP_TOOL_PREFIXES,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import etl_workload, utc_bound
 
 # Each kept MCP source, with the scope presets that mark a person's own calls ("" is no preset).
-# Scouts, research and implementation runs carry other presets and are not a person's intent.
-# A Slack call runs in the Slack app's sandbox for the person who wrote the message, so it carries
-# `sandbox` and never `user`. Keeping only `user` here would drop every Slack call.
+# Scouts, research and implementation runs carry other presets and are not a person's intent. Slack
+# and PostHog AI calls run inside tasks, and the inputs read those tasks' own summaries instead.
 MCP_SOURCE_SCOPE_PRESETS: dict[str, tuple[str, ...]] = {
     "mcp": ("user", ""),
-    "slack": ("sandbox",),
 }
 
 # The wrapper row of the single `exec` tool. The real tool call it runs is captured as its own row.
@@ -56,16 +56,9 @@ _SESSION_KEY = """
     )
 """
 
-_AI_FILTERS = """
-    event = 'chat with ai'
-    AND timestamp >= toDateTime({window_start}) AND timestamp < toDateTime({window_end})
-    AND toString(properties.is_new_conversation) = 'true'
-    AND nullIf(toString(properties.prompt), '') IS NOT NULL
-    AND nullIf($group_2, '') IS NOT NULL
-"""
-
 # One row per session with its calls as parallel arrays. groupArray walks the rows in one order for
-# every array, so index i of each array is the same call. render.py sorts and filters them.
+# every array, so index i of each array is the same call. render.py sorts and filters them. Only the
+# newest sessions of each person come back, so a very active person cannot make the read unbounded.
 INPUT_MCP_SESSIONS_SQL = f"""
 SELECT
     distinct_id,
@@ -79,60 +72,48 @@ WHERE {_MCP_FILTERS}
   AND distinct_id IN {{distinct_ids}}
   AND $group_2 IN {{projects}}
 GROUP BY distinct_id, project, session_key
+ORDER BY max(timestamp) DESC
+LIMIT {MAX_MCP_SESSIONS_PER_PERSON} BY distinct_id
 """
 
-INPUT_AI_PROMPTS_SQL = f"""
-SELECT
-    distinct_id,
-    $group_2 AS project,
-    toTimeZone(timestamp, 'UTC') AS prompted_at,
-    toString(properties.prompt) AS prompt
-FROM events
-WHERE {_AI_FILTERS}
-  AND distinct_id IN {{distinct_ids}}
-  AND $group_2 IN {{projects}}
+_IS_WORK_CALL = """
+    (ifNull(toString(properties.$mcp_tool_name), '') NOT IN {plumbing_tools}
+     AND NOT arrayExists(prefix -> startsWith(ifNull(toString(properties.$mcp_tool_name), ''), prefix), {upkeep_prefixes}))
 """
 
 # The projection approximates render.py in SQL, and these filters do not run here:
-# - the repeated-job filter and the dedupe of identical chains and prompts, so units are overcounted
-#   for people with scheduled jobs;
-# - secret stripping and whitespace folding, which change lengths very little;
-# - the consecutive-repeat collapse, approximated by distinct intents per session. That undercounts a
-#   chain that comes back to an earlier intent.
+# - the repeated-job filter and the dedupe of identical lines, so units are overcounted for people
+#   with scheduled jobs;
+# - secret stripping, whitespace folding and the cut at a word boundary, which change lengths very little.
+# A line is estimated from the first and last work intents of the session, each capped like the render.
+# Sessions per pair are capped at `MAX_UNITS_PER_DAY` per active day, like the burst cap.
 # The pair is (project, distinct_id), not (project, person): a person with several distinct ids is
 # counted more than once. The calibration ratio against the inputs asset absorbs the length error.
 PROJECTION_MCP_SQL = f"""
 SELECT
     distinct_id,
     project,
-    countIf(distinct_intents >= {MIN_CHAIN_INTENTS}) AS mcp_sessions,
-    sumIf(chain_chars, distinct_intents >= {MIN_CHAIN_INTENTS}) AS mcp_chain_chars
+    least(
+        countIf(work_calls >= {MIN_WORK_CALLS}),
+        {MAX_UNITS_PER_DAY} * uniqExactIf(day, work_calls >= {MIN_WORK_CALLS})
+    ) AS mcp_sessions,
+    avgIf(line_chars, work_calls >= {MIN_WORK_CALLS}) AS mcp_avg_line_chars
 FROM (
     SELECT
         distinct_id,
         $group_2 AS project,
         {_SESSION_KEY} AS session_key,
-        uniqIf(toString(properties.$mcp_intent), ifNull(toString(properties.$mcp_tool_name), '') NOT IN {{plumbing_tools}}) AS distinct_intents,
-        least(distinct_intents, {MAX_CHAIN_INTENTS}) AS kept_intents,
-        kept_intents * avgIf(length(toString(properties.$mcp_intent)), ifNull(toString(properties.$mcp_tool_name), '') NOT IN {{plumbing_tools}})
-            + (kept_intents - 1) * {len(CHAIN_SEPARATOR)} AS chain_chars
+        toDate(toTimeZone(max(timestamp), 'UTC')) AS day,
+        countIf({_IS_WORK_CALL}) AS work_calls,
+        least(length(argMinIf(toString(properties.$mcp_intent), timestamp, {_IS_WORK_CALL})), {MCP_STEP_CHARS})
+            + least(length(argMaxIf(toString(properties.$mcp_intent), timestamp, {_IS_WORK_CALL})), {MCP_STEP_CHARS})
+            + {MCP_LINE_PREFIX_CHARS} AS line_chars
     FROM events
     WHERE {_MCP_FILTERS}
     GROUP BY distinct_id, project, session_key
 )
 GROUP BY distinct_id, project
 HAVING mcp_sessions > 0
-"""
-
-PROJECTION_AI_SQL = f"""
-SELECT
-    distinct_id,
-    $group_2 AS project,
-    count() AS ai_conversations,
-    sum(least(length(toString(properties.prompt)), {MAX_PROMPT_CHARS})) AS ai_prompt_chars
-FROM events
-WHERE {_AI_FILTERS}
-GROUP BY distinct_id, project
 """
 
 # The projection aggregates every pair over 28 days of MCP calls, so it gets the spill guard of the
@@ -215,6 +196,9 @@ def projection_query_rows(
         query_type=query_type,
         window_start=window_start,
         window_end=window_end,
-        placeholders={"plumbing_tools": _strings(PLUMBING_TOOL_NAMES)},
+        placeholders={
+            "plumbing_tools": _strings(PLUMBING_TOOL_NAMES),
+            "upkeep_prefixes": ast.Array(exprs=[ast.Constant(value=prefix) for prefix in UPKEEP_TOOL_PREFIXES]),
+        },
         settings=_PROJECTION_SETTINGS,
     )
