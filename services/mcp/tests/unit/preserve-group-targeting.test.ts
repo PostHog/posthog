@@ -733,7 +733,7 @@ describe('preserveGroupTargetingFilters', () => {
                 { type: 'person', value: 'free' },
             ],
             values: ['free', 'enterprise'],
-            restored: [{}, { type: 'person' }],
+            restored: [{}, {}],
         },
         {
             name: 'the agent types both properties after the sets trade places',

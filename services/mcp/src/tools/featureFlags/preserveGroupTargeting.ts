@@ -35,13 +35,13 @@
  *
  * An incoming person-aggregated set can change the filters of its source and keep the filters of
  * another person-aggregated set with the same keys. When the two stored sets hold different group
- * properties, the incoming set restores only the person-aggregated types its source holds. It looks
- * up no other stored set. The group properties differ when the two sets hold a key on different group
- * types, or when only one of them holds the key as a group property. A swap of the two sets and an in-place
- * edit that copies the other set's filters send the same payload. The two edits need different group
- * types. A group property that such a set leaves untyped makes the API reject the write. A typed
- * group property that either of the two stored sets holds does not move the incoming set to group
- * aggregation.
+ * properties, the incoming set restores a person-aggregated type only from a source filter with the
+ * same operator and value. It looks up no other stored set. The group properties differ when the
+ * two sets hold a key on different group types, or when only one of them holds the key as a group
+ * property. A swap of the two sets and an in-place edit that copies the other set's filters send
+ * the same payload. The two edits need different group types. A group property that such a set
+ * leaves untyped makes the API reject the write. A typed group property that either of the two
+ * stored sets holds does not move the incoming set to group aggregation.
  *
  * `aggregation_group_type_index: null` means person aggregation. Only a missing key is
  * filled from the existing flag.
@@ -375,7 +375,8 @@ function typeSetProperties(
     typeCandidatesByKey: Map<string, FlagProperty[]> | undefined,
     crossSetPropsByKey: Map<string, FlagProperty[]> | undefined,
     setGroupTypeIndex: number | undefined,
-    sourceRestoresGroupType: boolean
+    sourceRestoresGroupType: boolean,
+    candidatesMustMatch: boolean
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
@@ -386,9 +387,10 @@ function typeSetProperties(
             if (typeof prop.key !== 'string') {
                 return prop
             }
+            const candidates = typeCandidatesByKey?.get(prop.key)
             return mergeProperty(
                 prop,
-                typeCandidatesByKey?.get(prop.key),
+                candidatesMustMatch ? candidates?.filter((candidate) => matchesFilter(candidate, prop)) : candidates,
                 crossSetPropsByKey?.get(prop.key),
                 setGroupTypeIndex,
                 sourceRestoresGroupType
@@ -533,7 +535,8 @@ export function preserveGroupTargetingFilters(
                     group.aggregation_group_type_index,
                     effectiveFlagGroupIndex
                 ),
-                sourceSet?.aggregation === null && !matchedPersonSets[index]
+                sourceSet?.aggregation === null && !matchedPersonSets[index],
+                !!matchedPersonSets[index]
             )
         })
     }
