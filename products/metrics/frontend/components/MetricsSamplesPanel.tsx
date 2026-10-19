@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
@@ -26,6 +27,7 @@ function SamplesTab(): JSX.Element {
     const { hasMetricName } = useValues(metricsViewerLogic)
     const { timezone } = useValues(teamLogic)
     const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -88,7 +90,18 @@ function SamplesTab(): JSX.Element {
                                         ts: sample.timestamp,
                                     })}
                                     className="font-mono"
-                                    onClick={() => tracePivotClicked(sample)}
+                                    onClick={(event) => {
+                                        tracePivotClicked(sample)
+                                        openTraceDialog(
+                                            event,
+                                            {
+                                                traceId: sample.trace_id,
+                                                spanId: sample.span_id || null,
+                                                ts: sample.timestamp,
+                                            },
+                                            { entryPoint: 'metric_sample' }
+                                        )
+                                    }}
                                 >
                                     {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
                                     <span data-attr="metrics-trace-pivot">

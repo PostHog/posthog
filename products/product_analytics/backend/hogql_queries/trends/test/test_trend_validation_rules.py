@@ -5,6 +5,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    BaseMathType,
     Breakdown,
     BreakdownFilter,
     BreakdownType,
@@ -372,6 +373,29 @@ class TestDisallowDaysOfWeekWithSmoothing(BaseTest):
             DisallowDaysOfWeekWithSmoothing().validate(self._context(query))
 
         self.assertEqual(context.exception.get_codes(), ["days_of_week_unsupported_with_smoothing"])
+
+
+class TestRequirePropertyForPropertyMath(BaseTest):
+    @parameterized.expand(
+        [
+            ("property_math_with_property", PropertyMathType.SUM, "price"),
+            ("property_math_without_property", PropertyMathType.AVG, None),
+            ("count_math_with_empty_property", BaseMathType.TOTAL, ""),
+        ]
+    )
+    def test_allows(self, _name: str, math: PropertyMathType | BaseMathType, math_property: str | None) -> None:
+        query = TrendsQuery(series=[EventsNode(event="$pageview", math=math, math_property=math_property)])
+
+        TrendsQueryRunner(query=query, team=self.team).validate()
+
+    @parameterized.expand([(math.value, math) for math in (PropertyMathType.AVG, PropertyMathType.P99)])
+    def test_rejects_property_math_with_empty_property(self, _name: str, math: PropertyMathType) -> None:
+        query = TrendsQuery(series=[EventsNode(event="$pageview", math=math, math_property="")])
+
+        with self.assertRaises(ValidationError) as context:
+            TrendsQueryRunner(query=query, team=self.team).validate()
+
+        self.assertEqual(context.exception.get_codes(), ["property_math_requires_property"])
 
 
 class TestTrendsQueryRunnerSeriesFanOut(BaseTest):

@@ -20,7 +20,7 @@ jest.mock('./TaskComposer', () => ({ TaskComposer: () => <div data-attr="task-co
 jest.mock('./TaskRunChat', () => ({ TaskRunChat: () => <div data-attr="task-run-chat" /> }))
 jest.mock('./StartupRunChat', () => ({ StartupRunChat: () => <div data-attr="startup-run-chat" /> }))
 jest.mock('./TaskHistory', () => ({
-    TaskHistoryList: () => <div data-attr="task-history-list" />,
+    TaskHistoryPanel: () => <div data-attr="task-history-list" />,
     TaskHistoryPreview: () => <div data-attr="task-history-preview" />,
 }))
 

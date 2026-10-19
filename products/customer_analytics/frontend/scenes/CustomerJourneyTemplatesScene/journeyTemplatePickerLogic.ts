@@ -7,7 +7,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightType, InsightModel } from '~/types'
 
 import type { AnyEntityNode, Node } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -126,7 +125,7 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
                     insight: InsightType.FUNNELS,
                     ...(values.searchTerm ? { search: values.searchTerm } : {}),
                 })
-                return response.results.map((insight) => getQueryBasedInsightModel(insight))
+                return response.results
             },
         },
     })),

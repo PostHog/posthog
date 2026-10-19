@@ -24,6 +24,8 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     ExecuteLLMJudgeInputs,
+    backfill_retry_policy,
+    backfill_timeout,
     build_system_prompt,
     execute_llm_judge_activity,
     get_output_type_config,
@@ -270,6 +272,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
+        recover_backfill = inputs.backfill_id is not None and temporalio.workflow.patched(
+            "evaluation-backfill-extended-retries"
+        )
 
         # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
         # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
@@ -296,9 +301,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # Total deadline including queue wait: without it a task stuck in the queue
                     # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
                     # trigger for this (evaluation, event) pair.
-                    schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    schedule_to_close_timeout=backfill_timeout(
+                        recover_backfill, HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT
+                    ),
                     # A hog or sentiment run is local and deterministic, so repeating it on the emit schedule is cheap.
-                    retry_policy=EMIT_EVENT_RETRY_POLICY,
+                    retry_policy=backfill_retry_policy(recover_backfill, EMIT_EVENT_RETRY_POLICY),
                 )
             except temporalio.exceptions.ActivityError as e:
                 if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
@@ -338,9 +345,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 try:
                     result = await temporalio.workflow.execute_activity(
                         execute_llm_judge_activity,
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data),
-                        schedule_to_close_timeout=timedelta(minutes=6),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        ExecuteLLMJudgeInputs(
+                            evaluation=evaluation,
+                            event_data=event_data,
+                            backfill_id=inputs.backfill_id if recover_backfill else None,
+                        ),
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=6)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)

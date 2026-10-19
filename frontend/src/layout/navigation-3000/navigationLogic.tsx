@@ -3,10 +3,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
-import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -55,8 +52,7 @@ export interface navigation3000LogicMeta {
             isCurrentOrganizationUnavailable: boolean,
             currentProject: ProjectType | null,
             zenMode: boolean,
-            activeSceneId: string | null,
-            featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            activeSceneId: string | null
         ) => Navigation3000Mode
     }
 }
@@ -113,21 +109,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         mode: [
-            (s) => [
-                s.sceneConfig,
-                s.isCurrentOrganizationUnavailable,
-                s.currentProject,
-                s.zenMode,
-                s.activeSceneId,
-                featureFlagLogic.selectors.featureFlags,
-            ],
+            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.currentProject, s.zenMode, s.activeSceneId],
             (
                 sceneConfig: null | import('scenes/sceneTypes').SceneConfig,
                 isCurrentOrganizationUnavailable: boolean,
                 currentProject: import('~/types').ProjectType | null,
                 zenMode: boolean,
-                activeSceneId: string | null,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                activeSceneId: string | null
             ): Navigation3000Mode => {
                 // An embedded page frame sits inside another app page, so it shows the scene alone.
                 if (isEmbeddedPageFrame()) {
@@ -141,16 +129,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     return 'minimal'
                 }
                 if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
-                    if (activeSceneId === Scene.Onboarding) {
-                        // A flow variant can opt to own the whole viewport (no navbar); the
-                        // existing ONBOARDING_NAVBAR='hide' flag stays as a separate override.
-                        const variantHidesNavbar =
-                            onboardingVariantChrome(resolveOnboardingFlowVariant(featureFlags)) === 'none'
-                        if (variantHidesNavbar || featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide') {
-                            return 'none'
-                        }
-                    }
-                    return 'minimal'
+                    // Onboarding owns the whole viewport, so it gets no navbar.
+                    return activeSceneId === Scene.Onboarding ? 'none' : 'minimal'
                 }
                 return sceneConfig?.layout !== 'plain' ? 'full' : 'none'
             },

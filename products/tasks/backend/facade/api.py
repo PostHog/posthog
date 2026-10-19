@@ -38,6 +38,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    TextChoices,
     Value,
     When,
 )
@@ -61,6 +62,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
@@ -167,7 +169,9 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.pr_urls import (
+    canonical_github_pull_request_url,
     merge_pr_output,
+    normalize_verified_pull_request_urls,
     read_head_branches,
     read_pr_urls as read_pr_urls,
 )
@@ -178,6 +182,7 @@ from products.tasks.backend.repository_config_analytics import (
     repositories_differ,
 )
 from products.tasks.backend.visibility import (
+    PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
     scout_trial_visibility_q,
     task_control_q,
@@ -299,6 +304,8 @@ __all__ = [
     "filter_uncovered_workflow_dispatch_run_ids",
     "maintain_workflow_dispatch_outbox",
     "get_task_detail",
+    "task_access_scope",
+    "normalize_verified_pull_request_urls_batch",
     "get_task_id_for_run",
     "get_task_run",
     "get_task_run_session",
@@ -760,6 +767,105 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     )
 
 
+@frozen
+class _SlackUnfurlArtifact:
+    task: Task
+    run_id: UUID
+    entry: dict[str, Any]
+
+
+def _slack_unfurl_artifact_entry(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    run_id: str | UUID | None,
+    artifact_id: str | None,
+    name: str | None,
+) -> _SlackUnfurlArtifact | None:
+    """The downloadable artifact the user may see, by its id or by its file name (newest upload wins).
+
+    A run with analytics context is refused. The download endpoint checks the caller's access to
+    that context against the request, and an unfurl has no request, so it fails closed.
+    """
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id, internal=False).only("id", "title").first()
+    if task is None or (artifact_id is None and name is None):
+        return None
+    runs = TaskRun.objects.filter(team_id=team_id, task_id=task.id)
+    if run_id is not None:
+        runs = runs.filter(pk=run_id)
+    if runs.filter(state__has_key="analytics_query_context").exists():
+        return None
+    matches = [
+        (run_pk, entry)
+        for run_pk, artifacts in runs.values_list("id", "artifacts")
+        for entry in artifacts or []
+        if entry.get("storage_path") and (entry.get("id") == artifact_id if artifact_id else entry.get("name") == name)
+    ]
+    if not matches:
+        return None
+    run_pk, entry = max(matches, key=lambda match: str(match[1].get("uploaded_at") or ""))
+    return _SlackUnfurlArtifact(task=task, run_id=run_pk, entry=entry)
+
+
+def get_task_artifact_for_slack_unfurl(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    run_id: str | UUID | None = None,
+    artifact_id: str | None = None,
+    name: str | None = None,
+) -> contracts.TaskArtifactSlackUnfurlDTO | None:
+    found = _slack_unfurl_artifact_entry(
+        task_id=task_id, team_id=team_id, user_id=user_id, run_id=run_id, artifact_id=artifact_id, name=name
+    )
+    if found is None:
+        return None
+    entry = found.entry
+    size = entry.get("size")
+    uploaded_at = entry.get("uploaded_at")
+    try:
+        uploaded = datetime.fromisoformat(uploaded_at) if isinstance(uploaded_at, str) else None
+    except ValueError:
+        uploaded = None
+    return contracts.TaskArtifactSlackUnfurlDTO(
+        name=str(entry.get("name") or "artifact"),
+        content_type=str(entry.get("content_type") or ""),
+        size=size if isinstance(size, int) else None,
+        uploaded_at=uploaded,
+        task_id=found.task.id,
+        task_title=found.task.title,
+        run_id=found.run_id,
+        artifact_id=str(entry["id"]),
+        download_path=_artifact_download_path(team_id, found.task.id, found.run_id, str(entry["id"])),
+    )
+
+
+def read_task_artifact_for_slack_unfurl(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    max_bytes: int,
+    run_id: str | UUID | None = None,
+    artifact_id: str | None = None,
+    name: str | None = None,
+) -> bytes | None:
+    """The artifact's bytes, with the same access checks as ``get_task_artifact_for_slack_unfurl``."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    found = _slack_unfurl_artifact_entry(
+        task_id=task_id, team_id=team_id, user_id=user_id, run_id=run_id, artifact_id=artifact_id, name=name
+    )
+    if found is None:
+        return None
+    size = found.entry.get("size")
+    if not isinstance(size, int) or size > max_bytes:
+        return None
+    return object_storage.read_bytes(found.entry["storage_path"], missing_ok=True)
+
+
 _StateEntryResult = TypeVar("_StateEntryResult")
 
 
@@ -1096,13 +1202,49 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
 
 
+def task_access_scope(*, team_id: int, user: User) -> contracts.TaskAccessScope:
+    team = Team.objects.get(id=team_id)
+    access = UserAccessControl(user=user, team=team)
+    return contracts.TaskAccessScope(
+        user_id=user.id,
+        has_resource_access=access.has_resource_access("task"),
+        allowed_ids=access.allowlisted_resource_ids_by_scope.get("task", frozenset()),
+        blocked_ids=access.blocked_resource_ids_by_scope.get("task", frozenset()),
+    )
+
+
+def normalize_verified_pull_request_urls_batch(
+    *, team_id: int, after: UUID | None = None, limit: int = 1000
+) -> UUID | None:
+    rows = TaskRun.objects.filter(team_id=team_id, state__has_key="verified_pr_urls").order_by("id")
+    if after is not None:
+        rows = rows.filter(id__gt=after)
+    batch = list(rows.values_list("id", "state")[:limit])
+    for run_id, state in batch:
+        verified = state.get("verified_pr_urls") if isinstance(state, dict) else None
+        if normalize_verified_pull_request_urls(verified) == verified:
+            continue
+
+        def normalize(latest_state: dict[str, Any]) -> None:
+            latest_state["verified_pr_urls"] = normalize_verified_pull_request_urls(
+                latest_state.get("verified_pr_urls")
+            )
+
+        TaskRun.mutate_state_atomic(run_id, normalize)
+    return batch[-1][0] if len(batch) == limit else None
+
+
 def is_verified_task_pr_url(*, task_id: str | UUID, team_id: int, pr_url: str) -> bool:
     """Whether the GitHub webhook confirmed that a run of this task opened the pull request.
 
     A run's `output.pr_url` is writable through the API. `verified_pr_urls` is server-owned, so a
     caller that edits the pull request checks this before it trusts the URL.
     """
-    return TaskRun.objects.filter(task_id=task_id, team_id=team_id, state__verified_pr_urls__contains=[pr_url]).exists()
+    verified_url = canonical_github_pull_request_url(pr_url)
+    verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
+    if verified_url is not None:
+        verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
+    return TaskRun.objects.filter(verified_filter, task_id=task_id, team_id=team_id).exists()
 
 
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
@@ -2772,6 +2914,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_requested_by_user_id",
         "cancel_source",
         "cancel_fallback_cleanup_complete",
+        "cancel_fallback_stream_generation",
+        "stream_generation",
         "pending_external_followups",
         "pending_external_followups_generation",
         "pending_external_followups_checkpoint",
@@ -4098,8 +4242,18 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
     return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
 
+def _downloadable_artifact_entry(artifacts: list[dict[str, Any]] | None, artifact_id: str) -> dict[str, Any] | None:
+    entry = next((a for a in artifacts or [] if a.get("id") == artifact_id), None)
+    # Reference entries carry no file, so there is nothing to download for them.
+    return entry if entry is not None and entry.get("storage_path") else None
+
+
+def _artifact_download_path(team_id: int, task_id: UUID, run_id: UUID, artifact_id: str) -> str:
+    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/artifacts/{artifact_id}/download/"
+
+
 def _build_artifact_download_path(run: TaskRun, artifact_id: str) -> str:
-    return f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+    return _artifact_download_path(run.team_id, run.task_id, run.id, artifact_id)
 
 
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
@@ -4878,9 +5032,8 @@ def presign_task_run_artifact_download(
     if run is None:
         return None, None
 
-    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
-    # Reference entries carry no file, so there is nothing to download for them.
-    if entry is None or not entry.get("storage_path"):
+    entry = _downloadable_artifact_entry(run.artifacts, artifact_id)
+    if entry is None:
         return None, "not_found"
 
     filename = str(entry.get("name") or "artifact")
@@ -5427,6 +5580,7 @@ def signal_task_run_user_message(
     actor_user_id: int | None = None,
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
+    person_message: str | None = None,
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
@@ -5470,7 +5624,8 @@ def signal_task_run_user_message(
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     accepted_at = django_timezone.now()
     try:
-        context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
+        context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context = {key: value for key, value in context_values.items() if value} or None
         signal_task_followup_message(
             workflow_id or run.workflow_id,
             content,
@@ -6926,6 +7081,70 @@ TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
+#: Built from the two source classes, so a new origin product becomes a source without an edit here.
+#: Product-private origin products are left out because the task list never shows their tasks.
+# django-stubs types only the class-body form of TextChoices; Django supports this functional form.
+TaskListSource = TextChoices(  # type: ignore[call-overload]
+    "TaskListSource",
+    [
+        # The value is also the label, so the API docs show "posthog_ai", not a title-cased "Posthog Ai".
+        (source.upper(), (source, source))
+        for source in sorted(
+            {
+                *TaskClientProvenance.values,
+                *(
+                    product
+                    for product in Task.OriginProduct.values
+                    if product != Task.OriginProduct.USER_CREATED and product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS
+                ),
+            }
+        )
+    ],
+)
+
+
+def _task_sources_q(sources: list[str]) -> Q:
+    user_created = Q(origin_product=Task.OriginProduct.USER_CREATED)
+    matches = Q(pk__in=[])
+    for source in sources:
+        if source == TaskClientProvenance.POSTHOG_DESKTOP:
+            # A user-created task with no other known client counts as desktop, the same as the desktop app.
+            matches |= user_created & ~Q(
+                client_provenance__in=[TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB]
+            )
+        elif source == TaskClientProvenance.POSTHOG_WEB:
+            # PostHog AI runs in the web app, so the desktop app shows its tasks as web tasks too.
+            matches |= (user_created & Q(client_provenance=source)) | Q(origin_product=Task.OriginProduct.POSTHOG_AI)
+        elif source in TaskClientProvenance.values:
+            matches |= user_created & Q(client_provenance=source)
+        else:
+            matches |= Q(origin_product=source)
+    return matches
+
+
+def _task_source(origin_product: str, client_provenance: str | None) -> str:
+    # The reverse of _task_sources_q, so every listed source filters back to its own tasks.
+    if origin_product == Task.OriginProduct.POSTHOG_AI:
+        return TaskClientProvenance.POSTHOG_WEB
+    if origin_product == Task.OriginProduct.USER_CREATED:
+        if client_provenance in (TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB):
+            return client_provenance
+        return TaskClientProvenance.POSTHOG_DESKTOP
+    return origin_product
+
+
+def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
+    """Distinct task list sources of the user's own visible, non-archived, non-internal tasks."""
+    pairs = (
+        _visible_task_qs(team_id, user_id)
+        .filter(internal=False, archived=False, created_by_id=user_id)
+        .exclude(id__in=exclude_task_ids)
+        .order_by()
+        .values_list("origin_product", "client_provenance")
+        .distinct()
+    )
+    return sorted({_task_source(origin_product, client_provenance) for origin_product, client_provenance in pairs})
+
 
 def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
@@ -6945,6 +7164,10 @@ def _list_tasks_queryset(
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
+
+    sources = filters.get("sources")
+    if sources:
+        qs = qs.filter(_task_sources_q(sources))
 
     stage = filters.get("stage")
     if stage:

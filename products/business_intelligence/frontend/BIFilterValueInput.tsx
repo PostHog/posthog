@@ -14,6 +14,9 @@ import {
 } from 'products/business_intelligence/frontend/biEditorTypes'
 import { biFilterValuesLogic } from 'products/business_intelligence/frontend/biFilterValuesLogic'
 
+import { getBIFilterLabel } from './biFilterSummary'
+import { getBIMemberOptions } from './biMemberAliases'
+
 export function BIFilterValueInput({ index }: { index: number }): JSX.Element | null {
     const { config } = useValues(biEditorLogic)
     const { setFilterValue, updateFilter } = useActions(biEditorLogic)
@@ -24,7 +27,7 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
         active: focused,
         config,
     })
-    const { options, optionsLoading, optionsError, hasMore } = useValues(valuesLogic)
+    const { options, optionsLoading, optionsError, hasMore, search } = useValues(valuesLogic)
     const { loadOptions, setSearch, loadMore } = useActions(valuesLogic)
     if (!filter || ['last_7_days', 'is_set', 'is_not_set', 'custom'].includes(filter.operator)) {
         return null
@@ -44,8 +47,18 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                 <LemonInputSelect
                     mode={multiple ? 'multiple' : 'single'}
                     value={filter.values ?? (multiple || !filter.value ? [] : [filter.value])}
-                    options={(options ?? []).map((value) => ({ key: value, label: value || '(empty string)' }))}
-                    loading={optionsLoading}
+                    options={
+                        multiple || filter.operator === 'equals' || filter.operator === 'not_equals'
+                            ? getBIMemberOptions(
+                                  config,
+                                  filter.field,
+                                  options ?? [],
+                                  filter.values ?? (filter.value ? [filter.value] : []),
+                                  search
+                              )
+                            : (options ?? []).map((value) => ({ key: value, label: value }))
+                    }
+                    loading={optionsLoading && options === null}
                     status={validationError ? 'danger' : 'default'}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
@@ -55,7 +68,7 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                     onInputChange={setSearch}
                     disableFiltering
                     placeholder={multiple ? (filter.operator === 'in' ? 'All values' : 'No excluded values') : 'Value'}
-                    title={`Values for ${filter.field.name}`}
+                    title={`Values for ${getBIFilterLabel(filter)}`}
                     allowCustomValues
                     disableCommaSplitting
                     bulkActions="clear-all"
@@ -96,7 +109,7 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                         updateFilter(index, { valueTo: next })
                     }
                 }
-                const label = `${filter.field.name} filter ${isRange ? bound : 'value'}`
+                const label = `${getBIFilterLabel(filter)} filter ${isRange ? bound : 'value'}`
                 return (
                     <div key={bound} className="flex min-w-0 flex-col gap-1">
                         {isRange ? (

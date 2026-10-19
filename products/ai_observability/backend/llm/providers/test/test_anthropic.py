@@ -12,7 +12,7 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
 )
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestAnthropicListModels:
@@ -140,6 +140,31 @@ class TestAnthropicTemperature:
     def test_explicit_temperature_forwarded(self, model: str):
         assert self._complete_with_model(model, temperature=0.5)["temperature"] == 0.5
         assert self._stream_with_model(model, temperature=0.5)["temperature"] == 0.5
+
+
+class TestAnthropicStreamOutputSchema:
+    def _stream_kwargs(self, output_schema: OutputSchema | None) -> dict:
+        request = CompletionRequest(
+            model="claude-haiku-4-5",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="anthropic",
+            output_schema=output_schema,
+        )
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value = iter([])
+            list(AnthropicAdapter().stream(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False)))
+            return mock_client.messages.create.call_args.kwargs
+
+    def test_output_schema_is_sent_as_json_schema_output_config(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+        kwargs = self._stream_kwargs(OutputSchema(schema=schema))
+
+        assert kwargs["output_config"] == {"format": {"type": "json_schema", "schema": schema}}
+        assert "output_config" not in self._stream_kwargs(None)
 
 
 def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
