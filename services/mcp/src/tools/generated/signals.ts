@@ -2160,6 +2160,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -3187,6 +3188,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
