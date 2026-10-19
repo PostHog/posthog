@@ -4,11 +4,15 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
+from temporalio.common import RetryPolicy
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
@@ -365,3 +369,26 @@ class TestCalendarSync(BaseTest):
         meeting.refresh_from_db()
         assert updated == 1
         assert meeting.account_id == account.id
+
+
+class TestCalendarSyncTransportErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("proxy_error_first_attempt", requests.exceptions.ProxyError("504"), 1, True),
+            ("read_timeout_second_attempt", requests.exceptions.ReadTimeout("timed out"), 2, True),
+            ("proxy_error_final_attempt", requests.exceptions.ProxyError("504"), 3, False),
+        ]
+    )
+    def test_transport_error_is_reported_only_on_final_attempt(
+        self, _name: str, error: Exception, attempt: int, expected: bool
+    ) -> None:
+        info = MagicMock(attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=3))
+        with (
+            patch.object(temporal_calendar_sync.activity, "info", return_value=info),
+            patch.object(calendar_sync, "sync_calendar_integration", side_effect=error),
+            self.assertRaises(temporal_calendar_sync.ApplicationError) as raised,
+        ):
+            temporal_calendar_sync._run_calendar_sync(temporal_calendar_sync.CalendarSyncInput(1, 1))
+
+        assert not raised.exception.non_retryable
+        assert is_expected_activity_failure(raised.exception) is expected
