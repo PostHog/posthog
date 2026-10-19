@@ -29,6 +29,7 @@ from products.experiments.backend.health.context import (
 )
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
+    MAX_OVERRIDE_WINDOWS,
     load_flag_history,
     query_any_exposure,
 )
@@ -280,6 +281,32 @@ class TestLoadFlagHistory(BaseTest):
             history.exposed_during_overrides, {ChangeWindow(start=changed_at[0], end=changed_at[1]): False}
         )
         self.assertEqual(query.call_count, 2)
+
+    def test_override_windows_past_the_bound_are_not_asked(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        unpinned: list[dict[str, Any]] = [
+            {"properties": [{"key": "plan", "value": [f"plan {index}"], "operator": "exact", "type": "person"}]}
+            for index in range(MAX_OVERRIDE_WINDOWS + 1)
+        ]
+        groups = [unpinned]
+        for pinned_index in range(len(unpinned)):
+            groups.append(
+                [
+                    {**condition, "variant": "test"} if index == pinned_index else condition
+                    for index, condition in enumerate(unpinned)
+                ]
+            )
+            groups.append(unpinned)
+        for minute, (before, after) in enumerate(zip(groups, groups[1:])):
+            self._log_change(
+                first_at + timedelta(minutes=minute),
+                filters=({**_filters(_split(50, 50)), "groups": before}, {**_filters(_split(50, 50)), "groups": after}),
+            )
+
+        history, _ = self._load(lambda **kwargs: kwargs["window_start"] == self.launched_at)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(len(history.exposed_during_overrides), MAX_OVERRIDE_WINDOWS)
 
     @parameterized.expand(
         [

@@ -29,6 +29,7 @@ FIRST_CHANGE = "September 12, 2026 at 3:04 PM CEST"
 SECOND_CHANGE = "September 12, 2026 at 3:21 PM CEST"
 THIRD_CHANGE = "September 12, 2026 at 3:38 PM CEST"
 EVEN = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+WITH_HOLDOUT = [*EVEN, {"key": "holdout", "rollout_percentage": 0}]
 PRO = {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]}
 EVERYONE: dict[str, Any] = {"properties": []}
 PRO_PINNED = {**PRO, "variant": "test"}
@@ -52,24 +53,26 @@ def _context(
     people_by_set: dict[int, int] | None = None,
     now: list[dict[str, Any]] | None = None,
     exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
+    variants: list[dict[str, Any]] = EVEN,
 ) -> HealthContext:
+    variant_keys = [variant["key"] for variant in variants]
     changes = [
         ConditionsChange(
             changed_at=FIRST_CHANGE_AT + timedelta(minutes=17 * index),
-            before=parse_release_conditions(before),
-            after=parse_release_conditions(after),
+            before=parse_release_conditions(before, variant_keys=variant_keys),
+            after=parse_release_conditions(after, variant_keys=variant_keys),
         )
         for index, (before, after) in enumerate(zip(conditions, conditions[1:]))
     ]
     return replace(
         RUNNING_CONTEXT,
-        flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=EVEN),
+        flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=variants),
         flag_history=flag_history(
             changes,
             launched_at=LAUNCHED_AT,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
-            release_conditions=None if now is None else parse_release_conditions(now),
+            release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
             exposed_during_overrides=exposed_during_overrides,
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
@@ -162,6 +165,44 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f"stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "
                 f'"control" with the override in place (300 of about 1,650). Reset the experiment, or move its start '
                 f"date to {SECOND_CHANGE}.",
+            ),
+            (
+                "override_removed_set_back_and_removed_again",
+                _context(
+                    [PRO_PINNED, EVERYONE],
+                    [PRO, EVERYONE],
+                    [PRO_PINNED, EVERYONE],
+                    [PRO, EVERYONE],
+                    people_by_set={1: 300, 2: 2700},
+                    exposed_during_overrides={
+                        ChangeWindow(
+                            start=FIRST_CHANGE_AT + timedelta(minutes=17), end=FIRST_CHANGE_AT + timedelta(minutes=34)
+                        ): False
+                    },
+                ),
+                ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {THIRD_CHANGE}. {OVERRIDE_MOVED} Since '
+                f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {THIRD_CHANGE}.",
+            ),
+            (
+                "override_removed_with_its_rollout_set_to_zero",
+                _context([PRO_PINNED, EVERYONE], [{**PRO, "rollout_percentage": 0}, EVERYONE], people_by_set={2: 3000}),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
+                f"can't measure how many users the override matched. Reset the experiment, or move its start date to "
+                f"{FIRST_CHANGE}.",
+            ),
+            (
+                "overrides_removed_from_a_small_share_and_a_variant_at_zero_percent",
+                _context(
+                    [PRO_PINNED, {**TEAM, "variant": "holdout"}, EVERYONE],
+                    [PRO, TEAM, EVERYONE],
+                    people_by_set={1: 10, 2: 5, 3: 2985},
+                    variants=WITH_HOLDOUT,
+                ),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                None,
             ),
             (
                 "override_removed_with_its_condition_next_to_a_small_share",

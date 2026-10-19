@@ -179,8 +179,13 @@ def _override_removed(
     pins = removed_overrides_to_grade(ctx)
     grade = grade_pinned_share(pins, ctx.condition_set_traffic) if pins is not None and pins.weighted else None
     severity = pinned_share_severity(grade)
-    if not removed or severity is None:
+    if not removed:
         return None
+    if severity is None:
+        # A pin to a variant with 0% in the split was the only source of that variant's results, however few.
+        if pins is None or not pins.unweighted:
+            return None
+        severity = ExperimentHealthFindingSeverity.INFO
     last_changed_at = max(override.restored_at or override.removed_at for override in removed)
     return _finding(
         history,

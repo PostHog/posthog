@@ -18,16 +18,16 @@ set. An override that is gone leaves no state to report, so the release-conditio
 import json
 import itertools
 from collections import deque
-from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Hashable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.health.context import ChangeWindow, ConditionsChange, ReleaseCondition
-from products.experiments.backend.health.split_changes import EXPOSURE_FREEZE_JOB_TYPES
-from products.feature_flags.backend.facade.filters import condition_aggregation
+from products.experiments.backend.health.context import ChangeWindow, ConditionsChange, ReleaseCondition, parse_variants
+from products.experiments.backend.health.split_changes import EXPOSURE_FREEZE_JOB_TYPES, split_variant_keys
+from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant
 
 ReleaseConditions = tuple[ReleaseCondition, ...]
 _MAX_LOOK_ALIKES = 100
@@ -54,24 +54,18 @@ class RemovedOverride:
     variant: str
     # The number of its condition in the flag now. None when the condition is gone too.
     condition_number: int | None
-    # Whether its condition matches now what it matched while the override was in place, so the users it serves
-    # now are the users the override served.
+    # Whether its condition matches now what it matched while the override was in place, at the same rollout, so
+    # the users it serves now are the users the override served.
     same_audience: bool
     # None when the override was in place before the first change.
     set_at: datetime | None
     # The first change of the override when it was set back, otherwise the change that removed it.
     removed_at: datetime
     restored_at: datetime | None
-
-    @property
-    def temporary_window(self) -> ChangeWindow | None:
-        """The window between the two changes when the override was set and removed again, or removed and set
-        back. None when it was in place before the first change and stays removed."""
-        if self.restored_at is not None:
-            return ChangeWindow(start=self.removed_at, end=self.restored_at)
-        if self.set_at is not None:
-            return ChangeWindow(start=self.set_at, end=self.removed_at)
-        return None
+    # From the first change of the override to the last, when its condition serves the same variant before and
+    # after them: no override, or the same one set back. Only people exposed in this window can have switched
+    # variants. None when an override was in place before the first change and is gone now.
+    temporary_window: ChangeWindow | None
 
 
 @frozen
@@ -113,23 +107,38 @@ def conditions_change_from_activity(
     after_groups: object,
     before_aggregation: object,
     after_aggregation: object,
+    before_variants: object,
+    after_variants: object,
 ) -> ConditionsChange | None:
     """The release-condition change in one activity log row of the flag, or None when the row does not change who
-    the conditions match or which variant they serve. The aggregations are the flag-level ones of the row."""
+    the conditions match or which variant they serve. The aggregations and variants are the flag-level ones of the
+    row."""
     if job_type in EXPOSURE_FREEZE_JOB_TYPES:
         return None
     if before_groups == after_groups and before_aggregation == after_aggregation:
         return None
-    before = parse_release_conditions(before_groups, flag_aggregation=before_aggregation)
-    after = parse_release_conditions(after_groups, flag_aggregation=after_aggregation)
+    before = parse_release_conditions(
+        before_groups,
+        flag_aggregation=before_aggregation,
+        variant_keys=split_variant_keys(parse_variants(before_variants)),
+    )
+    after = parse_release_conditions(
+        after_groups,
+        flag_aggregation=after_aggregation,
+        variant_keys=split_variant_keys(parse_variants(after_variants)),
+    )
     if conditions_shape(before, after) is None:
         return None
     return ConditionsChange(changed_at=changed_at, before=before, after=after)
 
 
-def parse_release_conditions(groups: object, *, flag_aggregation: object = None) -> ReleaseConditions:
+def parse_release_conditions(
+    groups: object, *, flag_aggregation: object = None, variant_keys: Collection[str]
+) -> ReleaseConditions:
+    """`variant_keys` are the variants of the flag in the same version, because the flag service ignores an
+    override that names no variant of the flag."""
     aggregation = _group_type_index(flag_aggregation)
-    return tuple(_condition(group, aggregation) for group in groups) if isinstance(groups, list) else ()
+    return tuple(_condition(group, aggregation, variant_keys) for group in groups) if isinstance(groups, list) else ()
 
 
 def conditions_shape(before: ReleaseConditions, after: ReleaseConditions) -> ConditionsChangeShape | None:
@@ -212,8 +221,8 @@ def conditions_net_effect(
         else _carry_ids(last.after, followed.end_ids, current, itertools.count(_next_id(followed)))
     )
     numbers = {condition_id: number for number, condition_id in enumerate(now_ids, start=1)}
-    criteria_now = {condition_id: condition.criteria for condition_id, condition in zip(now_ids, now)}
-    overrides, touched = _override_changes(followed, first.before, last.after, numbers, criteria_now)
+    audience_now = {condition_id: _audience(condition) for condition_id, condition in zip(now_ids, now)}
+    overrides, touched = _override_changes(followed, first.before, last.after, numbers, audience_now)
     start_index = {condition_id: index for index, condition_id in enumerate(followed.start_ids)}
     net_pairs = {
         index: start_index[condition_id]
@@ -253,7 +262,7 @@ class _VariantChange:
     changed_at: datetime
     before: str | None
     after: str | None
-    before_criteria: str | None
+    before_audience: tuple[str, float] | None
 
 
 @frozen
@@ -285,7 +294,7 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
                         changed_at=change.changed_at,
                         before=_variant(old),
                         after=_variant(new),
-                        before_criteria=old.criteria if old is not None else None,
+                        before_audience=_audience(old) if old is not None else None,
                     )
                 )
         conditions, ids = change.after, after_ids
@@ -330,7 +339,7 @@ def _override_changes(
     start: ReleaseConditions,
     end: ReleaseConditions,
     numbers: Mapping[int, int],
-    criteria_now: Mapping[int, str],
+    audience_now: Mapping[int, tuple[str, float]],
 ) -> tuple[OverrideChanges, set[int]]:
     """The override changes, and the ids of the conditions they touch."""
     start_variants = {condition_id: condition.variant for condition_id, condition in zip(followed.start_ids, start)}
@@ -353,10 +362,11 @@ def _override_changes(
                 RemovedOverride(
                     variant=end_variant,
                     condition_number=number,
-                    same_audience=changes[0].before_criteria == criteria_now.get(condition_id),
+                    same_audience=changes[0].before_audience == audience_now.get(condition_id),
                     set_at=None,
                     removed_at=changes[0].changed_at,
                     restored_at=changes[-1].changed_at,
+                    temporary_window=ChangeWindow(start=changes[0].changed_at, end=changes[-1].changed_at),
                 )
             )
         else:
@@ -372,10 +382,15 @@ def _override_changes(
                 RemovedOverride(
                     variant=removal.before,
                     condition_number=number,
-                    same_audience=removal.before_criteria == criteria_now.get(condition_id),
-                    set_at=_last_set(changes[:removal_index], removal.before),
+                    same_audience=removal.before_audience == audience_now.get(condition_id),
+                    set_at=None
+                    if removal.before == start_variant
+                    else _last_set(changes[:removal_index], removal.before),
                     removed_at=removal.changed_at,
                     restored_at=None,
+                    temporary_window=None
+                    if start_variant is not None
+                    else ChangeWindow(start=changes[0].changed_at, end=removal.changed_at),
                 )
             )
     touched = set(by_condition)
@@ -444,6 +459,10 @@ def _variant(condition: ReleaseCondition | None) -> str | None:
     return condition.variant if condition is not None else None
 
 
+def _audience(condition: ReleaseCondition) -> tuple[str, float]:
+    return condition.criteria, condition.rollout
+
+
 def _looks_alike(old: ReleaseCondition, new: ReleaseCondition) -> bool:
     # Two conditions look alike when they match the same kind of thing: the same group type, and a shared property
     # key or no properties on either. Otherwise an unrelated new condition would read as an edit.
@@ -454,7 +473,7 @@ def _looks_alike(old: ReleaseCondition, new: ReleaseCondition) -> bool:
     return bool(old.property_keys & new.property_keys)
 
 
-def _condition(group: object, flag_aggregation: int | None) -> ReleaseCondition:
+def _condition(group: object, flag_aggregation: int | None, variant_keys: Collection[str]) -> ReleaseCondition:
     if not isinstance(group, dict):
         return ReleaseCondition(
             criteria=json.dumps(group, sort_keys=True, default=str),
@@ -465,7 +484,6 @@ def _condition(group: object, flag_aggregation: int | None) -> ReleaseCondition:
         )
     properties = group.get("properties")
     rollout = group.get("rollout_percentage")
-    variant = group.get("variant")
     aggregation = condition_aggregation(group, flag_aggregation)
     return ReleaseCondition(
         criteria=json.dumps(
@@ -485,7 +503,7 @@ def _condition(group: object, flag_aggregation: int | None) -> ReleaseCondition:
         else frozenset(),
         # The flag service reads a missing rollout as 100%.
         rollout=rollout if isinstance(rollout, int | float) and not isinstance(rollout, bool) else 100,
-        variant=variant if isinstance(variant, str) and variant else None,
+        variant=pinned_variant(group, variant_keys),
     )
 
 

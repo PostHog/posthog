@@ -90,6 +90,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.models.experiment import Experiment
 
 MAX_EXPOSURE_QUERIES = 20
+# Each override window costs a cache read, and a query when the answer is not cached. A window past this stays
+# unknown, so its override stays reported.
+MAX_OVERRIDE_WINDOWS = 20
 EXPOSURE_QUERY_TIMEOUT_SECONDS = 10
 # No query starts after this, so one request takes at most this plus one query's timeout.
 REQUEST_BUDGET_SECONDS = 10
@@ -335,7 +338,9 @@ def _load_flag_history(
         exposed_before_first=False,
         exposed_between={},
         release_conditions=parse_release_conditions(
-            flag.conditions, flag_aggregation=flag.aggregation_group_type_index
+            flag.conditions,
+            flag_aggregation=flag.aggregation_group_type_index,
+            variant_keys=split_variant_keys(parse_variants(flag.variants)),
         ),
         exposed_during_overrides={},
     )
@@ -481,11 +486,8 @@ def _exposed_during_overrides(
     between. The set-back question above covers only the span of every change of a kind."""
     effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     windows = [] if effect is None else [override.temporary_window for override in effect.overrides.removed]
-    return {
-        window: _exposed_between(gate, timeline, start=window.start, end=window.end)
-        for window in dict.fromkeys(windows)
-        if window is not None
-    }
+    asked = [window for window in dict.fromkeys(windows) if window is not None][:MAX_OVERRIDE_WINDOWS]
+    return {window: _exposed_between(gate, timeline, start=window.start, end=window.end) for window in asked}
 
 
 _PROJECTED = (
@@ -562,6 +564,8 @@ def _flag_changes(rows: list[dict[str, Any]], *, feature_flag_id: int) -> tuple[
             after_groups=row["after_groups"],
             before_aggregation=row["before_aggregation"],
             after_aggregation=row["after_aggregation"],
+            before_variants=row["before_variants"],
+            after_variants=row["after_variants"],
         )
         if conditions_change is not None:
             changes.append(conditions_change)

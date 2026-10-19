@@ -16,6 +16,7 @@ CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 PRO = {"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}
 PRO_OR_TEAM = {"key": "plan", "value": ["pro", "team"], "operator": "exact", "type": "person"}
 EU = {"key": "$geoip_continent_code", "value": ["EU"], "operator": "exact", "type": "person"}
+VARIANTS = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 
 
 def _condition(
@@ -32,6 +33,8 @@ def _change(before: list[dict[str, Any]], after: list[dict[str, Any]], *, minute
         after_groups=after,
         before_aggregation=None,
         after_aggregation=None,
+        before_variants=VARIANTS,
+        after_variants=VARIANTS,
     )
     assert change is not None
     return change
@@ -107,6 +110,7 @@ class TestConditionChanges(TestCase):
                 0,
             ),
             ("rollout_only", [_condition(PRO, rollout=100)], [_condition(PRO, rollout=20)], None, None),
+            ("override_to_no_variant_removed", [_condition(PRO, variant="holdout")], [_condition(PRO)], None, None),
             ("description_only", [_condition(PRO)], [_condition(PRO, description="Pro users")], None, None),
             ("filters_reordered", [_condition(PRO, EU)], [_condition(EU, PRO)], None, None),
             (
@@ -136,6 +140,8 @@ class TestConditionChanges(TestCase):
             after_groups=after,
             before_aggregation=flag_aggregation,
             after_aggregation=flag_aggregation,
+            before_variants=VARIANTS,
+            after_variants=VARIANTS,
         )
         effect = conditions_net_effect([change] if change else [], current=None)
 

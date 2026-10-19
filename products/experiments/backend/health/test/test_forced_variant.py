@@ -62,15 +62,20 @@ def _context(
         RUNNING_CONTEXT,
         **status,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
-        flag_history=None if groups_at_launch is None else _history(groups_at_launch, groups),
+        flag_history=None if groups_at_launch is None else _history(groups_at_launch, groups, variants),
         condition_set_traffic=traffic,
         excluded_variant_keys=excluded,
     )
 
 
-def _history(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> FlagHistory | FlagHistoryNotChecked:
+def _history(
+    before: list[dict[str, Any]], after: list[dict[str, Any]], variants: list[dict[str, Any]]
+) -> FlagHistory | FlagHistoryNotChecked:
+    variant_keys = [variant["key"] for variant in variants]
     change = ConditionsChange(
-        changed_at=CHANGED_AT, before=parse_release_conditions(before), after=parse_release_conditions(after)
+        changed_at=CHANGED_AT,
+        before=parse_release_conditions(before, variant_keys=variant_keys),
+        after=parse_release_conditions(after, variant_keys=variant_keys),
     )
     return flag_history([change], launched_at=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
 
