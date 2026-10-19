@@ -5159,11 +5159,11 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         _create_event(
             event="$ai_generation",
             team=analytics_team,
-            distinct_id="user_posthog_code",
+            distinct_id="user_product",
             timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_posthog_code",
+                "$ai_trace_id": "trace_product",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
                 "ai_product": ai_product,
@@ -5171,18 +5171,18 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             },
         )
 
-        # Event tagged with a different ai_product — must never leak into this product's credits.
+        # A billable PostHog AI generation — must never leak into this product's credits.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
-            distinct_id="user_signals",
+            distinct_id="user_posthog_ai",
             timestamp=period.start + relativedelta(hours=2),
             properties={
                 "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_signals",
+                "$ai_trace_id": "trace_posthog_ai",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "ai_product": "signals",
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )

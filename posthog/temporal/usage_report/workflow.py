@@ -35,7 +35,7 @@ from posthog.temporal.usage_report.activities import (
     run_query_to_s3,
 )
 from posthog.temporal.usage_report.metrics import get_workflow_finished_metric, record_workflow_latency
-from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX, QuerySpec
+from posthog.temporal.usage_report.queries import PATCHED_QUERY_NAMES, QUERIES, QUERY_INDEX, QuerySpec
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
@@ -51,13 +51,6 @@ from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounter
 # Cap concurrent gather queries so we don't overwhelm ClickHouse / Postgres
 # with ~40 simultaneous heavy queries.
 QUERY_CONCURRENCY = 4
-SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
-WORKFLOW_AI_CREDITS_QUERY_PATCH_ID = "usage-report-workflow-ai-credits-query-2026-10"
-# Histories recorded before a patch never scheduled its query, so replay must skip it.
-PATCHED_QUERY_NAMES = {
-    SANDBOX_COMPUTE_QUERY_PATCH_ID: "sandbox_compute_usage",
-    WORKFLOW_AI_CREDITS_QUERY_PATCH_ID: "teams_with_workflow_ai_credits_used_in_period",
-}
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
 AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"

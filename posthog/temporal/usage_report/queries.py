@@ -244,6 +244,10 @@ class QuerySpec:
     timeout_minutes: int = 15
     kind: Literal["period", "snapshot"] = "period"
 
+    @property
+    def destination_keys(self) -> list[str]:
+        return list(self.multi_keys_mapping.values()) if self.output == "multi" else [self.name]
+
 
 QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: events --------------------------------------------------
@@ -725,3 +729,11 @@ QUERIES: list[QuerySpec] = [
 
 
 QUERY_INDEX: dict[str, QuerySpec] = {spec.name: spec for spec in QUERIES}
+
+SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
+WORKFLOW_AI_CREDITS_QUERY_PATCH_ID = "usage-report-workflow-ai-credits-query-2026-10"
+# Histories recorded before a patch never scheduled its query, so replay must skip it.
+PATCHED_QUERY_NAMES = {
+    SANDBOX_COMPUTE_QUERY_PATCH_ID: "sandbox_compute_usage",
+    WORKFLOW_AI_CREDITS_QUERY_PATCH_ID: "teams_with_workflow_ai_credits_used_in_period",
+}

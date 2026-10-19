@@ -31,7 +31,7 @@ from posthog.tasks.usage_report import (
     has_non_zero_usage,
     serialize_full_org_report,
 )
-from posthog.temporal.usage_report.queries import QUERY_INDEX
+from posthog.temporal.usage_report.queries import PATCHED_QUERY_NAMES, QUERY_INDEX
 from posthog.temporal.usage_report.storage import (
     bucket,
     chunk_key,
@@ -48,15 +48,6 @@ from posthog.temporal.usage_report.types import (
     WorkflowContext,
 )
 from posthog.usage_counters import UsageCounterReport
-
-_PATCHED_QUERY_DESTINATION_KEYS = {
-    "sandbox_compute_usage": (
-        "teams_with_sandbox_compute_credits_used_in_period",
-        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
-        "teams_with_sandbox_compute_memory_mib_seconds_in_period",
-    ),
-    "teams_with_workflow_ai_credits_used_in_period": ("teams_with_workflow_ai_credits_used_in_period",),
-}
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -90,9 +81,9 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
 
 def add_pre_patch_query_defaults(all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]) -> None:
     ran_query_names = {result.query_name for result in query_results}
-    for query_name, destination_keys in _PATCHED_QUERY_DESTINATION_KEYS.items():
+    for query_name in PATCHED_QUERY_NAMES.values():
         if query_name not in ran_query_names:
-            for key in destination_keys:
+            for key in QUERY_INDEX[query_name].destination_keys:
                 all_data[key] = {}
 
 

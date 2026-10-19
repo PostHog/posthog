@@ -33,7 +33,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
     RunQuotaLimitingWorkflow,
 )
 from posthog.temporal.usage_report.activities import plan_usage_counters
-from posthog.temporal.usage_report.queries import QUERIES
+from posthog.temporal.usage_report.queries import PATCHED_QUERY_NAMES, QUERIES, WORKFLOW_AI_CREDITS_QUERY_PATCH_ID
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
     AggregateResult,
@@ -47,7 +47,6 @@ from posthog.temporal.usage_report.types import (
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
-    PATCHED_QUERY_NAMES,
     QUERY_CONCURRENCY,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
@@ -148,6 +147,7 @@ async def test_workflow_rejects_invalid_inputs_before_running_queries(
         "partial",
         "pre_patch",
         "pre_patch_query_failure",
+        "pre_workflow_ai_credits_query",
         "concurrency",
         "serial_counters",
         "counter_query_failure",
@@ -182,6 +182,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     pre_patch = report_behavior.startswith("pre_patch")
     legacy_aggregation_queue = pre_patch or report_behavior == "pre_aggregation_queue"
     parallel_counters = not pre_patch and report_behavior != "serial_counters"
+    pre_workflow_ai_credits_query = report_behavior == "pre_workflow_ai_credits_query"
     expected_counter_report = RunQueryToS3Result(
         query_name="usage_counters", s3_key="queries/counters.json", duration_ms=1
     )
@@ -314,10 +315,11 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                         if (pre_patch and name == USAGE_COUNTER_SERVICE_PATCH_ID)
                         or (report_behavior == "serial_counters" and name == PARALLEL_COUNTER_QUERIES_PATCH_ID)
                         or (legacy_aggregation_queue and name == AGGREGATION_QUEUE_PATCH_ID)
+                        or (pre_workflow_ai_credits_query and name == WORKFLOW_AI_CREDITS_QUERY_PATCH_ID)
                         else patched(name)
                     ),
                 )
-                if legacy_aggregation_queue or report_behavior == "serial_counters"
+                if legacy_aggregation_queue or report_behavior == "serial_counters" or pre_workflow_ai_credits_query
                 else nullcontext()
             ):
                 try:
@@ -396,7 +398,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                 scheduled_summaries[attrs.activity_id] = decoded_summary
 
     counter_names = plans[0].query_names if plans else set()
-    expected_names = [spec.name for spec in QUERIES if spec.name not in counter_names]
+    unpatched_names = (
+        {PATCHED_QUERY_NAMES[WORKFLOW_AI_CREDITS_QUERY_PATCH_ID]} if pre_workflow_ai_credits_query else set()
+    )
+    expected_names = [spec.name for spec in QUERIES if spec.name not in counter_names | unpatched_names]
     with override_settings(USAGE_REPORT_AGGREGATION_TASK_QUEUE=aggregation_queue):
         await Replayer(
             workflows=[RunUsageReportsWorkflow],
