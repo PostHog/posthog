@@ -64,4 +64,6 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             # serves the per-saved-query lookup of the latest job of one engine, which the
             # materialized view health check and failure digest do for every live view
             models.Index(fields=["saved_query", "engine", "-last_run_at"], name="datamodelingjob_sq_engine_run"),
+            # serves the runs list of one saved query, which pages through its jobs newest first
+            models.Index(fields=["saved_query", "engine", "-created_at"], name="datamodelingjob_sq_engine_crt"),
         ]
