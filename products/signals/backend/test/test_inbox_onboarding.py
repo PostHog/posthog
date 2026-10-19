@@ -270,6 +270,8 @@ class TestInboxOnboarding(APIBaseTest):
             name="Onboarding test",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm=OAuthApplication.RS256_ALGORITHM,
         )
         token = OAuthAccessToken.objects.create(
             user=self.user,
