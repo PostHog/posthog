@@ -72,6 +72,8 @@ export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
     /** Agent always shown on the main button, in place of the one the user last picked. */
     pinnedAgentKey?: AgentPromptDestination
+    /** Agents left out of the menu, for prompts a given agent cannot act on. */
+    excludeAgentKeys?: AgentPromptDestination[]
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
@@ -284,6 +286,7 @@ export function buildAgentPrompt(
 export function AgentPromptButton({
     actions,
     pinnedAgentKey,
+    excludeAgentKeys,
     labelMode = 'action',
     menuClassName,
     onOpenChange,
@@ -305,7 +308,9 @@ export function AgentPromptButton({
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
+    const availableAgents = AGENTS.filter(
+        (agent) => !(todayRailEnabled && agent.key === 'posthog-ai') && !excludeAgentKeys?.includes(agent.key)
+    )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null

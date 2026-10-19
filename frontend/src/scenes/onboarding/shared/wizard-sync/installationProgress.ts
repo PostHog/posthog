@@ -1,8 +1,10 @@
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
 import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
-import { startedByFromSession } from './helpers'
+import { sessionErrorMessage, startedByFromSession } from './helpers'
 import type {
+    InstallationError,
+    InstallationErrorKind,
     InstallationPhase,
     InstallationProgress,
     InstallationStep,
@@ -65,20 +67,21 @@ export function pendingInputFromSession(session: WizardSessionDTOApi | null): Wi
 
 // The AI gateway refuses with a 402 when the run's token cap or the org's quota runs out. The wizard
 // forwards the raw gateway JSON, which tells the user nothing, so replace it with a next step.
-const USAGE_LIMIT_ERROR_REGEX = /\b(?:token_cap_exceeded|insufficient_quota)\b/
+const USAGE_LIMIT_ERROR_REGEX = /\b(?:token_cap_exceeded|insufficient_quota)\b/i
 
-export function isUsageLimitError(message: string | null | undefined): boolean {
-    return !!message && USAGE_LIMIT_ERROR_REGEX.test(message)
+export function errorKindFromMessage(message?: string | null): InstallationErrorKind | null {
+    return message && USAGE_LIMIT_ERROR_REGEX.test(message) ? 'usage_limit' : null
 }
 
-function runError(title: string, detail: string | null): { title: string; detail: string | null } {
-    if (isUsageLimitError(detail)) {
+function runError(title: string, detail?: string | null): InstallationError {
+    if (errorKindFromMessage(detail) === 'usage_limit') {
         return {
             title: 'AI usage limit reached',
-            detail: 'The wizard used up its AI usage before it could finish. Follow the docs to finish the setup yourself.',
+            detail: 'The setup agent ran out of AI usage before it finished. Your own coding agent can finish the setup from our docs.',
+            kind: 'usage_limit',
         }
     }
-    return { title, detail }
+    return { title, detail: detail ?? null }
 }
 
 const STEP_STATUSES: Record<string, InstallationStepStatus> = {
@@ -117,7 +120,7 @@ export function cloudProgress(
     runStartedAt: string | null = null
 ): InstallationProgress {
     let phase: InstallationPhase
-    let stalledError: { title: string; detail: string | null } | null = null
+    let stalledError: InstallationError | null = null
     if (!taskRunState && isStalled) {
         // The stream never delivered any run state (deleted or access-revoked run, a stream that
         // stayed silent past taskRunStreamLogic's no-state window). `idle` renders as a spinner with
@@ -251,7 +254,7 @@ export function cloudProgress(
                   // A cancelled run is a deliberate stop (Cancel button or closing the setup PR),
                   // not a broken installation — presenting it as a failure reads as a bug.
                   taskRunState?.status === 'cancelled' ? 'Run cancelled' : 'Installation failed',
-                  taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null
+                  taskRunState?.error_message ?? sessionErrorMessage(session)
               ))
             : null
 
@@ -327,9 +330,9 @@ export function localProgress(
         detail: null,
     }))
 
-    let error: { title: string; detail: string | null } | null = null
+    let error: InstallationError | null = null
     if (latestSession.run_phase === 'error') {
-        error = runError('Wizard hit an error', (latestSession.error as { message?: string } | null)?.message ?? null)
+        error = runError('Wizard hit an error', sessionErrorMessage(latestSession))
     } else if (stalled) {
         error = {
             title: 'Setup lost contact',
@@ -356,7 +359,7 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
     return {
         phase: handle.runPhase,
         steps: handle.tasks.map((t) => ({ id: t.id, label: t.title, status: stepStatus(t.status), detail: null })),
-        error: handle.runPhase === 'error' ? runError('Wizard hit an error', handle.error?.message ?? null) : null,
+        error: handle.runPhase === 'error' ? runError('Wizard hit an error', handle.error?.message) : null,
         prUrl: null,
         prMerged: false,
         isCurrent: true,

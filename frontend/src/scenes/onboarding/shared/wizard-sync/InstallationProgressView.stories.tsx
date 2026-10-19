@@ -214,6 +214,20 @@ export const FailedWizard: Story = {
     },
 }
 
+export const FailedUsageLimit: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: steps(['completed', 'completed', 'failed', 'pending']),
+            error: {
+                title: 'AI usage limit reached',
+                detail: 'The setup agent ran out of AI usage before it finished. Your own coding agent can finish the setup from our docs.',
+                kind: 'usage_limit',
+            },
+        }),
+    },
+}
+
 // A run whose stream never delivered any state: no pipeline steps to show, only the recovery CTAs.
 export const LostContact: Story = {
     args: {

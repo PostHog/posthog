@@ -18,7 +18,8 @@ import { POSTHOG_INTEGRATION_WORKFLOW_ID, SELF_DRIVING_WORKFLOW_ID } from './wor
 const NOW = new Date('2026-01-01T00:00:30Z').getTime()
 const USAGE_LIMIT_ERROR = {
     title: 'AI usage limit reached',
-    detail: 'The wizard used up its AI usage before it could finish. Follow the docs to finish the setup yourself.',
+    detail: 'The setup agent ran out of AI usage before it finished. Your own coding agent can finish the setup from our docs.',
+    kind: 'usage_limit',
 }
 import { TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 
@@ -330,11 +331,14 @@ describe('installationProgressLogic merge', () => {
         })
 
         it.each([
-            ['token cap', 'API Error: 402 {"error":{"code":"token_cap_exceeded","message":"cap reached"}}'],
-            ['quota', 'API Error: 402 {"error":{"type":"insufficient_quota"}}'],
-        ])('replaces a raw gateway %s refusal with a usage limit message', (_name, message) => {
+            ['token cap', 'API Error: 402 {"error":{"code":"token_cap_exceeded","message":"cap reached"}}', true],
+            ['quota', 'API Error: 402 {"error":{"type":"insufficient_quota"}}', true],
+            ['uppercase code', 'API Error: 402 TOKEN_CAP_EXCEEDED', true],
+            ['prefixed code', 'API Error: 402 my_token_cap_exceeded', false],
+            ['suffixed code', 'API Error: 402 insufficient_quota_v2', false],
+        ])('maps a gateway refusal with a %s to the usage limit message', (_name, message, usageLimit) => {
             expect(localProgress(session({ run_phase: 'error', error: { message } }), 'open', true).error).toEqual(
-                USAGE_LIMIT_ERROR
+                usageLimit ? USAGE_LIMIT_ERROR : { title: 'Wizard hit an error', detail: message }
             )
         })
 
