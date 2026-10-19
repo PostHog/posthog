@@ -190,8 +190,11 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             const shouldReconcile = reconcile || !!cache.pendingReconcile
             cache.pending = pending
             cache.pendingReconcile = shouldReconcile
-            let variables = start
-            const reconciled = new Map<string, MetricsDashboardVariableSelection | null>()
+            // A newer load also takes over the selections that this one reconciled but did not publish yet.
+            const reconciled: Map<string, MetricsDashboardVariableSelection | null> = (cache.reconciled ??= new Map())
+            let variables = start.map((variable) =>
+                reconciled.has(variable.name) ? { ...variable, current: reconciled.get(variable.name) } : variable
+            )
 
             // Each variable loads when its parents finish, and shows its options at once, so a slow
             // query delays only the variables that depend on it.
@@ -309,6 +312,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             cache.pending = undefined
             cache.pendingReconcile = false
             publish()
+            cache.reconciled = undefined
         },
         select: ({ name, current }) => {
             const base = values.pendingVariables ?? props.variables
@@ -350,6 +354,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
         // are still loading stay in `cache.pending`, so the next load takes them over.
         cache.pendingReconcile = false
         cache.reconciling = undefined
+        cache.reconciled = undefined
         actions.setPendingVariables(null)
         const names = variablesToReload(oldProps.variables, props.variables)
         // An empty load still cancels the older loads.
