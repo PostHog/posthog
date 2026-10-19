@@ -1493,14 +1493,16 @@ Jane Smith,25
                     {"name": "test_size", "csv": csv, "is_static": True},
                     format="multipart",
                 )
+                self.assertFalse(Cohort.objects.filter(team=self.team, name="test_size").exists())
             else:
-                cohort = Cohort.objects.create(team=self.team, name="test_size", is_static=True)
+                cohort = Cohort.objects.create(team=self.team, name="before", is_static=True)
                 response = self.client.patch(
                     f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
-                    {"name": "test_size", "csv": csv},
+                    {"name": "after", "csv": csv},
                     format="multipart",
                 )
                 cohort.refresh_from_db()
+                self.assertEqual(cohort.name, "before")
                 self.assertFalse(cohort.is_calculating)
 
         self.assertEqual(response.status_code, 400)

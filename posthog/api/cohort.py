@@ -1236,8 +1236,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _parse_csv_file(self, file) -> tuple[list[str], Iterator[list[str]]]:
         """Handle file reading and CSV parsing with error handling"""
-        # The wrapper decodes rows as the reader asks for them, so the upload is never held whole in
-        # memory as bytes, as text, or as a list of lines. newline="" leaves line endings to the csv module.
+        # Decodes row by row, so the upload is never held whole in memory as bytes, text, or a list of lines.
         reader = csv.reader(io.TextIOWrapper(file, encoding=CSVConfig.ENCODING, newline=""))
 
         # Skip empty rows at the beginning
@@ -1386,11 +1385,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
-        # `size` is what the upload handler received, not the Content-Length header. The check runs
-        # before the calculating flag is set so a rejected upload leaves the cohort untouched.
-        if file.size > settings.COHORT_CSV_UPLOAD_MAX_BYTES:
-            raise ValidationError({"csv": [CSVConfig.file_too_large_message()]})
-
         # Set calculating flag immediately so UI shows loading state
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
@@ -1643,6 +1637,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
 
+        self._validate_csv_size()
         self._validate_cohort_references(attrs)
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
@@ -1656,6 +1651,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
 
         return attrs
+
+    def _validate_csv_size(self) -> None:
+        # Runs in validate() so an oversized upload is rejected before create() or update() writes the
+        # cohort. `size` is what the upload handler received, not the Content-Length header.
+        csv_file = self.context["request"].FILES.get("csv")
+        if csv_file is not None and csv_file.size > settings.COHORT_CSV_UPLOAD_MAX_BYTES:
+            raise ValidationError({"csv": [CSVConfig.file_too_large_message()]})
 
     def _validate_no_new_hidden_event_criteria(self, attrs: dict) -> None:
         if self.context.get(ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY):
