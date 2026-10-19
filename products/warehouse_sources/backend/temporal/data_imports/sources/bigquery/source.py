@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -68,6 +69,172 @@ _INCOMPLETE_KEY_FILE_ERROR = (
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    # BigQuery authenticates with a Google Cloud service-account JSON key
+    # file, like Firebase - the source's only required credential field
+    # is a file upload, and the terminal prompt collects single-line text, so
+    # there is no in-cli path that can accept it. Deep-link to the app's
+    # new-source form instead of dead-ending on an unpasteable credential.
+    codebase_detection = detect(
+        env=("^BIGQUERY_",),
+        npm=(
+            "@google-cloud/bigquery",
+            "@google-cloud/bigquery-storage",
+            "@google-cloud/bigquery-storage-api",
+            "@google-cloud/bigquery-data-transfer",
+            "@google-cloud/bigquery-connection",
+            "@google-cloud/bigquery-reservation",
+            "@google-cloud/bigquery-migration",
+            "@google-cloud/bigquery-analyticshub",
+            "@google-cloud/bigquery-datapolicies",
+            "@google-cloud/bigquery-data-exchange",
+            "@googleapis/bigquery",
+            "@googleapis/bigquerydatatransfer",
+            "@googleapis/bigqueryreservation",
+            "@googleapis/bigqueryconnection",
+            "@googleapis/bigquerydatapolicy",
+            "@firebaseextensions/firestore-bigquery-change-tracker",
+            "@dataform/core",
+            "@dataform/cli",
+        ),
+        pypi=(
+            "google-cloud-bigquery",
+            "sqlalchemy-bigquery",
+            "pandas-gbq",
+            "google-cloud-bigquery-storage",
+            "google-cloud-bigquery-datatransfer",
+            "google-cloud-bigquery-connection",
+            "google-cloud-bigquery-reservation",
+            "google-cloud-bigquery-migration",
+            "google-cloud-bigquery-datapolicies",
+            "google-cloud-bigquery-analyticshub",
+            "google-cloud-bigquery-data-exchange",
+            "google-cloud-bigquery-logging",
+            "google-cloud-bigquery-biglake",
+            "bigframes",
+            "bigquery-magics",
+            "pybigquery",
+            "dbt-bigquery",
+        ),
+        cargo=(
+            "gcp-bigquery-client",
+            "google-cloud-bigquery",
+            "google-cloud-bigquery-v2",
+            "google-cloud-bigquery-derive",
+            "google-cloud-bigquery-datapolicies-v1",
+            "google-cloud-bigquery-datapolicies-v2",
+            "google-cloud-bigquery-reservation-v1",
+            "google-cloud-bigquery-datatransfer-v1",
+            "google-cloud-bigquery-connection-v1",
+            "google-cloud-bigquery-migration-v2",
+            "google-cloud-bigquery-analyticshub-v1",
+            "gcloud-bigquery",
+            "google-bigquery2",
+            "google-bigquerydatatransfer1",
+            "google-bigqueryreservation1",
+        ),
+        composer=(
+            "google/cloud-bigquery",
+            "google/cloud-bigquery-storage",
+            "google/cloud-bigquerydatatransfer",
+            "google/cloud-bigquery-connection",
+            "google/cloud-bigquery-reservation",
+            "google/cloud-bigquery-analyticshub",
+            "google/cloud-bigquery-datapolicies",
+            "google/cloud-bigquery-migration",
+            "google/cloud-bigquery-data-exchange",
+        ),
+        go=("cloud.google.com/go/bigquery",),
+        hex=(
+            "google_api_big_query",
+            "google_api_big_query_connection",
+            "google_api_big_query_data_policy",
+            "google_api_big_query_data_transfer",
+            "google_api_big_query_reservation",
+            "req_bigquery",
+        ),
+        maven=(
+            "com.google.cloud:google-cloud-bigquery",
+            "com.google.cloud:google-cloud-bigquerystorage",
+            "com.google.cloud:google-cloud-bigquerydatatransfer",
+            "com.google.cloud:google-cloud-bigqueryconnection",
+            "com.google.cloud:google-cloud-bigqueryreservation",
+            "com.google.cloud:google-cloud-bigquerymigration",
+            "com.google.cloud:google-cloud-bigquerydatapolicy",
+            "com.google.cloud:google-cloud-bigquery-data-exchange",
+            "com.google.cloud:google-cloud-analyticshub",
+            "com.google.cloud:google-cloud-bigquery-jdbc",
+            "com.google.cloud:google-cloud-bigquery-bom",
+            "com.google.cloud:gcloud-java-bigquery",
+            "com.google.cloud:spring-cloud-gcp-starter-bigquery",
+            "com.google.cloud:spring-cloud-gcp-bigquery",
+            "org.springframework.cloud:spring-cloud-gcp-starter-bigquery",
+            "org.springframework.cloud:spring-cloud-gcp-bigquery",
+            "com.google.apis:google-api-services-bigquery",
+            "com.google.apis:google-api-services-bigquerydatatransfer",
+            "com.google.apis:google-api-services-bigqueryconnection",
+            "com.google.apis:google-api-services-bigqueryreservation",
+            "com.google.apis:google-api-services-bigquerydatapolicy",
+            "com.google.cloud.bigdataoss:bigquery-connector",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.11",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.13",
+            "com.google.cloud.spark:spark-bigquery_2.11",
+            "com.google.cloud.spark:spark-bigquery_2.12",
+            "com.google.cloud.spark:spark-bigquery_2.13",
+            "com.google.cloud.spark:spark-2.4-bigquery",
+            "com.google.cloud.spark:spark-3.1-bigquery",
+            "com.google.cloud.spark:spark-3.2-bigquery",
+            "com.google.cloud.spark:spark-3.3-bigquery",
+            "com.google.cloud.spark:spark-3.4-bigquery",
+            "com.google.cloud.spark:spark-3.5-bigquery",
+            "com.google.cloud.spark:spark-4.0-bigquery",
+            "com.google.cloud.spark:spark-4.1-bigquery",
+            "com.google.cloud.spark:spark-4.2-bigquery",
+            "com.google.cloud.flink:flink-1.17-connector-bigquery",
+            "com.google.cloud.flink:flink-2.1-connector-bigquery",
+            "com.google.cloud.hive:hive-bigquery-connector",
+        ),
+        rubygems=(
+            "google-cloud-bigquery",
+            "google-cloud-bigquery-data_transfer",
+            "google-cloud-bigquery-data_transfer-v1",
+            "google-cloud-bigquery-storage",
+            "google-cloud-bigquery-storage-v1",
+            "google-cloud-bigquery-reservation",
+            "google-cloud-bigquery-reservation-v1",
+            "google-cloud-bigquery-connection",
+            "google-cloud-bigquery-connection-v1",
+            "google-cloud-bigquery-migration",
+            "google-cloud-bigquery-migration-v2",
+            "google-cloud-bigquery-analytics_hub",
+            "google-cloud-bigquery-analytics_hub-v1",
+            "google-cloud-bigquery-data_policies",
+            "google-cloud-bigquery-data_policies-v1",
+            "google-cloud-bigquery-data_policies-v1beta1",
+            "google-cloud-bigquery-data_exchange",
+            "google-cloud-bigquery-data_exchange-v1beta1",
+            "google-apis-bigquery_v2",
+            "google-apis-bigquerydatatransfer_v1",
+            "google-apis-bigqueryreservation_v1",
+            "google-apis-bigqueryconnection_v1",
+            "google-apis-bigqueryconnection_v1beta1",
+            "google-apis-bigquerydatapolicy_v1",
+            "fluent-plugin-bigquery",
+            "embulk-output-bigquery",
+        ),
+        swiftpm=(
+            "github.com/googleapis/swift-google-cloud-bigquery-analyticshub-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-biglake-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-connection-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-datapolicies-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-datapolicies-v2",
+            "github.com/googleapis/swift-google-cloud-bigquery-datatransfer-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-logging-v1",
+            "github.com/googleapis/swift-google-cloud-bigquery-migration-v2",
+            "github.com/googleapis/swift-google-cloud-bigquery-reservation-v1",
+        ),
+    )
+
     # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
     # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default
     # bump leaves existing syncs byte-for-byte unchanged.
@@ -131,6 +298,22 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # need a change in the customer's Google Cloud project, so retrying can't recover them.
             BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR: BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
             BIGQUERY_IMPERSONATION_PERMISSION_ERROR: BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            # The ownership check above only needs `iam.serviceAccounts.get`, so it can pass while a
+            # later gRPC call (the Storage Read API's `create_read_session`/`read_rows`) still fails
+            # to mint a token, because minting one needs `iam.serviceAccounts.getAccessToken` too.
+            # grpc's auth metadata plugin surfaces that denial as a `ServiceUnavailable` wrapping
+            # Google's raw token-endpoint JSON, e.g. "Getting metadata from plugin failed with
+            # error: ('Unable to acquire impersonated credentials', '{"error": {"code": 403,
+            # "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource ..." ...'".
+            # Same remediation as the ownership check — grant Service Account Token Creator — so reuse
+            # its message. Deterministic IAM config problem; retrying can't grant the permission.
+            # Matched on the stable permission name plus "denied", not the volatile error id or
+            # troubleshooter URL. Mirrors the same check in `classify_bigquery_validation_error`,
+            # which covers this for the connection wizard rather than an in-progress sync. Python's
+            # `repr()` of the JSON body (inside the tuple `str()`) backslash-escapes the quotes
+            # around the permission name, so match both the raw and escaped forms.
+            "iam.serviceAccounts.getAccessToken' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            "iam.serviceAccounts.getAccessToken\\' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
@@ -506,7 +689,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
                 "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
                 "warehouse. To send PostHog data to BigQuery instead, set up a batch export.\n\n"
                 "To use a service account, select **Choose Google Cloud service account connection**, then "
-                "**Configure new Google Cloud service account**. It shows which access to grant PostHog in Google Cloud."
+                "**Configure new Google Cloud service account**. It shows how to let PostHog use your service account.\n\n"
+                "Your service account also needs these BigQuery roles: **BigQuery Job User** and **BigQuery Read "
+                "Session User** on the project, and **BigQuery Data Editor** on the dataset you sync. If you use a "
+                "separate dataset for temporary tables, grant **BigQuery Data Editor** there instead and **BigQuery "
+                "Data Viewer** on the dataset you sync. Without these roles, the connection check can pass but the "
+                "sync fails."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(

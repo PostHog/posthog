@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, SystemsManagerResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_SYSTEMS_MANAGER|AWSSYSTEMSMANAGER)_",),
+        npm=("@aws-sdk/client-ssm",),
+        cargo=("aws-sdk-ssm",),
+        go=("github.com/aws/aws-sdk-go-v2/service/ssm",),
+        maven=("software.amazon.awssdk:ssm", "com.amazonaws:aws-java-sdk-ssm"),
+        rubygems=("aws-sdk-ssm",),
+    )
+
     lists_tables_without_credentials = True
     # SSM uses an unversioned target; the pinned botocore model serializes every request.
     supported_versions = (API_VERSION,)

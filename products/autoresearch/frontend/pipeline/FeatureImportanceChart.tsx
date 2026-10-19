@@ -79,7 +79,19 @@ export function FeatureImportanceChart({
                         ))}
                     </div>
                 )}
-                {explanation.method && <div className="text-xs text-muted">Method: {explanation.method}</div>}
+                {explanation.method && (
+                    <LemonCollapse
+                        embedded
+                        size="xsmall"
+                        panels={[
+                            {
+                                key: 'method',
+                                header: 'How this was measured',
+                                content: <div className="text-xs text-muted">{explanation.method}</div>,
+                            },
+                        ]}
+                    />
+                )}
                 {explanation.note && <div className="text-xs text-muted italic">{explanation.note}</div>}
             </div>
         )

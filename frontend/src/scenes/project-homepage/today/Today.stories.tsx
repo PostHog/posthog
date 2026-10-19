@@ -6,9 +6,8 @@ import { ReactNode } from 'react'
 import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
-import { briefingItemReportCard } from 'scenes/project-homepage/today/todayBriefingItems'
-import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportHoverCard'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -22,14 +21,11 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
-import {
-    reportMetricQueryHandler,
-    reportMetricsFixture,
-} from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
-import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
+import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
+import { SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
-import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
+import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
     id: 1,
@@ -402,159 +398,78 @@ const REPORTS = [
             },
         ],
     }),
+    makeReport({
+        id: 'report-5',
+        title: 'Webhook retries pile up for one destination',
+        summary: 'One webhook destination times out, so its retries fill the queue.',
+        summary_lead: 'One webhook destination times out, so its retries fill the queue.',
+        status: SignalReportStatus.READY,
+        signal_count: 3,
+        updated_at: '2026-09-27T16:00:00Z',
+        priority: 'P2',
+        actionability: 'immediately_actionable',
+        source_products: ['error_tracking'],
+    }),
+    makeReport({
+        id: 'report-6',
+        title: 'Most new teams skip the third onboarding step',
+        summary: 'The third onboarding step has the largest drop in the setup funnel.',
+        summary_lead: 'The third onboarding step has the largest drop in the setup funnel.',
+        status: SignalReportStatus.READY,
+        signal_count: 2,
+        updated_at: '2026-09-27T09:00:00Z',
+        priority: 'P3',
+        actionability: 'requires_human_input',
+        source_products: ['product_analytics'],
+    }),
+    makeReport({
+        id: 'report-7',
+        title: 'Mobile recordings stop after the app goes to the background',
+        summary: 'Recordings on mobile end when the app moves to the background and does not resume.',
+        summary_lead: 'Recordings on mobile end when the app moves to the background and does not resume.',
+        status: SignalReportStatus.READY,
+        signal_count: 5,
+        updated_at: '2026-09-26T12:00:00Z',
+        priority: 'P2',
+        actionability: 'immediately_actionable',
+        source_products: ['session_replay'],
+    }),
 ]
 
-function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi, 'key' | 'label'>): BriefingItemApi {
-    return {
-        title: overrides.label,
-        signal: '',
-        url: '/project/1/inbox',
-        rank: 1,
-        group: 'report',
-        source: 'self_driving',
-        reason: 'waiting_for_you',
-        state: 'open',
-        source_product: null,
-        report: null,
-        ...overrides,
-    }
-}
+const MORE_REPORTS = (
+    [
+        ['Invite emails land in spam for one domain', 'P2', 'error_tracking'],
+        ['Search returns no results for quoted terms', 'P3', 'session_replay'],
+        ['Export to CSV times out for large tables', 'P2', 'error_tracking'],
+        ['Onboarding checklist resets after a page reload', 'P3', 'session_replay'],
+        ['Billing page shows the wrong currency for some teams', 'P1', 'error_tracking'],
+        ['Dark mode toggle does not persist across sessions', 'P4', 'session_replay'],
+        ['Webhook signatures fail after a key rotation', 'P2', 'error_tracking'],
+        ['Free trial banner overlaps the navigation on small screens', 'P3', 'session_replay'],
+        ['Password reset links expire before people open them', 'P2', 'product_analytics'],
+        ['API rate limit errors spike during nightly syncs', 'P3', 'error_tracking'],
+        ['Team invite form accepts duplicate emails', 'P4', 'product_analytics'],
+        ['Chart tooltips cut off near the right edge', 'P4', 'session_replay'],
+        ['Slow first load on the pricing page', 'P3', 'product_analytics'],
+        ['Saved filters disappear after renaming a project', 'P2', 'error_tracking'],
+    ] as [string, SignalReportPriority, string][]
+).map(([title, priority, source], index) =>
+    makeReport({
+        id: `report-${index + 8}`,
+        title,
+        summary: title,
+        summary_lead: title,
+        status: SignalReportStatus.READY,
+        signal_count: 2 + (index % 5),
+        updated_at: `2026-09-${String(25 - (index % 9)).padStart(2, '0')}T10:00:00Z`,
+        priority,
+        actionability: 'requires_human_input',
+        source_products: [source],
+    })
+)
 
-const PERSONAL_BRIEFING: BriefingApi = {
-    id: 'briefing-1',
-    local_day: '2026-09-28',
-    headline: 'Five items need your attention',
-    paragraphs: [
-        [
-            { text: 'The ', item_key: null, highlight: false },
-            { text: 'signup form rejects plus-addressed emails', item_key: 'report:report-1', highlight: true },
-            { text: ', and a fix is waiting for your review. ', item_key: null, highlight: false },
-            { text: 'LLM costs doubled', item_key: 'report:report-3', highlight: false },
-            { text: ' for the summarize tool after the prompt change.', item_key: null, highlight: false },
-        ],
-        [
-            { text: 'Trial starts on ', item_key: null, highlight: false },
-            { text: 'the growth dashboard', item_key: 'dashboard:12', highlight: false },
-            { text: ' fell 18% week over week, and ', item_key: null, highlight: false },
-            { text: 'the error rate alert', item_key: 'alert:5', highlight: false },
-            { text: ' is firing. ', item_key: null, highlight: false },
-            { text: 'Ticket #1042', item_key: 'ticket:t-1', highlight: false },
-            { text: ' has 3 unread messages.', item_key: null, highlight: false },
-        ],
-    ],
-    items: [
-        briefingItem({
-            key: 'report:report-1',
-            label: 'Plus-addressed signups fail',
-            signal: 'P1, fix ready for review',
-            rank: 1,
-            source_product: 'error_tracking',
-            title: 'Signup form rejects plus-addressed emails',
-            report: {
-                priority: 'P1',
-                summary:
-                    'Since the release on Friday, the signup form rejects emails with a plus sign. People who try again with another address finish signup, the rest drop off at the email step.',
-                pull_request_state: 'open',
-                pull_request_url: 'https://github.com/example-org/web/pull/4821',
-                signal_count: 23,
-                updated_at: '2026-09-28T15:10:00Z',
-                metrics: [
-                    {
-                        metric_id: 'affected-users',
-                        title: 'Affected users',
-                        kind: 'affected_users',
-                        role: 'primary',
-                        value: 52,
-                        series: [12, 18, 15, 22, 31, 40, 52],
-                        value_format: 'count',
-                        unit: 'users',
-                        query: reportMetricsFixture[0].query,
-                    },
-                    ...reportMetricsFixture.slice(1).map((metric) => ({
-                        metric_id: metric.metric_id,
-                        title: metric.title,
-                        kind: metric.kind,
-                        role: metric.role ?? 'supporting',
-                        value: metric.value ?? 0,
-                        series: metric.series ?? null,
-                        value_format: metric.value_format ?? 'number',
-                        unit: metric.unit ?? null,
-                        query: metric.query,
-                    })),
-                ],
-                charts: [],
-            },
-        }),
-        briefingItem({
-            key: 'report:report-3',
-            label: 'Summarize tool costs doubled',
-            signal: 'P2, claimed by you',
-            rank: 2,
-            source_product: 'llm_analytics',
-            title: 'Summarize tool costs doubled after the prompt change',
-            report: {
-                priority: 'P2',
-                summary:
-                    'The summarize tool now sends the whole thread as context instead of the last ten messages. Token use per call doubled on Tuesday and has stayed there. Cost per conversation rose the same amount, while answer ratings did not change. Trimming the context back would undo the rise.',
-                pull_request_state: null,
-                pull_request_url: null,
-                signal_count: 7,
-                updated_at: '2026-09-27T09:00:00Z',
-                metrics: [],
-                charts: [
-                    {
-                        chart_id: 'summarize-tokens',
-                        title: 'Tokens per summarize call',
-                        query: {
-                            kind: 'InsightVizNode',
-                            source: {
-                                kind: 'TrendsQuery',
-                                series: [{ kind: 'EventsNode', event: '$ai_generation' }],
-                                dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
-                            },
-                        },
-                    },
-                ],
-            },
-        }),
-        briefingItem({
-            key: 'dashboard:12',
-            label: 'Growth overview',
-            signal: 'Trial starts down 18%',
-            url: '/project/1/dashboard/12',
-            rank: 3,
-            group: 'dashboard',
-            source: 'product_analytics',
-            reason: 'dashboard_you_viewed',
-        }),
-        briefingItem({
-            key: 'alert:5',
-            label: 'Error rate alert',
-            signal: 'Firing since 07:10',
-            url: '/project/1/insights/abc123/alerts?alert_id=5',
-            rank: 4,
-            group: 'dashboard',
-            source: 'alerts',
-            reason: 'alert_firing',
-        }),
-        briefingItem({
-            key: 'ticket:t-1',
-            label: 'Ticket #1042',
-            signal: '3 unread messages',
-            url: '/project/1/support/tickets/t-1',
-            rank: 5,
-            group: 'other',
-            source: 'support',
-            reason: 'assigned_ticket',
-        }),
-    ],
-    more_reports_count: 4,
-    open_reports_count: 37,
-    status: 'ready',
-    writer: 'agent',
-    created_at: '2026-09-28T06:00:00Z',
-    ready_at: '2026-09-28T06:00:21Z',
-}
+const ALL_REPORTS = [...REPORTS, ...MORE_REPORTS]
+const OPEN_REPORT_COUNT = 46
 
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
@@ -576,7 +491,7 @@ function clearTodayStorage(
 }
 
 function mockReportPage(reportId: string): ReportPageApi {
-    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const report = ALL_REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
     const signals = mockSignals(reportId, 6).map((signal) => {
         const firstLine = signal.content.split('\n')[0]
         return {
@@ -629,6 +544,178 @@ function mockReportPage(reportId: string): ReportPageApi {
     }
 }
 
+const DAILY = (base: number, step: number): number[] =>
+    Array.from({ length: 28 }, (_, day) => base + ((day * step) % 23) + (day % 7 >= 5 ? -base * 0.3 : 0))
+
+const PERIOD_STARTS = (count: number, unit: 'day' | 'week'): string[] =>
+    Array.from({ length: count }, (_, index) =>
+        dayjs('2026-09-28')
+            .startOf(unit)
+            .subtract(count - index, unit)
+            .format('YYYY-MM-DD')
+    )
+
+const KEY_METRIC_URL = (event: string): string =>
+    `/insights/new#q=${encodeURIComponent(
+        JSON.stringify({
+            kind: 'InsightVizNode',
+            source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event }] },
+        })
+    )}`
+
+const HIGHLIGHTS: HighlightsApi = {
+    status: 'ready',
+    generated_at: '2026-09-28T18:00:00Z',
+    day: '2026-09-28',
+    refresh_at: '2026-09-29T00:00:00Z',
+    pulse: [
+        {
+            key: 'insight:wKu1pSx2',
+            name: 'Weekly file uploads',
+            value: 4210,
+            unit: 'number',
+            change_pct: 6.4,
+            series: [3100, 3250, 3300, 3420, 3380, 3600, 3710, 3690, 3850, 3920, 3956, 4210],
+            interval: 'week',
+            url: '/dashboard/41',
+            value_format: null,
+            period_starts: PERIOD_STARTS(12, 'week'),
+            reason: 'dashboard',
+            dashboard_name: 'Growth',
+            opened_days: 9,
+            last_opened: '2026-09-27',
+            previous_value: 3956,
+            movers: [
+                { label: 'Paid plans', value: 2610, change_pct: 9.2 },
+                { label: 'Free plan', value: 1420, change_pct: 1.8 },
+                { label: 'Trials', value: 180, change_pct: -4.8 },
+            ],
+        },
+        {
+            key: 'signup_event',
+            name: 'Sign-ups',
+            value: 1201,
+            unit: 'events',
+            change_pct: 18.1,
+            series: DAILY(170, 7),
+            interval: 'day',
+            url: KEY_METRIC_URL('$signup'),
+            value_format: null,
+            period_starts: PERIOD_STARTS(28, 'day'),
+            reason: 'key_metric',
+            dashboard_name: null,
+            opened_days: null,
+            last_opened: null,
+            previous_value: 1017,
+            movers: [],
+        },
+        {
+            key: 'payment_event',
+            name: 'Payments',
+            value: 342,
+            unit: 'events',
+            change_pct: -3.1,
+            series: DAILY(48, 5),
+            interval: 'day',
+            url: KEY_METRIC_URL('payment_succeeded'),
+            value_format: null,
+            period_starts: PERIOD_STARTS(28, 'day'),
+            reason: 'key_metric',
+            dashboard_name: null,
+            opened_days: null,
+            last_opened: null,
+            previous_value: 353,
+            movers: [],
+        },
+        {
+            key: 'activity_event',
+            name: 'Active users',
+            value: 18300,
+            unit: 'people',
+            change_pct: 1.6,
+            series: DAILY(2600, 11),
+            interval: 'day',
+            url: KEY_METRIC_URL('$pageview'),
+            value_format: null,
+            period_starts: PERIOD_STARTS(28, 'day'),
+            reason: 'key_metric',
+            dashboard_name: null,
+            opened_days: null,
+            last_opened: null,
+            previous_value: 18012,
+            movers: [],
+        },
+    ],
+    items: [
+        {
+            key: 'alert:chk01:Checkout conversion',
+            label: 'risk',
+            title: 'Alert ‘Checkout conversion’ is firing',
+            detail: 'Insight ‘Checkout funnel’',
+            url: '/insights/chk01',
+            series: null,
+            score: 0.85,
+            priority: 'P1',
+            source: 'alerts',
+        },
+        {
+            key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
+            label: 'risk',
+            title: '214 users saw the new error ‘TypeError: Cannot read properties of null (reading ‘price’)’',
+            detail: 'Since Sep 26 · 1.8% of active users · No owner',
+            url: '/error_tracking/0195a0b2-0000-0000-0000-000000000001',
+            series: null,
+            score: 0.82,
+            priority: 'P1',
+            source: 'errors',
+        },
+        {
+            key: 'home:rev01',
+            label: 'risk',
+            title: '‘Refunds’ increased by 39% last week',
+            detail: '44 → 61',
+            url: '/insights/rev01',
+            series: [40, 43, 39, 45, 42, 41, 44, 61],
+            score: 0.6,
+            priority: 'P2',
+            source: 'home',
+        },
+        {
+            key: 'key_metric:payment_event',
+            label: 'risk',
+            title: '‘Payments’ decreased by 41% yesterday',
+            detail: '118 yesterday · 200 on an average Sunday',
+            url: null,
+            series: [196, 172, 168, 181, 175, 162, 204, 190, 178, 171, 183, 169, 158, 118],
+            score: 0.57,
+            priority: 'P2',
+            source: 'key_metrics',
+        },
+        {
+            key: 'experiment_ended:12',
+            label: 'opportunity',
+            title: 'Experiment ‘Pricing page layout’ ended yesterday',
+            detail: 'Read the results and decide whether to release the change',
+            url: '/experiments/12',
+            series: null,
+            score: 0.6,
+            priority: 'P3',
+            source: 'experiments',
+        },
+        {
+            key: 'assigned_quiet',
+            label: 'opportunity',
+            title: '2 of your issues had no events in the last 14 days',
+            detail: '‘TypeError: e.map is not a function’ and 1 more',
+            url: '/error_tracking',
+            series: null,
+            score: 0.35,
+            priority: 'P4',
+            source: 'errors',
+        },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -639,18 +726,38 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
-                '/api/projects/:team_id/signals/reports/for_you/': { results: REPORTS, count: 7 },
+                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const limit = Number(params.get('limit') ?? REPORTS.length)
+                    const offset = Number(params.get('offset') ?? 0)
+                    const excluded = new Set(params.get('exclude')?.split(',') ?? [])
+                    const ranked = ALL_REPORTS.filter((report) => !excluded.has(report.id))
+                    return [
+                        200,
+                        {
+                            results: ranked.slice(offset, offset + limit),
+                            count: OPEN_REPORT_COUNT - (ALL_REPORTS.length - ranked.length),
+                        },
+                    ]
+                },
+                '/api/projects/:team_id/signals/reports/available_reviewers/': {},
+                '/api/projects/:team_id/signals/reports/:id/pr_checks/': { checks: [] },
+                '/api/projects/:team_id/signals/reports/:id/pr_comments/': { comments: [] },
                 '/api/projects/:team_id/signals/reports/:id/': (req) => [
                     200,
-                    REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
+                    ALL_REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
                 '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
                 '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
+                    200,
+                    { report: REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0], signals: [] },
+                ],
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
-                '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
+                '/api/projects/:team_id/today/highlights/': HIGHLIGHTS,
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -722,6 +829,10 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
+                '/api/projects/:team_id/signals/reports/:id/state/': (req) => [
+                    200,
+                    REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
+                ],
                 '/api/projects/:team_id/tasks/summaries/': {
                     count: 2,
                     next: null,
@@ -758,63 +869,20 @@ type Story = StoryObj<{}>
 
 export const Home: Story = {}
 
-export const HomeWithPersonalBriefing: Story = {
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
-}
-
-// One report was resolved and another dismissed after the briefing was written.
-export const HomeWithResolvedAndDismissedItems: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/today/briefing/': {
-                    ...PERSONAL_BRIEFING,
-                    items: PERSONAL_BRIEFING.items.map((item) =>
-                        item.key === 'report:report-3'
-                            ? { ...item, state: 'dismissed' }
-                            : item.key === 'report:report-1'
-                              ? { ...item, state: 'done' }
-                              : item
-                    ),
-                },
-            },
-        }),
-    ],
-}
-
-export const HomeWithNothingForYou: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/today/briefing/': {
-                    ...PERSONAL_BRIEFING,
-                    headline: 'Nothing needs you right now',
-                    paragraphs: [],
-                    items: [],
-                    more_reports_count: 0,
-                    open_reports_count: 0,
-                    writer: 'agent',
-                },
-            },
-        }),
-    ],
-}
-
-// While a newer briefing is written, the API returns the last ready one as `writing`.
-export const HomeWhileWriting: Story = {
-    decorators: [
-        mswDecorator({
-            get: { '/api/projects/:team_id/today/briefing/': { ...PERSONAL_BRIEFING, status: 'writing' } },
-        }),
-    ],
-}
-
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
 }
 
 export const SampleReportPage: Story = {
     parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
+}
+
+export const HomeWithReportsOnly: Story = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] } },
+        }),
+    ],
 }
 
 export const HomeWithNoReports: Story = {
@@ -825,10 +893,32 @@ export const HomeWithNoReports: Story = {
     ],
 }
 
+export const HomeWithoutAiAndNothingNew: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+            },
+        }),
+    ],
+}
+
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
             get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
+        }),
+    ],
+}
+
+export const HomeWithoutReportsWhenHighlightsFailToLoad: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': () => [500, { detail: 'Server error' }],
+            },
         }),
     ],
 }
@@ -1003,6 +1093,10 @@ export const PhoneWidth: Story = {
     parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
 }
 
+export const PhoneWidthNewSessionPage: Story = {
+    parameters: { pageUrl: urls.taskNewSession(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 export const PhoneWidthMorePane: Story = {
     parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
     play: async ({ canvasElement }) => {
@@ -1055,34 +1149,6 @@ export const SessionHoverCard: Story = {
                     }
                 )}
                 onAction={noop}
-            />
-        </HoverCardFrame>
-    ),
-}
-
-export const ReportHoverCard: Story = {
-    render: () => (
-        <HoverCardFrame>
-            <TodayReportHoverCard
-                preview={{
-                    kind: 'report',
-                    card: briefingItemReportCard(PERSONAL_BRIEFING.items[0]),
-                    surface: 'sidebar',
-                }}
-            />
-        </HoverCardFrame>
-    ),
-}
-
-export const ReportHoverCardResolved: Story = {
-    render: () => (
-        <HoverCardFrame>
-            <TodayReportHoverCard
-                preview={{
-                    kind: 'report',
-                    card: briefingItemReportCard({ ...PERSONAL_BRIEFING.items[1], state: 'done' }),
-                    surface: 'sidebar',
-                }}
             />
         </HoverCardFrame>
     ),

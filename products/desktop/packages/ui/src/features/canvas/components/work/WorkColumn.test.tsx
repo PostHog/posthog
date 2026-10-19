@@ -1,6 +1,7 @@
 import {
   type ChannelItemModel,
   DESKTOP_SOURCE,
+  FIRST_PARTY_CLIENT_SOURCES,
 } from "@posthog/core/canvas/channelItems";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { Theme } from "@radix-ui/themes";
@@ -10,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   items: [] as { item: ChannelItemModel; channelId: string | undefined }[],
+  recentWorkArgs: undefined as unknown,
+  taskSources: [] as string[],
   navigate: {
     toChannelTask: vi.fn(),
     toChannelDashboard: vi.fn(),
@@ -28,7 +31,18 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentWorkItems", () => ({
-  useRecentWorkItems: () => ({ items: mocks.items, isLoading: false }),
+  useRecentWorkItems: (args: unknown) => {
+    mocks.recentWorkArgs = args;
+    return { items: mocks.items, isLoading: false };
+  },
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskSources", () => ({
+  useTaskSources: () => mocks.taskSources,
+}));
+vi.mock("@posthog/ui/features/canvas/components/ChannelFilterMenu", () => ({
+  ChannelFilterMenu: ({ sources }: { sources: readonly string[] }) => (
+    <div data-testid="filter-sources">{sources.join(",")}</div>
+  ),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   useChannelItemActions: ({
@@ -112,6 +126,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
 
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { WorkColumn } from "./WorkColumn";
 
@@ -169,12 +184,28 @@ const navigate = mocks.navigate;
 beforeEach(() => {
   for (const spy of Object.values(mocks.navigate)) spy.mockClear();
   mocks.items = [1, 2, 3, 4, 5].map(entry);
+  mocks.taskSources = [];
+  useSidebarStore.setState({ pickedChannelItemSources: [] });
   useTaskSelectionStore.setState({ selectedTaskIds: [], lastClickedId: null });
 });
 
 afterEach(cleanup);
 
 describe("WorkColumn", () => {
+  it("asks for the selected sources and still offers the ones it hides", () => {
+    mocks.taskSources = ["signals_scout", "slack"];
+    useSidebarStore.setState({ pickedChannelItemSources: ["hogdesk"] });
+
+    renderColumn();
+
+    expect(mocks.recentWorkArgs).toEqual({
+      sources: FIRST_PARTY_CLIENT_SOURCES,
+    });
+    expect(
+      screen.getByTestId("filter-sources").textContent?.split(","),
+    ).toEqual(expect.arrayContaining(["hogdesk", "signals_scout", "slack"]));
+  });
+
   it("opens a session on a plain click", () => {
     renderColumn();
 

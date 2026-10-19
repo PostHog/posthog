@@ -27,6 +27,7 @@ pub struct MockRedisClient {
     mget_error: Option<CustomRedisError>,
     pipeline_error: Option<CustomRedisError>,
     pipeline_block: Option<Duration>,
+    batch_incr_by_expire_at_block: Option<Duration>,
     pipeline_errors_by_call: HashMap<usize, CustomRedisError>,
     /// Shared via `Arc` so clones of the mock agree on call sequencing.
     pipeline_call_counter: Arc<AtomicUsize>,
@@ -57,6 +58,7 @@ impl Default for MockRedisClient {
             mget_error: None,
             pipeline_error: None,
             pipeline_block: None,
+            batch_incr_by_expire_at_block: None,
             pipeline_errors_by_call: HashMap::new(),
             pipeline_call_counter: Arc::new(AtomicUsize::new(0)),
             mget_errors_by_call: HashMap::new(),
@@ -203,6 +205,12 @@ impl MockRedisClient {
     /// resolving. Used to exercise shutdown-timeout paths.
     pub fn pipeline_block(&mut self, duration: Duration) -> Self {
         self.pipeline_block = Some(duration);
+        self.clone()
+    }
+
+    /// Block every `batch_incr_by_expire_at` call for `duration` after recording it.
+    pub fn batch_incr_by_expire_at_block(&mut self, duration: Duration) -> Self {
+        self.batch_incr_by_expire_at_block = Some(duration);
         self.clone()
     }
 
@@ -560,6 +568,9 @@ impl Client for MockRedisClient {
             key: recorded,
             value: MockRedisValue::None,
         });
+        if let Some(duration) = self.batch_incr_by_expire_at_block {
+            futures_timer::Delay::new(duration).await;
+        }
 
         match &self.batch_incr_by_expire_at_ret {
             Some(ret) => ret.clone(),

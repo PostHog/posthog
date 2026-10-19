@@ -2,7 +2,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clari import (
@@ -11,32 +10,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clar
     _extract_result_rows,
     _format_timestamp,
     _to_datetime,
-    clari_source,
-    get_activity,
-    get_audit_events,
-    get_forecast,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clari.settings import (
     ACTIVITY_INITIAL_LOOKBACK_DAYS,
 )
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.clari.clari"
-
-
-def _make_manager(resume_state: ClariResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+from products.warehouse_sources.backend.temporal.data_imports.sources.clari.source import ClariSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clari import ClariSourceConfig
 
 
-def _response(body: Any) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(ClariSource(), ClariSourceConfig(api_key="key", forecast_id="fc-1"))
+
+
+def _activity_script() -> list[ScriptedResponse]:
+    return [
+        ScriptedResponse(json={"jobId": "job-a"}),
+        ScriptedResponse(json={"job": {"id": "job-a", "status": "DONE"}}),
+        ScriptedResponse(json={"activities": [{"activityId": "act-1", "activityType": "MEETING"}]}),
+    ]
 
 
 class TestFormatTimestamp:
@@ -49,7 +46,7 @@ class TestFormatTimestamp:
             ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
         ],
     )
-    def test_formats(self, value, expected):
+    def test_formats(self, value: Any, expected: str) -> None:
         assert _format_timestamp(value) == expected
 
 
@@ -67,7 +64,7 @@ class TestExtractResultRows:
             ("junk", []),
         ],
     )
-    def test_extracts_rows(self, data, expected):
+    def test_extracts_rows(self, data: Any, expected: list[dict[str, Any]]) -> None:
         assert _extract_result_rows(data) == expected
 
 
@@ -84,7 +81,7 @@ class TestToDatetime:
             (None, None),
         ],
     )
-    def test_converts_watermarks(self, value, expected):
+    def test_converts_watermarks(self, value: Any, expected: datetime | None) -> None:
         assert _to_datetime(value) == expected
 
 
@@ -97,163 +94,144 @@ class TestValidateCredentials:
             (403, False),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
+        assert [request.path for request in network.requests_log] == ["/v4/audit/events"]
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["apikey"] == "key"
 
 
 class TestGetAuditEvents:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_follows_next_link_until_absent(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _response({"items": [{"event": "login"}], "nextLink": "https://api.clari.com/v4/audit/events?skip=1000"}),
-            _response({"items": [{"event": "logout"}]}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_audit_events("key", mock.MagicMock(), manager))
-
-        assert [row["event"] for batch in batches for row in batch] == ["login", "logout"]
-        # State saved once, after the first page yielded, pointing at the next page.
-        saved = manager.save_state.call_args_list
-        assert [call.args[0].next_link for call in saved] == ["https://api.clari.com/v4/audit/events?skip=1000"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_passes_date_from(self, mock_session):
-        mock_session.return_value.request.side_effect = [_response({"items": []})]
-
-        list(
-            get_audit_events(
-                "key",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-            )
+    def test_follows_next_link_until_absent(self) -> None:
+        next_link = "https://api.clari.com/v4/audit/events?skip=1000"
+        result = _driver().run(
+            "audit_events",
+            [
+                ScriptedResponse(json={"items": [{"event": "login"}], "nextLink": next_link}),
+                ScriptedResponse(json={"items": [{"event": "logout"}]}),
+            ],
         )
 
-        url = mock_session.return_value.request.call_args.args[1]
-        assert "dateFrom=2024-01-02T03%3A04%3A05Z" in url
-        assert "limit=1000" in url
+        assert result.raised is None
+        assert [row["event"] for row in result.rows] == ["login", "logout"]
+        assert result.paths == ["/v4/audit/events", "/v4/audit/events"]
+        # State saved once, after the first page yielded, pointing at the next page.
+        assert result.saved_states == [ClariResumeConfig(next_link=next_link)]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_next_link(self, mock_session):
-        mock_session.return_value.request.side_effect = [_response({"items": [{"event": "x"}]})]
+    def test_incremental_passes_date_from(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [ScriptedResponse(json={"items": []})],
+            incremental_field="eventTimestamp",
+            db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
+        )
 
-        manager = _make_manager(ClariResumeConfig(next_link="https://api.clari.com/v4/audit/events?skip=2000"))
-        batches = list(get_audit_events("key", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert result.params("dateFrom") == ["2024-01-02T03:04:05Z"]
+        assert result.params("limit") == ["1000"]
 
-        assert len(batches) == 1
-        url = mock_session.return_value.request.call_args.args[1]
-        assert url == "https://api.clari.com/v4/audit/events?skip=2000"
+    def test_resumes_from_saved_next_link(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [ScriptedResponse(json={"items": [{"event": "x"}]})],
+            resume_state=ClariResumeConfig(next_link="https://api.clari.com/v4/audit/events?skip=2000"),
+        )
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_accepts_activities_response_key(self, mock_session):
-        mock_session.return_value.request.side_effect = [_response({"activities": [{"event": "x"}]})]
+        assert result.raised is None
+        assert result.items == [[{"event": "x"}]]
+        assert result.urls == ["https://api.clari.com/v4/audit/events?skip=2000"]
 
-        batches = list(get_audit_events("key", mock.MagicMock(), _make_manager()))
+    def test_accepts_activities_response_key(self) -> None:
+        result = _driver().run("audit_events", [ScriptedResponse(json={"activities": [{"event": "x"}]})])
 
-        assert batches == [[{"event": "x"}]]
+        assert result.raised is None
+        assert result.items == [[{"event": "x"}]]
 
 
 class TestGetForecast:
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_creates_job_polls_and_downloads_results(self, mock_session, mock_sleep):
-        mock_session.return_value.request.side_effect = [
-            _response({"jobId": "job-1"}),
-            _response({"job": {"id": "job-1", "status": "STARTED"}}),
-            _response({"job": {"id": "job-1", "status": "DONE"}}),
-            _response([{"Field": "forecast", "Data Value": 100}]),
+    def test_creates_job_polls_and_downloads_results(self) -> None:
+        result = _driver().run(
+            "forecast",
+            [
+                ScriptedResponse(json={"jobId": "job-1"}),
+                ScriptedResponse(json={"job": {"id": "job-1", "status": "STARTED"}}),
+                ScriptedResponse(json={"job": {"id": "job-1", "status": "DONE"}}),
+                ScriptedResponse(json=[{"Field": "forecast", "Data Value": 100}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"Field": "forecast", "Data Value": 100}]]
+        assert [(request.method, request.path) for request in result.requests] == [
+            ("POST", "/v4/export/forecast/fc-1"),
+            ("GET", "/v4/export/jobs/job-1"),
+            ("GET", "/v4/export/jobs/job-1"),
+            ("GET", "/v4/export/jobs/job-1/results"),
         ]
-
-        manager = _make_manager()
-        batches = list(get_forecast("key", "fc-1", mock.MagicMock(), manager))
-
-        assert batches == [[{"Field": "forecast", "Data Value": 100}]]
-        create_call = mock_session.return_value.request.call_args_list[0]
-        assert create_call.args == ("POST", "https://api.clari.com/v4/export/forecast/fc-1")
-        assert create_call.kwargs["json"] == {"exportFormat": "JSON"}
+        assert result.requests[0].json() == {"exportFormat": "JSON"}
         # Job id persisted immediately after creation — exports are quota-limited.
-        assert manager.save_state.call_args_list[0].args[0].job_id == "job-1"
+        assert result.saved_states[0] == ClariResumeConfig(job_id="job-1")
+        assert result.final_state == ClariResumeConfig(job_id="job-1")
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_existing_job_without_creating_a_new_one(self, mock_session, mock_sleep):
-        mock_session.return_value.request.side_effect = [
-            _response({"job": {"id": "job-9", "status": "DONE"}}),
-            _response([{"Field": "quota"}]),
+    def test_resumes_existing_job_without_creating_a_new_one(self) -> None:
+        result = _driver().run(
+            "forecast",
+            [
+                ScriptedResponse(json={"job": {"id": "job-9", "status": "DONE"}}),
+                ScriptedResponse(json=[{"Field": "quota"}]),
+            ],
+            resume_state=ClariResumeConfig(job_id="job-9"),
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"Field": "quota"}]]
+        assert [(request.method, request.path) for request in result.requests] == [
+            ("GET", "/v4/export/jobs/job-9"),
+            ("GET", "/v4/export/jobs/job-9/results"),
         ]
-
-        manager = _make_manager(ClariResumeConfig(job_id="job-9"))
-        batches = list(get_forecast("key", "fc-1", mock.MagicMock(), manager))
-
-        assert batches == [[{"Field": "quota"}]]
-        methods = [call.args[0] for call in mock_session.return_value.request.call_args_list]
-        assert "POST" not in methods
 
     @pytest.mark.parametrize("terminal_status", ["FAILED", "CANCELLED", "ABORTED"])
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_dead_job_raises_and_clears_resume_state(self, mock_session, mock_sleep, terminal_status):
-        mock_session.return_value.request.side_effect = [
-            _response({"jobId": "job-1"}),
-            _response({"job": {"id": "job-1", "status": terminal_status}}),
-        ]
+    def test_dead_job_raises_and_clears_resume_state(self, terminal_status: str) -> None:
+        result = _driver().run(
+            "forecast",
+            [
+                ScriptedResponse(json={"jobId": "job-1"}),
+                ScriptedResponse(json={"job": {"id": "job-1", "status": terminal_status}}),
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(ValueError, match=terminal_status):
-            list(get_forecast("key", "fc-1", mock.MagicMock(), manager))
+        assert isinstance(result.raised, ValueError)
+        assert terminal_status in str(result.raised)
+        assert result.saved_states[-1] == ClariResumeConfig(job_id=None)
+        assert result.final_state == ClariResumeConfig(job_id=None)
 
-        assert manager.save_state.call_args_list[-1].args[0].job_id is None
+    def test_exhausted_poll_budget_raises_retryable(self) -> None:
+        result = _driver().run(
+            "forecast",
+            [ScriptedResponse(json={"jobId": "job-1"})]
+            + [ScriptedResponse(json={"job": {"id": "job-1", "status": "STARTED"}})] * 60,
+        )
 
-    @mock.patch(f"{_MODULE}.EXPORT_POLL_MAX_ATTEMPTS", 2)
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_exhausted_poll_budget_raises_retryable(self, mock_session, mock_sleep):
-        mock_session.return_value.request.side_effect = [
-            _response({"jobId": "job-1"}),
-            _response({"job": {"id": "job-1", "status": "STARTED"}}),
-            _response({"job": {"id": "job-1", "status": "STARTED"}}),
-        ]
+        assert isinstance(result.raised, ClariRetryableError)
+        assert result.paths.count("/v4/export/jobs/job-1") == 60
 
-        with pytest.raises(ClariRetryableError):
-            list(get_forecast("key", "fc-1", mock.MagicMock(), _make_manager()))
+    def test_missing_job_id_in_create_response_raises(self) -> None:
+        result = _driver().run("forecast", [ScriptedResponse(json={"unexpected": True})])
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_missing_job_id_in_create_response_raises(self, mock_session, mock_sleep):
-        mock_session.return_value.request.side_effect = [_response({"unexpected": True})]
-
-        with pytest.raises(ValueError, match="no jobId"):
-            list(get_forecast("key", "fc-1", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "no jobId" in str(result.raised)
 
 
 class TestGetActivity:
-    def _run(self, mock_session, mock_sleep, **kwargs) -> list[list[dict[str, Any]]]:
-        mock_session.return_value.request.side_effect = [
-            _response({"jobId": "job-a"}),
-            _response({"job": {"id": "job-a", "status": "DONE"}}),
-            _response({"activities": [{"activityId": "act-1", "activityType": "MEETING"}]}),
-        ]
-        return list(get_activity("key", mock.MagicMock(), _make_manager(), **kwargs))
+    def test_exports_every_activity_type_and_reads_the_activities_key(self) -> None:
+        result = _driver().run("activity", _activity_script())
 
-    def _create_body(self, mock_session) -> dict[str, Any]:
-        return mock_session.return_value.request.call_args_list[0].kwargs["json"]
-
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_exports_every_activity_type_and_reads_the_activities_key(self, mock_session, mock_sleep):
-        batches = self._run(mock_session, mock_sleep)
-
-        assert batches == [[{"activityId": "act-1", "activityType": "MEETING"}]]
-        create_call = mock_session.return_value.request.call_args_list[0]
-        assert create_call.args == ("POST", "https://api.clari.com/v4/export/activity")
-        assert self._create_body(mock_session)["activityTypes"] == [
+        assert result.raised is None
+        assert result.items == [[{"activityId": "act-1", "activityType": "MEETING"}]]
+        assert (result.requests[0].method, result.requests[0].path) == ("POST", "/v4/export/activity")
+        assert result.requests[0].json()["activityTypes"] == [
             "MEETING",
             "EMAIL_SENT",
             "EMAIL_RECEIVED",
@@ -261,43 +239,43 @@ class TestGetActivity:
             "ATTACHMENT_RECEIVED",
         ]
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_exports_the_initial_lookback_window(self, mock_session, mock_sleep):
-        self._run(mock_session, mock_sleep, should_use_incremental_field=False, db_incremental_field_last_value=123)
+    def test_full_refresh_exports_the_initial_lookback_window(self) -> None:
+        result = _driver().run("activity", _activity_script(), db_incremental_field_last_value=123)
 
-        body = self._create_body(mock_session)
+        assert result.raised is None
+        body = result.requests[0].json()
         start = datetime.strptime(body["startDate"], "%Y-%m-%dT%H:%M:%SZ")
         end = datetime.strptime(body["endDate"], "%Y-%m-%dT%H:%M:%SZ")
         assert (end - start).days == ACTIVITY_INITIAL_LOOKBACK_DAYS
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_starts_from_the_epoch_millisecond_watermark(self, mock_session, mock_sleep):
-        self._run(
-            mock_session,
-            mock_sleep,
-            should_use_incremental_field=True,
+    def test_incremental_starts_from_the_epoch_millisecond_watermark(self) -> None:
+        result = _driver().run(
+            "activity",
+            _activity_script(),
+            incremental_field="date",
             db_incremental_field_last_value=1702906200000,
         )
 
-        assert self._create_body(mock_session)["startDate"] == "2023-12-18T13:30:00Z"
+        assert result.raised is None
+        assert result.requests[0].json()["startDate"] == "2023-12-18T13:30:00Z"
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_first_incremental_sync_falls_back_to_the_lookback_window(self, mock_session, mock_sleep):
-        self._run(mock_session, mock_sleep, should_use_incremental_field=True, db_incremental_field_last_value=None)
+    def test_first_incremental_sync_falls_back_to_the_lookback_window(self) -> None:
+        result = _driver().run("activity", _activity_script(), incremental_field="date")
 
-        body = self._create_body(mock_session)
+        assert result.raised is None
+        body = result.requests[0].json()
         start = datetime.strptime(body["startDate"], "%Y-%m-%dT%H:%M:%SZ")
         end = datetime.strptime(body["endDate"], "%Y-%m-%dT%H:%M:%SZ")
         assert (end - start).days == ACTIVITY_INITIAL_LOOKBACK_DAYS
 
 
 class TestClariSourceResponse:
-    def test_audit_events_metadata(self):
-        response = clari_source("key", "fc-1", "audit_events", mock.MagicMock(), _make_manager())
+    def test_audit_events_metadata(self) -> None:
+        result = _driver().run("audit_events", [ScriptedResponse(json={"items": []})])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == "audit_events"
         assert response.primary_keys == ["eventTimestamp", "actorId", "sessionId", "event"]
         assert response.sort_mode == "desc"
@@ -307,16 +285,29 @@ class TestClariSourceResponse:
         assert not response.has_duplicate_primary_keys
         validate_incremental_sync(True, response)
 
-    def test_activity_metadata(self):
-        response = clari_source("key", "fc-1", "activity", mock.MagicMock(), _make_manager())
+    def test_activity_metadata(self) -> None:
+        result = _driver().run("activity", _activity_script())
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == "activity"
         assert response.primary_keys == ["activityId"]
         assert response.sort_mode == "desc"
         validate_incremental_sync(True, response)
 
-    def test_forecast_metadata(self):
-        response = clari_source("key", "fc-1", "forecast", mock.MagicMock(), _make_manager())
+    def test_forecast_metadata(self) -> None:
+        result = _driver().run(
+            "forecast",
+            [
+                ScriptedResponse(json={"jobId": "job-1"}),
+                ScriptedResponse(json={"status": "DONE"}),
+                ScriptedResponse(json=[]),
+            ],
+        )
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == "forecast"
         assert response.primary_keys is None

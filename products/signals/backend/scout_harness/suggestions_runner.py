@@ -47,7 +47,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.skills.backend.api.skill_serializers import validate_new_skill_name_value
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, turn_failure_error_type
 
 logger = structlog.get_logger(__name__)
 
@@ -291,17 +291,17 @@ async def arun_scout_suggestions(
         raise
     except Exception as error:
         logger.warning("scout_suggestions: generation failed", team_id=team.id, error=str(error), exc_info=True)
-        await _end_failed(session, str(error))
+        await _end_failed(session, str(error), turn_failure_error_type(error))
         await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(team.id, task_run_id=task_run_id)
         return _finish("failed", task_run_id=task_run_id)
     return _finish("completed", task_run_id=task_run_id, suggestion_count=len(items))
 
 
-async def _end_failed(session: MultiTurnSession | None, error: str) -> None:
+async def _end_failed(session: MultiTurnSession | None, error: str, error_type: str | None = None) -> None:
     if session is None:
         return
     # Shielded so the failure status still lands when a cancel re-fires mid-signal.
-    await asyncio.shield(session.end(status="failed", error=error))
+    await asyncio.shield(session.end(status="failed", error=error, error_type=error_type))
 
 
 __all__ = ["SuggestionRunResult", "arun_scout_suggestions", "validate_suggestion_items"]

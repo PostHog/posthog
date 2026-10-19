@@ -1,9 +1,12 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
     from posthog.models.integration import Integration
+
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.dataclasses import frozen
 
@@ -57,6 +60,76 @@ class SlackAccess:
 
 @SourceRegistry.register
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^SLACK_(BOT|APP|SIGNING|CLIENT)_",
+            "^SLACK_WEBHOOK_URL$",
+            "^SLACK_TOKEN$",
+            "^SLACK_API_TOKEN$",
+            "^SLACK_STATE_SECRET$",
+            "^SLACK_SCOPES$",
+            "^SLACK_USER_SCOPES$",
+            "^SLACK_REDIRECT_URI$",
+            "^SLACK_REDIRECT_URI_PATH$",
+            "^SLACK_INSTALL_PATH$",
+            "^SLACK_VERIFICATION_TOKEN$",
+            "^SLACK_SERVICE_TOKEN$",
+            "^SLACK_CHANNEL_ID$",
+            "^HUBOT_SLACK_TOKEN$",
+            "^LOG_SLACK_WEBHOOK_URL$",
+        ),
+        npm=(
+            "@slack/web-api",
+            "@slack/bolt",
+            "@slack/webhook",
+            "@slack/socket-mode",
+            "@slack/oauth",
+            "@slack/rtm-api",
+            "@slack/types",
+            "@slack/events-api",
+            "@slack/interactive-messages",
+            "@slack/client",
+            "@slack/cli-hooks",
+            "@slack/deno-slack-sdk",
+            "hubot-slack",
+            "@vercel/slack-bolt",
+            "@chat-adapter/slack",
+        ),
+        pypi=("slack-sdk", "slack-bolt", "slackclient", "slackeventsapi", "slack-cli-hooks", "slack-discovery-sdk"),
+        cargo=("slack-morphism",),
+        composer=("laravel/slack-notification-channel", "jolicode/slack-php-api", "maknz/slack", "alek13/slack"),
+        go=("github.com/slack-go/slack", "github.com/nlopes/slack"),
+        hex=("slack",),
+        maven=(
+            "com.slack.api:slack-api-client",
+            "com.slack.api:bolt",
+            "com.slack.api:bolt-aws-lambda",
+            "com.slack.api:bolt-google-cloud-functions",
+            "com.slack.api:bolt-helidon",
+            "com.slack.api:bolt-http4k",
+            "com.slack.api:bolt-jakarta-jetty",
+            "com.slack.api:bolt-jakarta-servlet",
+            "com.slack.api:bolt-jakarta-socket-mode",
+            "com.slack.api:bolt-jetty",
+            "com.slack.api:bolt-ktor",
+            "com.slack.api:bolt-micronaut",
+            "com.slack.api:bolt-servlet",
+            "com.slack.api:bolt-socket-mode",
+            "com.slack.api:slack-api-client-kotlin-extension",
+            "com.slack.api:slack-api-model",
+            "com.slack.api:slack-api-model-kotlin-extension",
+            "com.slack.api:slack-app-backend",
+            "com.slack.api:slack-jakarta-socket-mode-client",
+            "com.github.seratch:jslack",
+            "com.github.seratch:jslack-api-client",
+            "com.github.seratch:jslack-api-model",
+            "com.github.seratch:jslack-app-backend",
+            "com.github.seratch:jslack-lightning",
+        ),
+        rubygems=("slack-ruby-client", "slack-notifier", "slack-ruby-bot-server"),
+    )
+    setup_requires_ui = True
+
     api_docs_url = "https://api.slack.com/web"
 
     @property
@@ -277,7 +350,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             "invalid_auth": "Your Slack token is invalid. Please reconnect the source.",
             "account_inactive": "Your Slack account is inactive. Please reconnect the source.",
             "token_revoked": "Your Slack token has been revoked. Please reconnect the source.",
-            "missing_scope": "Your Slack integration is missing required scopes. Please reconnect the source.",
+            "missing_scope": "Your Slack app is missing scopes PostHog needs. Add the bot scopes from the setup manifest, reinstall the app to your workspace, then try again.",
             "not_in_channel": "The Slack bot is not a member of this channel. Please invite the bot to the channel and try again.",
             "channel_not_found": "This Slack channel was not found. It may have been deleted or the bot lacks permission to access it.",
             "Integration not found": "Your Slack integration was not found. Please reconnect the source.",

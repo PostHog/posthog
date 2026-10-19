@@ -53,7 +53,6 @@ import { debugReplayChatLogic } from 'scenes/session-recordings/player/player-me
 import { buildDebugReplayData } from 'scenes/session-recordings/player/player-meta/debugReplayData'
 import {
     buildDebugReplayDataContextItem,
-    buildDebugReplayPrompt,
     debugReplayFileName,
 } from 'scenes/session-recordings/player/player-meta/debugReplayPrompt'
 import {
@@ -126,6 +125,7 @@ export const ONE_SECOND_MS = 1000
 // shows its error.
 const MAX_PLAYER_FRAME_LOAD_RETRIES = 2
 const PLAYER_FRAME_RETRY_DELAY_MS = 1000
+const LIVE_EDGE_OFFSET_MS = 5000
 
 export type { ResourceErrorDetails, GroupedAssetErrors, DoctorDiagnostics } from './utils/asset-error-grouping'
 
@@ -814,6 +814,8 @@ export interface sessionRecordingPlayerLogicValues {
     endReached: boolean
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
+    followLive: boolean
+    followLiveRequested: boolean
     forceShowPlayerChrome: boolean
     fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
     hasLateFullSnapshot: boolean
@@ -833,6 +835,7 @@ export interface sessionRecordingPlayerLogicValues {
     jumpTimeMs: number
     leadingRecoveryTimestamp: number | null
     leadingUnplayableMs: number
+    liveWaitingForData: boolean
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
     matchingEventSkipTarget: MatchingEventSkipTarget
@@ -969,8 +972,12 @@ export interface sessionRecordingPlayerLogicActions {
     reportNextRecordingTriggered: (automatic: boolean) => {
         automatic: boolean
     } // sessionRecordingEventUsageLogic
-    reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
+    reportRecordingDebuggedWithAI: (
+        playerTimeSeconds: number,
+        promptEdited: boolean
+    ) => {
         playerTimeSeconds: number
+        promptEdited: boolean
     } // sessionRecordingEventUsageLogic
     reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
         format: 'json' | 'mp4'
@@ -1007,6 +1014,9 @@ export interface sessionRecordingPlayerLogicActions {
     } // snapshotDataLogic
     retrySnapshotLoading: () => {
         value: true
+    } // snapshotDataLogic
+    setLivePolling: (enabled: boolean) => {
+        enabled: boolean
     } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
@@ -1047,8 +1057,12 @@ export interface sessionRecordingPlayerLogicActions {
         config: Record<string, any>
         integrationId: number
     }
-    debugRecordingWithAI: () => {
-        value: true
+    debugRecordingWithAI: (
+        prompt: string,
+        promptEdited: boolean
+    ) => {
+        prompt: string
+        promptEdited: boolean
     }
     deleteRecording: () => {
         value: true
@@ -1182,6 +1196,9 @@ export interface sessionRecordingPlayerLogicActions {
     setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => {
         props: SessionRecordingPlayerExplorerProps | null
     }
+    setFollowLive: (followLive: boolean) => {
+        followLive: boolean
+    }
     setIsCommenting: (isCommenting: boolean) => {
         isCommenting: boolean
     }
@@ -1301,6 +1318,7 @@ export interface sessionRecordingPlayerLogicActions {
 export interface sessionRecordingPlayerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        followLive: (followLiveRequested: boolean, featureFlags: FeatureFlagsSet) => boolean
         playerFrameDocumentFailed: (playerFrameLoadFailures: number, playerFrameLoadStopped: boolean) => boolean
         sessionRecordingId: (sessionRecordingId: string) => string
         logicProps: (arg: any) => SessionRecordingPlayerLogicProps
@@ -1540,6 +1558,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setTargetTimestamp',
                 'updatePlaybackPosition',
                 'setPlayerActive',
+                'setLivePolling',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
@@ -1569,6 +1588,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlay: true,
         setPause: true,
         setEndReached: (reached: boolean = true) => ({ reached }),
+        setFollowLive: (followLive: boolean) => ({ followLive }),
         startBuffer: true,
         endBuffer: true,
         startScrub: true,
@@ -1605,7 +1625,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => ({ diagnostics }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
-        debugRecordingWithAI: true,
+        debugRecordingWithAI: (prompt: string, promptEdited: boolean) => ({ prompt, promptEdited }),
         setDebugRecordingPreparing: (preparing: boolean) => ({ preparing }),
         deleteRecording: true,
         openExplorer: true,
@@ -1855,6 +1875,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 initializePlayerFromStart: () => null,
             },
         ],
+        followLiveRequested: [
+            false,
+            {
+                setFollowLive: (_, { followLive }) => followLive,
+            },
+        ],
+        // separate from endReached, which replayer re-init clears, so Live still resumes after a tab switch
+        liveWaitingForData: [
+            false,
+            {
+                setEndReached: (_, { reached }) => reached,
+                setFollowLive: () => false,
+                setPlay: () => false,
+                openExplorer: () => false,
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
+            },
+        ],
         endReached: [
             false,
             {
@@ -1912,6 +1949,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
+        followLive: [
+            (s) => [s.followLiveRequested, s.featureFlags],
+            (requested: boolean, featureFlags: FeatureFlagsSet): boolean =>
+                requested && !!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE],
+        ],
         // Nothing resets this, because the frame's src stops changing once the retries run out.
         playerFrameDocumentFailed: [
             (s) => [s.playerFrameLoadFailures, s.playerFrameLoadStopped],
@@ -3314,6 +3356,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
+        setFollowLive: ({ followLive }) => {
+            if (!values.featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE]) {
+                return
+            }
+            posthog.capture('recording follow live toggled', { follow_live: followLive })
+            actions.setLivePolling(followLive)
+            const end = values.sessionPlayerData.end?.valueOf()
+            if (followLive && end) {
+                const start = values.sessionPlayerData.start?.valueOf() ?? end
+                actions.setCurrentTimestamp(Math.max(start, end - LIVE_EDGE_OFFSET_MS))
+                actions.setEndReached(false)
+                actions.setPlay()
+            }
+        },
         setEndReached: ({ reached }) => {
             if (reached) {
                 actions.endBuffer()
@@ -3663,7 +3719,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        debugRecordingWithAI: async () => {
+        debugRecordingWithAI: async ({ prompt, promptEdited }) => {
             if (!values.sessionRecordingId || values.debugRecordingPreparing) {
                 return
             }
@@ -3709,11 +3765,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // The side panel renders behind a fullscreen player.
             actions.setIsFullScreen(false)
-            actions.openSidePanel(
-                SidePanelTab.Max,
-                autoRunMaxPrompt(buildDebugReplayPrompt(values.sessionRecordingId, values.currentPlayerTimeSeconds))
-            )
-            actions.reportRecordingDebuggedWithAI(values.currentPlayerTimeSeconds)
+            actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(prompt))
+            actions.reportRecordingDebuggedWithAI(values.currentPlayerTimeSeconds, promptEdited)
         },
 
         exportRecordingToFile: async () => {
@@ -3944,6 +3997,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+
+                const endGrew = (value?.end?.valueOf() ?? 0) > (oldValue?.end?.valueOf() ?? 0)
+                if (values.followLive && values.liveWaitingForData && endGrew) {
+                    // resume from the old end, not from the start as setPlay does after endReached
+                    actions.setEndReached(false)
+                    actions.setPlay()
+                }
             }
         },
         timestampChangeTracking: (value) => {

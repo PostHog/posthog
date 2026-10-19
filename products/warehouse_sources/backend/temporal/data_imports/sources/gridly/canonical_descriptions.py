@@ -60,4 +60,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "gridId": "ID of the grid the view belongs to.",
         },
     },
+    "branches": {
+        "description": "Branches of each Gridly grid. A branch is a copy of a grid that you can change and then merge back.",
+        "docs_url": "https://www.gridly.com/docs/api/#list-branches",
+        "columns": {
+            "id": "Unique identifier of the branch.",
+            "name": "Name of the branch.",
+            "gridId": "ID of the grid the branch belongs to.",
+        },
+    },
+    "dependencies": {
+        "description": "Column dependencies of the configured Gridly view. A dependency links a source column to a target column, so Gridly can track whether the target is up to date with the source.",
+        "docs_url": "https://www.gridly.com/docs/api/#list-dependencies",
+        "columns": {
+            "id": "Unique identifier of the dependency.",
+            "sourceColumnId": "ID of the source column.",
+            "targetColumnId": "ID of the target column.",
+        },
+    },
+    "automation_executions": {
+        "description": "Run history of each automation of the configured Gridly view, one row per execution.",
+        "docs_url": "https://www.gridly.com/docs/api/#list-executions-of-an-automation",
+        "columns": {
+            "id": "Identifier of the execution.",
+            "status": "Status of the execution (e.g. STARTED, SUCCESS).",
+            "startedTime": "Time the execution started.",
+            "automationId": "ID of the automation that ran.",
+        },
+    },
+    "record_histories": {
+        "description": "Change history of each record of the configured Gridly view, one row per recorded change.",
+        "docs_url": "https://www.gridly.com/docs/api/#get-record-history",
+        "columns": {
+            "lastModifiedBy": "User who made the change.",
+            "lastModifiedTime": "Time of the change.",
+            "path": "Path to the folder where the record was stored at the time of the change.",
+            "cells": "List of the record's cells at the time of the change, each with a `columnId` and `value`, plus `dependencyStatus` and `sourceStatus` on localization columns.",
+            "recordId": "ID of the record the history entry belongs to.",
+        },
+    },
 }

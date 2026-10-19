@@ -95,7 +95,7 @@ jobs:
                         },
                         "release": "llm-gateway",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

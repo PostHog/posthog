@@ -1,20 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconChevronLeft, IconSidePanel, IconSidebarOpen } from '@posthog/icons'
-import { Button, Text } from '@posthog/quill'
+import { IconChevronLeft, IconSidePanel } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { IconShowSidebar } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { onAiPage, phoneCanGoBack } = useValues(todayShellLogic)
+    const { onAiPage, phoneCanGoBack, paneHasSidebar } = useValues(todayShellLogic)
     const { goBackOnPhone, setMobileSidebarOpen } = useActions(todayShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const [scrolled, setScrolled] = useState(false)
@@ -34,25 +35,23 @@ export function TodayPhoneHeader(): JSX.Element {
     return (
         <header className="TodayPhoneHeader" data-scrolled={scrolled} data-quill>
             {phoneCanGoBack ? (
-                <Button size="icon-lg" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
+                <Button size="icon" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
                     <IconChevronLeft />
                 </Button>
-            ) : (
+            ) : paneHasSidebar ? (
                 <Button
-                    size="icon-lg"
+                    size="icon"
                     aria-label="Open sidebar"
                     data-attr="today-phone-sidebar"
                     onClick={() => setMobileSidebarOpen(true)}
                 >
-                    <IconSidebarOpen />
+                    <IconShowSidebar />
                 </Button>
-            )}
-            <Text render={<span />} weight="semibold" className="min-w-0 flex-1 truncate">
-                {title}
-            </Text>
+            ) : null}
+            <h2 className="m-0 min-w-0 flex-1 truncate text-base font-bold text-foreground">{title}</h2>
             {!onAiPage && (
                 <Button
-                    size="icon-lg"
+                    size="icon"
                     aria-label="Open context panel"
                     data-attr="today-phone-context-panel"
                     onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}

@@ -1,17 +1,22 @@
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gorgias import (
+    GorgiasSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.gorgias import (
     GorgiasResumeConfig,
     get_base_url,
-    get_rows,
-    gorgias_source,
     normalize_domain,
     validate_credentials,
 )
@@ -19,37 +24,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.se
     ENDPOINTS,
     GORGIAS_ENDPOINTS,
 )
-
-GORGIAS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.gorgias"
-
-
-class _FakeManager(ResumableSourceManager[GorgiasResumeConfig]):
-    """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
-
-    def __init__(self, resume_cursor: str | None = None, resume_variant: int = 0) -> None:
-        self._resume_cursor = resume_cursor
-        self._resume_variant = resume_variant
-        self.saved: list[GorgiasResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._resume_cursor is not None
-
-    def load_state(self) -> GorgiasResumeConfig | None:
-        if not self._resume_cursor:
-            return None
-        return GorgiasResumeConfig(cursor=self._resume_cursor, variant=self._resume_variant)
-
-    def save_state(self, data: GorgiasResumeConfig) -> None:
-        self.saved.append(data)
+from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.source import GorgiasSource
 
 
-def _response(status_code: int = 200, json_body: dict | None = None, ok: bool = True) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = ok
-    response.json.return_value = json_body or {}
-    response.text = ""
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(GorgiasSource(), GorgiasSourceConfig(gorgias_domain="acme", email="e@acme.com", api_key="key"))
+
+
+def _page(rows: list[dict], cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": rows, "meta": {"next_cursor": cursor}})
 
 
 class TestNormalizeDomain:
@@ -94,31 +77,30 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(status_code=status_code)
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             valid, error = validate_credentials("acme", "you@acme.com", "key")
         assert valid is expected_valid
         assert (error is None) is expected_valid
+        assert network.requests_log[0].path == "/api/account"
 
     def test_empty_domain_fails_without_request(self) -> None:
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session") as mocked:
+        with scripted_network([]) as network:
             valid, error = validate_credentials("   ", "you@acme.com", "key")
         assert valid is False
         assert error is not None
-        mocked.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_unsafe_domain_fails_without_request(self) -> None:
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session") as mocked:
+        with scripted_network([]) as network:
             valid, error = validate_credentials("attacker.example.com#", "you@acme.com", "key")
         assert valid is False
         assert error is not None
-        mocked.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_connection_error_is_handled(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             valid, error = validate_credentials("acme", "you@acme.com", "key")
         assert valid is False
         assert error is not None
@@ -126,14 +108,10 @@ class TestValidateCredentials:
 
 class TestGetRows:
     def test_resumes_from_saved_cursor(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
-        manager = _FakeManager(resume_cursor="resume-token")
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager))
+        result = _driver().run("tickets", [_page([])], resume_state=GorgiasResumeConfig(cursor="resume-token"))
 
-        _, kwargs = session.get.call_args
-        assert kwargs["params"]["cursor"] == "resume-token"
+        assert result.raised is None
+        assert result.params("cursor") == ["resume-token"]
 
 
 class TestParamVariants:
@@ -145,24 +123,21 @@ class TestParamVariants:
         ]
     )
     def test_voice_endpoints_send_no_order_by(self, endpoint: str, path: str) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager()))
+        result = _driver().run(endpoint, [_page([])])
 
-        url = session.get.call_args.args[0]
-        assert url == f"https://acme.gorgias.com/api/{path}"
-        assert "order_by" not in session.get.call_args.kwargs["params"]
+        assert result.raised is None
+        assert result.paths == [f"/api/{path}"]
+        assert result.requests[0].origin == "https://acme.gorgias.com"
+        assert result.params("limit") == ["100"]
+        assert result.params("order_by") == [None]
 
 
 class TestTicketChildTables:
     def _rows(self, endpoint: str, tickets: list[dict]) -> list[dict]:
-        session = MagicMock()
-        session.get.return_value = _response(json_body={"data": tickets, "meta": {"next_cursor": None}})
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager()))
-        assert session.get.call_args.args[0] == "https://acme.gorgias.com/api/tickets"
-        return [row for batch in batches for row in batch]
+        result = _driver().run(endpoint, [_page(tickets)])
+        assert result.raised is None
+        assert result.paths == ["/api/tickets"]
+        return result.rows
 
     def test_ticket_tags_flattens_one_row_per_tag(self) -> None:
         rows = self._rows(
@@ -210,195 +185,124 @@ class TestTicketChildTables:
 
 class TestCustomerFieldValues:
     def test_fans_out_per_customer_and_skips_deleted_customers(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [
-            _response(
-                json_body={
-                    "data": [
+        result = _driver().run(
+            "customer_field_values",
+            [
+                _page(
+                    [
                         {"id": 1, "created_datetime": "2024-01-01T00:00:00"},
                         {"id": 2, "created_datetime": "2024-02-01T00:00:00"},
                         {"id": 3, "created_datetime": "2024-03-01T00:00:00"},
-                    ],
-                    "meta": {"next_cursor": None},
-                }
-            ),
-            _response(
-                json_body={
-                    "data": [
-                        {"field": {"id": 5, "label": "Plan"}, "value": "pro"},
-                        {"field": {"id": 6, "label": "Seats"}, "value": 12},
                     ]
-                }
-            ),
-            _response(status_code=404, ok=False),
-            # Some list endpoints return a bare array rather than a `data` envelope.
-            _response(json_body=[{"field": {"id": 5, "label": "Plan"}, "value": None}]),  # type: ignore[arg-type]
-        ]
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), _FakeManager()))
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"field": {"id": 5, "label": "Plan"}, "value": "pro"},
+                            {"field": {"id": 6, "label": "Seats"}, "value": 12},
+                        ]
+                    }
+                ),
+                ScriptedResponse(status=404),
+                # Some list endpoints return a bare array rather than a `data` envelope.
+                ScriptedResponse(json=[{"field": {"id": 5, "label": "Plan"}, "value": None}]),
+            ],
+        )
 
-        urls = [c.args[0] for c in session.get.call_args_list]
-        assert urls == [
-            "https://acme.gorgias.com/api/customers",
-            "https://acme.gorgias.com/api/customers/1/custom-fields",
-            "https://acme.gorgias.com/api/customers/2/custom-fields",
-            "https://acme.gorgias.com/api/customers/3/custom-fields",
+        assert result.raised is None
+        assert result.paths == [
+            "/api/customers",
+            "/api/customers/1/custom-fields",
+            "/api/customers/2/custom-fields",
+            "/api/customers/3/custom-fields",
         ]
-        rows = [row for batch in batches for row in batch]
-        assert [(r["customer_id"], r["field_id"], r["value"], r["customer_created_datetime"]) for r in rows] == [
+        assert [(r["customer_id"], r["field_id"], r["value"], r["customer_created_datetime"]) for r in result.rows] == [
             (1, 5, "pro", "2024-01-01T00:00:00"),
             (1, 6, "12", "2024-01-01T00:00:00"),
             (3, 5, None, "2024-03-01T00:00:00"),
         ]
 
     def test_child_error_other_than_404_fails_the_sync(self) -> None:
-        session = MagicMock()
-        forbidden = _response(status_code=403, ok=False)
-        forbidden.raise_for_status.side_effect = requests.HTTPError(
-            "403 Client Error: Forbidden for url", response=forbidden
-        )
-        session.get.side_effect = [
-            _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": None}}),
-            forbidden,
-        ]
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            with pytest.raises(requests.HTTPError):
-                list(get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), _FakeManager()))
+        result = _driver().run("customer_field_values", [_page([{"id": 1}]), ScriptedResponse(status=403)])
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_stages_parent_cursor_and_reaches_safe_point_on_pages_without_values(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [
-            _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": "c2"}}),
-            _response(json_body={"data": []}),
-            _response(json_body={"data": [{"id": 2}], "meta": {"next_cursor": None}}),
-            _response(json_body={"data": [{"field": {"id": 5}, "value": "x"}]}),
+        result = _driver().run(
+            "customer_field_values",
+            [
+                _page([{"id": 1}], cursor="c2"),
+                ScriptedResponse(json={"data": []}),
+                _page([{"id": 2}]),
+                ScriptedResponse(json={"data": [{"field": {"id": 5}, "value": "x"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [r["customer_id"] for r in result.rows] == [2]
+        assert result.saved_states == [
+            GorgiasResumeConfig(cursor="c2", variant=0),
+            GorgiasResumeConfig(cursor=None, variant=1),
         ]
-        manager = _FakeManager()
-        with (
-            patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session),
-            patch.object(manager, "safe_point") as safe_point,
-        ):
-            rows = get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), manager)
-            assert [r["customer_id"] for r in next(rows)] == [2]
-            assert manager.saved == [
-                GorgiasResumeConfig(cursor="c2", variant=0),
-                GorgiasResumeConfig(cursor=None, variant=1),
-            ]
-            safe_point.assert_called_once()
-            assert list(rows) == []
+        assert result.committed_states == result.saved_states
 
 
 class TestServerFilteredIncremental:
-    def _run(self, session: MagicMock, watermark: datetime | None) -> list:
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            return list(
-                get_rows(
-                    "acme",
-                    "e@acme.com",
-                    "key",
-                    "events",
-                    MagicMock(),
-                    _FakeManager(),
-                    should_use_incremental_field=True,
-                    incremental_field="created_datetime",
-                    db_incremental_field_last_value=watermark,
-                )
-            )
-
     def test_filters_from_watermark_ascending_on_every_page(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [
-            _response(
-                json_body={
-                    "data": [{"id": 1, "created_datetime": "2023-06-01T00:00:00"}],
-                    "meta": {"next_cursor": "c2"},
-                }
-            ),
-            _response(
-                json_body={
-                    "data": [{"id": 2, "created_datetime": "2023-06-02T00:00:00"}],
-                    "meta": {"next_cursor": None},
-                }
-            ),
-        ]
-        batches = self._run(session, datetime(2023, 6, 1, tzinfo=UTC))
+        result = _driver().run(
+            "events",
+            [
+                _page([{"id": 1, "created_datetime": "2023-06-01T00:00:00"}], cursor="c2"),
+                _page([{"id": 2, "created_datetime": "2023-06-02T00:00:00"}]),
+            ],
+            incremental_field="created_datetime",
+            db_incremental_field_last_value=datetime(2023, 6, 1, tzinfo=UTC),
+        )
 
-        assert [item["id"] for batch in batches for item in batch] == [1, 2]
-        params = [c.kwargs["params"] for c in session.get.call_args_list]
-        assert [(p["order_by"], p["created_datetime[gte]"], p.get("cursor")) for p in params] == [
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == [1, 2]
+        assert [
+            (r.param("order_by"), r.param("created_datetime[gte]"), r.param("cursor")) for r in result.requests
+        ] == [
             ("created_datetime:asc", "2023-06-01T00:00:00+00:00", None),
             ("created_datetime:asc", "2023-06-01T00:00:00+00:00", "c2"),
         ]
 
 
 class TestIncrementalSync:
-    def _run(self, session: MagicMock, **kwargs):
-        manager = _FakeManager()
-        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            return list(
-                get_rows(
-                    "acme",
-                    "e@acme.com",
-                    "key",
-                    "tickets",
-                    MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    incremental_field="updated_datetime",
-                    **kwargs,
-                )
-            )
-
     def test_first_incremental_sync_walks_all_pages(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [
-            _response(
-                json_body={
-                    "data": [{"id": 2, "updated_datetime": "2023-07-01T00:00:00+00:00"}],
-                    "meta": {"next_cursor": "c2"},
-                }
-            ),
-            _response(
-                json_body={
-                    "data": [{"id": 1, "updated_datetime": "2023-01-01T00:00:00+00:00"}],
-                    "meta": {"next_cursor": None},
-                }
-            ),
-        ]
-        batches = self._run(session, db_incremental_field_last_value=None)
+        result = _driver().run(
+            "tickets",
+            [
+                _page([{"id": 2, "updated_datetime": "2023-07-01T00:00:00+00:00"}], cursor="c2"),
+                _page([{"id": 1, "updated_datetime": "2023-01-01T00:00:00+00:00"}]),
+            ],
+            incremental_field="updated_datetime",
+            db_incremental_field_last_value=None,
+        )
 
-        assert [item["id"] for batch in batches for item in batch] == [2, 1]
-        assert session.get.call_count == 2
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == [2, 1]
+        assert len(result.requests) == 2
 
     def test_stops_once_page_predates_watermark(self) -> None:
         # Rows arrive newest-first; the third page is never fetched because the second
         # page is entirely older than the watermark.
-        session = MagicMock()
-        session.get.side_effect = [
-            _response(
-                json_body={
-                    "data": [{"id": 3, "updated_datetime": "2023-07-01T00:00:00+00:00"}],
-                    "meta": {"next_cursor": "c2"},
-                }
-            ),
-            _response(
-                json_body={
-                    "data": [{"id": 2, "updated_datetime": "2023-05-01T00:00:00+00:00"}],
-                    "meta": {"next_cursor": "c3"},
-                }
-            ),
-            _response(
-                json_body={
-                    "data": [{"id": 1, "updated_datetime": "2023-04-01T00:00:00+00:00"}],
-                    "meta": {"next_cursor": None},
-                }
-            ),
-        ]
-        batches = self._run(session, db_incremental_field_last_value=datetime(2023, 6, 1, tzinfo=UTC))
+        result = _driver().run(
+            "tickets",
+            [
+                _page([{"id": 3, "updated_datetime": "2023-07-01T00:00:00+00:00"}], cursor="c2"),
+                _page([{"id": 2, "updated_datetime": "2023-05-01T00:00:00+00:00"}], cursor="c3"),
+                _page([{"id": 1, "updated_datetime": "2023-04-01T00:00:00+00:00"}]),
+            ],
+            incremental_field="updated_datetime",
+            db_incremental_field_last_value=datetime(2023, 6, 1, tzinfo=UTC),
+        )
 
         # The over-the-watermark page is still yielded (merge dedupes), then we stop.
-        assert [item["id"] for batch in batches for item in batch] == [3, 2]
-        assert session.get.call_count == 2
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == [3, 2]
+        assert len(result.requests) == 2
 
 
 # Per-endpoint `order_by` enums quoted from the Gorgias API docs (the `.md` reference for
@@ -480,7 +384,10 @@ class TestApiContract:
 class TestGorgiasSource:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = gorgias_source("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager())
+        result = _driver().run(endpoint, [_page([])] * len(GORGIAS_ENDPOINTS[endpoint].param_variants))
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == list(GORGIAS_ENDPOINTS[endpoint].primary_keys)
         assert response.partition_mode == "datetime"
@@ -495,16 +402,14 @@ class TestGorgiasSource:
         ]
     )
     def test_incremental_source_response_sorts_descending(self, endpoint: str, incremental_field: str) -> None:
-        response = gorgias_source(
-            "acme",
-            "e@acme.com",
-            "key",
+        result = _driver().run(
             endpoint,
-            MagicMock(),
-            _FakeManager(),
-            should_use_incremental_field=True,
+            [_page([])],
             incremental_field=incremental_field,
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.sort_mode == "desc"
 
     def test_every_endpoint_partitions_on_created_datetime(self) -> None:

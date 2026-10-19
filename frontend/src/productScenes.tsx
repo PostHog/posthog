@@ -106,6 +106,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
     EngineeringAnalyticsPullRequest: () =>
         import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
+    EngineeringAnalyticsCIExplorer: () =>
+        import('../../products/engineering_analytics/frontend/scenes/CIExplorerScene'),
     EngineeringAnalyticsWorkflowRun: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
@@ -153,6 +155,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
     McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    MetricsDashboardReview: () => import('../../products/metrics/frontend/dashboardReview/MetricsDashboardReviewScene'),
     DecisionPlayground: () => import('../../products/ml_inference/frontend/DecisionPlaygroundScene'),
     ReusableWidget: () => import('../../products/notebooks/frontend/ReusableWidget/ReusableWidgetScene'),
     Person: () => import('../../products/persons/frontend/pages/PersonScene'),

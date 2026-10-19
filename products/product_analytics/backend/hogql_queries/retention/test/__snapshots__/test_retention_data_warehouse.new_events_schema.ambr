@@ -16,6 +16,7 @@
                arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(posthog_test_warehouse_event_mix_signups_uuid.signed_up_at, 'UTC')), and(greaterOrEquals(toTimeZone(posthog_test_warehouse_event_mix_signups_uuid.signed_up_at, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(posthog_test_warehouse_event_mix_signups_uuid.signed_up_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))) AS start_event_timestamps,
                [] AS return_event_timestamps
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-products.product_analytics.backend.hogql_queries.retention.data_warehouse/posthog_test_warehouse_event_mix_signups_uuid/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` UUID, `signed_up_at` DateTime64(3, \'UTC\')') AS posthog_test_warehouse_event_mix_signups_uuid
+        WHERE and(greaterOrEquals(posthog_test_warehouse_event_mix_signups_uuid.signed_up_at, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), less(posthog_test_warehouse_event_mix_signups_uuid.signed_up_at, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         GROUP BY actor_id
         UNION ALL SELECT toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS actor_id,
                          [] AS start_event_timestamps,
@@ -70,6 +71,7 @@
                arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(posthog_test_warehouse_event_mix_signups_string.signed_up_at, 'UTC')), and(greaterOrEquals(toTimeZone(posthog_test_warehouse_event_mix_signups_string.signed_up_at, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(posthog_test_warehouse_event_mix_signups_string.signed_up_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))) AS start_event_timestamps,
                [] AS return_event_timestamps
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-products.product_analytics.backend.hogql_queries.retention.data_warehouse/posthog_test_warehouse_event_mix_signups_string/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` String, `signed_up_at` DateTime64(3, \'UTC\')') AS posthog_test_warehouse_event_mix_signups_string
+        WHERE and(greaterOrEquals(posthog_test_warehouse_event_mix_signups_string.signed_up_at, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), less(posthog_test_warehouse_event_mix_signups_string.signed_up_at, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         GROUP BY actor_id
         UNION ALL SELECT toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS actor_id,
                          [] AS start_event_timestamps,

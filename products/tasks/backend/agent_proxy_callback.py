@@ -201,7 +201,7 @@ class AgentProxyCallbackDispatcher:
     def _turn_failed(self) -> CallbackOutcome:
         if self._load_run() is None:
             return CallbackOutcome()
-        signal_workflow_completion(self.run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+        signal_workflow_completion(self.run_id, "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error")
         return CallbackOutcome(dispatched=True)
 
     def _budget_steer(self) -> CallbackOutcome:

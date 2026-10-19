@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.billing import is_in_free_historical_window
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
@@ -32,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
+    setup_row_tracking,
     will_hit_billing_limit,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
@@ -291,6 +293,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
+def count_worker_deaths(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> int:
+    """Times a worker died on this run without raising. `report_heartbeat_timeout` records each one."""
+    try:
+        from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSchemaOOMEvent,
+        )
+
+        return (
+            ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id)
+            .filter(schema_id=inputs.schema_id, run_id=inputs.run_id)
+            .count()
+        )
+    except Exception as e:
+        # The count only makes a read more careful, so a read of it that fails must not fail the sync.
+        logger.debug(f"Could not count worker deaths for schema {inputs.schema_id}: {e}", exc_info=e)
+        return 0
+
+
 async def handle_non_retryable_error(
     team_id: int,
     source_id: str,
@@ -474,14 +494,17 @@ async def setup_row_tracking_with_billing_check(
     logger: FilteringBoundLogger,
     billable: bool | None = True,
 ) -> None:
-    if resource.rows_to_sync:
-        await increment_rows(team_id, schema.id, resource.rows_to_sync)
-        # Check billing limits against incoming rows (skip for non-billable jobs)
-        if billable and await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
-            raise BillingLimitsWillBeReachedException(
-                f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
-                f"with {resource.rows_to_sync} rows"
-            )
+    # The limit check sums these rows over every running sync in the organization. A run the check skips (a
+    # non-billable job, or a source in its free first week at the start) must stay out, or it blocks the others.
+    if not resource.rows_to_sync or not billable or is_in_free_historical_window(source.created_at):
+        return
+
+    await increment_rows(team_id, schema.id, resource.rows_to_sync)
+    if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
+        raise BillingLimitsWillBeReachedException(
+            f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
+            f"with {resource.rows_to_sync} rows"
+        )
 
 
 def reset_pipeline_requested(
@@ -769,6 +792,9 @@ async def handle_corrupted_delta_log(
     if job.billable:
         job.billable = False
         await database_sync_to_async_pool(job.save)(update_fields=["billable"])
+        # The run registered its row estimate while the job was still billable. The estimate must
+        # stop counting toward the limit check, the same as for a job that starts non-billable.
+        await setup_row_tracking(schema.team_id, schema.id)
 
     _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
     await logger.awarning(
@@ -803,7 +829,8 @@ async def update_incremental_field_values(
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
-        if (last_incremental_field_value is None) or (last_value > last_incremental_field_value):
+        last_advanced = (last_incremental_field_value is None) or (last_value > last_incremental_field_value)
+        if last_advanced:
             last_incremental_field_value = last_value
 
         if resource.sort_mode == "asc":
@@ -819,18 +846,27 @@ async def update_incremental_field_values(
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
-
-            if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
+            earliest_advanced = (
+                earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value
+            )
+            if earliest_advanced:
                 earliest_incremental_field_value = earliest_value
                 await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                if staging_run_uuid is not None:
+
+            if staging_run_uuid is not None:
+                # The high-water mark is staged with every checkpoint so a resumed attempt can inherit it
+                # (see `staged_run_last_value`). Staging is not promotion: the loader promotes the
+                # watermark only when the final batch of the run completes the job.
+                if last_advanced or earliest_advanced:
                     await database_sync_to_async_pool(schema.stage_incremental_field_value)(
-                        staging_run_uuid, None, earliest_value
+                        staging_run_uuid,
+                        last_incremental_field_value,
+                        earliest_value if earliest_advanced else None,
                     )
-                else:
-                    await database_sync_to_async_pool(schema.update_incremental_field_value)(
-                        earliest_value, type="earliest"
-                    )
+            elif earliest_advanced:
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                    earliest_value, type="earliest"
+                )
 
     return IncrementalFieldValues(
         last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value

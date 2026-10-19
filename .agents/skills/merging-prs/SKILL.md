@@ -67,6 +67,13 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 
 Confirm the required explicit user approval before running this command. If it is absent, report that the PR is ready and stop.
 
+Enqueue a PR once it passes the preflight above.
+Trunk also accepts a PR that still waits for an approval or a required check.
+It holds that PR as `Not Ready` and moves it into the queue by itself when every branch protection rule passes.
+Submit a PR that early only when the developer asks for it, for example "queue it so it goes in once it's approved".
+When the developer approves the enqueue of a PR that still waits for an approval or a check, say what it waits for and offer to submit it early, rather than submitting it on your own.
+Submit early only when the code is final: do not push to the branch while the PR waits, because the pre-push guard below does not stop a push in this state.
+
 ```bash
 trunk merge <n>
 ```
@@ -89,6 +96,7 @@ trunk merge status <n> 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tail -20
 ```
 
 The last transition should read `Pending` with "Pull request has been added to the merge queue".
+A PR submitted before its approvals or checks pass reads `Not Ready` with "It will be added to the merge queue once all branch protection rules pass" instead. It stays there until they pass, so keep watching it (step 3).
 
 **Trunk publishes no check run in this repository**, so do not look for one on the head commit.
 A predicate like `select(.name | startswith("Trunk Merge Queue"))` matches nothing and reads as "Trunk never picked it up", whatever the queue is actually doing.

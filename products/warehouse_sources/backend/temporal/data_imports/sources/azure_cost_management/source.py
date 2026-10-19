@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig, AzureCostManagementResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AZURE_COST_MANAGEMENT|AZURECOSTMANAGEMENT)_",),
+        npm=("@azure/arm-costmanagement",),
+        pypi=("azure-mgmt-costmanagement",),
+        go=("github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/costmanagement/armcostmanagement",),
+        maven=(
+            "com.azure.resourcemanager:azure-resourcemanager-costmanagement",
+            "com.azure.resourcemanager:azure-resourcemanager-consumption",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # api-version is a required query param on every Cost Management call; the resolved pin flows
     # through verbatim to `_endpoint_url`. The query/forecast/dimensions wire is identical across

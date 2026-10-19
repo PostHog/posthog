@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.direct_sql.capability import direct_capable_source_types
+from posthog.hogql.direct_sql.capability import direct_capable_source_types, direct_capable_source_types_for_team
 
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
@@ -37,7 +37,7 @@ from products.data_warehouse.backend.facade.api import (
     is_any_external_data_schema_paused,
     is_custom_source_ai_builder_enabled_for_team,
 )
-from products.warehouse_sources.backend.facade.api import validate_source_prefix
+from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -320,36 +320,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
-        # Negative statuses should ignore schemas the user has disabled — those can linger in
-        # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
-        syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
-        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in syncing_schemas)
-        any_billing_limits_reached = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in syncing_schemas
-        )
-        any_billing_limits_too_low = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in syncing_schemas
-        )
-        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
-        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
-        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
-
-        if any_failures:
-            return ExternalDataSchema.Status.FAILED
-        elif any_billing_limits_reached:
-            return "Billing limits"
-        elif any_billing_limits_too_low:
-            return "Billing limits too low"
-        elif any_paused:
-            return ExternalDataSchema.Status.PAUSED
-        elif any_running:
-            return ExternalDataSchema.Status.RUNNING
-        elif any_completed:
-            return ExternalDataSchema.Status.COMPLETED
-        else:
-            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
-            return instance.status
+        return effective_source_status(self._active_schemas(instance), fallback=instance.status)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
@@ -1157,7 +1128,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": helpers.RESERVED_SOURCE_NAME_MESSAGE},
             )
 
-        if is_direct_query and source_type not in direct_capable_source_types():
+        if is_direct_query and source_type not in direct_capable_source_types_for_team(self.team):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},

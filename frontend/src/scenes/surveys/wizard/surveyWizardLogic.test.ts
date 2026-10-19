@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -172,6 +174,49 @@ describe('surveyWizardLogic', () => {
             )
             expect(launchedIntent).toBeUndefined()
         })
+    })
+
+    describe('save errors', () => {
+        const validationDetail =
+            "Cohort 'Chat users' has an event-based condition on 'chat_message_sent' (performed_event) and cannot be used in surveys."
+
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                },
+                post: {
+                    '/api/projects/:team/surveys/': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'behavioral_cohort_found',
+                            detail: validationDetail,
+                            attr: null,
+                        },
+                    ],
+                },
+            })
+        })
+
+        test.each([['launchSurvey' as const], ['saveDraft' as const]])(
+            '%s shows the validation detail from the API',
+            async (action) => {
+                const toastError = jest.spyOn(lemonToast, 'error')
+                const logic = surveyWizardLogic({ id: 'new' })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.selectTemplate(createMockTemplate())
+                    logic.actions[action]()
+                }).toFinishAllListeners()
+
+                expect(toastError).toHaveBeenCalledWith(validationDetail)
+                toastError.mockRestore()
+            }
+        )
     })
 
     describe('wizard step navigation', () => {
@@ -346,6 +391,24 @@ describe('surveyWizardLogic', () => {
                     type: template.type,
                     questions: template.questions,
                 }),
+            })
+        })
+
+        it('should carry every intro screen field from the template appearance', async () => {
+            const logic = surveyWizardLogic({ id: 'new' })
+            logic.mount()
+            const introScreenAppearance = {
+                displayIntroScreen: true,
+                introScreenHeader: 'Help us improve',
+                introScreenDescription: '<b>One minute</b>',
+                introScreenDescriptionContentType: 'html' as const,
+                introScreenButtonText: 'Start',
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.selectTemplate({ ...createMockTemplate(), appearance: introScreenAppearance })
+            }).toMatchValues({
+                survey: expect.objectContaining({ appearance: expect.objectContaining(introScreenAppearance) }),
             })
         })
 

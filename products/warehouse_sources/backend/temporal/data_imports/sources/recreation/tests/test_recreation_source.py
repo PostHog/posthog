@@ -1,32 +1,18 @@
 from typing import Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recreation import (
     RecreationSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import RECREATION_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.source import RecreationSource
-
-
-def _source_inputs(schema_name: str) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestRecreationSource:
@@ -46,13 +32,11 @@ class TestRecreationSource:
     def test_validate_credentials_status_mapping(
         self, status_code: int, expected_valid: bool, expected_error_fragment: Optional[str]
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recreation.recreation.make_tracked_session"
-        ) as mock_session_factory:
-            mock_session_factory.return_value.get.return_value.status_code = status_code
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             valid, error = self.source.validate_credentials(self.config, team_id=1)
 
         assert valid is expected_valid
+        assert network.requests_log[0].headers["apikey"] == "test-key"
         if expected_error_fragment is None:
             assert error is None
         else:
@@ -60,11 +44,14 @@ class TestRecreationSource:
 
     @pytest.mark.parametrize("endpoint", list(RECREATION_ENDPOINTS.keys()))
     def test_source_for_pipeline_maps_endpoint_to_response(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        empty_page = ScriptedResponse(
+            json={"RECDATA": [], "METADATA": {"RESULTS": {"CURRENT_COUNT": 0, "TOTAL_COUNT": 0}}}
+        )
 
-        response = self.source.source_for_pipeline(self.config, manager, _source_inputs(endpoint))
+        result = SourceDriver(self.source, self.config).run(endpoint, [empty_page])
 
+        response = result.response
+        assert response is not None
         endpoint_config = RECREATION_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == [endpoint_config.primary_key]

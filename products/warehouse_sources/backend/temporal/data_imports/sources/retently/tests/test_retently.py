@@ -1,80 +1,36 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
-
-import pytest
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_client
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently import retently
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
+    RetentlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.retently import (
     RetentlyResumeConfig,
     _format_start_date,
-    retently_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.settings import ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource
 
 
-def _response(body: Any = None, *, status_code: int = 200, content: bytes | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = content if content is not None else json.dumps(body).encode()
-    return resp
+def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(RetentlySource(), RetentlySourceConfig(api_key="key")).run(endpoint, script, **inputs)
 
 
-def _make_manager(resume_state: RetentlyResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> MagicMock:
-        snapshots.append(dict(request.params or {}))
-        return MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _run(
-    endpoint: str,
-    responses: list[Response],
-    manager: MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], MagicMock]:
-    session = MagicMock()
-    snapshots = _wire(session, responses)
-    with patch(CLIENT_SESSION_PATCH, return_value=session):
-        response = retently_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager or _make_manager(),
-            **kwargs,
-        )
-        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
-    return rows, snapshots, session
+def _response(body: Any = None, *, status_code: int = 200, content: bytes | None = None) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body, body=content)
 
 
 class TestFormatStartDate:
@@ -103,8 +59,8 @@ class TestEnvelopeShapes:
         ]
     )
     def test_documented_envelope_shapes_yield_rows(self, _name: str, endpoint: str, body: Any, expected: list) -> None:
-        rows, _, _ = _run(endpoint, [_response(body)])
-        assert rows == expected
+        result = _run(endpoint, [_response(body)])
+        assert result.rows == expected
 
     @parameterized.expand(
         [
@@ -115,9 +71,9 @@ class TestEnvelopeShapes:
     def test_unexpected_payloads_are_retried_then_fail(self, _name: str, body: Any) -> None:
         # An unexpected 200-body shape is treated as transient: retried, and exhausting retries
         # raises rather than silently syncing garbage rows.
-        with patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):  # type: ignore[attr-defined]
-            with pytest.raises(rest_client.RESTClientRetryableError):
-                _run("feedback", [_response(body)] * 5)
+        result = _run("feedback", always(_response(body)))
+
+        assert isinstance(result.raised, rest_client.RESTClientRetryableError)
 
 
 class TestPagination:
@@ -128,19 +84,19 @@ class TestPagination:
             {"data": {"subscribers": [{"id": "1"}]}, "page": 1, "pages": 2},
             {"data": {"subscribers": [{"id": "2"}]}, "page": 2, "pages": 2},
         ]
-        rows, snapshots, _ = _run("customers", [_response(b) for b in bodies])
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert len(snapshots) == 2
+        result = _run("customers", [_response(b) for b in bodies])
+        assert [r["id"] for r in result.rows] == ["1", "2"]
+        assert len(result.requests) == 2
 
     def test_short_page_ends_loop_without_pages_metadata(self) -> None:
-        rows, snapshots, _ = _run("feedback", [_response({"data": {"responses": [{"id": "1"}]}})])
-        assert rows == [{"id": "1"}]
-        assert len(snapshots) == 1
+        result = _run("feedback", [_response({"data": {"responses": [{"id": "1"}]}})])
+        assert result.rows == [{"id": "1"}]
+        assert len(result.requests) == 1
 
     def test_empty_first_page_yields_nothing(self) -> None:
-        rows, snapshots, _ = _run("feedback", [_response({"data": {"responses": [], "page": 1, "pages": 0}})])
-        assert rows == []
-        assert len(snapshots) == 1
+        result = _run("feedback", [_response({"data": {"responses": [], "page": 1, "pages": 0}})])
+        assert result.rows == []
+        assert len(result.requests) == 1
 
     @parameterized.expand(
         [
@@ -150,23 +106,23 @@ class TestPagination:
         ]
     )
     def test_unpaginated_endpoints_make_one_request_without_page_params(self, endpoint: str, body: Any) -> None:
-        rows, snapshots, _ = _run(endpoint, [_response(body)])
-        assert len(rows) == 1
-        assert len(snapshots) == 1
-        assert "page" not in snapshots[0]
-        assert "limit" not in snapshots[0]
+        result = _run(endpoint, [_response(body)])
+        assert len(result.rows) == 1
+        assert len(result.requests) == 1
+        assert "page" not in result.requests[0].query
+        assert "limit" not in result.requests[0].query
 
 
 class TestIncremental:
     def test_start_date_sent_when_incremental(self) -> None:
-        _, snapshots, _ = _run(
+        result = _run(
             "feedback",
             [_response({"data": {"responses": [{"id": "1"}], "pages": 1}})],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
-        assert snapshots[0]["startDate"] == "2026-03-04T02:58:14Z"
-        assert snapshots[0]["sort"] == "createdDate"
+        assert result.requests[0].param("startDate") == "2026-03-04T02:58:14Z"
+        assert result.requests[0].param("sort") == "createdDate"
 
     @parameterized.expand(
         [
@@ -175,25 +131,24 @@ class TestIncremental:
         ]
     )
     def test_start_date_omitted(self, _name: str, should_use: bool, last_value: Any) -> None:
-        _, snapshots, _ = _run(
+        result = _run(
             "feedback",
             [_response({"data": {"responses": [{"id": "1"}], "pages": 1}})],
             should_use_incremental_field=should_use,
             db_incremental_field_last_value=last_value,
         )
-        assert "startDate" not in snapshots[0]
+        assert "startDate" not in result.requests[0].query
 
 
 class TestResume:
     def test_resume_starts_from_saved_page(self) -> None:
-        manager = _make_manager(RetentlyResumeConfig(page=3))
-        rows, snapshots, _ = _run(
+        result = _run(
             "feedback",
             [_response({"data": {"responses": [{"id": "9"}], "page": 3, "pages": 3}})],
-            manager=manager,
+            resume_state=RetentlyResumeConfig(page=3),
         )
-        assert rows == [{"id": "9"}]
-        assert snapshots[0]["page"] == 3
+        assert result.rows == [{"id": "9"}]
+        assert result.requests[0].param("page") == "3"
 
 
 class TestRetries:
@@ -207,16 +162,15 @@ class TestRetries:
             ("truncated_body", _response(content=b'{"data": {"responses": [')),
         ]
     )
-    def test_transient_failures_are_retried(self, _name: str, first_response: Response) -> None:
+    def test_transient_failures_are_retried(self, _name: str, first_response: ScriptedResponse) -> None:
         responses = [first_response, _response({"data": {"responses": [{"id": "1"}], "pages": 1}})]
-        with patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):  # type: ignore[attr-defined]
-            rows, _, session = _run("feedback", responses)
-        assert rows == [{"id": "1"}]
-        assert session.send.call_count == 2
+        result = _run("feedback", responses)
+        assert result.rows == [{"id": "1"}]
+        assert len(result.requests) == 2
 
     def test_auth_error_raises_immediately(self) -> None:
-        with pytest.raises(requests.HTTPError):
-            _run("feedback", [_response({"message": "Account not found"}, status_code=401)])
+        result = _run("feedback", [_response({"message": "Account not found"}, status_code=401)])
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestValidateCredentials:
@@ -229,21 +183,17 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with patch.object(retently, "make_tracked_session", return_value=session):
+        with scripted_network(always(_response({}, status_code=status_code))) as network:
             ok, message = validate_credentials("key")
         assert ok is expected_ok
         if expected_msg is None:
             assert message is None
         else:
             assert message is not None and expected_msg in message
-        assert session.get.call_args.args[0].endswith("/ping")
+        assert network.requests_log[0].path.endswith("/ping")
 
     def test_network_error_is_inconclusive_not_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(retently, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             ok, message = validate_credentials("key")
         assert ok is False
         assert message is not None and "Could not connect to Retently" in message
@@ -266,10 +216,8 @@ class TestSourceResponse:
     def test_source_response_shape(
         self, endpoint: str, primary_keys: list[str] | None, partition_key: str | None, sort_mode: str
     ) -> None:
-        with patch(CLIENT_SESSION_PATCH, return_value=MagicMock(headers={})):
-            response = retently_source(
-                api_key="key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
+        response = _run(endpoint, always(_response({}))).response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
@@ -282,8 +230,6 @@ class TestSourceResponse:
 
     @parameterized.expand(ENDPOINTS)
     def test_every_declared_endpoint_builds_a_response(self, endpoint: str) -> None:
-        with patch(CLIENT_SESSION_PATCH, return_value=MagicMock(headers={})):
-            response = retently_source(
-                api_key="key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
+        response = _run(endpoint, always(_response({}))).response
+        assert response is not None
         assert response.name == endpoint

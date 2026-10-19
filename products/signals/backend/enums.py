@@ -20,6 +20,12 @@ class ReportPriority(StrEnum):
     P4 = "P4"
 
 
+class ReportTaskActionKind(LabeledStrEnum):
+    # A report action that starts an agent run from the API. See `report_task_actions.py`.
+    GET_IT_MERGED = "get_it_merged", "Get it merged"
+    SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
+
+
 class ReportLinkKind(LabeledStrEnum):
     # How one report relates to another, written as a directed `report_link` artefact on the
     # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that
@@ -30,6 +36,13 @@ class ReportLinkKind(LabeledStrEnum):
     FOLLOW_UP_OF = "follow_up_of", "Follow-up of"
     DUPLICATE_OF = "duplicate_of", "Duplicate of"
     RECURRENCE_OF = "recurrence_of", "Recurrence of"
+
+
+class ToolPreset(LabeledStrEnum):
+    # Named tool selections a scout config can expand into a saved `allowed_mcp_tools` list.
+    # `tool_catalogue.get_scout_tool_catalogue` defines the tools behind each name.
+    READ_ONLY = "read_only", "Read only"
+    SUPPORT_NOTES = "support_notes", "Support notes"
 
 
 class SuggestedSourceProduct(LabeledStrEnum):

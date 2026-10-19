@@ -171,7 +171,7 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
-- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `reviewhog`
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `posthog-review`
   label) **only** for these runs. A human author reads their own refusal and decides what comes next.
   A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
   In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
@@ -187,6 +187,16 @@ The requester's own GitHub access is not checked; the `stamphog:write` scope and
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
+## External review evidence
+
+- `facade/review_evidence.py` is a registry of providers that stamphog owns. A product that reviews PRs and depends on stamphog (today review_hog, as PostHog Review) registers one at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports a provider's product.
+- Each provider answers per head (`pending`, `completed`, `failed`, or None). `list_in_flight_reviewer_bots` asks every provider on every wait poll and stores the answers as `run.output["review_evidence"]`. Any pending review keeps the workflow waiting within the bot-wait budget. After any wait, or when a provider reports a completed review, `refresh_review_evidence` reads the reviews, the discussion and the threads again, because the context fetch ran before the polls.
+- In the engine, any review still pending for the head is a WAIT, never an approval. Each completed review of the current head against the current merge base (`base_sha`) counts as current-head assurance in `_cap_assurance_facts` only when its `skipped_paths` is empty. The PR's `base.sha` is no match key, because it moves on every merge to the base branch. Each one gets its own line in the assurance summary and the posted verdict. Its published findings are review threads, so the unresolved-thread rule still applies to them.
+- A provider error is logged and skipped without affecting the other providers. An error, an answer for another head, and `failed` add no evidence, so stamphog reviews as it would without that provider. An error must never read as a clean review. The one exception: a provider that reported `pending` earlier in the run keeps that pending answer (marked `provider_error`), so the run ends in WAIT.
+- A WAIT has no automatic retry, and a Deep review outlasts the wait budget. So ReviewHog calls `facade/tasks.py::request_rereview_after_external_review` when a turn on a head completes or fails. The Celery task re-reviews only when the PR's latest run is COMPLETED with a WAIT verdict at that head, the head is still current, the run is not an inbox run, and every webhook gate passes again (open, payload pre-filters, trigger label unless the run was manual, author write access). It passes `revisit_wait` to `_queue_review_at_head`, so the head dedupe ignores every delivered WAIT at the head but still collapses repeated nudges into one live run. A re-run left QUEUED by a failed workflow start is restarted by the next call, and GitHub or Temporal errors retry with backoff. A nudge that arrives while the run is in flight finds no WAIT, so after a WAIT that waited on a pending review the workflow runs `rereview_after_external_review_finished`. It asks the providers once more and queues the re-review when that review has finished. A provider error keeps that review pending there too and raises, so Temporal retries the recheck. A dispatch error raises, so Temporal retries it.
+- `facade/finished_review_hooks.py` is the other direction: callbacks that hear a run's outcome. `post_verdict` calls them right after the terminal save wins, before its trailing GitHub steps, and `mark_review_failed` right after its FAILED save, before its cleanup. A superseded run, or a save that lost to a supersession, calls nothing. A callback that raises is logged and never fails the run, because the outcome is already saved and posted. The commands product registers one to post the outcome in the Slack thread that asked for the review.
+- `posthog[bot]` is deliberately not a trusted reactor. Its 👀 is a cue for people, and the review evidence replaces it for stamphog.
+
 ## Trust boundaries
 
 - Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
@@ -195,6 +205,8 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   a manager paused; that is the requested self-serve direction. A supplied value counts even when it
   matches the stored one, because the view's snapshot of the row is stale by the time the facade
   saves. The digest toggle stays at `editor`. Service credentials are refused at both levels.
+  The model default for `review_mode` is `label`, the narrow mode, so an editor turning reviews on
+  never widens them past opt-in. Do not change the default to `all` without moving that level too.
 - A sync records what the member's own GitHub token lists in the team's `StamphogInstallation`
   snapshot and creates no repo config. `add_repository` binds only a repository in that snapshot,
   taking the installation id and the connecting user from the record, never from the request.
@@ -209,8 +221,8 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
   and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
-  otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
+  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let

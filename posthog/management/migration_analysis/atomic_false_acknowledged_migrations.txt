@@ -20,6 +20,9 @@ tasks.0088_backfill_task_search_documents
 tasks.0092_backfill_task_last_activity_at
 signals.0099_backfill_first_visible_at
 tasks.0110_backfill_taskrun_origin_product
+# Drops retained loop-table foreign keys one per transaction. Re-running is safe because
+# DropForeignKey resolves only constraints that still exist.
+tasks.0139_remove_loop_models
 # Does run CONCURRENTLY, one index per sourcebatch partition, but from RunPython
 # (the partition list is only known at runtime), which the type-based check can't see.
 warehouse_sources_queue.0008_sourcebatch_superseded
@@ -43,8 +46,12 @@ posthog.1370_backfill_taggeditem_generic_pointer
 # selects reports that still hold no cached judgment, and each value is recomputed from the
 # artefact log.
 signals.0154_backfill_report_actionability
+# Adds notebook:write to scout config grants in id-ordered batches, so no single transaction locks
+# every config. Re-running is a no-op: a config that already holds the scope is skipped.
+signals.0177_backfill_scout_notebook_write
 # Drops the 13 legacy tagged item foreign keys one per transaction, so each drop locks one busy parent and
 # the child instead of all 14 tables at once. Re-running is a no-op: DropForeignKey reads what is left from pg_constraint.
 posthog.1383_taggeditem_untrack_legacy_keys
 ee.0064_split_identity_provider_config_scopes
 conversations.0076_tag_legacy_conversation_attachments
+posthog.1398_remove_userproductlist_state

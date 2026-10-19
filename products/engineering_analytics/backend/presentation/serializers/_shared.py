@@ -1,11 +1,11 @@
 """Serializers shared across domain modules, and their own leaves."""
 
-from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import CIFailureLogLine, CIJobFailureLog, RepoRef
 
 
-class RepoRefSerializer(LabeledChoicesDataclassSerializer):
+class RepoRefSerializer(DataclassSerializer):
     class Meta:
         dataclass = RepoRef
         extra_kwargs = {
@@ -15,7 +15,7 @@ class RepoRefSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class CIFailureLogLineSerializer(LabeledChoicesDataclassSerializer):
+class CIFailureLogLineSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIFailureLogLine
         extra_kwargs = {
@@ -28,7 +28,7 @@ class CIFailureLogLineSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class CIJobFailureLogSerializer(LabeledChoicesDataclassSerializer):
+class CIJobFailureLogSerializer(DataclassSerializer):
     lines = CIFailureLogLineSerializer(
         many=True, help_text="The thinned failure-log lines in original order, with omission markers."
     )

@@ -6,12 +6,15 @@ import {
 } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
-import { healthPanelFindings } from './healthPanelFindings'
+import { healthIssues, healthPanelFindings } from './healthPanelFindings'
 
-const serverFinding = (code: ExperimentHealthFindingApi['code']): ExperimentHealthFindingApi => ({
+const serverFinding = (
+    code: ExperimentHealthFindingApi['code'],
+    severity: ExperimentHealthFindingApi['severity'] = 'warning'
+): ExperimentHealthFindingApi => ({
     code,
     subcode: null,
-    severity: 'warning',
+    severity,
     title: code,
     detail: code,
     evidence: {},
@@ -78,6 +81,15 @@ describe('healthPanelFindings', () => {
             expected: ['flag_live_before_launch'],
         },
         {
+            name: 'an info finding sorts below the warnings of both sources',
+            health: {
+                findings: [serverFinding('forced_variant_release_condition', 'info'), serverFinding('no_metric')],
+            },
+            exposures: UNEVEN_EXPOSURES,
+            isExperimentDraft: false,
+            expected: ['no_metric', 'srm', 'bias_risk_multiple_excluded', 'forced_variant_release_condition'],
+        },
+        {
             name: 'a code the experiment read sent is not added again from the exposure answer',
             health: { findings: [serverFinding('bias_risk_multiple_excluded')] },
             exposures: UNEVEN_EXPOSURES,
@@ -88,5 +100,20 @@ describe('healthPanelFindings', () => {
         expect(healthPanelFindings(health, exposures, isExperimentDraft)?.map(({ code }) => code) ?? null).toEqual(
             expected
         )
+    })
+
+    test.each<{ name: string; findings: ExperimentHealthFindingApi[]; expected: string[] }>([
+        {
+            name: 'the chip counts no info finding',
+            findings: [serverFinding('forced_variant_release_condition', 'info')],
+            expected: [],
+        },
+        {
+            name: 'the chip counts warnings next to an info finding',
+            findings: [serverFinding('forced_variant_release_condition', 'info'), serverFinding('no_metric')],
+            expected: ['no_metric'],
+        },
+    ])('$name', ({ findings, expected }) => {
+        expect(healthIssues(healthPanelFindings({ findings }, null, false)).map(({ code }) => code)).toEqual(expected)
     })
 })

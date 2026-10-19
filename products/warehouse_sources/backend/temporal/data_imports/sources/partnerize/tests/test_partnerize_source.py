@@ -1,11 +1,18 @@
-import pytest
+from base64 import b64encode
+
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerize import (
     PartnerizeSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.partnerize import DEFAULT_START_DATE
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source import PartnerizeSource
 
 INCREMENTAL_ENDPOINTS = {"conversions", "clicks"}
@@ -55,16 +62,18 @@ class TestPartnerizeSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source.validate_credentials"
-    )
-    def test_validate_credentials_delegates_with_config_values(self, mock_validate: mock.MagicMock) -> None:
+    def test_validate_credentials_delegates_with_config_values(self) -> None:
         # The status-to-message mapping lives in partnerize.validate_credentials; here we only assert
         # the source probes with the configured credentials and returns the delegate's verdict.
-        mock_validate.return_value = (False, "Invalid Partnerize API credentials")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("app-key", "api-key", "111111l92")
-        assert result == (False, "Invalid Partnerize API credentials")
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id)
+
+        assert result == (
+            False,
+            "Invalid Partnerize API credentials. Check your user application key and user API key.",
+        )
+        assert [request.path for request in network.requests_log] == ["/user/publisher/111111l92"]
+        assert network.requests_log[0].headers["authorization"] == f"Basic {b64encode(b'app-key:api-key').decode()}"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source.partnerize_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -88,20 +97,19 @@ class TestPartnerizeSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-05-01 12:00:00"
         assert kwargs["incremental_field"] == "conversion_time"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source.partnerize_source")
-    def test_source_for_pipeline_drops_watermark_for_full_refresh(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "conversions"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-05-01 12:00:00"
+    def test_source_for_pipeline_drops_watermark_for_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "conversions",
+            [ScriptedResponse(json={"conversions": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2024-05-01 12:00:00",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("start_date") == [DEFAULT_START_DATE]
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Partnerize schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Partnerize schema 'not_a_table'"

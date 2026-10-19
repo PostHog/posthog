@@ -135,6 +135,8 @@ export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegEx
 export const dashboardsCreateBodyRestrictionLevelMin = 21
 export const dashboardsCreateBodyRestrictionLevelMax = 21
 
+export const dashboardsCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = /* @__PURE__ */ zod
@@ -214,6 +216,12 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
         use_template: zod
             .string()
             .optional()
@@ -227,20 +235,13 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
-    level: zod
-        .union([zod.literal(21), zod.literal(37)])
-        .describe(
-            '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-        ),
-    user_uuid: zod.uuid(),
-})
-
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsUpdateBodyRestrictionLevelMin = 21
 export const dashboardsUpdateBodyRestrictionLevelMax = 21
+
+export const dashboardsUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsUpdateBodyDeleteInsightsDefault = false
 
@@ -321,6 +322,12 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
         use_template: zod
             .string()
             .optional()
@@ -340,6 +347,8 @@ export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = ne
 export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
 export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
 
+export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
 
@@ -353,6 +362,8 @@ export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax = 11
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin = 0
 
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax = 12
+
+export const dashboardsPartialUpdateBodyTilesItemGroupKeyMax = 100
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneNotebookShortIdOneMax = 128
 
@@ -517,6 +528,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
         tiles: zod
             .array(
                 zod.object({
@@ -576,6 +593,24 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe(
                             "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard."
+                        ),
+                    group_key: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyTilesItemGroupKeyMax)
+                        .nullish()
+                        .describe(
+                            "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+                        ),
+                    badge: zod
+                        .union([
+                            zod
+                                .enum(['winner', 'cheeky-hog'])
+                                .describe('\* `winner` - Winner\n\* `cheeky-hog` - Cheeky hog'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.\n\n\* `winner` - Winner\n\* `cheeky-hog` - Cheeky hog'
                         ),
                     widget: zod
                         .object({
@@ -685,6 +720,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -768,6 +804,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 'in',
                                                                 'not_in',
                                                                 'is_cleaned_path_exact',
+                                                                'is_cleaned_path_not_exact',
                                                                 'flag_evaluates_to',
                                                                 'semver_eq',
                                                                 'semver_neq',
@@ -881,6 +918,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -911,7 +949,14 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Maximum number of issues to return.'),
                                         orderBy: zod
-                                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                            .enum([
+                                                'last_seen',
+                                                'first_seen',
+                                                'occurrences',
+                                                'users',
+                                                'sessions',
+                                                'severity',
+                                            ])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault
                                             )
@@ -1008,6 +1053,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1720,6 +1766,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1799,6 +1846,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1930,6 +1978,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -1958,7 +2007,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault)
                                     .describe('Maximum number of issues to return.'),
                                 orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault)
                                     .describe('Issue ranking column.'),
                                 orderDirection: zod
@@ -2062,6 +2111,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                     'in',
                                                     'not_in',
                                                     'is_cleaned_path_exact',
+                                                    'is_cleaned_path_not_exact',
                                                     'flag_evaluates_to',
                                                     'semver_eq',
                                                     'semver_neq',
@@ -2446,6 +2496,25 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
     .describe('OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.')
 
 /**
+ * Soft-delete up to 100 dashboards. Optionally delete insights with no remaining dashboard. Report missing or inaccessible dashboards as skipped.
+ */
+
+export const dashboardsBulkDeleteCreateBodyIdsMax = 100
+
+export const dashboardsBulkDeleteCreateBodyDeleteInsightsDefault = false
+
+export const DashboardsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(dashboardsBulkDeleteCreateBodyIdsMax)
+        .describe('Dashboard IDs to soft-delete. At most 100 IDs per request.'),
+    delete_insights: zod
+        .boolean()
+        .default(dashboardsBulkDeleteCreateBodyDeleteInsightsDefault)
+        .describe('Also delete insights that have no remaining dashboard after deletion. Defaults to false.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —
@@ -2492,6 +2561,8 @@ export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400
 export const dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
     '^preset-[1-9][0-9]\*$'
 )
+export const dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
@@ -2572,6 +2643,12 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
         use_template: zod
             .string()
             .optional()
@@ -2595,6 +2672,8 @@ export const dashboardsCreateUnlistedDashboardCreateBodyNameMax = 400
 export const dashboardsCreateUnlistedDashboardCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
     '^preset-[1-9][0-9]\*$'
 )
+export const dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
@@ -2674,6 +2753,12 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
             ),
         use_template: zod
             .string()

@@ -11,9 +11,9 @@ import { cn } from 'lib/utils/css-classes'
 
 import { SidePanelTab } from '~/types'
 
-import { SIDE_PANEL_TABS } from './SidePanel'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { SIDE_PANEL_TABS } from './sidePanelTabs'
 
 interface SidePanelNavigationProps {
     activeTab: SidePanelTab
@@ -23,7 +23,9 @@ interface SidePanelNavigationProps {
 
 export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePanelNavigationProps): JSX.Element {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { visibleTabs } = useValues(sidePanelLogic)
+    const { visibleTabs, deprecatedTabs } = useValues(sidePanelLogic)
+    // The first deprecated tab takes the auto margin, which pushes it and the rest to the far end.
+    const firstDeprecatedTab = visibleTabs.find((tab) => deprecatedTabs.includes(tab))
 
     return (
         <Tabs.Root
@@ -39,7 +41,15 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                 {visibleTabs.map((tab) => {
                     const { Icon, label } = SIDE_PANEL_TABS[tab]!
                     return (
-                        <Tooltip key={tab} title={label} delayMs={100}>
+                        <Tooltip
+                            key={tab}
+                            title={
+                                deprecatedTabs.includes(tab)
+                                    ? `${label} (moving to the menus next to the page title)`
+                                    : label
+                            }
+                            delayMs={100}
+                        >
                             <Tabs.Tab
                                 value={tab}
                                 render={(props) => (
@@ -47,7 +57,11 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                         {...props}
                                         onClick={() => openSidePanel(tab as SidePanelTab)}
                                         data-attr={`context-panel-tab-${tab}`}
-                                        className="size-[33px] @[660px]/side-panel:w-auto hover:bg-transparent group justify-center @[660px]/side-panel:justify-normal"
+                                        className={cn(
+                                            'size-[33px] @[660px]/side-panel:w-auto hover:bg-transparent group justify-center @[660px]/side-panel:justify-normal',
+                                            deprecatedTabs.includes(tab) && 'opacity-50 hover:opacity-100',
+                                            tab === firstDeprecatedTab && 'ml-auto'
+                                        )}
                                     >
                                         {tab === SidePanelTab.Max ? (
                                             <IconSparkles
@@ -92,7 +106,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     }
                     tooltipPlacement="bottom-end"
                     iconOnly
-                    className="group size-[33px] ml-auto"
+                    className={cn('group size-[33px]', !firstDeprecatedTab && 'ml-auto')}
                 >
                     <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                 </ButtonPrimitive>

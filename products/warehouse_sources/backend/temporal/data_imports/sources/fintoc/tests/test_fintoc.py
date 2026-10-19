@@ -12,8 +12,7 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 from requests import HTTPError, PreparedRequest
 
-from posthog.cdp.validation import compile_hog
-
+from products.cdp.backend.validation import compile_hog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )

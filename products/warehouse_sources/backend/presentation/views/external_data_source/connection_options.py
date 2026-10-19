@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any, cast
 
 from django.db.models import Q
@@ -12,7 +13,7 @@ from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.direct_sql.capability import direct_capable_source_types
+from posthog.hogql.direct_sql.capability import direct_capable_source_types, direct_capable_source_types_for_team
 
 from posthog.api.utils import action
 from posthog.models.user import User
@@ -88,11 +89,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Default database schema used to group tables in the SQL editor.",
     )
-    engine = serializers.ChoiceField(
-        source="connection_metadata.engine",
-        read_only=True,
-        allow_null=True,
-        choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES,
+    engine = serializers.SerializerMethodField(
         help_text="Backend engine detected for the direct connection.",
     )
     source_type = serializers.ChoiceField(
@@ -116,6 +113,21 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User-set description of the source, shown as its display name in the connection picker when set.",
     )
+
+    @extend_schema_field(serializers.ChoiceField(choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES, allow_null=True))
+    def get_engine(self, source: ExternalDataSource) -> str | None:
+        if source.is_dynamic_managed_warehouse and self._managed_trino_enabled:
+            return "trino"
+        metadata = source.connection_metadata
+        return metadata.get("engine") if isinstance(metadata, dict) else None
+
+    @cached_property
+    def _managed_trino_enabled(self) -> bool:
+        from products.managed_warehouse.backend.facade.sql_editor import (
+            managed_warehouse_sql_editor_uses_trino,  # noqa: PLC0415 -- flag evaluation is optional during startup
+        )
+
+        return managed_warehouse_sql_editor_uses_trino(self.context["team"].organization_id)
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:
@@ -230,7 +242,10 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         serializer = ExternalDataSourceConnectionOptionSerializer(
             options,
             many=True,
-            context={"builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None},
+            context={
+                "builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None,
+                "team": self.team,
+            },
         )
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
@@ -240,7 +255,7 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         """Source types the user can add as a direct connection, driven by the direct-SQL capability
         surface so the picker never drifts from the engines we actually support."""
         with tracer.start_as_current_span("warehouse_sources.direct_connection_options.catalog"):
-            direct_types = direct_capable_source_types()
+            direct_types = direct_capable_source_types_for_team(self.team)
             configs = build_source_configs(include_tables=False)
         options = [
             {

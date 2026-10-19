@@ -70,8 +70,44 @@ import type { MetricsChartSeries } from './metricsSeries'
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95']
+export type HistogramQuantileAggregation = 'histogram_p50' | 'histogram_p95' | 'histogram_p99'
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | HistogramQuantileAggregation
+export const METRIC_AGGREGATIONS: MetricAggregation[] = [
+    'sum',
+    'avg',
+    'count',
+    'min',
+    'max',
+    'p95',
+    'histogram_p50',
+    'histogram_p95',
+    'histogram_p99',
+]
+
+/** Viewer shorthands for the API's `histogram_quantile`, which reads the bucket distribution. */
+const HISTOGRAM_QUANTILES: Record<HistogramQuantileAggregation, number> = {
+    histogram_p50: 0.5,
+    histogram_p95: 0.95,
+    histogram_p99: 0.99,
+}
+export const DEFAULT_HISTOGRAM_AGGREGATION: HistogramQuantileAggregation = 'histogram_p95'
+
+export const isHistogramQuantileAggregation = (
+    aggregation: string | null
+): aggregation is HistogramQuantileAggregation =>
+    !!aggregation && Object.prototype.hasOwnProperty.call(HISTOGRAM_QUANTILES, aggregation)
+
+const histogramQuantileFields = (
+    aggregation: HistogramQuantileAggregation
+): { aggregation: 'histogram_quantile'; quantile: number } => ({
+    aggregation: 'histogram_quantile',
+    quantile: HISTOGRAM_QUANTILES[aggregation],
+})
+
+const histogramAggregationForQuantile = (quantile: number | undefined): HistogramQuantileAggregation | null =>
+    (Object.keys(HISTOGRAM_QUANTILES) as HistogramQuantileAggregation[]).find(
+        (aggregation) => HISTOGRAM_QUANTILES[aggregation] === quantile
+    ) ?? null
 
 /** Applied to each series before any aggregation, like `rate()` and `increase()` in PromQL. */
 export type MetricRangeFunction = 'rate' | 'increase'
@@ -129,7 +165,10 @@ export interface MetricsViewerClauseBackfill {
 
 // Request-body slices the viewer assembles; the window fields are added at fetch time.
 export type MetricsQueryRequestBody = Pick<_MetricQueryBodyApi, 'clauses' | 'formula' | 'interval'>
-export type MetricsAnomalyRequestBody = Pick<_MetricAnomalyBodyApi, 'metricName' | 'aggregation' | 'filters'>
+export type MetricsAnomalyRequestBody = Pick<
+    _MetricAnomalyBodyApi,
+    'metricName' | 'aggregation' | 'quantile' | 'filters'
+>
 
 // Mirrors the backend's MAX_CLAUSES_PER_QUERY.
 export const MAX_CLAUSES = 10
@@ -191,6 +230,24 @@ const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
     OtelMetricTypeEnumApi.ExponentialHistogram,
     OtelMetricTypeEnumApi.Summary,
 ]
+// Ingest keeps these types' bucket distribution apart from the scalar value, which holds the running
+// sum of observations. Exponential histograms are left out: ingest stores each bucket's lower edge,
+// and the backend quantile reads every bound as an upper edge.
+const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [OtelMetricTypeEnumApi.Histogram]
+
+export const supportsHistogramQuantile = (metricType: OtelMetricTypeEnumApi | null): boolean =>
+    !!metricType && HISTOGRAM_QUANTILE_METRIC_TYPES.includes(metricType)
+
+// The backend rejects histogram_quantile together with a range function, so a clause with a range
+// function never defaults to a histogram percentile.
+const defaultsToHistogramQuantile = (
+    metricType: OtelMetricTypeEnumApi | null,
+    rangeFunction: MetricRangeFunction | null
+): boolean => !rangeFunction && supportsHistogramQuantile(metricType)
+
+// Grouping needs an aggregation to combine series, so a grouped clause falls back to sum, not to none.
+const fallbackAggregation = (groupByKeys: string[]): MetricAggregation | null => (groupByKeys.length ? 'sum' : null)
+
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -293,12 +350,25 @@ export const nodeAggregationFields = (
     if (!aggregation) {
         return {}
     }
-    return aggregation === 'p95' ? { aggregation: 'quantile', quantile: 0.95 } : { aggregation }
+    if (aggregation === 'p95') {
+        return { aggregation: 'quantile', quantile: 0.95 }
+    }
+    return isHistogramQuantileAggregation(aggregation) ? histogramQuantileFields(aggregation) : { aggregation }
 }
 
 /** Inverse of `nodeAggregationFields`, for reading a saved node back in viewer vocabulary. */
-export const viewerAggregationFromNode = (aggregation: MetricsQueryClause['aggregation'] | undefined): string | null =>
-    aggregation === 'quantile' ? 'p95' : (aggregation ?? null)
+export const viewerAggregationFromNode = (
+    aggregation: MetricsQueryClause['aggregation'] | undefined,
+    quantile?: number
+): string | null => {
+    if (aggregation === 'quantile') {
+        return 'p95'
+    }
+    if (aggregation === 'histogram_quantile') {
+        return histogramAggregationForQuantile(quantile) ?? aggregation
+    }
+    return aggregation ?? null
+}
 
 const clauseWithoutAggregation = (clause: MetricsViewerClause): Omit<_MetricClauseApi, 'aggregation'> => {
     const filters = metricFiltersForGroup(clause.filterGroup)
@@ -317,7 +387,9 @@ const clauseWithoutAggregation = (clause: MetricsViewerClause): Omit<_MetricClau
 // The REST API defaults a missing aggregation to 'sum', so a clause without one sends 'none' explicitly.
 const clauseToApiClause = (clause: MetricsViewerClause): _MetricClauseApi => ({
     ...clauseWithoutAggregation(clause),
-    aggregation: clause.aggregation ?? 'none',
+    ...(isHistogramQuantileAggregation(clause.aggregation)
+        ? histogramQuantileFields(clause.aggregation)
+        : { aggregation: clause.aggregation ?? 'none' }),
 })
 
 // Built from the same base as the API clause so a new clause field cannot reach one payload and
@@ -401,7 +473,9 @@ export const isBuilderCompatibleQuery = (query: MetricsQuery): boolean =>
             (!clause.aggregation ||
                 isMetricAggregation(clause.aggregation) ||
                 isMetricRangeFunction(clause.aggregation) ||
-                (clause.aggregation === 'quantile' && clause.quantile === 0.95)) &&
+                (clause.aggregation === 'quantile' && clause.quantile === 0.95) ||
+                (clause.aggregation === 'histogram_quantile' &&
+                    histogramAggregationForQuantile(clause.quantile) !== null)) &&
             (clause.filters ?? []).every((filter) => isAutoScope(filter.scope)) &&
             (clause.groupBy ?? []).every((groupBy) => isAutoScope(groupBy.scope))
     )
@@ -409,7 +483,7 @@ export const isBuilderCompatibleQuery = (query: MetricsQuery): boolean =>
 const viewerClauseFromNode = (clause: MetricsQueryClause): MetricsViewerClause => {
     // Saved queries predating range functions hold `rate` or `increase` as the aggregation.
     const legacy = splitLegacyAggregation(clause.aggregation)
-    const aggregation = legacy.aggregation ?? viewerAggregationFromNode(clause.aggregation)
+    const aggregation = legacy.aggregation ?? viewerAggregationFromNode(clause.aggregation, clause.quantile)
     return {
         name: clause.name,
         metricName: clause.metricName,
@@ -527,17 +601,18 @@ export interface metricsViewerLogicValues {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface metricsViewerLogicActions {
     loadItemsSuccess: (
-        items: _MetricPickerNameApi[],
-        payload?:
-            | {
-                  debounce: boolean
-              }
-            | undefined
+        fullItems: _MetricPickerNameApi[],
+        payload?: void | undefined
     ) => {
-        items: _MetricPickerNameApi[]
-        payload?: {
-            debounce: boolean
-        }
+        fullItems: _MetricPickerNameApi[]
+        payload?: void | undefined
+    } // metricNamePickerLogic
+    searchItemsSuccess: (
+        searchedItems: _MetricPickerNameApi[],
+        payload?: void | undefined
+    ) => {
+        payload?: void | undefined
+        searchedItems: _MetricPickerNameApi[]
     } // metricNamePickerLogic
     setServices: (services: string[]) => {
         services: string[]
@@ -859,7 +934,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             metricNamePickerLogic,
             ['items', 'services as pickerServices'],
         ],
-        actions: [metricNamePickerLogic, ['loadItemsSuccess', 'setServices']],
+        actions: [metricNamePickerLogic, ['loadItemsSuccess', 'searchItemsSuccess', 'setServices']],
     })),
     actions({
         // The single-clause setters target the active clause, so everything that
@@ -951,20 +1026,57 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 // picker list arrives later). Not derived from the picker's `items` —
                 // those are live search results, so typing a new search would wipe a
                 // derived value and queries/saves would silently go untyped.
+                // A histogram's scalar value is the running sum of observations, so a histogram clause
+                // without operations charts a bucket percentile instead. A type without buckets cannot
+                // keep a histogram percentile.
                 setSelectedMetricType: (state, { metricType }) =>
-                    withActiveClause(state, (clause) => ({ ...clause, selectedMetricType: metricType })),
+                    withActiveClause(state, (clause) => {
+                        if (metricType === clause.selectedMetricType) {
+                            return clause
+                        }
+                        let aggregation = clause.aggregation
+                        if (!aggregation && defaultsToHistogramQuantile(metricType, clause.rangeFunction)) {
+                            aggregation = DEFAULT_HISTOGRAM_AGGREGATION
+                        } else if (
+                            isHistogramQuantileAggregation(aggregation) &&
+                            !supportsHistogramQuantile(metricType)
+                        ) {
+                            aggregation = fallbackAggregation(clause.groupByKeys)
+                        }
+                        return { ...clause, selectedMetricType: metricType, aggregation }
+                    }),
+                // The backend cannot apply a histogram percentile after a range function, so the later
+                // of the two picks replaces the other.
                 setAggregation: (state, { aggregation }) =>
                     // Without an aggregation there is nothing to split by.
                     withActiveClause(state, (clause) => ({
                         ...clause,
                         aggregation,
+                        rangeFunction: isHistogramQuantileAggregation(aggregation) ? null : clause.rangeFunction,
                         groupByKeys: aggregation ? clause.groupByKeys : [],
                     })),
                 setRangeFunction: (state, { rangeFunction }) =>
-                    withActiveClause(state, (clause) => ({ ...clause, rangeFunction })),
+                    withActiveClause(state, (clause) => ({
+                        ...clause,
+                        rangeFunction,
+                        aggregation:
+                            rangeFunction && isHistogramQuantileAggregation(clause.aggregation)
+                                ? fallbackAggregation(clause.groupByKeys)
+                                : clause.aggregation,
+                    })),
                 // Attribute keys to split the clause into one series each (e.g. ['service.name', 'env']).
+                // Grouping needs an aggregation to combine series, so a clause without one gets a default.
                 setGroupByKeys: (state, { groupByKeys }) =>
-                    withActiveClause(state, (clause) => ({ ...clause, groupByKeys })),
+                    withActiveClause(state, (clause) => ({
+                        ...clause,
+                        groupByKeys,
+                        aggregation:
+                            clause.aggregation ??
+                            (groupByKeys.length &&
+                            defaultsToHistogramQuantile(clause.selectedMetricType, clause.rangeFunction)
+                                ? DEFAULT_HISTOGRAM_AGGREGATION
+                                : fallbackAggregation(groupByKeys)),
+                    })),
                 // The clause's UniversalFilters group; converted into backend matchers by `metricFiltersForGroup`.
                 setFilterGroup: (state, { filterGroup }) =>
                     withActiveClause(state, (clause) => ({ ...clause, filterGroup })),
@@ -1283,6 +1395,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
             },
             loadItemsSuccess: backfillClauseTypes,
+            searchItemsSuccess: backfillClauseTypes,
             // A URL restore replaces every clause at once and never ran the pick-time
             // latch, so it needs the same backfill against whatever the picker has.
             setClauses: () => {
@@ -1412,6 +1525,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             points: series.points,
                             metric_name: series.metricName ?? null,
                             clause: series.clause ?? null,
+                            unit: series.unit ?? null,
                         }))
                     }
                     const queryPayload = values.queryPayload
@@ -1619,7 +1733,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 const filters = metricFiltersForGroup(clause.filterGroup)
                 return {
                     metricName: clause.metricName.trim(),
-                    aggregation,
+                    ...(isHistogramQuantileAggregation(aggregation)
+                        ? histogramQuantileFields(aggregation)
+                        : { aggregation }),
                     ...(filters.length ? { filters } : {}),
                 }
             },
@@ -1798,7 +1914,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         // All series rendered as chart lines (a group-by query returns one series per label combination).
-        // `MetricsSeriesChart` owns naming and colors; this only bridges the API's snake_case fields.
+        // `MetricsPanel` owns naming, colors and unit resolution; this only bridges the API's snake_case fields.
         chartSeries: [
             (s) => [s.queryResults],
             (results: MetricsViewerSeries[]): MetricsChartSeries[] =>
@@ -1807,6 +1923,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     points: series.points,
                     metricName: series.metric_name,
                     clause: series.clause,
+                    unit: series.unit,
                 })),
         ],
         // Whether the chart has anything to draw. A query can return series with no points

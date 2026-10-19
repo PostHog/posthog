@@ -503,6 +503,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 description="Only return canvases whose name or description contains this text (case-insensitive).",
             ),
             OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                required=False,
+                description="Only return canvases created by the user with this UUID.",
+            ),
+            OpenApiParameter(
                 "ordering",
                 OpenApiTypes.STR,
                 required=False,
@@ -518,6 +524,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             "channel_id": request.query_params.get("channel"),
             "kind": request.query_params.get("kind"),
             "search": request.query_params.get("search"),
+            "created_by": request.query_params.get("created_by"),
             # Service credentials skip access-control filtering, as the model viewset list did.
             "user_access_control": None if is_service_auth(request) else self.user_access_control,
             "include_all_if_admin": request.query_params.get("admin_include_all") == "true",
@@ -1971,6 +1978,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         parameters=[CanvasStateQuerySerializer],
         responses={
             200: CanvasStateResponseSerializer,
+            400: OpenApiResponse(description="Invalid query, or a malformed cursor."),
             403: OpenApiResponse(description="Canvas state requires an authenticated user."),
         },
     )
@@ -1987,9 +1995,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return _state_rejection()
         query = CanvasStateQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        result = canvas_api.read_state(
-            self.team_id, user.id, canvas.id, canvas.head_capabilities, **query.validated_data
-        )
+        try:
+            result = canvas_api.read_state(
+                self.team_id, user.id, canvas.id, canvas.head_capabilities, **query.validated_data
+            )
+        except CanvasRequestRejected as rejection:
+            return Response(rejection.body, status=rejection.status_code)
         return Response(CanvasStateResponseSerializer(result).data)
 
     @extend_schema(

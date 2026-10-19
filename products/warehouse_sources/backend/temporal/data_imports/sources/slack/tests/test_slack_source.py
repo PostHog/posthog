@@ -54,8 +54,8 @@ class TestSlackSourceValidateCredentials:
 
     @parameterized.expand(
         [
-            # A valid token that only lacks scopes must guide a re-auth, not read as "invalid".
-            ("missing_scope", "missing_scope", "missing required scopes"),
+            # A valid token that only lacks scopes must point at the app's scopes, not read as "invalid".
+            ("missing_scope", "missing_scope", "Add the bot scopes from the setup manifest"),
             ("invalid_auth", "invalid_auth", "token is invalid"),
             ("token_revoked", "token_revoked", "revoked"),
             # An unmapped Slack error still surfaces the specific code rather than a generic string.

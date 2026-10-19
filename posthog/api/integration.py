@@ -51,6 +51,7 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
@@ -308,6 +309,11 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+    reply_to = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        help_text="Reply-to address for emails from this sender when the email step sets none. Blank clears it.",
+    )
 
     def validate_email(self, value: str) -> str:
         return value.lower()
@@ -777,7 +783,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     def get_installation_status(self, obj: Integration) -> str | None:
         if obj.kind != "github":
             return None
-        return "unavailable" if GitHubIntegration(obj).installation_unavailable() else "connected"
+        return (
+            "unavailable"
+            if GitHubIntegration(obj, source="integrations_api", priority=Priority.NORMAL).installation_unavailable()
+            else "connected"
+        )
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
@@ -2334,7 +2344,12 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
-        return Response(github_repos_page(GitHubIntegration(instance), query_serializer.validated_data))
+        return Response(
+            github_repos_page(
+                GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL),
+                query_serializer.validated_data,
+            )
+        )
 
     @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="github_assignees")
@@ -2347,7 +2362,9 @@ class IntegrationViewSet(
             raise ValidationError("github_assignees endpoint is only supported for GitHub integrations")
         query = query_serializer.validated_data
         return assignees_response(
-            lambda: GitHubIntegration(instance).list_assignees(query["repository"], query["search"])
+            lambda: GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL).list_assignees(
+                query["repository"], query["search"]
+            )
         )
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
@@ -2516,7 +2533,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
-        github = GitHubIntegration(instance)
+        github = GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL)
         try:
             repositories = github.sync_repository_cache(
                 min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
@@ -2550,7 +2567,7 @@ class IntegrationViewSet(
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        github = GitHubIntegration(self.get_object())
+        github = GitHubIntegration(self.get_object(), source="integrations_api", priority=Priority.CRITICAL)
         try:
             teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
         except GitHubIntegrationError as err:
@@ -2580,7 +2597,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
-        github = GitHubIntegration(instance)
+        github = GitHubIntegration(instance, source="github_branch_picker", priority=Priority.CRITICAL)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,
@@ -2770,7 +2787,7 @@ class IntegrationViewSet(
         instances = page if page is not None else list(queryset)
         for instance in instances:
             if instance.kind == "github":
-                GitHubIntegration(instance).ensure_account_name()
+                GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         # One grouped lookup for the whole page instead of an `exists()` per row, so
         # `installation_shared` stays a fixed one query however many GitHub rows there are.
         reference_counts = GitHubIntegration.installation_reference_counts(
@@ -2795,5 +2812,5 @@ class IntegrationViewSet(
         # second query and permission check for the row already in hand.
         instance = self.get_object()
         if instance.kind == "github":
-            GitHubIntegration(instance).ensure_account_name()
+            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         return Response(self.get_serializer(instance).data)

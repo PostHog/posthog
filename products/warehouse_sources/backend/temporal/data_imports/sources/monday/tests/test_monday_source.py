@@ -1,10 +1,11 @@
-from collections.abc import Iterable
-from typing import Any, cast
-
 import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
     MONDAY_VERSION_2026_07,
@@ -65,13 +66,13 @@ class TestMondaySource:
             (None, "2026-07"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday.make_tracked_session")
-    def test_sync_sends_the_source_pin(self, mock_session, pinned_version, expected_header):
-        mock_session.return_value.post.return_value = mock.MagicMock(
-            status_code=200, ok=True, json=mock.MagicMock(return_value={"data": {"users": []}})
+    def test_sync_sends_the_source_pin(self, pinned_version: str | None, expected_header: str) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "users",
+            [ScriptedResponse(json={"data": {"users": []}})],
+            api_version=pinned_version,
         )
-        inputs = mock.MagicMock(schema_name="users", api_version=pinned_version)
 
-        list(cast(Iterable[Any], self.source.source_for_pipeline(self.config, inputs).items()))
-
-        assert mock_session.call_args.kwargs["headers"]["API-Version"] == expected_header
+        assert result.raised is None
+        assert result.session_options[0]["headers"]["API-Version"] == expected_header
+        assert result.requests[0].headers["api-version"] == expected_header

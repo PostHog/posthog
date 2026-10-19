@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -12,22 +13,21 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-const EXPERIMENT_WITH_HEALTH_FINDINGS = {
-    ...EXPERIMENT_WITH_MEAN_METRIC,
-    health: {
-        findings: [
-            {
-                code: 'flag_off_while_running',
-                subcode: 'running_but_no_rollout',
-                severity: 'warning',
-                title: 'The experiment is running, but no new users are being exposed',
-                detail: 'The linked feature flag has a 0% rollout, so no new users are being exposed. Users exposed earlier are still included in the results. End the experiment with a conclusion, or increase the rollout percentage to expose users.',
-                evidence: {},
-                actions: ['open_feature_flag'],
-                diagnostic_ref: 'A5',
-            },
-        ],
-    },
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
+
+const EXPERIMENT_HEALTH = {
+    findings: [
+        {
+            code: 'flag_off_while_running',
+            subcode: 'running_but_no_rollout',
+            severity: 'warning',
+            title: 'The experiment is running, but no new users are being exposed',
+            detail: 'The linked feature flag has a 0% rollout, so no new users are being exposed. Users exposed earlier are still included in the results. End the experiment with a conclusion, or increase the rollout percentage to expose users.',
+            evidence: {},
+            actions: ['open_feature_flag'],
+            diagnostic_ref: 'A5',
+        },
+    ],
 }
 
 const EXPOSURES_WITH_BIAS_RISK = {
@@ -58,6 +58,11 @@ const EXPOSURES_WITH_BIAS_RISK = {
     ],
 }
 
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_MEAN_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_MEAN_METRIC, { mean: MEAN_METRIC_RESULT })
+)
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Experiments',
@@ -66,12 +71,14 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id),
+        featureFlags: [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS],
     },
     decorators: [
         mswDecorator({
             get: {
-                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]:
-                    EXPERIMENT_WITH_HEALTH_FINDINGS,
+                ...RECALCULATION.get,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]: EXPERIMENT_WITH_MEAN_METRIC,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/health/`]: EXPERIMENT_HEALTH,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
                 [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]: {},
@@ -79,14 +86,13 @@ const meta: Meta = {
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
+                ...RECALCULATION.post,
+                // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURES_WITH_BIAS_RISK]
-                    }
-
-                    return [200, MEAN_METRIC_RESULT]
+                    return body.query.kind === NodeKind.ExperimentExposureQuery
+                        ? [200, EXPOSURES_WITH_BIAS_RISK]
+                        : [404]
                 },
             },
         }),
