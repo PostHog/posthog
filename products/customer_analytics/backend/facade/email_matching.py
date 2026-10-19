@@ -202,12 +202,19 @@ def recalculate_email_thread_links_for_account_properties(
         if not threads:
             return processed
 
-        matches_by_email = match_accounts_for_account_properties(
-            account.team, [email for thread in threads for email in thread.participant_emails]
-        )
-        for thread in threads:
-            _replace_thread_links(team_id, thread, matches_by_email, match_sources=["known_email", "email_domain"])
-            processed += 1
+        with transaction.atomic():
+            locked_account = (
+                Account.objects.for_team(team_id).select_for_update().only("id").filter(id=account_id).first()
+            )
+            if locked_account is None:
+                return processed
+
+            matches_by_email = match_accounts_for_account_properties(
+                account.team, [email for thread in threads for email in thread.participant_emails]
+            )
+            for thread in threads:
+                _replace_thread_links(team_id, thread, matches_by_email, match_sources=["known_email", "email_domain"])
+                processed += 1
 
         if len(threads) < batch_size:
             return processed
