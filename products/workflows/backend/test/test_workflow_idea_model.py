@@ -1,11 +1,14 @@
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from posthog.models import Team
 
 from products.workflows.backend.facade.contracts import NewWorkflowIdea
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.models.workflow_idea import WorkflowIdea
-from products.workflows.backend.services.workflow_ideas import create_ideas
+from products.workflows.backend.services.workflow_ideas import create_ideas, list_open_ideas
 
 
 class TestWorkflowIdeaModel(BaseTest):
@@ -46,3 +49,17 @@ class TestWorkflowIdeaModel(BaseTest):
 
         assert (len(first), second) == (1, [])
         assert WorkflowIdea.objects.for_team(self.team.pk).filter(key="signup:signed_up").count() == 1
+
+    def test_listing_ideas_without_definitions_leaves_the_stored_build_unread(self):
+        item = NewWorkflowIdea(
+            key="signup:signed_up", title="Welcome", rationale="", definition={"actions": ["x" * 1000]}, evidence={}
+        )
+        create_ideas(team_id=self.team.id, items=[item], source="data_suggestions")
+
+        with CaptureQueriesContext(connection) as queries:
+            [listed] = list_open_ideas(team_id=self.team.id, source="data_suggestions", with_definition=False)
+
+        assert listed.definition == {}
+        assert not any('"definition"' in query["sql"] for query in queries.captured_queries)
+        [full] = list_open_ideas(team_id=self.team.id, source="data_suggestions")
+        assert full.definition == item.definition

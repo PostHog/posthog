@@ -19,7 +19,7 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.models import HogFlow, WorkflowIdea
 
 
-def _record(row: WorkflowIdea) -> WorkflowIdeaRecord:
+def _record(row: WorkflowIdea, *, with_definition: bool = True) -> WorkflowIdeaRecord:
     return WorkflowIdeaRecord(
         id=row.id,
         team_id=row.team_id,
@@ -28,17 +28,20 @@ def _record(row: WorkflowIdea) -> WorkflowIdeaRecord:
         rationale=row.rationale,
         status=row.status,
         evidence=row.evidence,
-        definition=row.definition,
+        definition=row.definition if with_definition else {},
         created_at=row.created_at,
         hog_flow_id=row.hog_flow_id,
         resolved_at=row.resolved_at,
     )
 
 
-def list_open_ideas(*, team_id: int, source: str) -> list[WorkflowIdeaRecord]:
+def list_open_ideas(*, team_id: int, source: str, with_definition: bool = True) -> list[WorkflowIdeaRecord]:
     """Ideas from `source` still waiting for a decision, oldest first."""
     rows = WorkflowIdea.objects.for_team(team_id).filter(status=WorkflowIdea.Status.SUGGESTED, source=source)
-    return [_record(row) for row in rows.order_by("created_at")]
+    if not with_definition:
+        # A stored build can be megabytes, and a listing that only needs the metadata should not load it.
+        rows = rows.defer("definition")
+    return [_record(row, with_definition=with_definition) for row in rows.order_by("created_at")]
 
 
 def get_open_idea(*, team_id: int, idea_id: str, source: str) -> WorkflowIdeaRecord | None:
@@ -52,6 +55,22 @@ def get_open_idea(*, team_id: int, idea_id: str, source: str) -> WorkflowIdeaRec
         .first()
     )
     return _record(row) if row is not None else None
+
+
+def store_idea_workflow(*, team_id: int, idea_id: str, workflow: dict, uses_saved_template: bool) -> None:
+    """Keeps the built workflow on the idea, so a later click creates it without planning it again."""
+    with transaction.atomic():
+        row = (
+            WorkflowIdea.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id=idea_id, status=WorkflowIdea.Status.SUGGESTED)
+            .first()
+        )
+        if row is None:
+            return
+        row.definition = workflow
+        row.evidence = {**row.evidence, "uses_saved_template": uses_saved_template}
+        row.save(update_fields=["definition", "evidence"])
 
 
 def create_ideas(

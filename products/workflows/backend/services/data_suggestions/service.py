@@ -16,6 +16,7 @@ import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
@@ -63,7 +64,12 @@ from products.workflows.backend.services.data_suggestions.stages import (
     classify_event_stages,
 )
 from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
-from products.workflows.backend.services.workflow_ideas import create_ideas, get_open_idea, list_open_ideas
+from products.workflows.backend.services.workflow_ideas import (
+    create_ideas,
+    get_open_idea,
+    list_open_ideas,
+    store_idea_workflow,
+)
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -77,6 +83,8 @@ FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
+# The workflows editor builds without saving, and is the only caller whose build is kept on the idea.
+_EDITOR_CALLER = EventSource.WEB.value
 MAX_SUGGESTIONS = 3
 _MAX_IDEA_KEY_LENGTH = 200
 _PROMPT_EVENTS_LIMIT = 60
@@ -280,6 +288,14 @@ def run_build(
         ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
         if not _lost_lock(lock_key, lock_token):
             cache.set(_build_key(team_id, suggestion_id, caller), dataclasses.asdict(result), ttl)
+            # Only the editor's build is kept, because other callers check drafts with different rules.
+            if caller == _EDITOR_CALLER and result.status == "ready" and result.workflow is not None:
+                store_idea_workflow(
+                    team_id=team_id,
+                    idea_id=suggestion_id,
+                    workflow=result.workflow,
+                    uses_saved_template=result.uses_saved_template,
+                )
         # Sent after the result is stored, so a slow analytics delivery never keeps a saved draft reading as building.
         if result.workflow_id is not None and suggestion is not None:
             _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
@@ -355,12 +371,52 @@ def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggesti
     """The stored build. A saved draft is read again, so a deleted draft gets a new build and the blank settings
     match the draft as it is now, for example after the team added a sender."""
     stored = _read_build(team.id, suggestion_id, caller)
+    if stored is None and caller == _EDITOR_CALLER:
+        return _stored_idea_build(team, suggestion_id)
     if stored is None or stored.workflow_id is None:
         return stored
     actions = team_context.saved_workflow_actions(team, stored.workflow_id)
     if actions is None:
         return None
     return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
+
+
+def _stored_idea_build(team: Team, suggestion_id: str) -> BuiltSuggestion | None:
+    idea = get_open_idea(team_id=team.id, idea_id=suggestion_id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+    if idea is None or not idea.definition:
+        return None
+    # Blank settings are read again, because the team can add a sender after the workflow was built.
+    return BuiltSuggestion(
+        status="ready",
+        workflow=idea.definition,
+        uses_saved_template=bool(idea.evidence.get("uses_saved_template")),
+        missing_inputs=_missing_inputs(team, idea.definition),
+    )
+
+
+def _enqueue_for(enqueue: Callable[[str, str], None], suggestion_id: str) -> Callable[[str], None]:
+    return lambda lock_token: enqueue(suggestion_id, lock_token)
+
+
+def prebuild_suggestions(*, team_id: int, user_id: int, enqueue: Callable[[str, str], None]) -> None:
+    """Builds every open card in the background for organizations with data suggestions, so a click creates the
+    workflow at once. `enqueue` takes the suggestion id and the build lock token."""
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    user = User.objects.filter(id=user_id).first()
+    if team is None or user is None or not _prebuild_enabled(team, user):
+        return
+    for suggestion in _open_suggestions(team):
+        start_build(
+            team=team,
+            suggestion_id=suggestion.id,
+            caller=_EDITOR_CALLER,
+            retry=False,
+            enqueue=_enqueue_for(enqueue, suggestion.id),
+        )
+
+
+def _prebuild_enabled(team: Team, user: User) -> bool:
+    return is_data_suggestions_enabled(user, str(team.organization_id))
 
 
 def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
@@ -559,7 +615,7 @@ def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
     used_events = team_context.used_trigger_events(team)
     suggestions = [
         _to_suggestion(idea)
-        for idea in list_open_ideas(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+        for idea in list_open_ideas(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS, with_definition=False)
         if idea.evidence.get("trigger_event") not in used_events
     ]
     ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
