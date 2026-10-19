@@ -1570,10 +1570,10 @@ class TestPushSecretsToVercel(TestCase):
 
     @patch("ee.vercel.integration.capture_exception")
     @patch("ee.vercel.integration.VercelAPIClient")
-    def test_push_secrets_handles_api_error_gracefully(self, mock_client_class, mock_capture):
+    def test_push_secrets_captures_unexpected_api_error(self, mock_client_class, mock_capture):
         mock_client = Mock()
         mock_client.update_resource_secrets.return_value = Mock(
-            success=False, error="HTTP error", status_code=403, error_detail="Forbidden"
+            success=False, error="HTTP error", status_code=500, error_detail="Internal Server Error"
         )
         mock_client_class.return_value = mock_client
 
@@ -1581,9 +1581,24 @@ class TestPushSecretsToVercel(TestCase):
 
         mock_capture.assert_called_once()
         exception, properties = mock_capture.call_args[0]
-        assert "403" in str(exception)
-        assert properties["status_code"] == 403
+        assert "500" in str(exception)
+        assert properties["status_code"] == 500
         assert properties["resource_id"] == str(self.resource.pk)
+
+    @parameterized.expand([(401,), (403,), (404,)])
+    @patch("ee.vercel.integration.capture_exception")
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_push_secrets_skips_capture_when_installation_gone(self, status_code, mock_client_class, mock_capture):
+        mock_client = Mock()
+        mock_client.update_resource_secrets.return_value = Mock(
+            success=False, error="HTTP error", status_code=status_code, error_detail="Forbidden"
+        )
+        mock_client_class.return_value = mock_client
+
+        VercelIntegration.push_secrets_to_vercel(self.team)
+
+        mock_client.update_resource_secrets.assert_called_once()
+        mock_capture.assert_not_called()
 
     @patch("ee.vercel.integration.capture_exception")
     @patch("ee.vercel.integration.VercelAPIClient")

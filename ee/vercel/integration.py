@@ -1353,6 +1353,16 @@ class VercelIntegration:
             logger.info("Pushed secrets to Vercel", **log_context)
             return
 
+        # Vercel answers 401/403/404 when the installation or resource is gone, so the push cannot succeed.
+        if result.status_code in (401, 403, 404):
+            logger.warning(
+                "Vercel installation or resource no longer accessible, skipping secret push",
+                status_code=result.status_code,
+                error=result.error,
+                **log_context,
+            )
+            return
+
         logger.error(
             "Error pushing secrets to Vercel", status_code=result.status_code, error=result.error, **log_context
         )
