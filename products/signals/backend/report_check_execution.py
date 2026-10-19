@@ -437,16 +437,17 @@ def resurface_failed_check(
         logger.exception("signals.report_check.resurface_failed", check_id=str(check.id), team_id=check.team_id)
 
 
-def _monitoring_metric_filter(disabled_organizations: frozenset[UUID]) -> Q:
-    return (
-        Q(
-            report__status=SignalReport.Status.MONITORING,
-            report__monitoring_started_at__isnull=False,
-            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
-            config__monitoring__isnull=False,
-        )
-        & ~Q(config__monitoring=None)
-        & ~Q(report__team__organization_id__in=disabled_organizations)
+def _monitoring_metric_filter(disabled_organizations: frozenset[UUID], *, started_before: datetime | None = None) -> Q:
+    reports = SignalReport.objects.filter(
+        id=OuterRef("report_id"),
+        status=SignalReport.Status.MONITORING,
+        monitoring_started_at__isnull=False,
+    ).exclude(team__organization_id__in=disabled_organizations)
+    if started_before is not None:
+        reports = reports.filter(monitoring_started_at__lte=started_before)
+    # Joined UPDATE filters become an ID subquery, so PostgreSQL cannot recheck stale check guards after a lock wait.
+    return Q(Exists(reports), kind=SignalReportCheck.Kind.METRIC_THRESHOLD, config__monitoring__isnull=False) & ~Q(
+        config__monitoring=None
     )
 
 
@@ -463,7 +464,8 @@ def expire_overdue_checks(now: datetime, *, disabled_monitoring_organization_ids
             status=SignalReportCheck.Status.ACTIVE
         )
         expiry_filter = (expiry_filter & ~monitoring) | (
-            monitoring & Q(report__monitoring_started_at__lte=now - MAX_CHECK_HORIZON)
+            _monitoring_metric_filter(disabled_monitoring_organization_ids, started_before=now - MAX_CHECK_HORIZON)
+            & Q(status=SignalReportCheck.Status.ACTIVE)
         )
     overdue = list(
         # Only the columns the log entry and the telemetry read. A `metric_threshold` config carries
@@ -696,12 +698,14 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
     for check in candidates:
         start = check.report.monitoring_started_at
         assert start is not None
+        period = SignalReport.objects.filter(
+            id=OuterRef("report_id"), status=SignalReport.Status.MONITORING, monitoring_started_at=start
+        )
         SignalReportCheck.objects.for_team(check.team_id).filter(
+            Exists(period),
             id=check.id,
             status=SignalReportCheck.Status.ACTIVE,
             updated_at=check.updated_at,
-            report__status=SignalReport.Status.MONITORING,
-            report__monitoring_started_at=start,
         ).update(
             next_run_at=check._monitoring_next_run_at,
             measurement_start_at=start,
