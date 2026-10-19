@@ -658,7 +658,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         if (saveAsDisabledReason) {
             return saveAsDisabledReason
         }
-        if (selectedConnectionId) {
+        if (selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino') {
             return 'Switch to PostHog (ClickHouse) to save a cohort'
         }
         if (isMultiQuery) {
@@ -676,7 +676,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                     (column === 'id' && tables?.some((table) => table === 'persons' || table === 'posthog.persons'))
             )
         return hasPersonId ? undefined : 'Return person_id, actor_id, distinct_id, or id from persons'
-    }, [saveAsDisabledReason, selectedConnectionId, isMultiQuery, metadata, queryInput, response])
+    }, [
+        saveAsDisabledReason,
+        selectedConnectionId,
+        sourceQuery.source.executionTarget,
+        isMultiQuery,
+        metadata,
+        queryInput,
+        response,
+    ])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
