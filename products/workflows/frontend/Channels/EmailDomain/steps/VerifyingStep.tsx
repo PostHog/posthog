@@ -149,9 +149,20 @@ export function VerifyingStep(): JSX.Element {
             <VerificationStepsStrip steps={verificationSteps} />
             {temporaryFailure && (
                 <LemonBanner type="error">
-                    The email provider could not find these settings:{' '}
-                    {missingRecords.map((record) => RECORD_KIND_LABEL[record.kind]).join(', ') || 'some of them'}. Check
-                    them at your DNS host.{pollingStopped ? '' : ' We keep checking.'}
+                    {allRecordsFound ? (
+                        <span>
+                            Every setting is in place at your DNS host, but the email provider reported a temporary
+                            problem confirming them.
+                        </span>
+                    ) : (
+                        <span>
+                            The email provider could not find these settings:{' '}
+                            {missingRecords.map((record) => RECORD_KIND_LABEL[record.kind]).join(', ') ||
+                                'some of them'}
+                            . Check them at your DNS host.
+                        </span>
+                    )}
+                    {!pollingStopped && <span> We keep checking.</span>}
                 </LemonBanner>
             )}
             <Actions />

@@ -281,6 +281,7 @@ describe('EmailDomainScene', () => {
             await flush(31 * 60_000)
             expectStep(heading)
             expect(screen.queryByText(/still missing/)).not.toBeInTheDocument()
+            expect(screen.queryByText(/could not find these settings/)).not.toBeInTheDocument()
         }
     )
 
