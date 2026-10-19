@@ -51,7 +51,7 @@ describe('github template', () => {
             'adds the context lines and the resolved in-app frames, crash site first, with no secrets',
             {
                 $exception_types: ['RangeError'],
-                $exception_values: ['Invalid Date\nvalue: abc'],
+                $exception_values: ['Invalid Date\nvalue: `abc` @octocat [link](https://evil.example)'],
                 $exception_list: [
                     {
                         stacktrace: {
@@ -66,7 +66,7 @@ describe('github template', () => {
                                 {
                                     source: 'https://user:password@example.com',
                                     line: 2,
-                                    resolved_name: 'init',
+                                    resolved_name: 'alice@example.com',
                                     resolved: true,
                                     in_app: true,
                                 },
@@ -110,13 +110,13 @@ describe('github template', () => {
                 $browser: 'Chrome',
                 $browser_version: 129,
                 $os: 'Mac OS X',
-                $os_version: '10.15.7',
+                $os_version: '10.15.7 [link](https://evil.example)',
                 $exception_release: { version: '1.4.2' },
                 $session_id: 'session/1',
                 $recording_status: 'active',
             },
-            'RangeError: Invalid Date value: abc',
-            'Invalid Date\nvalue: abc\n\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: parse\'Date\'\n  File "main.ts", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n  File "[redacted]", line: 1, in: onSubmit\n  File "[redacted]", line: 2, in: init\n```',
+            'RangeError: Invalid Date value: `abc` @octocat [link](https://evil.example)',
+            '```\nInvalid Date\nvalue: \'abc\' @octocat [link](https://evil.example)\n```\n\n- Browser: `Chrome 129`\n- OS: `Mac OS X 10.15.7 [link](https://evil.example)`\n- Release: `1.4.2`\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: [redacted]\n  File "main.ts", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n  File "[redacted]", line: 1, in: onSubmit\n  File "[redacted]", line: 2, in: [redacted]\n```',
         ],
         [
             'leaves out missing lines, replay when recording was off, and a trace with no resolved frame',
@@ -129,7 +129,7 @@ describe('github template', () => {
                 $recording_status: 'disabled',
             },
             'RangeError',
-            '\n\n- Browser: Chrome',
+            '\n\n- Browser: `Chrome`',
         ],
         [
             'shows at most 5 frames',
@@ -139,7 +139,7 @@ describe('github template', () => {
                 $exception_list: [{ stacktrace: { frames: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(appFrame) } }],
             },
             'RangeError: Invalid Date',
-            'Invalid Date\n\n\n```\n  File "g.ts", line: 1, in: g\n  File "f.ts", line: 1, in: f\n  File "e.ts", line: 1, in: e\n  File "d.ts", line: 1, in: d\n  File "c.ts", line: 1, in: c\n```',
+            '```\nInvalid Date\n```\n\n\n```\n  File "g.ts", line: 1, in: g\n  File "f.ts", line: 1, in: f\n  File "e.ts", line: 1, in: e\n  File "d.ts", line: 1, in: d\n  File "c.ts", line: 1, in: c\n```',
         ],
         [
             'reads only the last 50 frames of a deep stack',
@@ -149,7 +149,7 @@ describe('github template', () => {
                 $exception_list: [{ stacktrace: { frames: [appFrame('a'), ...Array(50).fill(minifiedFrame)] } }],
             },
             'RangeError: Invalid Date',
-            'Invalid Date\n',
+            '```\nInvalid Date\n```\n',
         ],
         [
             'leaves out the trace of a stack over 2000 frames',
@@ -159,7 +159,7 @@ describe('github template', () => {
                 $exception_list: [{ stacktrace: { frames: [...Array(2000).fill(minifiedFrame), appFrame('a')] } }],
             },
             'RangeError: Invalid Date',
-            'Invalid Date\n',
+            '```\nInvalid Date\n```\n',
         ],
     ])('%s', async (_name, properties, expectedTitle, expectedDescription) => {
         const { title: _title, description: _description, ...inputs } = baseInputs

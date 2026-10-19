@@ -20,8 +20,19 @@ import {
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
-const errorTrackingTicketLine = (label: string, value: string, condition = `notEmpty(${value})`): string =>
-    `{${condition} ? concat('\\n- ${label}: ', ${value}) : ''}`
+const errorTrackingTicketCode = (value: string): string => `concat('\`', replaceAll(${value}, '\`', '\\''), '\`')`
+
+const errorTrackingTicketLine = (
+    label: string,
+    value: string,
+    condition = `notEmpty(${value})`,
+    formatted = errorTrackingTicketCode(value)
+): string => `{${condition} ? concat('\\n- ${label}: ', ${formatted}) : ''}`
+
+const errorTrackingTicketMessage = (message: string): string =>
+    `{notEmpty(${message}) ? concat('\`\`\`\\n', replaceAll(${message}, '\`', '\\''), '\\n\`\`\`') : ''}\n`
+const ERROR_TRACKING_SESSION_REPLAY_URL =
+    "concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))"
 
 // Same shape as the Linear, GitHub and GitLab template defaults in nodejs/src/cdp/templates/error-tracking-ticket.ts,
 // but built from the issue name and description. When the event is too large for Kafka, the producer drops
@@ -31,7 +42,7 @@ const ERROR_TRACKING_TICKET_TITLE =
     "{substring(replaceAll(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, '\\n', ' '), 1, 120)}"
 
 const ERROR_TRACKING_TICKET_DESCRIPTION = [
-    '{event.properties.description}\n',
+    errorTrackingTicketMessage('event.properties.description'),
     errorTrackingTicketLine(
         'Browser',
         "trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))"
@@ -40,8 +51,9 @@ const ERROR_TRACKING_TICKET_DESCRIPTION = [
     errorTrackingTicketLine('Release', 'event.properties.$exception_release.version'),
     errorTrackingTicketLine(
         'Session replay',
-        "concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))",
-        "notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status))"
+        ERROR_TRACKING_SESSION_REPLAY_URL,
+        "notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status))",
+        ERROR_TRACKING_SESSION_REPLAY_URL
     ),
 ].join('')
 

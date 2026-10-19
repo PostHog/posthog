@@ -15,8 +15,9 @@ export const hogApiErrorMessageFn = `fun apiErrorMessage(response) {
 // Ticket trackers sit outside PostHog's access controls, and a GitHub or GitLab repository can be
 // public, so a frame line carries only a file name, the line and the function name. Cymbal marks a JS
 // frame without a source map as resolved, and an inline script's source is the page URL, which can end
-// in a token. So a file name shows only when it looks like a source file, and anything else, or any
-// name that holds a UUID or a key-shaped run of letters and digits, becomes [redacted]. The function
+// in a token. So a file name shows only when it looks like a source file, and a function name only when
+// it uses identifier characters. Anything else, or any name that holds a UUID or a key-shaped run of
+// letters and digits, becomes [redacted]. The function
 // never reads code_variables or source context, which can hold user data or secrets.
 // Each frames[i] read makes the VM measure the whole array. To stay inside the execution time limit, the
 // loop reads at most the last 50 frames and skips stacks over 2000 frames. The try block keeps a bad trace
@@ -31,7 +32,10 @@ export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text, mi
 
 fun errorTrackingFunctionName(name) {
   let text := toString(name)
-  return errorTrackingHasSecret(text, 24) ? '[redacted]' : text
+  if (not match(text, '^[]A-Za-z0-9_$.:<>()#,[ -]{1,100}$') or errorTrackingHasSecret(text, 24)) {
+    return '[redacted]'
+  }
+  return text
 }
 
 fun errorTrackingFileName(source) {

@@ -76,7 +76,7 @@ describe('linear template', () => {
         expect(mutation).toContain('title: "RangeError: Invalid Date"')
         expect(mutation).not.toContain('token=secret')
         expect(mutation).toContain(
-            'description: "Invalid Date\\n\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1\\n\\n```\\n  File \\"checkout.ts\\", line: 42, in: parseDate\\n```"'
+            'description: "```\\nInvalid Date\\n```\\n\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1\\n\\n```\\n  File \\"checkout.ts\\", line: 42, in: parseDate\\n```"'
         )
     })
 })
