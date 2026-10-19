@@ -60,17 +60,101 @@ export const redactMetricVariableUrls: BeforeSendFn = (event) =>
         $set_once: redactProperties(event.$set_once),
     }
 
-function holdsVariables(body: unknown): boolean {
-    return typeof body === 'string' ? body.includes(MARKER) : !!body && JSON.stringify(body).includes(MARKER)
+function bodyText(body: unknown): string {
+    return typeof body === 'string' ? body : JSON.stringify(body)
 }
 
-/** For session replay: a recorded request keeps its URL path only, and loses the bodies that hold metric variables. */
+// A custom replay mask replaces the SDK's own body scrubbing, so the mask repeats it. These match posthog-js:
+// the words of its payload deny list, and its checks for card numbers and US social security numbers.
+const BODY_DENY_LIST = [
+    'password',
+    'secret',
+    'passwd',
+    'api_key',
+    'apikey',
+    'auth',
+    'credentials',
+    'mysql_pwd',
+    'privatekey',
+    'private_key',
+    'token',
+]
+const CARD_PATTERN =
+    /^(?:(4[0-9]{12}(?:[0-9]{3})?)|(5[1-5][0-9]{14})|(6(?:011|5[0-9]{2})[0-9]{12})|(3[47][0-9]{13})|(3(?:0[0-5]|[68][0-9])[0-9]{11})|((?:2131|1800|35[0-9]{3})[0-9]{11}))$/
+const CARD_CANDIDATE = /(^|[^0-9A-Za-z_])([0-9][0-9 -]*[0-9])(?=$|[^0-9A-Za-z_])/g
+const CARD_LENGTHS = [16, 15, 14, 13]
+const SSN_CANDIDATE = /(^|[^0-9])((?!000|666)[0-9]{3}-?(?!00)[0-9]{2}-?(?!0000)[0-9]{4})(?=$|([^0-9]))/g
+const IDENTIFIER_CHARACTER = /[0-9A-Za-z_]/
+
+function passesLuhnCheck(digits: string): boolean {
+    let sum = 0
+    let double = false
+    for (let index = digits.length - 1; index >= 0; index--) {
+        let digit = digits.charCodeAt(index) - 48
+        if (double) {
+            digit *= 2
+            if (digit > 9) {
+                digit -= 9
+            }
+        }
+        sum += digit
+        double = !double
+    }
+    return sum % 10 === 0
+}
+
+function containsCardNumber(text: string): boolean {
+    for (const match of text.matchAll(CARD_CANDIDATE)) {
+        const candidate = match[2].replace(/[- ]/g, '')
+        for (let start = 0; start < candidate.length; start++) {
+            for (const length of CARD_LENGTHS) {
+                const digits = candidate.slice(start, start + length)
+                if (digits.length === length && CARD_PATTERN.test(digits) && passesLuhnCheck(digits)) {
+                    return true
+                }
+            }
+        }
+    }
+    return false
+}
+
+function containsSocialSecurityNumber(text: string): boolean {
+    for (const match of text.matchAll(SSN_CANDIDATE)) {
+        const [, before, , after] = match
+        if (!(before && after && IDENTIFIER_CHARACTER.test(before) && IDENTIFIER_CHARACTER.test(after))) {
+            return true
+        }
+    }
+    return false
+}
+
+/** A body that holds a credential, a card number, a social security number or metric variables is not recorded. */
+function scrubBody<T>(body: T, label: 'Request' | 'Response', drop: boolean): T | string | null {
+    if (body === null || body === undefined) {
+        return body
+    }
+    const text = bodyText(body)
+    if (drop || text.includes(MARKER)) {
+        return null
+    }
+    const denied = BODY_DENY_LIST.find((word) => text.includes(word))
+    if (denied) {
+        return `[SessionRecording] ${label} body redacted as might contain: ${denied}`
+    }
+    if (containsCardNumber(text.trim()) || containsSocialSecurityNumber(text.trim())) {
+        return `[SessionRecording] ${label} body redacted`
+    }
+    return body
+}
+
+/** For session replay: a recorded request keeps its URL path only when it holds metric variables, and its bodies get
+ * the SDK's sensitive-data scrubbing as well as losing anything that holds metric variables. */
 export function redactMetricVariableRequest(request: CapturedNetworkRequest): CapturedNetworkRequest {
     const isVariableOptions = !!request.name?.includes(VARIABLE_OPTIONS_PATH)
     return {
         ...request,
         name: request.name ? redactMetricVariableUrl(request.name) : request.name,
-        requestBody: isVariableOptions || holdsVariables(request.requestBody) ? null : request.requestBody,
-        responseBody: isVariableOptions || holdsVariables(request.responseBody) ? null : request.responseBody,
-    }
+        requestBody: scrubBody(request.requestBody, 'Request', isVariableOptions),
+        responseBody: scrubBody(request.responseBody, 'Response', isVariableOptions),
+    } as CapturedNetworkRequest
 }

@@ -85,6 +85,38 @@ describe('redactMetricVariableUrl', () => {
             },
             { name: '/api/environments/1/metrics/variable_options/', requestBody: null, responseBody: null },
         ],
+        [
+            'a login password',
+            { name: '/api/login', requestBody: '{"email":"a@example.com","password":"hunter2"}' },
+            { requestBody: '[SessionRecording] Request body redacted as might contain: password' },
+        ],
+        [
+            'a password change',
+            {
+                name: '/api/users/@me/',
+                requestBody: '{"current_password":"a","password":"b"}',
+                responseBody: '{"id":1}',
+            },
+            {
+                requestBody: '[SessionRecording] Request body redacted as might contain: password',
+                responseBody: '{"id":1}',
+            },
+        ],
+        [
+            'a token in a response',
+            { name: '/api/personal_api_keys/', responseBody: '{"value":"phx_fake","token":"x"}' },
+            { responseBody: '[SessionRecording] Response body redacted as might contain: token' },
+        ],
+        [
+            'a card number',
+            { name: '/api/billing', requestBody: '{"card":"4111 1111 1111 1111"}' },
+            { requestBody: '[SessionRecording] Request body redacted' },
+        ],
+        [
+            'a plain body',
+            { name: '/api/insights/', requestBody: '{"name":"Signups"}', responseBody: '{"results":[1,2]}' },
+            { requestBody: '{"name":"Signups"}', responseBody: '{"results":[1,2]}' },
+        ],
     ])('masks %s in replay network capture', (_name, request, expected) => {
         expect(redactMetricVariableRequest(request as any)).toEqual(expect.objectContaining(expected))
     })
