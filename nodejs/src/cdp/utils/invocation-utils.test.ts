@@ -215,6 +215,16 @@ describe('Invocation utils', () => {
                 expect(invocations[1].state.globals.inputs.headers).toEqual({ version: 'v=' })
             })
 
+            it('keeps an input literal only in the mapping whose own schema turns templating off', async () => {
+                const fn = mappingFunction()
+                fn.mappings![0].inputs_schema = [{ key: 'url', type: 'string', required: true, templating: false }]
+
+                const { invocations } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+
+                expect(invocations[0].state.globals.inputs.url).toBe('https://example.com?q={event.event}')
+                expect(invocations[1].state.globals.inputs.url).toBe('https://example.com/posthog-webhook')
+            })
+
             // `mappings: []` takes the mapping path and matches nothing, so the function never runs.
             // A destination saved with no mappings is silently a no-op rather than an unmapped send.
             it('builds nothing for a function with an empty mappings array', async () => {
