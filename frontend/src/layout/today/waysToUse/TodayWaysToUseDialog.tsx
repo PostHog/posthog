@@ -1,34 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconMCP } from '@posthog/icons'
-import {
-    Button,
-    Dialog,
-    DialogBody,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    Highlight,
-} from '@posthog/quill'
+import { Button, Dialog, DialogBody, DialogContent, DialogFooter, cn } from '@posthog/quill'
 
-import { Logomark } from 'lib/brand'
-import { IconSlack } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
-
-import { McpIllustration } from './illustrations/McpIllustration'
-import { SlackIllustration } from './illustrations/SlackIllustration'
-import { WebAppIllustration } from './illustrations/WebAppIllustration'
+import { WaysToUseDialogHeader } from './WaysToUseDialogHeader'
 import { waysToUseLogic } from './waysToUseLogic'
-import { WaysToUseSurfaceCard } from './WaysToUseSurfaceCard'
-import { WaysToUseSurfaceLink } from './WaysToUseSurfaceLink'
+import { WaysToUseSurfacesStep } from './WaysToUseSurfacesStep'
+import { WaysToUseTeamStep } from './WaysToUseTeamStep'
 
 export function TodayWaysToUseDialog(): JSX.Element {
-    const { isOpen } = useValues(waysToUseLogic)
-    const { closeWaysToUse } = useActions(waysToUseLogic)
+    const { isOpen, steps, stepIndex, currentStep } = useValues(waysToUseLogic)
+    const { closeWaysToUse, goToStep } = useActions(waysToUseLogic)
     const popupRef = useRef<HTMLDivElement>(null)
+    const multiStep = steps.length > 1
+    const lastStep = stepIndex >= steps.length - 1
 
     return (
         <Dialog open={isOpen} onOpenChange={(open: boolean) => !open && closeWaysToUse('dismiss')}>
@@ -38,68 +23,56 @@ export function TodayWaysToUseDialog(): JSX.Element {
                 initialFocus={popupRef}
                 className="group/popup lg:max-w-4xl"
                 data-attr="today-ways-to-use-dialog"
+                data-step={currentStep}
             >
-                <DialogHeader className="items-center text-center">
-                    <DialogTitle className="text-lg">
-                        PostHog,{' '}
-                        <Highlight animate delay={300}>
-                            wherever you work
-                        </Highlight>
-                    </DialogTitle>
-                    <DialogDescription className="max-w-xl text-balance">
-                        Bring your product data into the tools you already use.
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogBody>
-                    <div className="@container">
-                        <div className="grid grid-cols-1 gap-x-4 gap-y-8 @3xl:grid-cols-3">
-                            <WaysToUseSurfaceCard
-                                logo={<Logomark size="xs" />}
-                                title="In the web app"
-                                description="See what changed today, ask PostHog AI, and open any product."
-                                illustration={<WebAppIllustration />}
-                                action={
-                                    <WaysToUseSurfaceLink surface="chat" to={urls.taskNewSession()}>
-                                        Start a chat
-                                    </WaysToUseSurfaceLink>
-                                }
-                            />
-                            <WaysToUseSurfaceCard
-                                logo={<IconSlack className="size-5" />}
-                                title="In Slack"
-                                description="Mention @PostHog with a data question, quick fix, or chore."
-                                illustration={<SlackIllustration />}
-                                action={
-                                    <WaysToUseSurfaceLink
-                                        surface="slack"
-                                        to={urls.settings('environment-integrations')}
-                                    >
-                                        Connect Slack
-                                    </WaysToUseSurfaceLink>
-                                }
-                            />
-                            <WaysToUseSurfaceCard
-                                logo={<IconMCP className="size-5" />}
-                                title="In your coding agent"
-                                description="Plug PostHog into Claude, Cursor, and anything else that speaks MCP."
-                                illustration={<McpIllustration />}
-                                action={
-                                    <WaysToUseSurfaceLink surface="mcp" to={urls.settings('posthog-mcp')}>
-                                        Set up MCP
-                                    </WaysToUseSurfaceLink>
-                                }
-                            />
+                <WaysToUseDialogHeader />
+                <DialogBody>{currentStep === 'team' ? <WaysToUseTeamStep /> : <WaysToUseSurfacesStep />}</DialogBody>
+                <DialogFooter className={cn('items-center', multiStep ? 'sm:justify-between' : 'sm:justify-center')}>
+                    {multiStep && (
+                        <div
+                            className="flex items-center gap-1.5"
+                            role="img"
+                            aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
+                        >
+                            {steps.map((step, index) => (
+                                <span
+                                    key={step}
+                                    className={cn(
+                                        'h-1.5 rounded-full transition-all duration-300 ease-out motion-reduce:transition-none',
+                                        index === stepIndex ? 'w-4 bg-primary' : 'w-1.5 bg-fill-selected'
+                                    )}
+                                />
+                            ))}
                         </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                        {stepIndex > 0 && (
+                            <Button
+                                variant="outline"
+                                onClick={() => goToStep(stepIndex - 1)}
+                                data-attr="today-ways-to-use-back"
+                            >
+                                Back
+                            </Button>
+                        )}
+                        {lastStep ? (
+                            <Button
+                                variant="primary"
+                                onClick={() => closeWaysToUse('get_started')}
+                                data-attr="today-ways-to-use-get-started"
+                            >
+                                Get started
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="primary"
+                                onClick={() => goToStep(stepIndex + 1)}
+                                data-attr="today-ways-to-use-next"
+                            >
+                                Next
+                            </Button>
+                        )}
                     </div>
-                </DialogBody>
-                <DialogFooter className="sm:justify-center">
-                    <Button
-                        variant="primary"
-                        onClick={() => closeWaysToUse('get_started')}
-                        data-attr="today-ways-to-use-get-started"
-                    >
-                        Get started
-                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

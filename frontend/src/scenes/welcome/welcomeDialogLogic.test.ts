@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -97,8 +99,15 @@ describe('welcomeDialogLogic', () => {
         expect(logic.values.shouldShowDialog).toBe(true)
     })
 
-    it('does not open for the org creator', async () => {
-        userLogic.actions.loadUserSuccess(ORG_CREATOR_USER)
+    it.each([
+        ['the org creator', ORG_CREATOR_USER, false],
+        ['an invitee on the new web, which shows its own welcome', INVITED_USER, true],
+    ])('does not open for %s', async (_label, user, todayRailEnabled) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailEnabled,
+        })
+        userLogic.actions.loadUserSuccess(user)
         logic = welcomeDialogLogic()
         logic.mount()
 

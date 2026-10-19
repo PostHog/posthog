@@ -8,6 +8,7 @@ export interface WaysToUseSurfaceCardProps {
     description: string
     illustration: ReactNode
     action: ReactNode
+    status?: ReactNode
 }
 
 export function WaysToUseSurfaceCard({
@@ -16,6 +17,7 @@ export function WaysToUseSurfaceCard({
     description,
     illustration,
     action,
+    status,
 }: WaysToUseSurfaceCardProps): JSX.Element {
     const titleId = useId()
 
@@ -32,9 +34,12 @@ export function WaysToUseSurfaceCard({
                 {illustration}
             </div>
             <div className="flex flex-col gap-1 @md:@max-3xl:col-start-2 @md:@max-3xl:self-end">
-                <Heading id={titleId} size="sm" render={<h3 />} className="m-0">
-                    {title}
-                </Heading>
+                <div className="flex items-center gap-2">
+                    <Heading id={titleId} size="sm" render={<h3 />} className="m-0">
+                        {title}
+                    </Heading>
+                    {status}
+                </div>
                 <Text size="xs" variant="muted" className="text-pretty">
                     {description}
                 </Text>
