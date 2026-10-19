@@ -330,7 +330,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("bare", ExposedHogQLError("HogQL error"), "internal", "hogql_error"),
+            ("outage_without_code", ExposedHogQLError("Warehouse connection failed"), "internal", None),
             ("unresolved_field", QueryError("Unable to resolve field: plan"), "validation", "hogql_unresolved_field"),
             ("syntax", HogQLSyntaxError("mismatched input 'FORM'"), "validation", "hogql_syntax_error"),
             (

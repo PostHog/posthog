@@ -166,11 +166,10 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
 
     if isinstance(cause, TableAccessDeniedError):
         return MaxToolFatalError(str(error), error_type="permission")
+    if isinstance(cause, (QueryError, HogQLSyntaxError)):
+        return MaxToolRetryableError(str(error), error_type="validation", error_code=hogql_error_code(cause))
     # User-safe errors can also describe outages; only known input errors should skip exception capture.
-    error_type: MaxToolErrorType = "validation" if isinstance(cause, (QueryError, HogQLSyntaxError)) else "internal"
-    return MaxToolRetryableError(
-        str(error), error_type=error_type, error_code=hogql_error_code(cause) or hogql_error_code(error)
-    )
+    return MaxToolRetryableError(str(error), error_type="internal")
 
 
 @frozen
