@@ -879,17 +879,23 @@ impl Harness {
         .await
     }
 
-    async fn start_with_partition_budget(topic: &str, partition_budget: BudgetLimits) -> Self {
+    async fn start_with_partition_budget(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        partition_budget: BudgetLimits,
+    ) -> Self {
         Self::start_inner(
             topic,
-            1,
-            1,
+            partitions,
+            worker_count,
             8,
             Duration::from_secs(60),
             fast_registry_config(),
             0,
             ComponentOptions::new(),
-            common::PRODUCTION_PACK_TARGETS,
+            pack_targets,
             None,
             CompletionGranularity::Group,
             COMMIT_INTERVAL,
@@ -2824,7 +2830,9 @@ async fn group_granularity_commits_a_partition_while_another_stalls() {
 async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it() {
     let topic = format!("e2e-partition-budget-{}", Uuid::new_v4());
     let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
-    let harness = Harness::start_with_partition_budget(&topic, budget).await;
+    let harness =
+        Harness::start_with_partition_budget(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, budget)
+            .await;
     let p0 = TopicPartition::new(&topic, 0);
     let guard = harness.workers[0].block().await;
     let producer = make_producer();
@@ -2852,6 +2860,57 @@ async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it() {
         Duration::from_secs(10),
         "the partition to resume and drain",
         || harness.committed_offset(0) == Some(20),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_partition_at_its_budget_does_not_pause_another() {
+    let topic = format!("e2e-partition-budget-two-{}", Uuid::new_v4());
+    let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    // One message per request, or the packer puts both keys on one worker.
+    let harness =
+        Harness::start_with_partition_budget(common::ONE_MESSAGE_PER_REQUEST, &topic, 2, 2, budget)
+            .await;
+    let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
+
+    guards[0] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the released worker to accept its key",
+        || harness.workers[0].count() == 5,
+    )
+    .await;
+    let released = accepted_partition(&harness, 0);
+    let stalled = 1 - released;
+    let stalled_partition = TopicPartition::new(&topic, stalled);
+
+    let producer = make_producer();
+    for seq in 5..10usize {
+        for (partition, key) in STALL_KEYS {
+            produce(&producer, &topic, partition, "tok", key, seq).await;
+        }
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "the released partition to resume and drain",
+        || harness.committed_offset(released) == Some(10),
+    )
+    .await;
+    assert_eq!(
+        harness.ledger.held(&stalled_partition).offsets,
+        5,
+        "the partition at its budget fetches nothing more"
+    );
+    assert_eq!(harness.committed_offset(stalled), None);
+
+    guards[1] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the stalled partition to resume and drain",
+        || harness.committed_offset(stalled) == Some(10),
     )
     .await;
 
