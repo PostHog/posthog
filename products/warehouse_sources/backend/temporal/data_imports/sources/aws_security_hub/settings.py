@@ -56,6 +56,22 @@ ENDPOINTS: dict[str, SecurityHubEndpoint] = {
         # The API defaults to enabled members only. Include invited and removed accounts too.
         params=(("OnlyAssociated", False),),
     ),
+    "remediations": SecurityHubEndpoint(
+        operation="GetRemediationsV2", result_key="Items", primary_keys=("target_uid",)
+    ),
+    "remediation_exposures": SecurityHubEndpoint(
+        operation="ListExposuresByRemediationV2",
+        result_key="Items",
+        # One exposure finding can link to several remediation targets.
+        primary_keys=("target_uid", "metadata_uid"),
+        parent=("remediations", "TargetUid"),
+    ),
+}
+
+# The pinned botocore model predates these operations. Each one is a POST with only JSON body members.
+UNMODELED_OPERATION_PATHS = {
+    "GetRemediationsV2": "/GetRemediationsV2",
+    "ListExposuresByRemediationV2": "/ListExposuresByRemediationV2",
 }
 
 INCREMENTAL_FIELDS = {"findings": [incremental_field("updated_at")]}
@@ -68,6 +84,8 @@ ENDPOINT_DESCRIPTIONS = {
     "security_control_definitions": "Security control definitions with titles, severity, and remediation guidance.",
     "products": "Product integrations that can send findings to Security Hub, with vendor names and descriptions.",
     "members": "Member accounts of the Security Hub administrator account and their relationship status.",
+    "remediations": "Remediation targets for exposure findings, sorted by priority, with their expected outcome and affected resource.",
+    "remediation_exposures": "Exposure findings linked to each remediation target, with severity before and after the fix.",
 }
 
 ACCESS_DENIED_CODES = frozenset({"AccessDenied", "AccessDeniedException", "InvalidAccessException"})

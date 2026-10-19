@@ -72,6 +72,32 @@ ENDPOINT_CONFIGS: dict[str, BingWebmasterToolsEndpoint] = {
             "counts, and pages in the index. Bing retains about six months."
         ),
     ),
+    "page_query_stats": BingWebmasterToolsEndpoint(
+        method="GetPageQueryStats",
+        primary_keys=["site_url", "page", "date", "query"],
+        # One API call per top page of every site, so it stays opt-in.
+        should_sync_default=False,
+        description=(
+            "Traffic statistics for each search query that led to each of the site's top pages: "
+            "impressions, clicks, and average positions. Bing updates this data weekly and retains "
+            "about six months."
+        ),
+    ),
+    "crawl_issues": BingWebmasterToolsEndpoint(
+        method="GetCrawlIssues",
+        primary_keys=["site_url", "url"],
+        incremental_fields=[],
+        description=(
+            "The site's URLs that currently have crawl issues, with the HTTP status Bingbot received "
+            "and the issue types found. Fixed issues can take a few days to drop off."
+        ),
+    ),
+    "link_counts": BingWebmasterToolsEndpoint(
+        method="GetLinkCounts",
+        primary_keys=["site_url", "url"],
+        incremental_fields=[],
+        description="The site's pages that have inbound links, with the number of inbound links Bing found for each.",
+    ),
 }
 
 ENDPOINTS = tuple(ENDPOINT_CONFIGS.keys())
