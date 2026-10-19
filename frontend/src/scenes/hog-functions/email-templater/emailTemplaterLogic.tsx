@@ -326,7 +326,10 @@ export interface emailTemplaterLogicActions {
     onEmailEditorReady: () => {
         value: true
     }
-    pickTemplate: (template: MessageTemplateListApi, onPicked?: () => void) => {
+    pickTemplate: (
+        template: MessageTemplateListApi,
+        onPicked?: () => void
+    ) => {
         template: MessageTemplateApi
         onPicked?: () => void
     }
