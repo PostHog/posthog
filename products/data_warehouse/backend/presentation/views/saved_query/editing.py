@@ -374,14 +374,6 @@ class DataWarehouseSavedQuerySerializer(
             view.save()
             if has_description:
                 self._write_view_description(view, description)
-            try:
-                view.setup_model_paths()
-            except Exception:
-                # For now, do not fail saved query creation if we cannot model-ize it.
-                # Later, after bugs and errors have been ironed out, we may tie these two
-                # closer together.
-                logger.exception("Failed to create model path when creating view %s", view.name)
-
             team = Team.objects.get(id=view.team_id)
 
             log_activity(
@@ -549,12 +541,6 @@ class DataWarehouseSavedQuerySerializer(
                 view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
-
-            try:
-                view.setup_model_paths()
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to update model path when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
 
