@@ -312,6 +312,53 @@ describe('focused Inbox setup', () => {
         expect(logic.values.draft.scanner_ids).toEqual(['scanner-one'])
     })
 
+    it.each([false, true])('handles unavailable scanner access with selected scanners: %s', async (selected) => {
+        savedDraft = { ...draft, scanner_ids: selected ? ['scanner-one'] : [] }
+        failCompletion = false
+        useMocks({ get: { '/api/projects/:id/vision/scanners/': () => [403, { detail: 'Scanner access denied' }] } })
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
+        expect(logic.values.completed).toBe(!selected)
+        expect(logic.values.error).toBe(selected ? 'Scanner access denied' : null)
+    })
+
+    it('retries source inventory after a failed background refresh', async () => {
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        let unavailable = true
+        const recoveredSource = {
+            id: 'recovered-source',
+            source_product: 'error_tracking',
+            source_type: 'issue_created',
+            enabled: true,
+        }
+        useMocks({
+            get: {
+                '/api/projects/:id/signals/source_configs/': () =>
+                    unavailable
+                        ? [503, { detail: 'Unavailable' }]
+                        : { results: [recoveredSource], next: null, count: 1 },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.refreshSources()).toFinishAllListeners()
+        expect(logic.values.ready).toBe(true)
+        expect(logic.values.error).toBeTruthy()
+        unavailable = false
+        await expectLogic(logic, () => logic.actions.retry()).toFinishAllListeners()
+        expect(logic.values.sourceConfigs).toEqual([recoveredSource])
+        expect(logic.values.error).toBeNull()
+    })
+
+    it('recovers scout choices after materialization fails', async () => {
+        useMocks({ post: { '/api/projects/:id/signals/scout/configs/sync/': () => [503, { detail: 'Unavailable' }] } })
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        expect(logic.values.error).toBe('Could not prepare your scouts. Try again.')
+        const generalScout = { ...mockScoutConfigs[0], skill_name: 'signals-scout-general', enabled: false }
+        useMocks({ post: { '/api/projects/:id/signals/scout/configs/sync/': () => [200, [generalScout]] } })
+        await expectLogic(logic, () => logic.actions.retry()).toFinishAllListeners()
+        expect(logic.values.scoutChoices.some((scout) => scout.skill_name === generalScout.skill_name)).toBe(true)
+        expect(logic.values.error).toBeNull()
+    })
+
     it.each([false, true])(
         'reconciles deselected scouts after reload without changing pre-existing enablement (%s)',
         async (enabledBeforeSetup) => {

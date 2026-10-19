@@ -84,7 +84,7 @@ export interface inboxSetupLogicValues {
     editedDraft: InboxOnboardingDraftApi | null
     error: string | null
     experimentVariant: 'control' | 'test' | null
-    failedOperation: 'activation' | 'other' | null
+    failedOperation: 'activation' | 'other' | 'scouts' | 'sources' | null
     hasGithubIntegration: boolean
     inProgress: boolean
     isFinalStep: boolean
@@ -113,6 +113,7 @@ export interface inboxSetupLogicActions {
     ) => {
         surface: import('../../generated/api.schemas').SignalsScoutConfigSyncSurface
     } // scoutFleetLogic
+    syncScoutFleet: (_?: void | undefined) => void // scoutFleetLogic
     loadProductDataEvents: () => any // signalSourcesLogic
     loadSourceConfigs: () => any // signalSourcesLogic
     loadVisionScanners: () => any // signalSourcesLogic
@@ -175,10 +176,10 @@ export interface inboxSetupLogicActions {
     }
     setError: (
         error: string | null,
-        failedOperation?: 'activation' | 'other'
+        failedOperation?: 'activation' | 'other' | 'scouts' | 'sources'
     ) => {
         error: string | null
-        failedOperation: 'activation' | 'other'
+        failedOperation: 'activation' | 'other' | 'scouts' | 'sources'
     }
     setSavedState: (state: InboxOnboardingStateApi) => {
         state: InboxOnboardingStateApi
@@ -321,7 +322,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             signalSourcesLogic,
             ['loadSourceConfigs', 'loadVisionScanners', 'loadProductDataEvents'],
             scoutFleetLogic,
-            ['loadScoutConfigs', 'materializeScoutFleet'],
+            ['loadScoutConfigs', 'materializeScoutFleet', 'syncScoutFleet'],
             integrationsLogic,
             ['loadIntegrations'],
             sourcesDataLogic,
@@ -347,7 +348,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         activate: true,
         retry: true,
         setSaving: (saving: boolean) => ({ saving }),
-        setError: (error: string | null, failedOperation: 'activation' | 'other' = 'other') => ({
+        setError: (error: string | null, failedOperation: 'activation' | 'sources' | 'scouts' | 'other' = 'other') => ({
             error,
             failedOperation,
         }),
@@ -377,7 +378,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             { setError: (_, { error }) => error, loadSetupFailure: (_, { error }) => error },
         ],
         failedOperation: [
-            null as 'activation' | 'other' | null,
+            null as 'activation' | 'sources' | 'scouts' | 'other' | null,
             { setError: (_, { error, failedOperation }) => (error ? failedOperation : null) },
         ],
         started: [false, { startSetup: () => true, openSetup: () => true }],
@@ -689,7 +690,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             [signalSourcesLogic.actionTypes.enableSourceProductComplete]: () => actions.refreshSources(),
             [sourcesDataLogic.actionTypes.loadSourcesFailure]: () =>
-                actions.setError('Could not load connected sources. Try again.'),
+                actions.setError('Could not load connected sources. Try again.', 'sources'),
+            [scoutFleetLogic.actionTypes.syncScoutFleetFailure]: () => {
+                if (values.started) {
+                    actions.setError('Could not prepare your scouts. Try again.', 'scouts')
+                }
+            },
             reportInteraction: () => {
                 if (!cache.startReported) {
                     posthog.capture('self-driving onboarding started', {
@@ -701,10 +707,10 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
             },
             [signalSourcesLogic.actionTypes.loadSourceConfigsFailure]: () => {
-                actions.setError('Could not load signal sources. Try again.')
+                actions.setError('Could not load signal sources. Try again.', 'sources')
             },
             [signalSourcesLogic.actionTypes.loadProductDataEventsFailure]: () => {
-                actions.setError('Could not check which sources are ready. Try again.')
+                actions.setError('Could not check which sources are ready. Try again.', 'sources')
             },
             patchDraft: async ({ patch }, breakpoint) => {
                 actions.reportInteraction()
@@ -811,6 +817,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             retry: () => {
                 if (values.failedOperation === 'activation') {
                     actions.activate()
+                } else if (values.failedOperation === 'sources') {
+                    actions.setError(null)
+                    actions.refreshSources()
+                } else if (values.failedOperation === 'scouts') {
+                    actions.setError(null)
+                    actions.syncScoutFleet()
                 } else if (values.sourceSetupSource) {
                     actions.finishSourceSetup()
                 } else if (values.ready) {
@@ -836,9 +848,22 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         router.actions.replace(urls.inbox())
                         return
                     }
-                    const scanners = await visionScannersList(projectId, { enabled: 'enabled', limit: 1000 })
-                    signalSourcesLogic.actions.setScannerInventoryKnown(!scanners.next)
-                    signalSourcesLogic.actions.loadVisionScannersSuccess(scanners.results)
+                    let scanners: ReplayScannerApi[] = []
+                    try {
+                        const response = await visionScannersList(projectId, { enabled: 'enabled', limit: 1000 })
+                        scanners = response.results
+                        signalSourcesLogic.actions.setScannerInventoryKnown(!response.next)
+                        signalSourcesLogic.actions.loadVisionScannersSuccess(scanners)
+                    } catch (error) {
+                        if (
+                            !(error instanceof ApiError) ||
+                            ![403, 404].includes(error.status) ||
+                            draft.scanner_ids.length ||
+                            values.visionScanners?.length
+                        ) {
+                            throw error
+                        }
+                    }
                     draft = values.draft
                     await saveDraft()
                     const currentScouts =
@@ -908,7 +933,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                             await signalsSourceConfigsCreate(projectId, source)
                         }
                     }
-                    for (const scanner of scanners.results) {
+                    for (const scanner of scanners) {
                         const enabled = draft.scanner_ids.includes(scanner.id)
                         if (scanner.emits_signals !== enabled) {
                             await visionScannersPartialUpdate(projectId, scanner.id, { emits_signals: enabled })
