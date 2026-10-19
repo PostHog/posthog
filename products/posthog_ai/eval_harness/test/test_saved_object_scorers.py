@@ -134,6 +134,7 @@ class TestSQLTilesFollowDashboardDateRange(ClickhouseTestMixin, APIBaseTest):
             ("SELECT count() FROM events WHERE {filters} AND timestamp >= now() - INTERVAL 30 DAY", None, 0.0),
             ("SELECT count() FROM events", None, 0.0),
             ("SELECT number FROM numbers(20) ORDER BY rand()", None, 0.0),
+            ("SELECT missing_column FROM events WHERE {filters}", None, 0.0),
         ]
     )
     def test_scores_sql_tiles_by_dashboard_date_range_response(

@@ -3,6 +3,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from pydantic import ValidationError
+
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     resolve_effective_dashboard_filters,
@@ -119,7 +124,8 @@ class SQLTilesFollowDashboardDateRange(AsyncOnlyScorerMixin, Scorer):
                         cls._results_for_date_range(source, date_from, tile.filters_overrides, team)
                         for date_from in DASHBOARD_DATE_RANGES
                     ]
-                except Exception as error:
+                # Other exceptions are infrastructure failures, so they reach the harness as scorer errors.
+                except (ExposedHogQLError, ExposedCHQueryError, ValidationError) as error:
                     state["error"] = repr(error)
                 sql_tiles.append(state)
         return {"matching_count": len(matching), "sql_tiles": sql_tiles}
