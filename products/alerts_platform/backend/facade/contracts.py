@@ -1035,11 +1035,17 @@ class AlertDestinationConfig:
 
 @frozen
 class AlertDestinationGroup:
-    """The HogFunctions that together make up one destination a person configured."""
+    """One destination an alert delivers to: the HogFunctions a person configured, or a destination
+    with none, such as an insight alert's subscriber email."""
 
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     fully_enabled: bool
+
+    @property
+    def receives_emitted_events(self) -> bool:
+        """Whether the source's emitted internal events reach it. Only a HogFunction listens to them."""
+        return bool(self.hog_function_ids)
 
 
 @frozen
@@ -1161,6 +1167,10 @@ class LegacyEventEmission:
     sends_message: bool
     # The source emits the incident event for this action too, when it is set.
     incident_action: IncidentAction | None
+
+    @property
+    def event_count(self) -> int:
+        return int(self.sends_message) + int(self.incident_action is not None)
 
 
 class LegacyEventEmitter(Protocol):

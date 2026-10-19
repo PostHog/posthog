@@ -32,7 +32,7 @@ from products.alerts_platform.backend.delivery.transport import DeliveryError, D
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
-    AlertDestinationData,
+    AlertDestinationGroup,
     AlertEventKind,
     AnnouncedTransition,
     DeliveryPath,
@@ -73,8 +73,9 @@ class DeliveryOutcome:
     live: bool
     sent: int
     skipped_without_transport: int
-    # Transitions handed to the source to emit its own events, on the HogFunction path.
-    emitted: int = 0
+    # The broker took the events, which does not mean a HogFunction ran.
+    emitted_transitions: int = 0
+    emitted_events: int = 0
 
 
 def destinations_are_live(team: Team) -> bool:
@@ -163,7 +164,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
-    announced, emissions = _split_by_path(request, announced)
+    native_announced, emissions = _split_by_path(request, announced)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
     notice_keys: dict[str, str] = {}
     if request.parts > 1 and request.overflowed:
@@ -193,8 +194,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     message_event_ids = set(request.event_ids_by_kind.values())
     # Destinations already told about the overflow, so each hears it once, on its first message.
     noticed: set[str] = set()
-    for event_id, transitions in _by_subscription(request, announced).items():
-        for target in _destinations(request, event_id):
+    native_by_event = _by_subscription(request, native_announced)
+    for event_id, all_transitions in _by_subscription(request, announced).items():
+        for group in _destination_groups(request, event_id):
+            transitions = native_by_event.get(event_id, ()) if group.receives_emitted_events else all_transitions
+            if not transitions:
+                continue
+            target = group.data
             overflowed = 0
             destination = json.dumps(target, sort_keys=True)
             owns_notice = request.parts <= 1 or any(
@@ -267,13 +273,19 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
         raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
-    return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped, emitted=len(emissions))
+    return DeliveryOutcome(
+        live=True,
+        sent=sent,
+        skipped_without_transport=skipped,
+        emitted_transitions=len(emissions),
+        emitted_events=sum(emission.event_count for emission in emissions),
+    )
 
 
 def _split_by_path(
     request: AlertDeliveryRequest, announced: EvaluationAnnouncement
 ) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
-    """The transitions to deliver natively, and the ones the source emits for its HogFunctions.
+    """The transitions HogFunction destinations receive natively, and the ones the source emits for them.
 
     Only an alert the platform owns can take the HogFunction path. While the source owns it, its
     own stack emits those events, and emitting them here too would send every message twice.
@@ -338,8 +350,8 @@ def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertE
             first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
     keys: dict[str, str] = {}
     for event_id, first in first_by_event_id.items():
-        for target in _destinations(request, event_id):
-            destination = json.dumps(target, sort_keys=True)
+        for group in _destination_groups(request, event_id):
+            destination = json.dumps(group.data, sort_keys=True)
             keys[destination] = min(keys.get(destination, first), first)
     return keys
 
@@ -381,7 +393,7 @@ def _subscribed_events(request: AlertDeliveryRequest, transition: AnnouncedTrans
     )
 
 
-def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationData]:
+def _destination_groups(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationGroup]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
@@ -392,4 +404,4 @@ def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDes
         alert_id=request.destination_alert_id,
         allowed_event_ids=[event_id],
     )
-    return [group.data for group in groups if group.fully_enabled]
+    return [group for group in groups if group.fully_enabled]
