@@ -71,6 +71,7 @@ FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
+_PLAN_ATTEMPTS = 2
 MAX_SUGGESTIONS = 3
 _PROMPT_EVENTS_LIMIT = 60
 _GENERATION_ERRORS = (
@@ -289,36 +290,44 @@ def _plan_and_build(
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
     channels = team_context.channels(team)
-    with _analytics_client() as analytics_client:
-        plan = plan_steps(
-            team=team,
-            user=user,
-            context=StepsContext(
-                idea=idea,
-                email_templates=email_templates,
-                step_templates=step_templates,
-                events=events,
-                channels=channels,
-                has_slack=slack_integration_id is not None,
-            ),
-            analytics_client=analytics_client,
-        )
-    if plan is None:
-        return _BUILD_FAILED, None
-
-    built = build_workflow(
-        idea,
-        plan,
-        BuildContext(
-            allowed_events=frozenset({suggestion.trigger_event, *events}),
-            step_template_ids=frozenset(template.template_id for template in step_templates),
-            channels=channels,
-            email_templates=_chosen_template_bodies(team, plan, email_templates),
-            sender=team_context.email_sender(team),
-            slack_integration_id=slack_integration_id,
-            once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
-        ),
+    event_properties = team_context.event_property_names(team, suggestion.trigger_event)
+    context = BuildContext(
+        allowed_events=frozenset({suggestion.trigger_event, *events}),
+        step_template_ids=frozenset(template.template_id for template in step_templates),
+        channels=channels,
+        email_templates={},
+        sender=team_context.email_sender(team),
+        slack_integration_id=slack_integration_id,
+        once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
+        event_properties=frozenset(event_properties),
     )
+    built = None
+    # The model now and then links a step to an id it never wrote. A second plan almost always holds up.
+    for _ in range(_PLAN_ATTEMPTS):
+        with _analytics_client() as analytics_client:
+            plan = plan_steps(
+                team=team,
+                user=user,
+                context=StepsContext(
+                    idea=idea,
+                    email_templates=email_templates,
+                    step_templates=step_templates,
+                    events=events,
+                    channels=channels,
+                    has_slack=slack_integration_id is not None,
+                    event_properties=event_properties,
+                ),
+                analytics_client=analytics_client,
+            )
+        if plan is None:
+            return _BUILD_FAILED, None
+        built = build_workflow(
+            idea,
+            plan,
+            dataclasses.replace(context, email_templates=_chosen_template_bodies(team, plan, email_templates)),
+        )
+        if built is not None:
+            break
     if built is None:
         return _BUILD_FAILED, None
     validated = validate_draft(team, built.workflow)
@@ -518,7 +527,9 @@ def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestio
 
 def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
     used_events = team_context.used_trigger_events(team)
-    all_counts = weekly_counts(team)
+    # The model can copy an event name into its JSON answer without escaping its quotes, which breaks the answer and
+    # loses every idea of the run. Names that JSON must escape are left out.
+    all_counts = {name: count for name, count in weekly_counts(team).items() if '"' not in name and "\\" not in name}
     # A build can wait on any busy event, including one another workflow already starts from.
     planning_events = tuple(name for name, _ in select_prompt_events(all_counts, limit=_PROMPT_EVENTS_LIMIT))
     counts = {name: count for name, count in all_counts.items() if name not in used_events}
