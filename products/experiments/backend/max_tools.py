@@ -36,10 +36,12 @@ CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
 
     # Scope
     This tool creates code-based experiments (type "product"): the user implements the variants
-    in their own code via the feature flag, whether the change is server-side or client-side UI.
-    It cannot create no-code web experiments — those store DOM transforms this tool cannot author,
-    and are created with the PostHog toolbar on the user's own site. If the user asks for a
-    no-code / visual / toolbar experiment, point them to the toolbar instead of using this tool.
+    in their own code via the feature flag. UX/UI and frontend experiments are fully supported
+    this way, including when an agent writes the variant code in the user's repo.
+    The one thing this tool cannot create is a no-code web experiment — those store DOM
+    transforms this tool cannot author, and are created with the PostHog toolbar on the user's
+    own site. Only when the user explicitly wants to author changes visually without touching
+    code should you point them to the toolbar instead of using this tool.
 
     # Workflow
     1. Create a multivariate feature flag with `create_feature_flag` (variants: control + test)
