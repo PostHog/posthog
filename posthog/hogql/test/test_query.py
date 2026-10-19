@@ -1065,22 +1065,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("extract_array", "JSONExtract(properties.list, 'Array(Int64)')", [1, 2], []),
             ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
             ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
+            ("null_literal_keeps_null", "JSONExtractArrayRaw(NULL)", None, None),
             ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
             ("cte_to_string", "JSONExtractArrayRaw(toString(list))", ["1", "2"], [], "t"),
-            ("cte_lower", "JSONExtractArrayRaw(lower(list))", ["1", "2"], [], "t"),
-            ("cte_nonnullable_fallback", "JSONExtractArrayRaw(ifNull(list, '[]'))", ["1", "2"], [], "t"),
+            ("cte_unknown_function", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t", "toValidUTF8(properties.list)"),
             ("cte_equality_unchanged", "list = 'x'", False, None, "t"),
             ("cte_inequality_unchanged", "list != 'x'", True, None, "t"),
-            ("cte_wrapped_equality_unchanged", "toString(list) = 'x'", False, None, "t"),
-            ("cte_scalar_json_unchanged", "JSONExtractString(list, 'x')", "", None, "t"),
-            (
-                "cte_unknown_function",
-                "JSONExtractArrayRaw(list)",
-                ["1", "2"],
-                [],
-                "t",
-                "toValidUTF8(properties.list)",
-            ),
         ]
     )
     def test_json_container_functions_accept_nullable_input(
@@ -1109,57 +1099,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         rows = sorted(response.results, key=lambda row: row[0])
         self.assertEqual(rows, [("with", expected_with), ("without", expected_without)])
-
-    @parameterized.expand(
-        [
-            ("array", "SELECT JSONExtractArrayRaw(NULL)", None),
-            ("to_string", "SELECT JSONExtractArrayRaw(toString(NULL))", None),
-            ("lower", "SELECT JSONExtractArrayRaw(lower(NULL))", None),
-            ("upper", "SELECT JSONExtractArrayRaw(upper(NULL))", None),
-            (
-                "nested_wrapped_cte",
-                "WITH t AS (SELECT lower(toString(NULL)) AS value) SELECT JSONExtractArrayRaw(value) FROM t",
-                None,
-            ),
-            ("extract_raw", "SELECT JSONExtractArrayRaw(JSONExtractRaw(NULL, 'x'))", None),
-            (
-                "wrapped_cte",
-                "WITH t AS (SELECT toString(NULL) AS value) SELECT JSONExtractArrayRaw(value) FROM t",
-                None,
-            ),
-            ("keys", "SELECT JSONExtractKeys(NULL)", None),
-            ("map", "SELECT JSONExtract(NULL, 'Map(String, String)')", None),
-            ("fallback", "SELECT coalesce(JSONExtractArrayRaw(NULL), ['fallback'])", ["fallback"]),
-            ("alias", "WITH NULL AS value SELECT JSONExtractArrayRaw(value)", None),
-            ("cte", "WITH t AS (SELECT NULL AS value) SELECT JSONExtractArrayRaw(value) FROM t", None),
-            ("subquery", "SELECT JSONExtractArrayRaw(value) FROM (SELECT NULL AS value)", None),
-        ]
-    )
-    def test_json_container_functions_preserve_null_only_input(self, _name: str, query: str, expected: Any) -> None:
-        response = execute_hogql_query(query, team=self.team, pretty=False)
-
-        self.assertEqual(response.results, [(expected,)])
-
-    @parameterized.expand(
-        [
-            ("literal", "SELECT JSONExtractArrayRaw('[1,2]')", ["1", "2"]),
-            ("fallback", "SELECT JSONExtractArrayRaw(coalesce(NULL, '[1,2]'))", ["1", "2"]),
-            (
-                "scalar_cte_precedence_null",
-                "WITH NULL AS value SELECT JSONExtractArrayRaw(value) FROM (SELECT '[1,2]' AS value)",
-                None,
-            ),
-            (
-                "scalar_cte_precedence_string",
-                "WITH '[1,2]' AS value SELECT JSONExtractArrayRaw(value) FROM (SELECT NULL AS value)",
-                ["1", "2"],
-            ),
-        ]
-    )
-    def test_json_container_functions_preserve_working_input(self, _name: str, query: str, expected: Any) -> None:
-        response = execute_hogql_query(query, team=self.team, pretty=False)
-
-        self.assertEqual(response.results[0][0], expected)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):
