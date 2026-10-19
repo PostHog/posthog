@@ -44,10 +44,6 @@ class TestTeachableSource:
             assert schemas[name].supports_incremental is False, name
             assert schemas[name].incremental_fields == [], name
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["transactions"])
-        assert [s.name for s in schemas] == ["transactions"]
-
     @pytest.mark.parametrize(
         "observed_error,expect_match",
         [

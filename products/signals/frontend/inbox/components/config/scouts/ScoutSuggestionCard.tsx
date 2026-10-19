@@ -20,8 +20,7 @@ export interface ScoutSuggestionCardProps {
 }
 
 /**
- * One suggested scout as a row: what it would watch, why it was picked for this project, and the
- * three ways to act on it. The row carries the motivation only, because the create form already
+ * The row carries the motivation only, because the create form already
  * holds the draft, the schedule and the output setting, and is where editing happens. Pressing the
  * body opens that form, so a person reads the offer before anything is written.
  */
@@ -54,7 +53,8 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
     return (
         <div
             className={cn(
-                'flex flex-col gap-2 px-3 py-2.5 @2xl:flex-row @2xl:items-start @2xl:gap-4',
+                'flex flex-col gap-2 py-2.5 @2xl:flex-row @2xl:items-start @2xl:gap-4',
+                surface === 'onboarding' ? 'px-0' : 'px-3',
                 !bodyDisabled && 'transition-colors hover:bg-surface-secondary'
             )}
         >
@@ -154,8 +154,7 @@ function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps &
                 loading={isBusy}
                 disabledReason={isCanonical ? undefined : (creationDisabledReason ?? undefined)}
                 onClick={() => openCreateFromSuggestion(item, surface)}
-                // One width for both labels, so the group starts at the same x on every row.
-                className="min-w-24 justify-center"
+                className={surface === 'onboarding' ? undefined : 'min-w-24 justify-center'}
                 data-attr={isCanonical ? 'scout-suggestion-turn-on' : 'scout-suggestion-create'}
             >
                 {reviewActionLabel(item)}
@@ -170,15 +169,17 @@ function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps &
             >
                 Refine with AI
             </LemonButton>
-            <LemonButton
-                size="xsmall"
-                icon={<IconX />}
-                tooltip="Dismiss. This won't be suggested again."
-                disabledReason={isBusy ? 'Working on this suggestion' : undefined}
-                onClick={() => dismissSuggestion(item, surface)}
-                aria-label={`Dismiss ${item.title}`}
-                data-attr="scout-suggestion-dismiss"
-            />
+            {surface !== 'onboarding' && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconX />}
+                    tooltip="Dismiss. This won't be suggested again."
+                    disabledReason={isBusy ? 'Working on this suggestion' : undefined}
+                    onClick={() => dismissSuggestion(item, surface)}
+                    aria-label={`Dismiss ${item.title}`}
+                    data-attr="scout-suggestion-dismiss"
+                />
+            )}
         </div>
     )
 }

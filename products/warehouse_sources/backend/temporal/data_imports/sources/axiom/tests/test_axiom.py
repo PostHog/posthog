@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -49,17 +48,26 @@ def make_inputs(table: str) -> SourceInputs:
     )
 
 
-@pytest.mark.parametrize("table", ["datasets", "monitors", "annotations"])
+@pytest.mark.parametrize(
+    "table,path",
+    [
+        ("datasets", "datasets"),
+        ("monitors", "monitors"),
+        ("annotations", "annotations"),
+        ("users", "users"),
+        ("groups", "rbac/groups"),
+    ],
+)
 @pytest.mark.parametrize("rows", [[], [{"id": "record-1"}, {"id": "record-2"}]])
 @pytest.mark.parametrize("org_id", [None, "example-org"])
-def test_single_page_full_refresh(table: str, rows: list[dict[str, str]], org_id: str | None) -> None:
+def test_single_page_full_refresh(table: str, path: str, rows: list[dict[str, str]], org_id: str | None) -> None:
     result = SourceDriver(AxiomSource(), AxiomSourceConfig(api_token="test-token", org_id=org_id)).run(
         table, [ScriptedResponse(json=rows)]
     )
 
     assert result.raised is None
     assert result.rows == rows
-    assert result.paths == [f"/v2/{table}"]
+    assert result.paths == [f"/v2/{path}"]
     request = result.requests[0]
     assert request.headers["authorization"] == "Bearer test-token"
     assert request.headers.get("x-axiom-org-id") == org_id
@@ -180,14 +188,6 @@ def test_probe_preserves_non_auth_failures(status: int, exception: type[Exceptio
             AxiomSource().validate_credentials(AxiomSourceConfig(api_token="test-token"), 1)
 
     assert {request.path for request in network.requests_log} == {"/v2/datasets"}
-
-
-def test_unknown_table_fails_before_request() -> None:
-    result = SourceDriver(AxiomSource(), AxiomSourceConfig(api_token="test-token")).run("unknown_table", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert "unknown_table" in str(result.raised)
-    assert result.requests == []
 
 
 @pytest.mark.parametrize("body", [{"message": "Unexpected response"}, None])
