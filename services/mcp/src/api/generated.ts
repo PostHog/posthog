@@ -78171,6 +78171,28 @@ export namespace Schemas {
 
     export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
 
+    /**
+     * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
+     */
+    export type WarehouseSuggestionEvidenceRequestsBySurface = {[key: string]: number};
+
+    export interface WarehouseSuggestionEvidence {
+      /** Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any project, so it shows how much history exists, not how active this project is. */
+      days_with_data?: number;
+      /** Queries people ran that read the subject in the usage window. */
+      human_requests?: number;
+      /** Distinct people who ran those queries. */
+      human_users?: number;
+      /** Days on which people read the subject. */
+      human_days?: number;
+      /** Queries PostHog ran on its own that read the subject, such as cache warming and alerts. */
+      background_requests?: number;
+      /** Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp. */
+      requests_by_surface?: WarehouseSuggestionEvidenceRequestsBySurface;
+      /** When any query last read the subject, including queries PostHog ran on its own. */
+      last_read_at?: string;
+    }
+
     export interface WarehouseSuggestionReviewer {
       /** User id. */
       id: number;
@@ -78239,11 +78261,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * The usage numbers that led to this suggestion.
-     */
-    export type WarehouseSuggestionEvidence = { [key: string]: unknown };
-
-    /**
      * What accepting this suggestion created. Null until accepted.
      * @nullable
      */
@@ -78252,7 +78269,7 @@ export namespace Schemas {
     export interface WarehouseSuggestion {
       /** What accepting this suggestion would create or change. Shape depends on kind. */
       readonly payload: WarehouseSuggestionPayload;
-      /** The usage numbers that led to this suggestion. */
+      /** The read counts that led to this suggestion. A field is missing when the subject had no reads. */
       evidence: WarehouseSuggestionEvidence;
       /**
          * What accepting this suggestion created. Null until accepted.
@@ -78304,8 +78321,6 @@ export namespace Schemas {
       evidence_window_end: string;
       /** When the daily job last found evidence for this suggestion. */
       last_seen_at: string;
-      /** How strongly the evidence supports the suggestion. Higher comes first. */
-      score: number;
       /**
          * When the suggestion was first shown. Null while it waits for a slot.
          * @nullable
