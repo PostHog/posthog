@@ -128,6 +128,14 @@ export const VerifyingPollingStopped: Story = {
     },
 }
 
+export const VerifyingRecordsInPlace: Story = {
+    args: {
+        host: 'cloudflare',
+        seed: (backend) => backend.publishRecords(DOMAIN),
+        stage: (_, id) => emailDomainStatusLogic.findMounted({ id })?.actions.stopPolling(),
+    },
+}
+
 export const VerifyingTemporaryFailure: Story = {
     args: {
         host: 'unknown',
