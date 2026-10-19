@@ -37,9 +37,13 @@ function acceptButton(renderer: Renderer) {
 }
 
 describe("ConsentPanel", () => {
-  it("shows the accept action for an admin", () => {
+  it("shows the accept action with the PHI notice to an admin", () => {
     const renderer = render({ isAdmin: true });
-    expect(texts(renderer)).toContain("Approve AI data processing");
+    const content = texts(renderer);
+    expect(content).toContain("Approve AI data processing");
+    expect(content).toContain(
+      'If you\'ve entered into a Business Associate Agreement ("BAA") with PostHog, it does not currently apply to PostHog Code features.',
+    );
   });
 
   it("directs a non-admin to an org admin with no accept action", () => {

@@ -1,5 +1,5 @@
 import { Text } from "@components/text";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
@@ -72,7 +72,21 @@ export function ConsentPanel({
           isSubmitting={submitting === "ai"}
           isDisabled={submitting !== null}
           onAccept={() => void accept("ai")}
-        />
+        >
+          <View className="gap-1">
+            <Text className="font-semibold text-gray-12 text-sm">
+              Legal bits about Protected Health Information
+            </Text>
+            <Text className="text-gray-11 text-sm leading-5">
+              This app isn't yet HIPAA-compliant and is not intended for
+              processing of Protected Health Information ("PHI").
+            </Text>
+            <Text className="text-gray-11 text-sm leading-5">
+              If you've entered into a Business Associate Agreement ("BAA") with
+              PostHog, it does not currently apply to PostHog Code features.
+            </Text>
+          </View>
+        </ConsentCard>
       )}
 
       {needsBetaTerms && (
@@ -113,6 +127,7 @@ interface ConsentCardProps {
   isDisabled: boolean;
   onAccept: () => void;
   link?: { label: string; url: string };
+  children?: ReactNode;
 }
 
 function ConsentCard({
@@ -126,6 +141,7 @@ function ConsentCard({
   isDisabled,
   onAccept,
   link,
+  children,
 }: ConsentCardProps) {
   const themeColors = useThemeColors();
 
@@ -136,6 +152,7 @@ function ConsentCard({
         <Text className="text-gray-11 text-sm">{summary}</Text>
       </View>
       <Text className="text-gray-11 text-sm leading-5">{detail}</Text>
+      {children}
       {link && (
         <Pressable onPress={() => openExternalUrl(link.url)}>
           <Text className="text-accent-11 text-sm">{link.label}</Text>
