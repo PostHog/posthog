@@ -1215,15 +1215,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles(self) -> None:
         dashboard_one = Dashboard.objects.create(team=self.team, name="dashboard-1")
         dashboard_two = Dashboard.objects.create(team=self.team, name="dashboard-2")
-        shared_insight = Insight.objects.create(team=self.team, name="shared")
+        shared_insight = Insight.objects.create(team=self.team, name="shared", query=default_pageview_query())
         shared_tile = DashboardTile.objects.create(dashboard=dashboard_one, insight=shared_insight)
         dashboard_one_only_tile = DashboardTile.objects.create(
-            dashboard=dashboard_one, insight=Insight.objects.create(team=self.team, name="dashboard-1 only")
+            dashboard=dashboard_one,
+            insight=Insight.objects.create(team=self.team, name="dashboard-1 only", query=default_pageview_query()),
         )
         # The response lists every dashboard that holds the shared insight. The GET therefore also loads this tile.
         DashboardTile.objects.create(dashboard=dashboard_two, insight=shared_insight)
         unrelated_tile = DashboardTile.objects.create(
-            dashboard=dashboard_two, insight=Insight.objects.create(team=self.team, name="dashboard-2 only")
+            dashboard=dashboard_two,
+            insight=Insight.objects.create(team=self.team, name="dashboard-2 only", query=default_pageview_query()),
         )
 
         loaded_tile_ids: set[int] = set()
