@@ -297,8 +297,8 @@ def _quoted_end(sql: str, start: int) -> int:
 def _comment_end(sql: str, start: int) -> int | None:
     # HogQL reads `#` followed by a digit as a token, not as a comment.
     if sql.startswith(("--", "//"), start) or (sql.startswith("#", start) and not sql[start + 1 : start + 2].isdigit()):
-        end = _LINE_END.search(sql, start)
-        return len(sql) if end is None else end.start()
+        line_end = _LINE_END.search(sql, start)
+        return len(sql) if line_end is None else line_end.start()
     if sql.startswith("/*", start):
         end = sql.find("*/", start + 2)
         return len(sql) if end < 0 else end + 2
