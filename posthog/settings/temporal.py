@@ -81,6 +81,10 @@ TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
 
+TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED: bool = get_from_env(
+    "TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED", False, type_cast=str_to_bool
+)
+
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
@@ -181,6 +185,12 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
 TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
     "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
     True,
+    type_cast=str_to_bool,
+)
+
+TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED: bool = get_from_env(
+    "TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED",
+    False,
     type_cast=str_to_bool,
 )
 
@@ -326,6 +336,9 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
+EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-activity-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -346,6 +359,8 @@ TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
+# Keep aggregation separate even when local development combines the other queues.
+USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
@@ -393,6 +408,9 @@ LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # A tick costs one candidate query whatever it dispatches, so a larger batch means fewer ticks and
 # less ClickHouse work for the same backfill.
 LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
+# Evaluations one backfill runs at once. A run holds one of the shared CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
+# slots only while it reads its unit, so most runs wait on the judge. Lower this if backfills crowd out live work.
+LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT: int = get_from_env("LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT", 16, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

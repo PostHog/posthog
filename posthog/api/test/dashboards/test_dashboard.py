@@ -9,6 +9,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.db.models.signals import post_init
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -42,7 +43,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.user_permissions import UserPermissions
+from posthog.user_permissions import UserDashboardPermissions, UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -1087,20 +1088,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # queries: the runner passes its already-loaded team, so the check skips the Team
             # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
-            with self.assertNumQueries(baseline + 11):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 9 once at least one insight materializes
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 9):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
@@ -1196,26 +1198,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert [r.get("items", None) for r in response["results"]] == [None, None]
         assert [r.get("tiles", None) for r in response["results"]] == [None, None]
 
-    @snapshot_postgres_queries
     def test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles(self) -> None:
-        """
-        this test only exists for the query snapshot
-        which can be used to check if all dashboard tiles are being queried.
-        look for a query on posthog_dashboard_tile with
-        ```
-            AND "posthog_dashboardtile"."dashboard_id" = 2
-            AND "posthog_dashboardtile"."dashboard_id" IN (1,
-         ```
-        """
-        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-1"})
-        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        dashboard_one = Dashboard.objects.create(team=self.team, name="dashboard-1")
+        dashboard_two = Dashboard.objects.create(team=self.team, name="dashboard-2")
+        shared_insight = Insight.objects.create(team=self.team, name="shared", query=default_pageview_query())
+        shared_tile = DashboardTile.objects.create(dashboard=dashboard_one, insight=shared_insight)
+        dashboard_one_only_tile = DashboardTile.objects.create(
+            dashboard=dashboard_one,
+            insight=Insight.objects.create(team=self.team, name="dashboard-1 only", query=default_pageview_query()),
+        )
+        # The response lists every dashboard that holds the shared insight. The GET therefore also loads this tile.
+        DashboardTile.objects.create(dashboard=dashboard_two, insight=shared_insight)
+        unrelated_tile = DashboardTile.objects.create(
+            dashboard=dashboard_two,
+            insight=Insight.objects.create(team=self.team, name="dashboard-2 only", query=default_pageview_query()),
+        )
 
-        # so DB has 5 tiles, but we only load need to 1
-        self.dashboard_api.get_dashboard(dashboard_one_id)
+        loaded_tile_ids: set[int] = set()
+
+        def record_loaded_tile(instance: DashboardTile, **kwargs: object) -> None:
+            loaded_tile_ids.add(instance.pk)
+
+        post_init.connect(record_loaded_tile, sender=DashboardTile)
+        try:
+            self.dashboard_api.get_dashboard(dashboard_one.pk)
+        finally:
+            post_init.disconnect(record_loaded_tile, sender=DashboardTile)
+
+        assert {shared_tile.pk, dashboard_one_only_tile.pk} <= loaded_tile_ids
+        assert unrelated_tile.pk not in loaded_tile_ids
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -1337,6 +1348,86 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         tile = DashboardTile.objects_including_soft_deleted.get(dashboard_id=dashboard_id, insight_id=insight_id)
         assert tile.deleted is True
+
+    @parameterized.expand([(False,), (True,)])
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_bulk_delete_insights_option_and_project_boundary(
+        self, delete_insights: bool, mock_report_user_action: MagicMock
+    ) -> None:
+        first_id, _ = self.dashboard_api.create_dashboard({"name": "First board"})
+        second_id, _ = self.dashboard_api.create_dashboard({"name": "Second board"})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Requests", "dashboards": [first_id, second_id]})
+        remaining_id, _ = self.dashboard_api.create_dashboard({"name": "Remaining board"})
+        shared_insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "Shared requests", "dashboards": [first_id, second_id, remaining_id]}
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other board")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/bulk_delete/",
+            {"ids": [first_id, second_id, first_id, other_dashboard.id], "delete_insights": delete_insights},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "deleted": [first_id, second_id],
+            "skipped": [{"id": other_dashboard.id, "reason": "Dashboard not found"}],
+        }
+        bulk_events = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboards bulk deleted"
+        ]
+        assert len(bulk_events) == 1
+        assert bulk_events[0].args == (
+            self.user,
+            "dashboards bulk deleted",
+            {"requested_count": 3, "deleted_count": 2, "skipped_count": 1, "delete_insights": delete_insights},
+        )
+        assert bulk_events[0].kwargs == {"team": self.team, "request": mock.ANY}
+        assert Dashboard.objects.filter(team=self.team, id__in=[first_id, second_id]).count() == 0
+        assert Dashboard.objects.filter(team=other_team, id=other_dashboard.id).exists()
+        assert Insight.objects.filter(team=self.team, id=insight_id).exists() is not delete_insights
+        assert Insight.objects.filter(team=self.team, id=shared_insight_id).exists()
+        assert DashboardTile.objects.filter(dashboard_id=remaining_id, insight_id=shared_insight_id).exists()
+        assert not DashboardTile.objects.filter(dashboard_id__in=[first_id, second_id]).exists()
+        assert not FileSystem.objects.filter(
+            team=self.team, type="dashboard", ref__in=[str(first_id), str(second_id)]
+        ).exists()
+        assert (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Dashboard", activity="deleted", item_id__in=[str(first_id), str(second_id)]
+            ).count()
+            == 2
+        )
+
+    @parameterized.expand([([],), ([0],), (list(range(1, 102)),)])
+    def test_bulk_delete_rejects_invalid_ids(self, ids: list[int]) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/bulk_delete/", {"ids": ids}, format="json"
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_checks_each_dashboard_permission(self) -> None:
+        first_id, _ = self.dashboard_api.create_dashboard({"name": "Editable board"})
+        second_id, _ = self.dashboard_api.create_dashboard({"name": "Restricted board"})
+        original_can_edit = UserPermissions.dashboard
+
+        def dashboard_permissions(permissions: UserPermissions, dashboard: Dashboard) -> UserDashboardPermissions:
+            if dashboard.id == second_id:
+                return MagicMock(can_edit=False)
+            return original_can_edit(permissions, dashboard)
+
+        with patch.object(UserPermissions, "dashboard", dashboard_permissions):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/bulk_delete/",
+                {"ids": [first_id, second_id]},
+                format="json",
+            )
+        assert response.status_code == 200
+        assert response.json()["deleted"] == [first_id]
+        assert response.json()["skipped"][0]["id"] == second_id
+        assert Dashboard.objects.filter(team=self.team, id=second_id).exists()
 
     def test_delete_dashboard_can_delete_tiles(self):
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -2094,14 +2185,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        self.dashboard_api.create_text_tile(dashboard_id)
         mock_report_user_action.reset_mock()
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
-        # item_count (insight tiles) and tile_count (all tiles) are snapshotted pre-delete, so they survive
-        # _delete_related_tiles: 1 insight tile, 2 tiles total (insight + text).
         mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard deleted",
@@ -2110,11 +2197,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "creation_mode": "default",
                 "dashboard_id": dashboard_id,
                 "has_description": False,
-                "is_shared": False,
-                "item_count": 1,
                 "pinned": False,
-                "tags_count": 0,
-                "tile_count": 2,
             },
             team=ANY,
             request=ANY,

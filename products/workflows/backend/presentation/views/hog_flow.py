@@ -51,6 +51,7 @@ from posthog.api.app_metrics2 import (
 )
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
@@ -118,9 +119,15 @@ from products.cdp.backend.presentation.serializers import (
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
+    require_viewer_access_to_added_actions,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.replay_vision.backend.facade.api import (
+    ObservationRequestRejected,
+    parse_workflow_scan_setup,
+    workflow_scan_editor_error,
+)
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
@@ -133,6 +140,7 @@ from products.tasks.backend.facade.workflow_tasks import (
 from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
+    log_workflow_schedule_activity,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.batch_jobs import (
@@ -150,6 +158,11 @@ from products.workflows.backend.facade.blast_radius import (
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
+)
+from products.workflows.backend.facade.broadcast_conversion import (
+    BROADCAST_CONVERSION_CANDIDATE_LIMIT,
+    convert_workflow_to_broadcast,
+    list_broadcast_conversion_candidates,
 )
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
@@ -174,6 +187,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowRef,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
+    WorkflowSchedule,
     WorkflowScheduleNotFound,
     WorkflowStale,
     WorkflowWriteResult,
@@ -200,6 +214,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowOriginProduct,
     HogFlowScheduleStatus,
     HogFlowState,
+    RealtimeAudienceCohortState,
     WorkflowProposalStatus,
 )
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
@@ -246,6 +261,7 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
 )
+from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
     suggestions_scout_refusal,
@@ -259,8 +275,11 @@ from products.workflows.backend.facade.validation import (
     duration_minutes,
     find_behavioral_cohort_name,
     find_clock_function,
+    find_realtime_behavioral_cohort,
     is_duration,
     is_signed_duration,
+    realtime_audience_cohort,
+    realtime_cohort_cant_finish_error,
 )
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
@@ -564,6 +583,66 @@ _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 # The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
 # 400, which fails the step on every run, so a strict save applies the same limits.
 _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
+
+# The scan runs as the workflow's owner, but whoever saves the step chooses which sessions it reads and
+# where the answers go, so the editor needs recording access too.
+_REPLAY_VISION_TEMPLATE_ID = "template-posthog-replay-vision"
+# Each group lists the scopes that grant one thing the step needs: reading recordings, and starting scans,
+# which the scan APIs gate on scanner write.
+_REPLAY_VISION_STEP_SCOPES = (
+    ("session_recording:read", "session_recording:write"),
+    ("replay_scanner:write",),
+)
+
+
+def _strip_replay_vision_code(inputs: Any) -> None:
+    # A draft keeps its raw inputs when they fail validation, so client-compiled code or a Liquid template can still
+    # be there. The engine would render those instead of the literal value the access checks read.
+    analysis = inputs.get("analysis") if isinstance(inputs, dict) else None
+    if isinstance(analysis, dict):
+        for key in ("bytecode", "transpiled", "templating"):
+            analysis.pop(key, None)
+
+
+def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
+    """Why the caller may not save or live-test a Replay Vision step with these inputs, or None."""
+    _strip_replay_vision_code(inputs)
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and "*" not in scopes:
+        for accepted in _REPLAY_VISION_STEP_SCOPES:
+            if not any(scope in scopes for scope in accepted):
+                return f"The Replay Vision step needs a key with the {accepted[0]} scope."
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+        return None
+    analysis = inputs.get("analysis") if isinstance(inputs, dict) else None
+    setup = analysis.get("value") if isinstance(analysis, dict) else None
+    scanner_id: uuid_mod.UUID | None = None
+    if isinstance(setup, dict) and setup.get("type") == "scanner":
+        try:
+            scanner_id = uuid_mod.UUID(str(setup.get("scanner_id")))
+        except ValueError:
+            # A strict save refuses the incomplete setup; a draft may keep it.
+            return None
+    # One save or run can hold several Replay Vision steps; each distinct scanner is checked once per request.
+    cache: dict[uuid_mod.UUID | None, str | None] = request.__dict__.setdefault("_replay_vision_editor_errors", {})
+    if scanner_id not in cache:
+        cache[scanner_id] = workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
+    return cache[scanner_id]
+
+
+def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
+    get_team = context.get("get_team")
+    if get_team is None:
+        return
+    for step in actions if isinstance(actions, list) else []:
+        config = (step.get("config") or {}) if isinstance(step, dict) else {}
+        if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
+            continue
+        error = _replay_vision_step_error(request, get_team(), config.get("inputs"))
+        if error is not None:
+            raise serializers.ValidationError({"variables": error})
+
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -975,6 +1054,26 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     )
 
 
+class RealtimeCohortStatusSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="The realtime cohort the audience sends to.")
+    name = serializers.CharField(help_text="The cohort's name.")
+    state = serializers.ChoiceField(
+        choices=RealtimeAudienceCohortState.choices,
+        help_text=(
+            "'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is "
+            "still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck."
+        ),
+    )
+    percent_complete = serializers.IntegerField(
+        allow_null=True, help_text="How far the calculation has come, while the cohort is not ready."
+    )
+
+
+class RealtimeCohortRefSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the realtime cohort.")
+    name = serializers.CharField(help_text="Name of the realtime cohort.")
+
+
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
@@ -988,6 +1087,22 @@ class BlastRadiusSerializer(serializers.Serializer):
         help_text=(
             "Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after "
             "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
+        ),
+    )
+    realtime_cohort = RealtimeCohortStatusSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Set when the audience is one realtime cohort. 'affected' is then the cohort's last calculated "
+            "size, and a batch run waits until the cohort is ready."
+        ),
+    )
+    realtime_cohort_with_other_conditions = RealtimeCohortRefSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: "
+            "a realtime cohort has to be the only condition."
         ),
     )
 
@@ -1336,12 +1451,13 @@ class HogFlowActionSerializer(serializers.Serializer):
         except serializers.ValidationError as error:
             raise serializers.ValidationError({"cohort_id": error.detail})
 
-    def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
+    def _reject_behavioral_cohorts_in_audience(self, filters: dict, *, allow_realtime: bool) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
         # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
         # membership is frozen and precalculated — matching the audience-picker exemption in
         # _build_cohort_dependency_graph in products/cohorts/backend/models/dependencies.py.
+        properties = filters.get("properties")
         if not isinstance(properties, list):
             return
         cohort_ids = [
@@ -1351,7 +1467,36 @@ class HogFlowActionSerializer(serializers.Serializer):
         ]
         if not cohort_ids:
             return
-        cohort_name = find_behavioral_cohort_name(self.context["get_team"]().project_id, cohort_ids)
+        project_id = self.context["get_team"]().project_id
+
+        # Behind the cohort-conditions flag, a realtime cohort can be a batch trigger's whole audience:
+        # the batch resolver then pages its members from the realtime pipeline's Postgres table, which
+        # holds no person properties. A schedule trigger starts one run with no person, so it never
+        # reads the audience this way. An active flow keeps an audience it saved under the flag.
+        realtime_cohort = find_realtime_behavioral_cohort(project_id, cohort_ids) if allow_realtime else None
+        if realtime_cohort is not None and (
+            realtime_cohort.id in (self.context.get("stored_realtime_audience_cohort_ids") or set())
+            or self._cohort_conditions_enabled()
+        ):
+            if realtime_audience_cohort(project_id, filters) is None:
+                raise serializers.ValidationError(
+                    {
+                        "filters": (
+                            f"Cohort '{realtime_cohort.name}' is a realtime cohort, so the audience can only be "
+                            "the people in it, with no other conditions and no test account filter. Add any "
+                            "other conditions to the cohort itself."
+                        )
+                    }
+                )
+            # A stored audience stays editable after its team leaves the realtime pipeline; its runs are refused.
+            if not realtime_cohort.can_finish and realtime_cohort.id not in (
+                self.context.get("stored_realtime_audience_cohort_ids") or set()
+            ):
+                raise serializers.ValidationError({"filters": realtime_cohort_cant_finish_error(realtime_cohort)})
+            # A cohort that is still calculating is accepted: a batch run waits until it is ready.
+            return
+
+        cohort_name = find_behavioral_cohort_name(project_id, cohort_ids)
         if cohort_name is not None:
             raise serializers.ValidationError(
                 {
@@ -1446,6 +1591,27 @@ class HogFlowActionSerializer(serializers.Serializer):
                         }
                     }
                 )
+
+    def _validate_replay_vision_action(self, inputs: dict, *, strict: bool) -> None:
+        """Reject an incomplete scan setup, and a caller who couldn't run the scan themselves: editing someone
+        else's workflow must not forward recordings or scanner answers the editor may not read."""
+        if strict:
+            try:
+                analysis = inputs.get("analysis") if isinstance(inputs, dict) else None
+                parse_workflow_scan_setup(analysis.get("value") if isinstance(analysis, dict) else None)
+            except ObservationRequestRejected as rejected:
+                raise serializers.ValidationError({"inputs": {"analysis": rejected.detail}})
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        # The scan refuses a child environment on every run, so a step saved for one fails at save instead.
+        if strict and get_team().parent_team_id:
+            raise serializers.ValidationError(
+                {"template_id": "Replay Vision is only available in the project's main environment."}
+            )
+        error = _replay_vision_step_error(self.context.get("request"), get_team(), inputs)
+        if error is not None:
+            raise serializers.ValidationError({"template_id": error})
 
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
@@ -1566,14 +1732,18 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
-                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+                        self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
+            elif data.get("config", {}).get("type") == "api":
+                # A transactional email's trigger: the authenticated send endpoint runs the workflow once
+                # per call, so the trigger has nothing to configure.
+                pass
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
                 # resolves the same offline audience as batch — guard its cohort refs the same way.
                 if strict:
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
-                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+                        self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=False)
             elif data.get("config", {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES:
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
                 # per synced row, filtering only against the row payload. The table_name must match
@@ -1741,6 +1911,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_run_scout_action()
                 if strict and template_id == _CLASSIFY_TEMPLATE_ID:
                     self._validate_classify_action(data["config"]["inputs"])
+                if template_id == _REPLAY_VISION_TEMPLATE_ID:
+                    self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -2134,6 +2306,73 @@ class HogFlowScheduleSerializer(serializers.Serializer):
             raise serializers.ValidationError({"rrule": "Schedules must run at most once per hour."})
 
         return data
+
+
+class SendCalendarQuerySerializer(serializers.Serializer):
+    start = serializers.DateTimeField(help_text="Start of the shown range, inclusive, as an ISO 8601 datetime.")
+    end = serializers.DateTimeField(
+        help_text=(
+            f"End of the shown range, exclusive, as an ISO 8601 datetime. At most {SEND_CALENDAR_MAX_RANGE_DAYS} "
+            "days after start."
+        )
+    )
+
+    def validate(self, data: dict) -> dict:
+        if data["end"] <= data["start"]:
+            raise serializers.ValidationError({"end": "End must be after start."})
+        if data["end"] - data["start"] > timedelta(days=SEND_CALENDAR_MAX_RANGE_DAYS):
+            raise serializers.ValidationError(
+                {"end": f"The range can be at most {SEND_CALENDAR_MAX_RANGE_DAYS} days long."}
+            )
+        return data
+
+
+class SendCalendarBatchJobSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the batch run.")
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJobState.choices, read_only=True, help_text="Status of the batch run."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the batch run started.")
+
+
+class SendCalendarFlowSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the workflow.")
+    name = serializers.CharField(read_only=True, allow_null=True, help_text="Name of the workflow.")
+    origin_product = serializers.ChoiceField(
+        choices=HogFlowOriginProduct.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.",
+    )
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the workflow.")
+    user_access_level = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The reader's access level on the workflow."
+    )
+    trigger_type = serializers.CharField(read_only=True, help_text="The trigger type: batch or schedule.")
+    audience_properties = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text="The property filters of a batch trigger's audience. Empty for a schedule trigger.",
+    )
+    audience_type = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="persons or accounts for a batch trigger's audience. Null when the trigger does not set it.",
+    )
+    email_to = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.",
+    )
+    message_category_id = serializers.CharField(
+        read_only=True, allow_null=True, help_text="ID of the message category of the first email step."
+    )
+    schedules = HogFlowScheduleSerializer(
+        many=True, read_only=True, help_text="The schedules that still have sends to come."
+    )
+    batch_jobs = SendCalendarBatchJobSerializer(
+        many=True, read_only=True, help_text="The batch runs that started inside the requested range."
+    )
 
 
 class HogFlowRunRequestSerializer(serializers.Serializer):
@@ -2558,6 +2797,34 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     )
 
 
+class BroadcastConversionCandidateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Workflow id.")
+    name = serializers.CharField(read_only=True, allow_blank=True, help_text="Workflow name. Empty when unnamed.")
+    status = serializers.ChoiceField(choices=HogFlowState.choices, read_only=True, help_text="Workflow status.")
+
+
+class BroadcastConversionCandidatesSerializer(serializers.Serializer):
+    """Workflows that only send one email to a batch audience and can move to broadcasts."""
+
+    has_more = serializers.BooleanField(
+        read_only=True, help_text="True when more workflows can move than `results` lists."
+    )
+    results = BroadcastConversionCandidateSerializer(
+        many=True,
+        read_only=True,
+        help_text=f"The most recently updated candidates, at most {BROADCAST_CONVERSION_CANDIDATE_LIMIT}.",
+    )
+
+
+class HogFlowConvertedToBroadcastSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Id of the workflow that is now a broadcast.")
+    origin_product = serializers.ChoiceField(
+        choices=HogFlowOriginProduct.choices,
+        read_only=True,
+        help_text="The product that now owns the workflow. Always `broadcasts`.",
+    )
+
+
 class HogFlowLastRunSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(read_only=True, help_text="The task this run belongs to.")
     status = serializers.CharField(
@@ -2944,6 +3211,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") == "cohort"
         }
 
+        # Realtime cohorts an active flow's batch or schedule audience already sends to, so a flag
+        # dial-down polices new adoption only, like stored_cohort_conditions below.
+        self.context["stored_realtime_audience_cohort_ids"] = {
+            cohort_id
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+            for cohort_id in filter_cohort_ids((action.get("config") or {}).get("filters"))
+        }
+
         self.context["stored_cohort_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
@@ -3073,6 +3351,20 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
         actions = data.get("actions", instance.actions if instance else [])
+        stored = instance or self.context.get("instance")
+        require_viewer_access_to_added_actions(
+            self.context,
+            {"actions": submitted_actions, "conversion": data.get("conversion")},
+            {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
+        )
+
+        # A Replay Vision step can read its session from a variable, so changing variables alone changes what
+        # it scans. Submitted actions get this check through HogFlowActionSerializer.
+        if instance and "variables" in data and "actions" not in data:
+            # A content edit on an active workflow can land in its staged draft, whose steps may differ.
+            draft_actions = (instance.draft or {}).get("actions")
+            for stored in (instance.actions, draft_actions):
+                _require_replay_vision_editor_access(self.context.get("request"), self.context, stored)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
@@ -3543,6 +3835,22 @@ class HogFlowPublishRequestSerializer(serializers.Serializer):
 class HogFlowPublishImpactMoveTargetSerializer(serializers.Serializer):
     action_id = serializers.CharField(help_text="Id of the surviving step runs will continue at.")
     name = serializers.CharField(help_text="Name of the surviving step.")
+
+
+class HogFlowInFlightSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        allow_null=True,
+        help_text="About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.",
+    )
+    by_action = serializers.DictField(
+        child=serializers.IntegerField(),
+        allow_null=True,
+        help_text="In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.",
+    )
+    position_unknown = serializers.IntegerField(
+        allow_null=True,
+        help_text="In-flight runs whose current step could not be read. Null when the count is unavailable.",
+    )
 
 
 class HogFlowPublishImpactDeletedStepSerializer(serializers.Serializer):
@@ -4166,6 +4474,7 @@ class DraftExistsError(exceptions.APIException):
 # and it signs the exact draft it previewed — so a valid token proves the caller saw the impact
 # summary for the draft being published. Short max-age keeps the previewed counts fresh.
 PUBLISH_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
+IN_FLIGHT_CACHE_SECONDS = 30
 _PUBLISH_CONFIRM_SALT = "hogflow-publish"
 
 
@@ -4295,6 +4604,7 @@ class HogFlowViewSet(
         "metrics_global",
         "team_reputation",
         "email_sending_suspension",
+        "broadcast_conversion_candidates",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -4302,6 +4612,8 @@ class HogFlowViewSet(
         "revision_detail",
         "proposal_detail",
         "proposal_outcome",
+        "in_flight",
+        "send_calendar",
     ]
     scope_object_write_actions = [
         "create",
@@ -4321,6 +4633,7 @@ class HogFlowViewSet(
         "discard_draft",
         "restore_revision",
         "resume_email_sending",
+        "convert_to_broadcast",
         "approve_proposal",
         "reject_proposal",
     ]
@@ -4582,6 +4895,27 @@ class HogFlowViewSet(
         paginator.count = page.count
         return paginator.get_paginated_response(self.get_serializer(page.results, many=True).data)
 
+    @validated_request(
+        query_serializer=SendCalendarQuerySerializer,
+        responses={200: OpenApiResponse(response=SendCalendarFlowSerializer(many=True))},
+        summary="List the scheduled sends for the send calendar",
+        description=(
+            "Active batch and schedule workflows with an email step that is not transactional, and that have "
+            "a schedule with sends to come or a batch run inside the range. Each carries only the fields a "
+            "calendar card shows. Read a single workflow for its full configuration."
+        ),
+    )
+    @action(detail=False, methods=["GET"], url_path="send_calendar", pagination_class=None, filter_backends=[])
+    def send_calendar(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        flows = list_send_calendar_flows(
+            team_id=self.team_id,
+            start=request.validated_query_data["start"],
+            end=request.validated_query_data["end"],
+            # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+            user_access_control=None if is_service_auth(request) else self.user_access_control,
+        )
+        return Response(SendCalendarFlowSerializer(flows, many=True).data)
+
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
@@ -4652,6 +4986,7 @@ class HogFlowViewSet(
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
         # `serializer.data` runs `to_representation`, which converts the
         # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
@@ -4916,6 +5251,13 @@ class HogFlowViewSet(
             self._log_activity(instance.id, instance.name, "deleted")
             destroy_workflow(team_id=self.team_id, hog_flow_id=instance.id)
         self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
+
+    def _log_schedule_activity(
+        self, hog_flow: WorkflowRef, *, before: Optional[WorkflowSchedule], after: Optional[WorkflowSchedule]
+    ) -> None:
+        log_workflow_schedule_activity(
+            actor=self._activity_actor(), workflow_id=hog_flow.id, name=hog_flow.name, before=before, after=after
+        )
 
     def _activity_actor(self) -> WorkflowActor:
         return WorkflowActor(
@@ -5252,6 +5594,19 @@ class HogFlowViewSet(
         self._report_workflow_action("hog_flow_draft_discarded", instance)
 
         return Response(self.get_serializer(instance).data)
+
+    @extend_schema(responses={200: HogFlowInFlightSerializer})
+    @action(detail=True, methods=["GET"], url_path="in_flight", filter_backends=[], pagination_class=None)
+    def in_flight(self, request: Request, *args, **kwargs):
+        instance = self.get_object()
+        cache_key = f"hog_flow_in_flight:{self.team_id}:{instance.id}"
+        counts = cache.get(cache_key)
+        if counts is None:
+            counts = self._get_in_flight_counts(instance)
+            if counts is not None:
+                cache.set(cache_key, counts, IN_FLIGHT_CACHE_SECONDS)
+        # An unreachable counting service yields nulls, not an error. A failed count is not cached.
+        return Response(HogFlowInFlightSerializer(counts or dict.fromkeys(HogFlowInFlightSerializer().fields)).data)
 
     @extend_schema(responses={200: HogFlowRevisionBasicSerializer(many=True)})
     # filter_backends=[]: don't inherit the viewset's HogFlow filterset — its fields would be
@@ -5736,6 +6091,17 @@ class HogFlowViewSet(
         except Exception as error:
             capture_exception(error)
 
+    def _require_replay_vision_caller_access(self, request: Request, actions: Any) -> None:
+        # A live test or a manual run starts the Replay Vision step as the workflow's owner, on sessions the caller
+        # can pick, so the caller needs the access that saving the step needs.
+        for step in actions if isinstance(actions, list) else []:
+            config = (step.get("config") or {}) if isinstance(step, dict) else {}
+            if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
+                continue
+            error = _replay_vision_step_error(request, self.team, config.get("inputs"))
+            if error is not None:
+                raise exceptions.PermissionDenied(error)
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -5778,6 +6144,12 @@ class HogFlowViewSet(
             if isinstance(draft.get("actions"), list):
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
+
+        if not payload.get("mock_async_functions", True):
+            configuration = payload.get("configuration") or {}
+            self._require_replay_vision_caller_access(
+                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            )
 
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
@@ -5836,6 +6208,11 @@ class HogFlowViewSet(
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
         )
+        # The cohort API denies a scoped token without cohort:read, so this response withholds the
+        # cohort's name and build state from it too.
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        reads_cohorts = token_scopes is None or bool({"*", "cohort:read", "cohort:write"} & set(token_scopes))
+        realtime_cohort = size.realtime_cohort if reads_cohorts else None
         return Response(
             BlastRadiusSerializer(
                 {
@@ -5845,6 +6222,24 @@ class HogFlowViewSet(
                     "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key
+                    ),
+                    "realtime_cohort": (
+                        {
+                            "id": realtime_cohort.id,
+                            "name": realtime_cohort.name,
+                            "state": realtime_cohort.state,
+                            "percent_complete": realtime_cohort.percent_complete,
+                        }
+                        if realtime_cohort
+                        else None
+                    ),
+                    "realtime_cohort_with_other_conditions": (
+                        {
+                            "id": size.realtime_cohort_with_other_conditions.id,
+                            "name": size.realtime_cohort_with_other_conditions.name,
+                        }
+                        if size.realtime_cohort_with_other_conditions
+                        else None
                     ),
                 }
             ).data
@@ -6298,6 +6693,61 @@ class HogFlowViewSet(
             ).data
         )
 
+    @extend_schema(
+        operation_id="hog_flows_broadcast_conversion_candidates_retrieve",
+        responses={200: BroadcastConversionCandidatesSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        pagination_class=None,
+        filter_backends=[],
+        url_path="broadcast_conversion_candidates",
+    )
+    def broadcast_conversion_candidates(self, request: Request, **kwargs) -> Response:
+        """
+        List the workflows that could become broadcasts: one email to a batch audience, with nothing the
+        broadcast editor would drop. Only workflows the caller may edit are listed.
+        """
+        # One past the cap tells whether more exist without loading them all.
+        candidates = list_broadcast_conversion_candidates(
+            team_id=self.team_id,
+            user_access_control=None if is_service_auth(request) else self.user_access_control,
+            limit=BROADCAST_CONVERSION_CANDIDATE_LIMIT + 1,
+        )
+        return Response(
+            BroadcastConversionCandidatesSerializer(
+                {
+                    "has_more": len(candidates) > BROADCAST_CONVERSION_CANDIDATE_LIMIT,
+                    "results": candidates[:BROADCAST_CONVERSION_CANDIDATE_LIMIT],
+                }
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_convert_to_broadcast",
+        request=None,
+        responses={200: HogFlowConvertedToBroadcastSerializer},
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None, filter_backends=[], url_path="convert_to_broadcast")
+    def convert_to_broadcast(self, request: Request, **kwargs) -> Response:
+        """
+        Move a workflow to broadcasts. It keeps its id, runs and metrics, leaves the workflows list and opens
+        in the broadcast editor. This cannot be undone.
+        """
+        hog_flow = self._workflow_ref()
+        if not convert_workflow_to_broadcast(
+            team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, actor=self._activity_actor()
+        ):
+            raise exceptions.ValidationError(
+                {"detail": "Only a workflow that sends one email to a batch audience can become a broadcast."}
+            )
+        return Response(
+            HogFlowConvertedToBroadcastSerializer(
+                {"id": hog_flow.id, "origin_product": HogFlowOriginProduct.BROADCASTS}
+            ).data
+        )
+
     @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True))
     @extend_schema(methods=["POST"], request=HogFlowBatchJobSerializer, responses=HogFlowBatchJobSerializer)
     # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
@@ -6329,6 +6779,10 @@ class HogFlowViewSet(
             serializer = HogFlowBatchJobSerializer(data={**request.data, "hog_flow": hog_flow.id})
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
+            audience_cohort = realtime_audience_cohort(self.team.project_id, hog_flow.trigger_filters)
+            if audience_cohort is not None and not audience_cohort.can_finish:
+                raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
+            self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
             batch_job = create_batch_job(
                 team_id=self.team_id,
@@ -6387,7 +6841,6 @@ class HogFlowViewSet(
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
-
         # One CDP call flags a bounded chunk of rows; a large batch needs several. Same
         # shape as cancel_invocations — `done: false` after the cap tells the caller to
         # request again for the rest.
@@ -6454,7 +6907,9 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
+            self._require_replay_vision_caller_access(request, self._edit_state().actions)
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
+            self._log_schedule_activity(hog_flow, before=None, after=schedule)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
             return Response(HogFlowScheduleSerializer(schedule).data, status=201)
 
@@ -6484,6 +6939,7 @@ class HogFlowViewSet(
         if request.method == "DELETE":
             schedule_id_str = str(schedule.id)
             delete_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id)
+            self._log_schedule_activity(hog_flow, before=schedule, after=None)
             self._report_workflow_action("hog_flow_schedule_deleted", hog_flow, {"schedule_id": schedule_id_str})
             return Response(status=204)
 
@@ -6491,9 +6947,13 @@ class HogFlowViewSet(
             schedule, data=request.data, partial=True, context=self.get_serializer_context()
         )
         serializer.is_valid(raise_exception=True)
+        if "variables" in serializer.validated_data:
+            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+        previous = schedule
         schedule = update_schedule(
             team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
         )
+        self._log_schedule_activity(hog_flow, before=previous, after=schedule)
         self._report_workflow_action("hog_flow_schedule_updated", hog_flow, {"schedule_id": str(schedule.id)})
         return Response(HogFlowScheduleSerializer(schedule).data)
 
@@ -6531,6 +6991,7 @@ class HogFlowViewSet(
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
         variables = cast(dict[str, object], {var.get("key"): var.get("default") for var in hog_flow.variables or []})
         variables.update(serializer.validated_data["variables"])

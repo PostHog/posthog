@@ -94,7 +94,7 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 ]
 
 /**
- * The three ranking model scores the staff UI shows, in display order. Each reads one outcome head.
+ * The three ranking model scores the inbox shows, in display order. Each reads one outcome head.
  * The model serves more heads, but the sort menu, the card tag and the activity log lead with these.
  */
 export interface InboxRankingScore {
@@ -102,7 +102,7 @@ export interface InboxRankingScore {
     head: string
     name: string
     sortLabel: string
-    /** The short word the card tag uses after the lift ("2.1x fix"). */
+    /** The short word the card tag uses after a probability with no lift ("12% fix"). Staff only. */
     tagLabel: string
     description: string
 }
@@ -114,7 +114,7 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
         name: 'Open',
         sortLabel: 'Most likely to be opened',
         tagLabel: 'open',
-        description: 'A person opens the report within 3 days.',
+        description: 'A person opens the report within 7 days.',
     },
     {
         field: 'ranking_action',
@@ -122,7 +122,7 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
         name: 'Engage',
         sortLabel: 'Most likely to be acted on',
         tagLabel: 'engage',
-        description: 'A person acts on the report within 7 days.',
+        description: 'A person acts on the report within 14 days.',
     },
     {
         field: 'ranking_fixed',
@@ -130,11 +130,11 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
         name: 'Fix',
         sortLabel: 'Most likely to be fixed',
         tagLabel: 'fix',
-        description: 'Someone fixes the problem within 21 days.',
+        description: 'Someone fixes the problem within 30 days.',
     },
 ]
 
-/** Staff-only sorts by the ranking model's served probability for one score. Descending only. */
+/** Sorts by the ranking model's served probability for one score, behind the model sort flag. Descending only. */
 export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.map((score) => ({
     label: score.sortLabel,
     field: score.field,

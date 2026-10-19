@@ -23,8 +23,10 @@ BASE_URL = "https://api.impact.com"
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+SURVEYS_PATH = "/Programs/{campaign_id}/Surveys"
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class ImpactResumeConfig:
     # Simple (non-fan-out) endpoints: the last page fetched. Re-fetched on resume (merge dedupes).
     page: Optional[int] = None
@@ -32,6 +34,8 @@ class ImpactResumeConfig:
     campaign_id: Optional[int] = None
     # Actions: ISO start of the date window currently being processed.
     window_start: Optional[str] = None
+    # SurveyResponses: the last survey whose responses were yielded, within `campaign_id`.
+    survey_id: Optional[int] = None
 
 
 def _get_session(account_sid: str, auth_token: str, api_version: str = IMPACT_API_VERSION_LEGACY) -> requests.Session:
@@ -55,6 +59,18 @@ def _fetch(
         logger.error(f"Impact API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
     return response.json()
+
+
+def _fetch_or_none(
+    session: requests.Session, account_sid: str, path: str, params: dict[str, Any], logger: FilteringBoundLogger
+) -> Any:
+    try:
+        return _fetch(session, account_sid, path, params, logger)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            logger.warning(f"Impact: {path} returned 404, skipping")
+            return None
+        raise
 
 
 def validate_credentials(account_sid: str, auth_token: str, api_version: str = IMPACT_API_VERSION_LEGACY) -> bool:
@@ -271,6 +287,58 @@ def _get_rows_fanout(
         resumable_source_manager.save_state(ImpactResumeConfig(campaign_id=campaign_id, window_start=window_start))
 
 
+def _get_rows_survey_responses(
+    session: requests.Session,
+    account_sid: str,
+    config: ImpactEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fetch the responses of every survey on every program (campaign).
+
+    Neither the survey list nor the responses endpoint is paginated. A program or survey that
+    returns 404 (removed mid-sync, or surveys unavailable on the account's API version) is skipped."""
+    campaign_ids = _discover_campaign_ids(session, account_sid, logger)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_campaign_id = resume.campaign_id if resume else None
+    resume_survey_id = resume.survey_id if resume else None
+
+    for campaign_id in campaign_ids:
+        if resume_campaign_id is not None and campaign_id < resume_campaign_id:
+            continue
+        surveys = _fetch_or_none(session, account_sid, SURVEYS_PATH.format(campaign_id=campaign_id), {}, logger)
+        survey_rows = surveys.get("Surveys", []) if isinstance(surveys, dict) else []
+        survey_ids = sorted(
+            {
+                survey_id
+                for row in survey_rows
+                if isinstance(row, dict) and (survey_id := _safe_int(row.get("Id"))) is not None
+            }
+        )
+        if campaign_id == resume_campaign_id and resume_survey_id is not None:
+            survey_ids = [survey_id for survey_id in survey_ids if survey_id > resume_survey_id]
+        # Campaign ids are walked in ascending order, so the next id marks this whole program as done.
+        program_done = ImpactResumeConfig(campaign_id=campaign_id + 1)
+        if not survey_ids:
+            resumable_source_manager.save_state(program_done)
+            resumable_source_manager.safe_point()
+            continue
+        for index, survey_id in enumerate(survey_ids):
+            path = config.path.format(campaign_id=campaign_id, survey_id=survey_id)
+            rows = _rows_from_response(config, _fetch_or_none(session, account_sid, path, {}, logger))
+            is_last_survey = index == len(survey_ids) - 1
+            resumable_source_manager.save_state(
+                program_done if is_last_survey else ImpactResumeConfig(campaign_id=campaign_id, survey_id=survey_id)
+            )
+            if rows:
+                for row in rows:
+                    row["CampaignId"] = campaign_id
+                    row["SurveyId"] = survey_id
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+
 def _get_rows_nested(
     session: requests.Session,
     account_sid: str,
@@ -324,6 +392,10 @@ def get_rows(
 
     if config.nested is not None:
         yield from _get_rows_nested(session, account_sid, config, logger, resumable_source_manager)
+        return
+
+    if config.requires_survey_fanout:
+        yield from _get_rows_survey_responses(session, account_sid, config, logger, resumable_source_manager)
         return
 
     if config.requires_campaign_fanout:

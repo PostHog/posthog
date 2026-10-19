@@ -28,7 +28,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import (
+    ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY,
+    CohortSerializer,
+    get_flags_blocking_cohort_deletion,
+)
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -49,6 +53,7 @@ from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.health.context import load_health_context
@@ -86,6 +91,7 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
@@ -96,7 +102,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -108,6 +114,7 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_create_flags,
     user_can_edit_flag,
+    validate_flag_restorable,
 )
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
@@ -341,6 +348,15 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
         filters,
         holdout_id=holdout.id if holdout else None,
         exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
+def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
+    # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
+    # string on `:`, so every field is present, empty when the finding has none.
+    reason = finding.evidence.get("reason")
+    return ":".join(
+        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
     )
 
 
@@ -1023,6 +1039,14 @@ class ExperimentService:
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
+        # A linked legacy shared metric turns the whole experiment legacy, which hides all of its results.
+        legacy_names = sorted(saved_metrics.filter(query__kind__in=LEGACY_METRIC_KINDS).values_list("name", flat=True))
+        if legacy_names:
+            raise ValidationError(
+                f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
+                "Use a shared metric of kind 'ExperimentMetric' instead."
+            )
+
     @staticmethod
     def saved_metric_calculation_keys(experiment: Experiment) -> dict[int, str]:
         """The calculation key of each saved metric linked to the experiment, by link id.
@@ -1147,12 +1171,15 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
-        validate_metric_action_ids(metrics, self.team.id)
-        validate_metric_action_ids(metrics_secondary, self.team.id)
+        validate_metric_action_ids(metrics, self.team, user=self.user)
+        validate_metric_action_ids(metrics_secondary, self.team, user=self.user)
+        validate_metric_action_ids(
+            self._collect_saved_metric_queries(saved_metrics_ids), self.team, user=self.user, require_existing=False
+        )
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        enforce_warehouse_metric_access(
+        validate_warehouse_metrics(
             [
                 *(metrics or []),
                 *(metrics_secondary or []),
@@ -1403,6 +1430,7 @@ class ExperimentService:
                     "health_finding_subcodes": [
                         f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
                     ],
+                    "health_findings": [_tracked_health_finding(finding) for finding in findings],
                     "health_finding_count": len(findings),
                 },
             )
@@ -1961,7 +1989,8 @@ class ExperimentService:
         manually stays archived. The flag stays disabled either way; re-enabling it is
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
-        when the caller lacks feature_flag:write scope or editor access to the flag.
+        when the caller lacks feature_flag:write scope or editor access to the flag. The flag
+        also stays archived when one of its release conditions targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -1978,6 +2007,18 @@ class ExperimentService:
             return
 
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+            return
+
+        try:
+            validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+        except ValidationError:
+            logger.warning(
+                "experiment_flag_unarchive_skipped",
+                experiment_id=experiment.pk,
+                flag_id=feature_flag.pk,
+                team_id=self.team.pk,
+                reason="flag_targets_missing_or_deleted_cohort",
+            )
             return
 
         # Gated write inside unarchive_experiment's transaction: safe because an
@@ -2427,8 +2468,8 @@ class ExperimentService:
         The ids come from the EXPOSURE_FROZEN_COHORT_KEY stamps in the flag's filters, which
         round-trip through the flag API and are therefore user-editable — treat them as claims,
         not facts. Only delete a cohort verifiable as an orphaned freeze snapshot: named like one,
-        and no longer referenced by any active flag (the same protection the cohort API enforces
-        on delete). Anything failing verification is skipped rather than fatal — a leftover
+        and no longer referenced by any flag that blocks its deletion through the cohort API.
+        Anything failing verification is skipped rather than fatal — a leftover
         cohort is cheaper than a blocked lifecycle action or a hijacked deletion.
         """
         for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
@@ -2440,12 +2481,12 @@ class ExperimentService:
                     reason="not_a_freeze_snapshot_name",
                 )
                 continue
-            if get_active_flags_using_cohort(cohort):
+            if get_flags_blocking_cohort_deletion(cohort):
                 logger.warning(
                     "experiment_freeze_snapshot_cleanup_skipped",
                     cohort_id=cohort.pk,
                     team_id=self.team.pk,
-                    reason="still_referenced_by_active_flags",
+                    reason="still_referenced_by_flags",
                 )
                 continue
             cohort.deleted = True
@@ -3388,7 +3429,9 @@ class ExperimentService:
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
+            validate_metric_action_ids(
+                update_data["metrics"], self.team, user=self.user, known_action_ids=persisted_action_ids
+            )
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
@@ -3397,14 +3440,30 @@ class ExperimentService:
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
             validate_metric_action_ids(
-                update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
+                update_data["metrics_secondary"], self.team, user=self.user, known_action_ids=persisted_action_ids
             )
             if not allow_unknown_events:
                 self.validate_metric_event_names(
                     update_data["metrics_secondary"], known_event_names=persisted_event_names
                 )
 
-        enforce_warehouse_metric_access(
+        if "saved_metrics_ids" in update_data:
+            _, linked_action_ids = extract_entity_nodes(
+                [
+                    link.saved_metric.query
+                    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+                    if link.saved_metric.query
+                ]
+            )
+            validate_metric_action_ids(
+                self._collect_saved_metric_queries(update_data["saved_metrics_ids"]),
+                self.team,
+                user=self.user,
+                known_action_ids=persisted_action_ids | linked_action_ids,
+                require_existing=False,
+            )
+
+        validate_warehouse_metrics(
             [
                 *(update_data.get("metrics") or []),
                 *(update_data.get("metrics_secondary") or []),
@@ -3870,7 +3929,7 @@ class ExperimentService:
                     f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
                     f"To change these, migrate the experiment to the new experiments engine first: "
                     f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
-                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
+                    f"(the experiment-migrate tool). It keeps this experiment and returns a new one."
                 )
 
             # Validate end_date if present
@@ -3972,14 +4031,26 @@ class ExperimentService:
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
+        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag:
-                # The same adoption check create_experiment applies, taken before the variants are
-                # read so a flag this product cannot use surfaces as a validation error here too.
+                # The same adoption and access checks create_experiment applies, taken before the
+                # variants are read so a flag this product cannot use surfaces as a validation error
+                # here too, and a flag the user is denied stays a 403 rather than leaking its shape.
                 assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
-                if existing_flag.variants:
-                    clone_variants = deepcopy(existing_flag.variants)
+                service._assert_flag_access(
+                    existing_flag,
+                    next_step="It can't be used for an experiment. Pick a different flag key, or ask someone with flag access.",
+                )
+                # The key is usually defaulted (source key) or slugified from the name, so a collision
+                # with a flag that can't back an experiment must name the key, not the flag's variants.
+                if experiment_eligibility_error(existing_flag.variants):
+                    raise ValidationError(
+                        f"A feature flag with key '{feature_flag_key}' already exists in the target project "
+                        "and can't back an experiment. Choose a different feature flag key."
+                    )
+                clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
         if clone_variants:
@@ -4043,7 +4114,6 @@ class ExperimentService:
             source_experiment.secondary_metrics_ordered_uuids, secondary_remap
         )
 
-        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
         return service.create_experiment(
             name=clone_name,
@@ -4530,7 +4600,7 @@ class ExperimentService:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
-        enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
+        validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,

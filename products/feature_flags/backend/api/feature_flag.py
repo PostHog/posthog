@@ -39,8 +39,6 @@ from rest_framework.settings import api_settings
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
-
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -154,6 +152,7 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
+from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
     ReplayFlagGates,
@@ -933,29 +932,26 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _reserved_variant_key(filters: dict) -> str | None:
-    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
-    "true" under, if any.
+def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return
+    for variant in variants:
+        if isinstance(variant, dict) and isinstance(variant.get("key"), str):
+            yield variant["key"]
+
+
+def _reserved_variant_key(filters: dict, *, stored: Mapping[str, Any]) -> str | None:
+    """The first `multivariate.variants[].key` in `filters` that a write may not store over `stored`, if any.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
-    multivariate = filters.get("multivariate")
-    if not isinstance(multivariate, dict):
-        return None
-    variants = multivariate.get("variants")
-    if not isinstance(variants, list):
-        return None
-    return next(
-        (
-            variant["key"]
-            for variant in variants
-            if isinstance(variant, dict)
-            and isinstance(variant.get("key"), str)
-            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
-        ),
-        None,
-    )
+    held = set(_variant_keys(stored))
+    return next((key for key in _variant_keys(filters) if is_reserved_variant_key(key, held=held)), None)
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -1186,6 +1182,42 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
                 )
 
 
+def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
+    """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
+
+    The flag evaluator loads only non-deleted cohorts. A request that reaches a condition on a
+    deleted cohort therefore fails the whole flag. The lookup includes deleted cohorts so that the
+    error can name the cohort.
+    """
+    try:
+        # A JSON true is the Python integer 1, so the lookup would match the cohort with id 1.
+        if isinstance(cohort_id, bool):
+            raise TypeError(cohort_id)
+        cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=project_id)
+    except (Cohort.DoesNotExist, ValueError, TypeError):
+        raise serializers.ValidationError(
+            detail=f"Cohort with id {cohort_id} does not exist",
+            code="cohort_does_not_exist",
+        )
+    if cohort.deleted:
+        label = f"Cohort '{cohort.name}' (ID {cohort.pk})" if cohort.name else f"Cohort with id {cohort.pk}"
+        raise serializers.ValidationError(
+            detail=f"{label} has been deleted. Restore the cohort, choose another cohort, or remove this condition.",
+            code="cohort_does_not_exist",
+        )
+    return cohort
+
+
+def validate_stored_cohort_references(flag: FeatureFlag) -> None:
+    """Raise if a stored release condition targets a cohort the flag cannot evaluate."""
+    # Only config version 1 can reference a cohort.
+    if detect_config_format(flag.filters).kind != "v1":
+        return
+    for located in _iter_flag_filter_properties(flag.conditions):
+        if located.prop.get("type") == "cohort":
+            _validate_cohort_reference(located.prop.get("value"), flag.team.project_id)
+
+
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
@@ -1295,6 +1327,41 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
+COHORT_NAMES_CONTEXT_KEY = "feature_flag_cohort_names"
+
+
+class FeatureFlagListSerializer(serializers.ListSerializer):
+    """Resolves the cohort names of every flag on a page in one query, instead of one query per flag.
+
+    The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
+    the only hook DRF gives that sees the whole page.
+    """
+
+    def to_representation(self, data: Any) -> Any:
+        flags = list(data)
+        assert isinstance(self.child, FeatureFlagSerializer)
+        cohort_ids: set[int] = set()
+        for flag in flags:
+            config = decode_config(flag.get_filters())
+            # A document no reader can parse has no cohort names to show, and must not fail the page.
+            if isinstance(config, UnsupportedConfig):
+                continue
+            cohort_ids.update(references(config).cohort_ids)
+        cohort_names: dict[str, str | None] = {}
+        if cohort_ids:
+            cohort_names = {
+                str(cohort_id): name
+                for cohort_id, name in Cohort.objects.filter(
+                    id__in=cohort_ids, team__project_id=self.child.context["project_id"], deleted=False
+                ).values_list("id", "name")
+            }
+        self.child.context[COHORT_NAMES_CONTEXT_KEY] = cohort_names
+        try:
+            return super().to_representation(flags)
+        finally:
+            self.child.context.pop(COHORT_NAMES_CONTEXT_KEY, None)
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1364,6 +1431,7 @@ class FeatureFlagSerializer(
 
     class Meta:
         model = FeatureFlag
+        list_serializer_class = FeatureFlagListSerializer
         fields = [
             "id",
             "name",
@@ -1444,10 +1512,13 @@ class FeatureFlagSerializer(
         # Fallback to database query if annotation is not available
         return teams_gating_replay_on_flag(feature_flag, key=feature_flag.key).exists()
 
-    def _validate_reactivated_dependency_formats(self, attrs: Mapping[str, JsonValue]) -> None:
-        """Empty filters retain stored targeting and bypass dependency checks in _validate_filters_inner.
+    def _validate_reactivated_references(self, attrs: Mapping[str, JsonValue]) -> None:
+        """Check stored references when a write turns the flag on or brings it back.
 
-        Treat them as omitted so enabling or restoring an active flag still checks its dependencies.
+        Turning the flag on, including restoring a flag that comes back active, checks its flag
+        dependencies and cohorts. Restoring a disabled flag or unarchiving a flag checks its cohorts.
+        Empty filters retain stored targeting and bypass the reference checks in _validate_filters_inner,
+        so treat them as omitted.
         """
         # A v2 document cannot be walked as v1; enabling one validates the stored document
         # strictly under the lock instead, and that validator admits no flag or cohort reference.
@@ -1455,14 +1526,18 @@ class FeatureFlagSerializer(
             return
 
         enabling = attrs.get("active") is True and not self.instance.active
-        restoring_active = (
-            attrs.get("deleted") is False and self.instance.deleted and attrs.get("active", self.instance.active)
+        # The cohort delete guard skips deleted and archived flags. Once a flag is neither, a writer
+        # that skips this serializer can enable it. Survey resume is one such writer.
+        returning = (self.instance.deleted or self.instance.archived) and not (
+            attrs.get("deleted", self.instance.deleted) or attrs.get("archived", self.instance.archived)
         )
-        if not (enabling or restoring_active):
+        if not (enabling or returning):
             return
 
         try:
-            self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+            if attrs.get("active", self.instance.active):
+                self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+            validate_stored_cohort_references(self.instance)
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"filters": exc.detail}) from exc
 
@@ -1492,7 +1567,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
-        self._validate_reactivated_dependency_formats(attrs)
+        self._validate_reactivated_references(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1979,12 +2054,15 @@ class FeatureFlagSerializer(
                 raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        reserved_variant_key = _reserved_variant_key(filters)
+        stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
+        reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
-            raise serializers.ValidationError(
-                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
-                code="reserved_variant_key",
+            message = (
+                "Variant keys can't be empty. Enter a key for each variant."
+                if reserved_variant_key == ""
+                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
             )
+            raise serializers.ValidationError(message, code="reserved_variant_key")
 
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
@@ -2258,49 +2336,40 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                cohort_id = located.prop.get("value")
-                try:
-                    initial_cohort: Cohort = Cohort.objects.get(
-                        pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"]
-                    )
-                    # Static cohorts (including one-time snapshots) hold a
-                    # materialised person list.  The populating criteria may
-                    # still be stored on the record, but they are inert – the
-                    # cohort no longer re-evaluates them, and the Rust engine's
-                    # extract_dependencies returns an empty set for them.  Skip
-                    # both the behavioural property check and the dependency walk
-                    # so snapshot cohorts can be used in flags without an extra
-                    # export step, even when their inert criteria reference
-                    # another cohort.  See #65270.
-                    dependency_cohorts = (
-                        []
-                        if initial_cohort.is_static
-                        else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
-                    )
-                    for cohort in [initial_cohort, *dependency_cohorts]:
-                        # Static cohorts have materialized membership, any preserved behavioral
-                        # filters are display-only and never evaluated, so skip them.
-                        if cohort.is_static:
-                            continue
-                        behavioral_props = [
-                            cohort_prop for cohort_prop in cohort.properties.flat if cohort_prop.type == "behavioral"
-                        ]
-                        # Gate on both signals: cohort.properties.flat parses each leaf into a
-                        # Property() object, so a leaf shape the parser doesn't recognize would
-                        # silently vanish from it and defeat this guard; _has_filter_type walks
-                        # the raw filters JSON instead, so it can't miss an unparsable leaf. But
-                        # _has_filter_type only reads `filters` — legacy cohorts that store their
-                        # condition in the deprecated `groups` field instead (see Cohort.properties)
-                        # would defeat *that* check, so behavioral_props still needs to cover them.
-                        if cohort._has_filter_type("behavioral") or behavioral_props:
-                            _validate_behavioral_cohort_for_feature_flag(
-                                cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
-                            )
-                except Cohort.DoesNotExist:
-                    raise serializers.ValidationError(
-                        detail=f"Cohort with id {cohort_id} does not exist",
-                        code="cohort_does_not_exist",
-                    )
+                initial_cohort = _validate_cohort_reference(located.prop.get("value"), self.context["project_id"])
+                # Static cohorts (including one-time snapshots) hold a
+                # materialised person list.  The populating criteria may
+                # still be stored on the record, but they are inert – the
+                # cohort no longer re-evaluates them, and the Rust engine's
+                # extract_dependencies returns an empty set for them.  Skip
+                # both the behavioural property check and the dependency walk
+                # so snapshot cohorts can be used in flags without an extra
+                # export step, even when their inert criteria reference
+                # another cohort.  See #65270.
+                dependency_cohorts = (
+                    []
+                    if initial_cohort.is_static
+                    else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                )
+                for cohort in [initial_cohort, *dependency_cohorts]:
+                    # Static cohorts have materialized membership, any preserved behavioral
+                    # filters are display-only and never evaluated, so skip them.
+                    if cohort.is_static:
+                        continue
+                    behavioral_props = [
+                        cohort_prop for cohort_prop in cohort.properties.flat if cohort_prop.type == "behavioral"
+                    ]
+                    # Gate on both signals: cohort.properties.flat parses each leaf into a
+                    # Property() object, so a leaf shape the parser doesn't recognize would
+                    # silently vanish from it and defeat this guard; _has_filter_type walks
+                    # the raw filters JSON instead, so it can't miss an unparsable leaf. But
+                    # _has_filter_type only reads `filters` — legacy cohorts that store their
+                    # condition in the deprecated `groups` field instead (see Cohort.properties)
+                    # would defeat *that* check, so behavioral_props still needs to cover them.
+                    if cohort._has_filter_type("behavioral") or behavioral_props:
+                        _validate_behavioral_cohort_for_feature_flag(
+                            cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
+                        )
 
         self._reject_oversized_filters(merged)
 
@@ -2953,20 +3022,10 @@ class FeatureFlagSerializer(
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
 
-        # Get all cohort IDs used in the feature flag
-        cohort_ids = set()
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_ids.add(cohort_prop.get("value"))
-
-        # Use prefetched cohorts if available
-        if hasattr(instance.team, "available_cohorts"):
-            cohorts = {
-                str(cohort.id): cohort.name
-                for cohort in instance.team.available_cohorts
-                if str(cohort.id) in map(str, cohort_ids)
-            }
-        else:
-            # Fallback to database query if cohorts weren't prefetched
+        # FeatureFlagListSerializer resolves the names of a whole page. Retrieve and writes serialize one flag.
+        cohorts = self.context.get(COHORT_NAMES_CONTEXT_KEY)
+        if cohorts is None:
+            cohort_ids = {cohort_prop.get("value") for cohort_prop in self._get_cohort_properties_from_filters(filters)}
             cohorts = {
                 str(cohort.id): cohort.name
                 for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
@@ -3889,6 +3948,13 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
         self.data = {"version": version}
 
 
+class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
+    cohort = CohortSerializer(
+        read_only=True,
+        help_text="The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response.",
+    )
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -4047,13 +4113,6 @@ class FeatureFlagViewSet(
                             "targeting_flag",
                             "internal_targeting_flag",
                         ).prefetch_related("actions"),
-                    )
-                )
-                .prefetch_related(
-                    Prefetch(
-                        "team__cohort_set",
-                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                        to_attr="available_cohorts",
                     )
                 )
             )
@@ -4303,8 +4362,8 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:write"],
         request=None,
         responses=flag_lifecycle_responses(
-            "The flag is archived, one of the flags it depends on is disabled, or a flag it "
-            "depends on uses an unsupported configuration format."
+            "The flag is archived, one of the flags it depends on is disabled, a flag it depends "
+            "on uses an unsupported configuration format, or a cohort it targets has been deleted."
         ),
     )
     def enable(self, request: request.Request, **kwargs) -> Response:
@@ -4314,7 +4373,8 @@ class FeatureFlagViewSet(
         Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
         archived state are left as they are. An archived flag is refused: unarchive it first. A
         flag whose own flag dependencies are disabled or use an unsupported configuration
-        format is also refused. An already-enabled flag is returned unchanged.
+        format is also refused, as is a flag whose release conditions target a deleted cohort.
+        An already-enabled flag is returned unchanged.
         """
         return self._set_active(request, active=True)
 
@@ -4377,14 +4437,17 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:write"],
         request=None,
-        responses=flag_lifecycle_responses(approval_gated=False),
+        responses=flag_lifecycle_responses(
+            "One of the flag's release conditions targets a deleted cohort.", approval_gated=False
+        ),
     )
     def unarchive(self, request: request.Request, **kwargs) -> Response:
         """
         Restore an archived feature flag to the default flag list.
 
         Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
-        with a separate call. An already-unarchived flag is returned unchanged.
+        with a separate call. A flag whose release conditions target a deleted cohort is
+        refused: remove that condition first. An already-unarchived flag is returned unchanged.
         """
         from products.feature_flags.backend.facade.api import unarchive_flag
 
@@ -5452,6 +5515,7 @@ class FeatureFlagViewSet(
 
         return Response({"affected": result.affected, "total": result.total})
 
+    @extend_schema(request=None, responses={201: CreateStaticCohortForFlagResponseSerializer})
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
         feature_flag = self.get_object()

@@ -2,7 +2,7 @@
 
 A multivariate flag keyed by the requesting user picks the ranker. The variants `open`, `action` and `fixed` order
 by the served head of the same name first. `control`, an unknown variant, or a flag that is off or fails to evaluate
-gives the priority order.
+gives the priority order. The EU instance gives the priority order without evaluating the flag.
 
 The merge key lets a client merge rows from different rankers without the raw score. It is the score
 decile then the priority rank, so it never says more about the score than one decimal place. Each
@@ -20,6 +20,7 @@ import posthoganalytics
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.utils import get_instance_region
 
 from products.signals.backend.models import AutonomyPriority
 
@@ -44,6 +45,10 @@ _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
 
 def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
     if not user.distinct_id:
+        return "priority"
+    # EU reports have no ranking scores, so a head variant there sorts the same as `control`. Evaluating the
+    # flag would still log an exposure, and those no-difference exposures would dilute the US experiment.
+    if get_instance_region() == "EU":
         return "priority"
     try:
         variant = posthoganalytics.get_feature_flag(

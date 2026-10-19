@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -51,7 +51,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
-from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.worker import ActivityWorkerConfig, ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -139,6 +139,7 @@ from posthog.temporal.tests.utils.workflow import (
 )
 from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    AGGREGATION_ACTIVITIES as USAGE_REPORTS_AGGREGATION_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
 from posthog.temporal.warehouse_sources_queue_partition_management import (
@@ -222,13 +223,10 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
@@ -295,9 +293,17 @@ from products.signals.backend.temporal import (
     SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
+from products.slack_app.backend.facade.temporal import (
+    ACTIVITIES as SLACK_APP_ACTIVITIES,
+    WORKFLOWS as SLACK_APP_WORKFLOWS,
+)
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -454,6 +460,13 @@ _task_queue_specs = [
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
         HEALTH_CHECK_WORKFLOWS,
@@ -475,13 +488,10 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
-        # First step of merging them onto this queue — once master traffic has
-        # cut over and any in-flight runs have drained, drop them from
-        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
-        # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+        # PostHog Desktop Slack workflows share this queue with ProcessTaskWorkflow,
+        # which they hand off to once a repo is picked.
+        TASKS_WORKFLOWS + SLACK_APP_WORKFLOWS,
+        TASKS_ACTIVITIES + SLACK_APP_ACTIVITIES,
     ),
     (
         settings.WIZARD_TASK_QUEUE,
@@ -649,6 +659,15 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+ACTIVITY_WORKER_CONFIGS = {
+    settings.BILLING_TASK_QUEUE: (
+        ActivityWorkerConfig(
+            task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
+            activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
+            max_concurrent_activities=1,
+        ),
+    ),
+}
 
 
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
@@ -958,6 +977,7 @@ class Command(BaseCommand):
                     ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
+                    activity_worker_configs=ACTIVITY_WORKER_CONFIGS.get(task_queue, ()),
                 )
             )
 

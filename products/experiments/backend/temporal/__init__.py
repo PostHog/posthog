@@ -11,6 +11,7 @@ from products.experiments.backend.temporal.enrollment_census_workflow import (
 from products.experiments.backend.temporal.recalculation_activities import (
     calculate_experiment_metric_for_recalculation,
     discover_experiment_metrics,
+    record_metric_out_of_time_failure,
     update_recalculation_progress,
 )
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
@@ -45,6 +46,9 @@ EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES = [
     check_experiment_exposures,
     start_scheduled_recalculation,
 ]
+EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES = [
+    calculate_experiment_metric_for_recalculation,
+]
 
 WORKFLOWS = [
     ExperimentMetricsRecalculationWorkflow,
@@ -56,6 +60,7 @@ ACTIVITIES = [
     discover_experiment_metrics,
     calculate_experiment_metric_for_recalculation,
     update_recalculation_progress,
+    record_metric_out_of_time_failure,
     *EXPERIMENT_CANARY_ACTIVITIES,
     *EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     *EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
@@ -67,6 +72,7 @@ __all__ = [
     "EXPERIMENT_CANARY_WORKFLOWS",
     "EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
     "EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
+    "EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
     "EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
     "EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
     "WORKFLOWS",
@@ -78,6 +84,7 @@ __all__ = [
     "check_experiment_exposures",
     "discover_experiment_metrics",
     "discover_scheduled_recalculation_candidates",
+    "record_metric_out_of_time_failure",
     "report_experiment_canary_results",
     "run_experiment_enrollment_census",
     "run_experiment_metric_canary",

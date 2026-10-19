@@ -47,7 +47,7 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
 | Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
-**Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
+**Scanner editor** (`/replay-vision/<scanner-id>/<step>`) opens a new scanner on a goal step (`goal`), where the agent drafts the whole scanner from a goal and a monthly budget for review on `overview`. Building by hand, or editing a saved scanner, uses a stepper rather than tabs: Details, Configure, Recordings (`triggers`), Budget.
 Observations have their own scene under `/replay-vision/observations/…`.
 An observation link carries the player's `?t=<seconds>` param, so a shared observation opens with its recording expanded and playing from the shared moment.
 
@@ -56,6 +56,8 @@ Outside these scenes, the product also renders inside the session replay player:
 ## Experiment-created scanners
 
 The experiment creation wizard offers an opt-in experiment scanner when the `experiment-scanner` feature flag is on, and offers no scanner without it. The scanner is the `experiment` type, saved off with `start_on_launch`, and the backend turns it on when the experiment launches. Its population comes from the experiment, never from its `RecordingsQuery`: the API derives the person-scoped exposure filter at scan time, the same resolution the experiment's Recordings tab uses, so the scanner watches the sessions that tab lists, including an exposure event that fires server-side or in an earlier session. The `RecordingsQuery` carries only the experiment's test-account setting, and the API rejects an `experiment_exposure` set there directly. Older wizard scanners are classifiers with `experiment_targeting` and keep working. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
+
+The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experiments-with-replay-vision` skill) scan an experiment: its experiment lives in `scanner_config`, each session's variant comes from the exposure data, variants are sampled evenly, and `GET scanners/{id}/variants/` reads the results per variant.
 
 ## Layout
 

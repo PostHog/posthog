@@ -10,6 +10,7 @@ import pyarrow as pa
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Organization, Team, User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -775,7 +776,11 @@ class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
             properties={"impressions": [{"report_id": UUID_A, "rank": 1, "source_products": ["error_tracking"]}]},
         )
 
-        rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        with patch.object(queries, "execute_hogql_query", wraps=queries.execute_hogql_query) as query:
+            rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert query.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
+        assert query.call_args.kwargs["settings"].max_execution_time == 600
+        assert query.call_args.kwargs["workload"] == queries.etl_workload()
         assert [row[0] for row in rows] == [UUID_A]
 
 
@@ -788,23 +793,30 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         reason: str | None = None,
         *,
         team_id: int | None = None,
+        actor_kind: str | None = None,
+        reason_added: bool = False,
     ) -> None:
+        properties: dict[str, Any] = {
+            "report_id": UUID_A,
+            "previous_status": previous,
+            "status": status,
+            "dismissal_reason": reason,
+            "team_id": str(team_id or self.team.id),
+        }
+        if actor_kind is not None:
+            properties["actor_kind"] = actor_kind
+        if reason_added:
+            properties["reason_added"] = True
         _create_event(
             team=self.team,
             event="signal_report_status_changed",
             distinct_id="team-2",
             timestamp=when,
-            properties={
-                "report_id": UUID_A,
-                "previous_status": previous,
-                "status": status,
-                "dismissal_reason": reason,
-                "team_id": str(team_id or self.team.id),
-            },
+            properties=properties,
         )
 
-    def _status_row(self) -> dict[str, Any]:
-        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+    def _status_row(self, snapshot_end: datetime.datetime = SNAPSHOT_END) -> dict[str, Any]:
+        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=snapshot_end)
         assert len(rows) == 1
         return dict(zip(STATUS_COLUMNS, rows[0][1:], strict=True))
 
@@ -884,6 +896,104 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["fixed_count"] == expected
         assert row["first_fixed_at"] == (T1 if expected else None)
 
+    @parameterized.expand(
+        [
+            ("window_closed", T1, [], 1),
+            ("window_open_at_snapshot", SNAPSHOT_END - datetime.timedelta(hours=1), [], 0),
+            ("not_fixed_reason_inside_window", T1, [(datetime.timedelta(minutes=2), "wontfix_irrelevant", None)], 0),
+            ("fixed_reason_inside_window", T1, [(datetime.timedelta(minutes=2), "fixed_outside_posthog", None)], 2),
+            ("not_fixed_reason_after_window", T1, [(datetime.timedelta(hours=25), "analysis_wrong", None)], 1),
+            ("not_fixed_reason_from_another_tenant", T1, [(datetime.timedelta(hours=1), "analysis_wrong", 999)], 1),
+        ]
+    )
+    def test_human_reasonless_resolve_is_fixed_after_its_grace_window(self, _name, resolved_at, reasons, expected):
+        # The one-click Today resolve carries no reason and names its actor. The reason it can get
+        # later decides fixed, so it counts only when its window closed without a not-fixed reason.
+        self._transition(resolved_at, "ready", "resolved", actor_kind="user")
+        for offset, reason, team_id in reasons:
+            self._transition(resolved_at + offset, "resolved", "resolved", reason, team_id=team_id, reason_added=True)
+        # A later genuine transition keeps the report's own tenant the latest one.
+        self._transition(BEFORE_CUTOFF + datetime.timedelta(hours=12), "resolved", "ready")
+
+        row = self._status_row()
+        assert row["reasoned_resolution_count"] >= 1
+        assert row["first_reasoned_resolved_at"] == resolved_at
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (resolved_at if expected else None)
+
+    @parameterized.expand(
+        [
+            (
+                "note_only_update_is_not_a_fixed_resolve",
+                [(2, "resolved", "resolved", None, True), (30, "resolved", "resolved", "analysis_wrong", True)],
+                0,
+                None,
+            ),
+            (
+                "dismissal_reason_does_not_block_a_resolve",
+                [
+                    (3, "resolved", "ready", None, False),
+                    (4, "ready", "suppressed", None, False),
+                    (5, "suppressed", "suppressed", "analysis_wrong", True),
+                ],
+                1,
+                0,
+            ),
+            (
+                "second_resolve_in_the_bucket_is_fixed",
+                [
+                    (1, "resolved", "resolved", "analysis_wrong", True),
+                    (2, "resolved", "ready", None, False),
+                    (4, "ready", "resolved", None, False),
+                ],
+                1,
+                4,
+            ),
+            (
+                "second_reason_in_the_bucket_blocks_it",
+                [
+                    (1, "resolved", "resolved", "analysis_wrong", True),
+                    (2, "resolved", "ready", None, False),
+                    (4, "ready", "resolved", None, False),
+                    (5, "resolved", "resolved", "wrong_repo", True),
+                ],
+                0,
+                None,
+            ),
+        ]
+    )
+    def test_human_resolve_grace_window_reads_every_event_in_a_bucket(self, _name, events, expected, fixed_minute):
+        # The resolves and reasons share ten-minute buckets, so a rule that keeps only a bucket's first
+        # resolve or first reason, or counts a note-only update as a resolve, gets these wrong.
+        resolved_at = SNAPSHOT_END - datetime.timedelta(hours=1)
+        self._transition(resolved_at, "ready", "resolved", actor_kind="user")
+        for minute, previous, status, reason, reason_added in events:
+            self._transition(
+                resolved_at + datetime.timedelta(minutes=minute),
+                previous,
+                status,
+                reason,
+                actor_kind=None if reason_added else "user",
+                reason_added=reason_added,
+            )
+
+        row = self._status_row(SNAPSHOT_END + datetime.timedelta(days=2))
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (
+            None if fixed_minute is None else resolved_at + datetime.timedelta(minutes=fixed_minute)
+        )
+
+    def test_human_reasonless_resolve_fixed_label_only_grows_across_partitions(self):
+        resolved_at = SNAPSHOT_END - datetime.timedelta(hours=6)
+        self._transition(resolved_at, "ready", "resolved", actor_kind="agent")
+        self._transition(
+            resolved_at + datetime.timedelta(days=2), "resolved", "resolved", "analysis_wrong", reason_added=True
+        )
+
+        rows = [self._status_row(SNAPSHOT_END + datetime.timedelta(days=offset)) for offset in range(4)]
+        assert [row["fixed_count"] for row in rows] == [0, 1, 1, 1]
+        assert [row["first_fixed_at"] for row in rows] == [None, resolved_at, resolved_at, resolved_at]
+
     @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
     def test_fixed_count_survives_a_reopen(self, gap):
         self._transition(T1, "ready", "resolved", None)
@@ -919,11 +1029,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         # a dismissal the report's tenant never made.
         assert row["first_dismissed_server_at"] != T1
 
-    @parameterized.expand([("reasoned", "fixed_outside_posthog", 1), ("reasonless", None, 0), ("empty", "", 0)])
-    def test_only_a_reasoned_resolve_counts_as_a_reasoned_resolution(self, _name, reason, expected_count):
-        # A reason-less resolve is the automatic resolve after a tracked PR merges, not a person
-        # acting on the report.
-        self._transition(T1, "ready", "resolved", reason)
+    @parameterized.expand(
+        [
+            ("reasoned", "fixed_outside_posthog", None, 1),
+            ("reasonless", None, None, 0),
+            ("empty", "", None, 0),
+            ("reasonless_system", None, "system", 0),
+            ("reasonless_task", None, "task", 0),
+            ("reasonless_user", None, "user", 1),
+            ("reasonless_agent", "", "agent", 1),
+        ]
+    )
+    def test_a_resolve_counts_as_intent_when_reasoned_or_human(self, _name, reason, actor_kind, expected_count):
+        # A reason-less resolve with no human actor is the automatic resolve after a tracked PR
+        # merges. The one-click Today resolve has no reason but names a person.
+        self._transition(T1, "ready", "resolved", reason, actor_kind=actor_kind)
 
         row = self._status_row()
         assert row["first_resolved_at"] == T1
@@ -938,12 +1058,13 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         # timestamps so the latest-wins columns have one unambiguous winner.
         statuses = ("resolved", "suppressed", "failed", "potential")
         for offset, status in enumerate(statuses):
-            self._transition(T2 + datetime.timedelta(hours=offset), "ready", status)
+            self._transition(T2 + datetime.timedelta(hours=offset), "ready", status, actor_kind="user")
         genuine_only = self._status_row()
 
         for status in statuses:
             for reason in ("analysis_wrong", "wontfix_irrelevant"):
-                self._transition(T1, "ready", status, reason, team_id=999)
+                self._transition(T1, "ready", status, reason, team_id=999, actor_kind="user")
+                self._transition(T1, status, status, reason, team_id=999, reason_added=True)
 
         assert self._status_row() == genuine_only
 
@@ -1073,6 +1194,7 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
 
     def fake_sync_execute(sql, params, **kwargs):
         captured["params"] = params
+        captured["query_kwargs"] = kwargs
         return rows
 
     def fake_write_parquet(client, bucket, key, table, **kwargs):
@@ -1105,6 +1227,9 @@ def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({
 def test_each_embeddings_asset_snapshots_its_own_rendering(monkeypatch, asset, table, rendering):
     written = _run_embeddings_asset(monkeypatch, asset, [(2, UUID_A, [0.5, 0.25], False, T1)])
 
+    assert written["query_kwargs"]["ch_user"] == ClickHouseUser.SIGNALS
+    assert written["query_kwargs"]["settings"] == dag.REPORT_EMBEDDINGS_QUERY_SETTINGS
+    assert written["query_kwargs"]["workload"] == queries.etl_workload()
     assert written["params"]["rendering"] == rendering
     assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
     assert written["table"].schema == EMBEDDINGS_SCHEMA
