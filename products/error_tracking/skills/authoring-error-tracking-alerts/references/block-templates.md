@@ -119,7 +119,8 @@ all three:
 The title reads as the exception type and message, for example `RangeError: Invalid Date`, on one line, cut at 120 characters.
 The description is the message, then a Markdown list of the browser, OS, release and a session replay link.
 The destination code then adds up to 5 resolved in-app stack frames as a code block, so the inputs do not carry the trace.
-Each frame shows only the file name, the line and the function name, and a name that looks like a key or token becomes `[redacted]`.
+Each frame shows only the file name, the line and the function name.
+A file name that does not look like a source file, or any name that holds a UUID or looks like a key or token, becomes `[redacted]`.
 Do not add the page URL, request data, local variables or source lines to these inputs. Trackers sit outside PostHog's access controls and a repository can be public, so these values can expose tokens and user data.
 Each list line is left out when the event has no value for it, and the replay line is left out when replay was not recording.
 Keep the list form: GitLab joins plain consecutive lines into one paragraph.

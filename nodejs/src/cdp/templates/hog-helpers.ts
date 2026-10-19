@@ -13,26 +13,35 @@ export const hogApiErrorMessageFn = `fun apiErrorMessage(response) {
 }`
 
 // Ticket trackers sit outside PostHog's access controls, and a GitHub or GitLab repository can be
-// public, so a frame line carries only the file name, the line and the function name. Directories can
-// hold a username or a path token, so they are dropped. A file or function name with a long run of
-// letters and digits that includes a digit looks like a key or token, so it becomes [redacted]. The
-// function never reads code_variables or source context, which can hold user data or secrets.
+// public, so a frame line carries only a file name, the line and the function name. Cymbal marks a JS
+// frame without a source map as resolved, and an inline script's source is the page URL, which can end
+// in a token. So a file name shows only when it looks like a source file, and anything else, or any
+// name that holds a UUID or a key-shaped run of letters and digits, becomes [redacted]. The function
+// never reads code_variables or source context, which can hold user data or secrets.
 // Each frames[i] read makes the VM measure the whole array. To stay inside the execution time limit, the
 // loop reads at most the last 50 frames and skips stacks over 2000 frames. The try block keeps a bad trace
 // from losing the ticket.
-export const hogErrorTrackingStacktraceFn = `fun errorTrackingFrameText(value) {
-  let text := toString(value)
-  let run := extractRegex(text, '([A-Za-z0-9+/=]{24,})')
-  if (notEmpty(run) and match(run, '[0-9]')) {
-    return '[redacted]'
+export const hogErrorTrackingStacktraceFn = `fun errorTrackingHasSecret(text, minRunLength) {
+  if (match(text, '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')) {
+    return true
   }
-  return text
+  let run := extractRegex(text, concat('([A-Za-z0-9+/=]{', minRunLength, ',})'))
+  return notEmpty(run) and match(run, '[0-9]')
+}
+
+fun errorTrackingFunctionName(name) {
+  let text := toString(name)
+  return errorTrackingHasSecret(text, 24) ? '[redacted]' : text
 }
 
 fun errorTrackingFileName(source) {
-  let path := splitByString('#', splitByString('?', replaceAll(source, '\\\\', '/'))[1])[1]
+  let path := splitByString('#', splitByString('?', replaceAll(toString(source), '\\\\', '/'))[1])[1]
   let parts := splitByString('/', path)
-  return parts[length(parts)]
+  let name := parts[length(parts)]
+  if (not match(name, '^[A-Za-z0-9_.-]{1,64}[.](js|mjs|cjs|jsx|ts|tsx|mts|cts|vue|svelte|py|rb|php|go|java|kt|kts|scala|rs|swift|dart|ex|exs|erl|cs|c|cc|cpp|h|hpp|m|mm|lua)$')) {
+    return '[redacted]'
+  }
+  return errorTrackingHasSecret(name, 16) ? '[redacted]' : name
 }
 
 fun errorTrackingStacktrace(exceptionList) {
@@ -47,14 +56,13 @@ fun errorTrackingStacktrace(exceptionList) {
     for (let i := last; i >= first and length(lines) < 5; i := i - 1) {
       let frame := frames[i]
       if (frame.resolved and frame.in_app) {
-        let fileName := notEmpty(frame.source) ? errorTrackingFileName(frame.source) : ''
-        let line := concat('  File "', notEmpty(fileName) ? errorTrackingFrameText(fileName) : 'unknown', '"')
+        let line := concat('  File "', notEmpty(frame.source) ? errorTrackingFileName(frame.source) : 'unknown', '"')
         if (notEmpty(frame.line)) {
           line := concat(line, ', line: ', frame.line)
         }
         let name := frame.resolved_name ?? frame.mangled_name
         if (notEmpty(name)) {
-          line := concat(line, ', in: ', errorTrackingFrameText(name))
+          line := concat(line, ', in: ', errorTrackingFunctionName(name))
         }
         lines := arrayPushBack(lines, replaceAll(substring(line, 1, 200), '\`', '\\''))
       }

@@ -64,6 +64,21 @@ describe('github template', () => {
                                     in_app: false,
                                 },
                                 {
+                                    source: 'https://user:password@example.com',
+                                    line: 2,
+                                    resolved_name: 'init',
+                                    resolved: true,
+                                    in_app: true,
+                                },
+                                {
+                                    source: 'https://example.com/reset-password/3f2b8c1e-9d4a-4e7b-8a6c-0d1e2f3a4b5c',
+                                    line: 1,
+                                    column: 20,
+                                    resolved_name: 'onSubmit',
+                                    resolved: true,
+                                    in_app: true,
+                                },
+                                {
                                     source: '/home/bob/app.py',
                                     line: 7,
                                     resolved_name: 'handler_EXAMPLE0123456789abcdefghij',
@@ -101,7 +116,7 @@ describe('github template', () => {
                 $recording_status: 'active',
             },
             'RangeError: Invalid Date value: abc',
-            'Invalid Date\nvalue: abc\n\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: parse\'Date\'\n  File "main.ts", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n```',
+            'Invalid Date\nvalue: abc\n\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "checkout.ts", line: 42, in: parse\'Date\'\n  File "main.ts", line: 3, in: handleCheckoutSubmitButtonClickEvent\n  File "app.py", line: 7, in: [redacted]\n  File "[redacted]", line: 1, in: onSubmit\n  File "[redacted]", line: 2, in: init\n```',
         ],
         [
             'leaves out missing lines, replay when recording was off, and a trace with no resolved frame',
@@ -153,7 +168,17 @@ describe('github template', () => {
         expect(response.error).toBeUndefined()
         const body = parseJSON((response.invocation.queueParameters as any).body)
         expect(body.title).toEqual(expectedTitle)
-        for (const secret of ['token=', 'access_token', 'alice', 'bob', 'EXAMPLE0123', 'hunter2', 'sk_live']) {
+        for (const secret of [
+            'token=',
+            'access_token',
+            'alice',
+            'bob',
+            'EXAMPLE0123',
+            'hunter2',
+            'sk_live',
+            'password@',
+            '3f2b8c1e',
+        ]) {
             expect(JSON.stringify(body)).not.toContain(secret)
         }
         expect(body.body).toEqual(
