@@ -11,7 +11,7 @@
  *       models/candidates/yunet_n_dynamic.onnx out/face-calibration models/candidates/yunet_n_dynamic_int8.onnx
  *   ORT_THREADS=1 tsx dev/face-bench.ts [--detectors a,b] [--sets a,b] [--limit N] [--label name]
  *
- * Production reads each frame at min(1, 640 / long side) with the dynamic-shape YuNet export, on a
+ * Production reads each frame at min(1, inputSide / long side), inputSide 640 by default, with the dynamic-shape YuNet export, on a
  * canvas that pads only to the model's stride, which is the scale the plan counts for the face stage.
  * The fixed-shape builds take only a 640x640 input, so their "fixed" entries letterbox: a frame
  * smaller than 640 is enlarged and a 16:9 frame is padded with black to a square, and neither buys
@@ -36,7 +36,7 @@ import sharp, { type OverlayOptions } from 'sharp'
 import { numFromEnv } from '../src/env.ts'
 import { FACE_FLOOR } from '../src/floors.ts'
 import { type Box } from '../src/geometry.ts'
-import { FACE_INPUT_SIDE, limitsFromEnv, planScales } from '../src/scale-plan.ts'
+import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc, probeDims, srcSharp } from '../src/src-image.ts'
 import { type YunetModel, detectFacesYunet, detectionWindowsForTest, loadYunet } from '../src/yunet.ts'
 import { coverage, mulberry32 } from './bench-common.ts'
@@ -96,7 +96,7 @@ interface GtImage {
 interface DetectorSpec {
     name: string
     file: string
-    /** native: production's input, the frame at min(1, 640/long), stride-padded. fixed: the 640x640 letterbox. */
+    /** native: production's input, the frame at min(1, inputSide/long), stride-padded. fixed: the 640x640 letterbox. */
     input: 'fixed' | 'native'
 }
 
@@ -353,7 +353,7 @@ function iou(a: Box, b: Box): number {
 
 function inputScale(input: DetectorSpec['input'], win: Box): number {
     const long = Math.max(win.width, win.height)
-    return input === 'fixed' ? FIXED_SIDE / long : Math.min(1, FACE_INPUT_SIDE / long)
+    return input === 'fixed' ? FIXED_SIDE / long : Math.min(1, limitsFromEnv().faceInputSide / long)
 }
 
 // --dump-calibration builds its tensors here too, so that the int8 builds calibrate on the inputs the native variants see.

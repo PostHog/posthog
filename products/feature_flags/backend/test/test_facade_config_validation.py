@@ -344,9 +344,9 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     (
         "targeted_with_experiment_fields",
-        config(targeted(experiment_id=1, variants=[], holdout=None)),
+        config(targeted(paused=False, variants=[], holdout=None)),
         [
-            ("unknown_field", "filters.rules[0].experiment_id"),
+            ("unknown_field", "filters.rules[0].paused"),
             ("unknown_field", "filters.rules[0].variants"),
             ("unknown_field", "filters.rules[0].holdout"),
         ],

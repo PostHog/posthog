@@ -304,6 +304,9 @@ async fn pointer_kinds(ctx: &TestContext, op_id: Uuid) -> Vec<String> {
 #[tokio::test]
 async fn only_a_completed_op_with_outbox_writes_enabled_enqueues_a_publish_pointer() {
     let ctx = TestContext::new().await;
+    // The pointers this test asserts on are pending rows a draining test
+    // in another process would otherwise claim and delete.
+    let _drain_lock = ctx.hold_drain_lock().await;
     let engine = ctx.engine();
     let cases = [
         (
@@ -365,6 +368,9 @@ async fn remaining_ops(ctx: &TestContext, op_ids: &[Uuid]) -> Vec<Uuid> {
 #[tokio::test]
 async fn gc_reaps_completed_ops_past_retention_unless_a_publish_pointer_remains() {
     let ctx = TestContext::new().await;
+    // The pending pointer must survive until GC has seen it, so no
+    // draining test in another process may claim it meanwhile.
+    let _drain_lock = ctx.hold_drain_lock().await;
     let engine = ctx.engine();
     let driver = DummyDriver::new();
     // Three completed ops: no outbox row, a pending pointer, a given-up pointer.

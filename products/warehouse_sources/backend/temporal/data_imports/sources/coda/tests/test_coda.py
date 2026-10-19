@@ -90,6 +90,80 @@ class TestGetRows:
         assert [(p["page_id"], p["_doc_id"]) for p in result.rows] == [("page-1", "doc1")]
         assert result.paths[1] == "/apis/v1/analytics/docs/doc1/pages"
 
+    def test_pages_fan_out_over_docs(self) -> None:
+        result = _driver().run(
+            "pages",
+            [
+                _response([{"id": "doc1"}]),  # docs
+                _response([{"id": "canvas-1", "name": "Launch", "parent": {"id": "canvas-0"}}]),  # pages for doc1
+            ],
+        )
+
+        assert result.raised is None
+        assert [(p["id"], p["_doc_id"]) for p in result.rows] == [("canvas-1", "doc1")]
+        assert result.paths[1] == "/apis/v1/docs/doc1/pages"
+
+    @pytest.mark.parametrize(
+        "endpoint, parents, denied_status, expected_paths, child_row, key",
+        [
+            (
+                "permissions",
+                [{"id": "doc1"}, {"id": "doc2"}],
+                403,
+                ["/apis/v1/docs", "/apis/v1/docs/doc1/acl/permissions", "/apis/v1/docs/doc2/acl/permissions"],
+                {"id": "perm-1", "access": "readonly", "principal": {"type": "email", "email": "a@example.com"}},
+                ("_doc_id", "doc2"),
+            ),
+            (
+                "workspace_users",
+                [
+                    {"id": "doc1", "workspaceId": "ws-1"},
+                    {"id": "doc2", "workspaceId": "ws-1"},
+                    {"id": "doc3", "workspaceId": "ws-2"},
+                ],
+                403,
+                ["/apis/v1/docs", "/apis/v1/workspaces/ws-1/users", "/apis/v1/workspaces/ws-2/users"],
+                {"email": "a@example.com", "name": "A", "role": "Admin", "registeredAt": "2026-01-01T00:00:00Z"},
+                ("_workspace_id", "ws-2"),
+            ),
+            (
+                "workspace_role_activity",
+                [
+                    {"id": "doc1", "workspaceId": "ws-1"},
+                    {"id": "doc2", "workspaceId": "ws-1"},
+                    {"id": "doc3", "workspaceId": "ws-2"},
+                ],
+                404,
+                ["/apis/v1/docs", "/apis/v1/workspaces/ws-1/roles", "/apis/v1/workspaces/ws-2/roles"],
+                {"month": "2026-01-15", "activeAdminCount": 1, "activeEditorCount": 4},
+                ("_workspace_id", "ws-2"),
+            ),
+        ],
+    )
+    def test_fan_out_skips_inaccessible_parent(
+        self,
+        endpoint: str,
+        parents: list[dict[str, Any]],
+        denied_status: int,
+        expected_paths: list[str],
+        child_row: dict[str, Any],
+        key: tuple[str, str],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response(parents),
+                ScriptedResponse(status=denied_status, json={"statusCode": denied_status}),
+                _response([child_row]),
+            ],
+        )
+
+        assert result.raised is None
+        # Workspace endpoints call each workspace once, even when several docs share it.
+        assert result.paths == expected_paths
+        key_column, parent_id = key
+        assert [row[key_column] for row in result.rows] == [parent_id]
+
     def test_table_without_id_fails_fast_in_rows(self) -> None:
         result = _driver().run("rows", [_response([{"id": "doc1"}]), _response([{"name": "broken"}])])
 

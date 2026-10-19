@@ -8,7 +8,7 @@ use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::HandoffPhase;
 
 mod etcd;
-mod kafka;
+pub(crate) mod kafka;
 mod process;
 
 use process::ServiceProcess;
@@ -33,7 +33,12 @@ const IDENTITY_METRICS_PORT: u16 = 24152;
 const WRITER_METRICS_PORT: u16 = 24153;
 const ROUTER_METRICS_BASE_PORT: u16 = 24154;
 const LEADER_METRICS_BASE_PORT: u16 = 24160;
+/// Above the leader range, which grows with every scale-up.
+const PUBLISHER_METRICS_BASE_PORT: u16 = 24200;
 const MAX_ROUTERS: u32 = 4;
+/// Partitions of the two per-run publish topics. More than one, so the
+/// keyed merge events spread the way they do in production.
+const PUBLISH_TOPIC_PARTITIONS: u32 = 4;
 
 const ETCD_PREFIX: &str = "/personhog-test-harness/";
 const READY_DEADLINE: Duration = Duration::from_secs(90);
@@ -67,6 +72,21 @@ pub struct StackConfig {
     /// router for its initial-properties writes. Only needed when the run
     /// creates persons through the identity path.
     pub spawn_identity: bool,
+    /// Also spawn `personhog-publisher` replicas that drain the outbox the
+    /// identity service writes, to two per-run topics. Needs
+    /// `spawn_identity`: nothing else writes the outbox.
+    pub publish: Option<PublishConfig>,
+}
+
+pub struct PublishConfig {
+    pub publishers: u32,
+    pub rows_per_pass: i64,
+}
+
+#[derive(Clone)]
+pub struct PublishTopics {
+    pub distinct_ids: String,
+    pub merge_events: String,
 }
 
 /// A locally-spawned personhog stack: replica, writer, N leaders, and M
@@ -103,6 +123,7 @@ pub struct Stack {
     /// Set when the stack spawned a personhog-identity service: the traffic
     /// router's URL, which proxies identity RPCs to it.
     pub identity_url: Option<String>,
+    publish_topics: Option<PublishTopics>,
     pub log_dir: PathBuf,
 }
 
@@ -139,6 +160,9 @@ impl Stack {
         if config.routers == 0 || config.routers > MAX_ROUTERS {
             bail!("--routers must be between 1 and {MAX_ROUTERS}");
         }
+        if config.publish.is_some() && !config.spawn_identity {
+            bail!("publishing needs the identity service: nothing else writes the outbox");
+        }
 
         let run_id = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let topic = format!("personhog_test_harness_{run_id}");
@@ -154,6 +178,9 @@ impl Stack {
         ];
         if config.spawn_identity {
             binaries.push("personhog-identity");
+        }
+        if config.publish.is_some() {
+            binaries.push("personhog-publisher");
         }
         for bin in &binaries {
             let path = config.bin_dir.join(bin);
@@ -177,7 +204,16 @@ impl Stack {
 
         let store = etcd::connect(&config.etcd_endpoints, ETCD_PREFIX).await?;
         etcd::reset(&store, config.partitions).await?;
-        kafka::create_topic(&config.kafka_hosts, &topic, config.partitions).await?;
+        let publish_topics = config.publish.as_ref().map(|_| PublishTopics {
+            distinct_ids: format!("{topic}_distinct_ids"),
+            merge_events: format!("{topic}_merge_events"),
+        });
+        let mut topics = vec![(topic.as_str(), config.partitions)];
+        if let Some(publish) = &publish_topics {
+            topics.push((publish.distinct_ids.as_str(), PUBLISH_TOPIC_PARTITIONS));
+            topics.push((publish.merge_events.as_str(), PUBLISH_TOPIC_PARTITIONS));
+        }
+        kafka::create_topics(&config.kafka_hosts, &topics).await?;
 
         let mut infra = Vec::new();
 
@@ -305,9 +341,59 @@ impl Stack {
                     // interval fits a short run.
                     ("LIFECYCLE_SWEEPER_ENABLED", "true".to_string()),
                     ("LIFECYCLE_SWEEP_INTERVAL_SECS", "3".to_string()),
+                    (
+                        "LIFECYCLE_OUTBOX_ENABLED",
+                        config.publish.is_some().to_string(),
+                    ),
                 ],
                 &log_dir,
             )?);
+            if let (Some(publish), Some(topics)) = (&config.publish, &publish_topics) {
+                for i in 0..publish.publishers {
+                    infra.push(ServiceProcess::spawn(
+                        &format!("publisher-{i}"),
+                        &config.bin_dir.join("personhog-publisher"),
+                        &[
+                            ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
+                            ("PERSON_TABLE", config.pg_target_table.clone()),
+                            (
+                                "PERSON_DISTINCT_ID_TABLE",
+                                companions.person_distinct_id.to_string(),
+                            ),
+                            (
+                                "FF_HASH_KEY_OVERRIDE_TABLE",
+                                companions.ff_hash_key_override.to_string(),
+                            ),
+                            ("LIFECYCLE_OP_TABLE", companions.lifecycle_op.to_string()),
+                            (
+                                "LIFECYCLE_OP_PERSON_TABLE",
+                                companions.lifecycle_op_person.to_string(),
+                            ),
+                            (
+                                "PERSON_PUBLISH_OUTBOX_TABLE",
+                                companions.person_publish_outbox.to_string(),
+                            ),
+                            ("KAFKA_HOSTS", config.kafka_hosts.clone()),
+                            ("PERSON_DISTINCT_ID_TOPIC", topics.distinct_ids.clone()),
+                            ("PERSON_MERGE_EVENTS_ENABLED", "true".to_string()),
+                            ("PERSON_MERGE_EVENTS_TOPIC", topics.merge_events.clone()),
+                            ("PERSON_MERGE_EVENTS_TEAM_ALLOWLIST", "*".to_string()),
+                            (
+                                "LIFECYCLE_PUBLISH_MAX_ROWS_PER_PASS",
+                                publish.rows_per_pass.to_string(),
+                            ),
+                            // A short idle poll, so the drain after traffic
+                            // is bounded by the row budget, not the poll.
+                            ("LIFECYCLE_PUBLISH_INTERVAL_MS", "50".to_string()),
+                            (
+                                "METRICS_PORT",
+                                (PUBLISHER_METRICS_BASE_PORT + i as u16).to_string(),
+                            ),
+                        ],
+                        &log_dir,
+                    )?);
+                }
+            }
             Some(router_url.clone())
         } else {
             None
@@ -325,6 +411,7 @@ impl Stack {
             topic,
             router_url,
             identity_url,
+            publish_topics,
             log_dir,
         };
 
@@ -591,6 +678,31 @@ impl Stack {
         Ok(())
     }
 
+    pub fn changelog_topic(&self) -> &str {
+        &self.topic
+    }
+
+    pub fn publish_topics(&self) -> Option<&PublishTopics> {
+        self.publish_topics.as_ref()
+    }
+
+    /// Crash-restart the first publisher: SIGKILL + respawn. Its in-flight
+    /// claim rolls back, so the rows stay pending for the other replica or
+    /// the respawn, and whatever it had already produced republishes.
+    pub async fn crash_restart_publisher(&mut self) -> Result<()> {
+        self.infra_mut("publisher-0")?.respawn().await?;
+        tracing::info!("crash-restarted publisher");
+        Ok(())
+    }
+
+    /// Crash-restart the identity service: SIGKILL + respawn. In-flight
+    /// RPCs fail unacked; a saga mid-flight is re-driven by the sweeper.
+    pub async fn crash_restart_identity(&mut self) -> Result<()> {
+        self.infra_mut("identity")?.respawn().await?;
+        tracing::info!("crash-restarted identity");
+        Ok(())
+    }
+
     /// Wait (up to `deadline`) for a handoff to appear in flight, then
     /// SIGKILL its target pod mid-handoff. Best effort: fast handoffs can
     /// complete between polls, in which case nothing is killed.
@@ -815,8 +927,23 @@ impl Stack {
             .map(|proc| proc.terminate(SHUTDOWN_GRACE));
         futures::future::join_all(terminations).await;
 
-        kafka::delete_topic(&self.config.kafka_hosts, &self.topic).await?;
-        Ok(())
+        // Every topic is attempted even when one delete fails, so a failed
+        // teardown leaves at most that one topic behind.
+        let mut topics = vec![self.topic.as_str()];
+        if let Some(publish) = &self.publish_topics {
+            topics.push(publish.distinct_ids.as_str());
+            topics.push(publish.merge_events.as_str());
+        }
+        let mut first_error = None;
+        for topic in topics {
+            if let Err(e) = kafka::delete_topic(&self.config.kafka_hosts, topic).await {
+                first_error.get_or_insert(e);
+            }
+        }
+        match first_error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 }
 
