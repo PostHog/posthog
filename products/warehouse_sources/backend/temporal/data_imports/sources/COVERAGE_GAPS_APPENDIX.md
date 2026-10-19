@@ -1937,9 +1937,9 @@ Diffed against: <https://docs.bugherd.com/api/openapi.yaml>
 - [x] `GET /api_v2/projects/{project_id}/columns.json` — lookup resolving the board column/status a task sits in (high)
 - [x] `GET /api_v2/projects/{project_id}/tasks/archive.json` — archived (closed-out) tasks live behind a separate endpoint, so completed work is entirely missing from the tasks table (high)
 - [x] `GET /api_v2/projects/{project_id}/tasks/feedback.json` — the unsorted feedback inbox — tasks not yet promoted to the board (medium)
-- [ ] `GET /api_v2/projects/{project_id}/tasks/{task_id}/attachments.json` — screenshots and files attached to a task, joinable to tasks (medium)
-- [ ] `GET /api_v2/users/{user_id}/projects.json` — membership join between users and projects; neither existing table carries the relationship (medium)
-- [ ] `GET /api_v2/users/members.json and GET /api_v2/users/guests.json` — splits the flat users list into members vs guests, which is how BugHerd seats are licensed (medium)
+- [x] `GET /api_v2/projects/{project_id}/tasks/{task_id}/attachments.json` — screenshots and files attached to a task, joinable to tasks (medium)
+- [x] `GET /api_v2/users/{user_id}/projects.json` — membership join between users and projects; neither existing table carries the relationship (medium)
+- [x] `GET /api_v2/users/members.json and GET /api_v2/users/guests.json` — splits the flat users list into members vs guests, which is how BugHerd seats are licensed (medium)
 - [ ] `GET /api_v2/projects/active.json` — distinguishes active from archived projects without inspecting each project (low)
 
 Note: docs.bugherd.com/api is a Scalar shell; the real spec is at /api/openapi.yaml (70KB, 27 paths). Note that the connector's Tasks stream hits /api_v2/projects/{id}/tasks.json, which is a separate endpoint from the archived and feedback task lists — archived tasks are therefore not synced at all, not merely filtered.
