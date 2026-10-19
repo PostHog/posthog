@@ -1,12 +1,12 @@
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
 import {
-    DictionaryRow,
     MASKED_SECRET_VALUE,
-    dictionaryRowsFromInputs,
-    dictionaryRowsToInputs,
+    SecretDictionaryRow,
+    canAddSecretRow,
     findSecretRowsCompanion,
-    isSecretRowsCompanion,
+    secretRowsFromInput,
+    secretRowsToValue,
 } from './dictionarySecretRows'
 
 const STORED: CyclotronJobInputType = {
@@ -15,56 +15,38 @@ const STORED: CyclotronJobInputType = {
 }
 
 describe('dictionarySecretRows', () => {
-    it.each<[string, (rows: DictionaryRow[]) => DictionaryRow[], CyclotronJobInputType, CyclotronJobInputType]>([
-        ['keeps an untouched stored secret as sent', (rows) => rows, STORED, STORED],
+    it.each<[string, (rows: SecretDictionaryRow[]) => SecretDictionaryRow[], Record<string, string>]>([
+        ['sends the mask for every untouched entry', (rows) => rows, STORED.value],
         [
             'sends the mask for entries left hidden next to a replaced one',
             (rows) => rows.map((r) => (r.key === 'Authorization' ? { ...r, value: 'Bearer new', masked: false } : r)),
-            STORED,
-            { value: { Authorization: 'Bearer new', 'X-Api-Key': MASKED_SECRET_VALUE } },
+            { Authorization: 'Bearer new', 'X-Api-Key': MASKED_SECRET_VALUE },
         ],
         [
-            'drops a deleted secret row',
+            'drops a deleted entry',
             (rows) => rows.filter((r) => r.key !== 'Authorization'),
-            STORED,
-            { value: { 'X-Api-Key': MASKED_SECRET_VALUE } },
+            { 'X-Api-Key': MASKED_SECRET_VALUE },
         ],
         [
-            'clears the secret when every secret row is deleted',
-            (rows) => rows.filter((r) => !r.secret),
-            STORED,
-            { value: {} },
-        ],
-        [
-            'moves a locked row into the secret input',
-            (rows) => rows.map((r) => (r.key === 'Content-Type' ? { ...r, secret: true } : r)),
-            STORED,
-            {
-                value: {
-                    'Content-Type': 'application/json',
-                    Authorization: MASKED_SECRET_VALUE,
-                    'X-Api-Key': MASKED_SECRET_VALUE,
-                },
-            },
+            'keeps the stored value for an entry opened with Replace but left empty',
+            (rows) => rows.map((r) => ({ ...r, masked: false })),
+            STORED.value,
         ],
         [
             'ignores empty rows',
-            (rows) => [...rows, { key: ' ', value: '', secret: true, masked: false }],
-            STORED,
-            STORED,
+            (rows) => [...rows, { key: ' ', value: '', masked: false, stored: false }],
+            STORED.value,
         ],
-    ])('%s', (_name, edit, initialSecret, expectedSecret) => {
-        const rows = edit(dictionaryRowsFromInputs({ value: { 'Content-Type': 'application/json' } }, initialSecret))
-        expect(dictionaryRowsToInputs(rows, initialSecret).secretInput).toEqual(expectedSecret)
+    ])('%s', (_name, edit, expected) => {
+        expect(secretRowsToValue(edit(secretRowsFromInput(STORED)))).toEqual(expected)
     })
 
-    it('keeps plain rows out of the secret input', () => {
-        expect(
-            dictionaryRowsToInputs(
-                dictionaryRowsFromInputs({ value: { 'Content-Type': 'application/json' } }, STORED),
-                STORED
-            ).value
-        ).toEqual({ 'Content-Type': 'application/json' })
+    it.each<[string, CyclotronJobInputType | undefined, boolean]>([
+        ['a new function', undefined, true],
+        ['a stored secret with its keys', STORED, true],
+        ['a stored secret without its keys', { secret: true, value: undefined }, false],
+    ])('allows adding a secret row for %s', (_name, stored, allowed) => {
+        expect(canAddSecretRow(stored)).toBe(allowed)
     })
 
     const HEADERS = { key: 'headers', type: 'dictionary', label: 'Headers' } as CyclotronJobInputSchemaType
@@ -75,15 +57,10 @@ describe('dictionarySecretRows', () => {
         secret: true,
     } as CyclotronJobInputSchemaType
 
-    it.each<[string, CyclotronJobInputSchemaType[], CyclotronJobInputType | undefined, boolean]>([
-        ['a new function', [HEADERS, SECRET_HEADERS], undefined, true],
-        ['a stored secret with its keys', [HEADERS, SECRET_HEADERS], STORED, true],
-        ['a stored secret without its keys', [HEADERS, SECRET_HEADERS], { secret: true, value: undefined }, false],
-        ['no secret companion input', [HEADERS], undefined, false],
-    ])('pairs the secret rows input for %s', (_name, inputs_schema, stored, paired) => {
-        const inputs: Record<string, CyclotronJobInputType> = stored ? { secret_headers: stored } : {}
-        const configuration = { inputs_schema, inputs }
-        expect(findSecretRowsCompanion(HEADERS, configuration)).toBe(paired ? SECRET_HEADERS : undefined)
-        expect(isSecretRowsCompanion(SECRET_HEADERS, configuration)).toBe(paired)
+    it.each<[string, CyclotronJobInputSchemaType[], boolean]>([
+        ['a secret companion input', [HEADERS, SECRET_HEADERS], true],
+        ['no secret companion input', [HEADERS], false],
+    ])('pairs the secret rows input for %s', (_name, inputsSchema, paired) => {
+        expect(findSecretRowsCompanion(HEADERS, inputsSchema)).toBe(paired ? SECRET_HEADERS : undefined)
     })
 })
