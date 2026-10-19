@@ -48,6 +48,11 @@ function NoticeStory({ state }: { state: ConversionGoalNoticeState }): JSX.Eleme
 const meta: Meta<typeof NoticeStory> = {
     title: 'Scenes-App/Marketing Analytics/Conversion goal notice',
     component: NoticeStory,
+    render: (args) => (
+        <div className="w-240 max-w-full">
+            <NoticeStory {...args} />
+        </div>
+    ),
     parameters: {
         layout: 'padded',
         featureFlags: [

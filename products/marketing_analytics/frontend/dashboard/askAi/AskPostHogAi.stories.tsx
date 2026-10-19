@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { defaultConversionGoalFilter } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/constants'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { PropertyFilterType, PropertyOperator, SidePanelTab } from '~/types'
@@ -23,6 +24,7 @@ function AskPostHogAiStory({ approved = true }: { approved?: boolean }): JSX.Ele
     const { setDashboardProperties, setDates } = useActions(marketingAnalyticsLogic)
 
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
+    const { loadMarketingAnalyticsConfig } = useActions(marketingAnalyticsSettingsLogic)
 
     useOnMountEffect(() => {
         loadCurrentOrganizationSuccess({
@@ -43,6 +45,7 @@ function AskPostHogAiStory({ approved = true }: { approved?: boolean }): JSX.Ele
                 ],
             },
         })
+        loadMarketingAnalyticsConfig()
         setDashboardProperties([
             {
                 type: PropertyFilterType.Session,

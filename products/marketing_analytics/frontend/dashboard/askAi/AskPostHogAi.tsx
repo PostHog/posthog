@@ -55,11 +55,12 @@ export function AskPostHogAi(): JSX.Element {
                         key={question}
                         type="secondary"
                         size="small"
+                        className="max-w-full"
                         onClick={() => ask(question)}
                         disabledReason={disabledReason}
                         data-attr="marketing-dashboard-ask-ai"
                     >
-                        {question}
+                        <span className="whitespace-normal">{question}</span>
                     </LemonButton>
                 ))}
             </div>

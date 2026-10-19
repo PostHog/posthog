@@ -51,10 +51,11 @@ Do not split a regression from its required fix just to meet this numbering. Pla
 1. Test old and new flows with flags off/on, Setup off/on, explorer flags off, admin/member, current-project switch during pending requests, no events, traffic only, pre-existing goals, deleted initial goals and missing warehouse tables.
 2. Verify session averages and bounce rate against Web Analytics for uneven pageviews per session. Verify previous-period alignment, missing versus zero, attribution model/window and revenue currency/filter semantics.
 3. Test concurrent initialization, manual creation racing initialization, normalized event-name collisions, retry after failure, repeated empty-project visits and disabling the backend flag while a client is open.
-4. Run targeted backend/Jest suites, frontend lint/type checks and generated-schema checks. Record unrelated baseline failures separately. Run CI preflight before pushing; do not skip hooks.
-5. Start with internal projects, then an opt-in pilot, then staged cohorts (for example 5%, 25%, 100%). Expand only after observed correctness and latency are acceptable relative to the previous flow; percentages are a proposal, not configured rollout rules.
-6. Observe dashboard/query error rate, p50/p95 cold and warm latency, requests per visit, Setup scan failures, initialization failures/latency, duplicate goals, manual edits/deletes of automatic goals and successful setup completion. Avoid capturing raw event properties in rollout telemetry.
-7. Stop expansion on cross-project state leakage, incorrect metrics, duplicate writes or material query-cost regression. Disable automatic initialization independently; disable the UI flag if navigation or core analysis regresses.
+4. Check the dashboard at a 520px content width, including the PostHog AI questions, which wrap to keep their full text visible.
+5. Run targeted backend/Jest suites, frontend lint/type checks and generated-schema checks. Record unrelated baseline failures separately. Run CI preflight before pushing; do not skip hooks.
+6. Start with internal projects, then an opt-in pilot, then staged cohorts (for example 5%, 25%, 100%). Expand only after observed correctness and latency are acceptable relative to the previous flow; percentages are a proposal, not configured rollout rules.
+7. Observe dashboard/query error rate, p50/p95 cold and warm latency, requests per visit, Setup scan failures, initialization failures/latency, duplicate goals, manual edits/deletes of automatic goals and successful setup completion. Avoid capturing raw event properties in rollout telemetry.
+8. Stop expansion on cross-project state leakage, incorrect metrics, duplicate writes or material query-cost regression. Disable automatic initialization independently; disable the UI flag if navigation or core analysis regresses.
 
 ## Agreed scope update — 2026-09-11
 

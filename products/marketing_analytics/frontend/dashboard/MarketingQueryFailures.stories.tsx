@@ -71,15 +71,27 @@ const valueQuery: TrendsQuery = {
 
 export const RevenueCardFailure: Story = {
     decorators: [failedQuery],
-    render: () => <RevenueValueCard query={valueQuery} />,
+    render: () => (
+        <div className="w-240 max-w-full">
+            <RevenueValueCard query={valueQuery} />
+        </div>
+    ),
 }
 
 export const ConversionValueCardsFailure: Story = {
     decorators: [failedQuery],
-    render: () => <ConversionValueLoaded query={valueQuery} keys={['conversion_value', 'avg_conversion_value']} />,
+    render: () => (
+        <div className="w-240 max-w-full">
+            <ConversionValueLoaded query={valueQuery} keys={['conversion_value', 'avg_conversion_value']} />
+        </div>
+    ),
 }
 
 export const RetentionCardsFailure: Story = {
     decorators: [failedQuery],
-    render: () => <RetentionCards />,
+    render: () => (
+        <div className="w-240 max-w-full">
+            <RetentionCards />
+        </div>
+    ),
 }

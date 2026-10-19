@@ -2,16 +2,19 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { useEffect } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 
 const FLAGS = [
     FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
@@ -226,7 +229,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-09-16',
-        pageUrl: urls.marketingAnalyticsApp(),
+        pageUrl: `${urls.marketingAnalyticsApp()}?view=overview`,
         featureFlags: FLAGS,
     },
     decorators: [
@@ -271,12 +274,14 @@ Retention.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=retentio
 
 /** Storybook preloads the team from POSTHOG_APP_CONTEXT, so the goals have to be seeded through
  * the logic rather than an endpoint mock. */
-function WithGoals(): JSX.Element {
+function WithGoals({ children = <App /> }: { children?: ReactNode }): JSX.Element {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
+    const { loadMarketingAnalyticsConfig } = useActions(marketingAnalyticsSettingsLogic)
     useEffect(() => {
         loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, marketing_analytics_config: MARKETING_CONFIG } as never)
-    }, [loadCurrentTeamSuccess])
-    return <App />
+        loadMarketingAnalyticsConfig()
+    }, [loadCurrentTeamSuccess, loadMarketingAnalyticsConfig])
+    return <>{children}</>
 }
 
 export function Conversion(): JSX.Element {
@@ -288,14 +293,16 @@ Conversion.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=convers
  * the width the layout has to survive. */
 export function Narrow(): JSX.Element {
     return (
-        <div className="w-[520px] border-x">
-            <WithGoals />
+        <div className="@container/main-content w-[520px] max-w-full p-4 border-x">
+            <WithGoals>
+                <NewMarketingAnalyticsDashboard />
+            </WithGoals>
         </div>
     )
 }
-Narrow.parameters = { layout: 'padded', pageUrl: urls.marketingAnalyticsApp(), featureFlags: FLAGS }
+Narrow.parameters = { layout: 'padded', pageUrl: `${urls.marketingAnalyticsApp()}?view=overview`, featureFlags: FLAGS }
 
 export function AllTime(): JSX.Element {
     return <WithGoals />
 }
-AllTime.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?date_from=all`, featureFlags: FLAGS }
+AllTime.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=overview&date_from=all`, featureFlags: FLAGS }
