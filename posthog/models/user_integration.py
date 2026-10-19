@@ -590,7 +590,11 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         audit = GitHubAudit.personal(self.integration)
         try:
             with transaction.atomic():
-                row = UserIntegration.objects.select_for_update().get(pk=self.integration.pk)
+                try:
+                    row = UserIntegration.objects.select_for_update().get(pk=self.integration.pk)
+                except UserIntegration.DoesNotExist:
+                    # A disconnect deleted the row after this wrapper read it, so there is nothing to flag.
+                    return
                 config = row.config or {}
                 # Another writer changed the row after this wrapper read it. A new credential version
                 # means a reconnect or a refresh stored working tokens, and an existing flag holds the

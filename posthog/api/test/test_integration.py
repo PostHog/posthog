@@ -7969,6 +7969,22 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
 
+    def test_flagging_a_credential_deleted_by_a_disconnect_records_nothing(self) -> None:
+        integration = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="9008",
+            config={"originating_organization_id": str(self.organization.id)},
+            sensitive_config={"user_access_token": "synthetic-private-secret"},
+        )
+        stale = UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        UserIntegration.objects.filter(pk=integration.pk).delete()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
+
+        assert not ActivityLog.objects.filter(item_id=str(integration.pk), activity="github_diagnostic").exists()
+
     def test_github_audit_filters_unknown_fields_from_discovery_logs(self) -> None:
         candidate = {"installation_id": "9007", "account_name": "synthetic-owner", "token": "synthetic-secret"}
         with capture_logs() as captured:
