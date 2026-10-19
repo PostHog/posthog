@@ -232,6 +232,10 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                             // Option queries share the organization's query slots with the tiles, so few run at once.
                             await acquireRequestSlot(cache)
                             try {
+                                // A request that waited past the dashboard would take a query slot from the next page.
+                                if (cache.disposables.isDisposed) {
+                                    throw new Error('The dashboard closed.')
+                                }
                                 return await metricsVariableOptionsCreate(teamId, body)
                             } finally {
                                 releaseRequestSlot(cache)
@@ -267,7 +271,10 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                 }
             }
             for (const name of orderVariables(start).order) {
-                loads.set(name, load(start.find((variable) => variable.name === name)!))
+                const loading = load(start.find((variable) => variable.name === name)!)
+                // A newer load can cancel this listener before it waits for every load.
+                void loading.catch(() => undefined)
+                loads.set(name, loading)
             }
             let published = props.variables
             const publish = (): void => {
