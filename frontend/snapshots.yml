@@ -8346,6 +8346,10 @@ snapshots:
         hash: v1.k794b7964.cc3f4b4df15bd7680a9b679ca3a94ee2f2b5b8280b54804b2d660a1d51f53dca.0OslRLTIOrEEAmg3MSk_Xp4XRYkH8Y73Svwhz78Wje4
     queries-datatable-expliciticon--query-result--light:
         hash: v1.k794b7964.df833adef5b5670cedd05e7cc282cdb04e65401492d9fc030a6437201561ec82.f8E44DPoHhYMUvejnRmIcNnheMKdiSRMa_5GdLCupY8
+    queries-datatable-harnesscolumn--arbitrary-query-result--dark:
+        hash: v1.k794b7964.b16b4ed1913fbe3942aa6282cbd4e3a166fbbdf32fc4e53cef7adf97f00d2336.P9x17WzBdvzIy3lZSVhWTY6Kz2lNjMWlvMWiJ-Qx9d0
+    queries-datatable-harnesscolumn--arbitrary-query-result--light:
+        hash: v1.k794b7964.3875aa4d2826a34a035d8da68aa05734d412af03ac6f14fd1bd2a7807985167d.a5nSly5FdcZENmGcfyFRPvOZcAc79U1Ha5KZhIGU8fE
     queries-webvitals--web-vitals--dark:
         hash: v1.k794b7964.2ae778a0c5fdba3c69dfcbd3e9589c3c3d9cc2f0fef2eefd304c565be7e9a7c9.hH71byl33sIAdRCgaPk1lDOev0qooW1xhv0AL_yrIvg
     queries-webvitals--web-vitals--light:
@@ -10266,6 +10270,10 @@ snapshots:
         hash: v1.k794b7964.57136a6dbeab9ac511a2a5e0c7401b23a4cb0ac00d82a2be177b84f74a60ebb0.QicPm3hXLpA9re3ShhfrqX6bKcWmuAvRBCtbRpHrSFQ
     scenes-app-data-warehouse-sql-editor--edited-view--light:
         hash: v1.k794b7964.1bada9403e11b62a50423adde53ce13fcd10a5bd6c33a210f5dd58a10a956cf8.2N9MES9JfDzATg0m-6cJnj7FWTzNt6ZlLxGqqoAI54A
+    scenes-app-data-warehouse-sql-editor--harness-logo-in-results--dark:
+        hash: v1.k794b7964.83437273f5119c5f292fad5fe8a6c389444776d534a134111b0b9049430ffffd.cz4bKXqalkafd6knGBg3gj7x0-8T5p7NLuix9rG6GPw
+    scenes-app-data-warehouse-sql-editor--harness-logo-in-results--light:
+        hash: v1.k794b7964.261adb2063efa109811c70908e6d117f1efa1229135bcd341ec2da3507b5975b.tvMMteHD7B5av-EjfaSoJx8R3FPAPozw8oL3Ur4_lM4
     scenes-app-data-warehouse-sql-editor--hosted-trino--dark:
         hash: v1.k794b7964.9c5c2408b68039d1989e4b7d52a787ba6739326a0207118bed07db27c6385eda.slBWrouzz0S3bARV3vpB-WyUyyu4o7c3oCcvLPi-8kw
     scenes-app-data-warehouse-sql-editor--hosted-trino--light:
