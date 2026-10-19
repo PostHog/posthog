@@ -839,8 +839,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openaq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/openfda.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/openrouter/openrouter.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/openrouter/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/opinion_stage.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py

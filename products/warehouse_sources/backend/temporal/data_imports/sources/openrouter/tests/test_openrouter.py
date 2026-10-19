@@ -176,6 +176,18 @@ class TestCursorPagination:
         assert result.params("limit") == ["100", "100"]
         assert result.saved_states == [OpenRouterResumeConfig(after="b2")]
 
+    def test_batches_fail_when_page_cap_leaves_pages_unread(self):
+        with mock.patch.object(openrouter, "MAX_PAGES", 2):
+            result = _driver().run(
+                "batches",
+                [
+                    ScriptedResponse(json={"data": [{"id": "b3"}], "has_more": True, "last_id": "b3"}),
+                    ScriptedResponse(json={"data": [{"id": "b2"}], "has_more": True, "last_id": "b2"}),
+                ],
+            )
+
+        assert isinstance(result.raised, openrouter.OpenRouterPageCapError)
+
     def test_batches_resume_from_saved_cursor(self):
         result = _driver().run(
             "batches",

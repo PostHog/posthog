@@ -26,7 +26,11 @@ class OpenRouterRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class OpenRouterPageCapError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=False)
 class OpenRouterResumeConfig:
     # Offset already fetched for offset-paginated endpoints (api_keys/organization_members/workspaces).
     offset: int | None = None
@@ -230,7 +234,8 @@ def _get_cursor_rows(
             break
         after = next_after
     else:
-        logger.warning(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name}; stopping pagination")
+        # A full refresh that stops here would replace the table without the older rows.
+        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} with pages left")
 
 
 def _get_single_rows(

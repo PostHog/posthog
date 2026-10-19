@@ -10,7 +10,7 @@ ACTIVITY_RETENTION_DAYS = 30
 PaginationMode = Literal["offset", "offset_limit", "cursor"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenRouterEndpointConfig:
     name: str
     path: str
