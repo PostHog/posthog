@@ -78,9 +78,7 @@ logger = structlog.get_logger(__name__)
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
-    def _report_issue_read(
-        self, request: ValidatedRequest, issue_id: str, endpoint: str, properties: dict[str, object]
-    ) -> None:
+    def _report_issue_read(self, request: ValidatedRequest, issue_id: str, endpoint: str, **properties: object) -> None:
         # The frontend issue events see only the web app, so this is the one record of which issues
         # MCP, CLI and API callers read. A capture failure must not fail the read.
         try:
@@ -89,6 +87,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "error_tracking_issue_read",
                 {"issue_id": issue_id, "endpoint": endpoint, **properties},
                 team=self.team,
+                organization=self.team.organization,
                 request=request,
             )
         except Exception:
@@ -169,10 +168,6 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
         if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        read_properties: dict[str, object] = {
-            "include_breakdown": include_breakdown,
-            "include_sparkline": include_sparkline,
-        }
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
@@ -203,7 +198,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload["impact"] = {}
             if include_sparkline:
                 payload["sparkline"] = []
-            self._report_issue_read(request, issue_id, "issue", read_properties)
+            self._report_issue_read(
+                request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+            )
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
         event_properties: dict[str, object] = {}
@@ -256,7 +253,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         if include_breakdown:
             payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
-        self._report_issue_read(request, issue_id, "issue", read_properties)
+        self._report_issue_read(
+            request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+        )
         return Response(payload)
 
     def _issue_breakdown(
@@ -357,5 +356,5 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
-        self._report_issue_read(request, issue_id, "issue_events", {})
+        self._report_issue_read(request, issue_id, "issue_events")
         return Response(payload)

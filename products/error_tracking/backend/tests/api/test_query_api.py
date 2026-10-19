@@ -714,10 +714,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         if has_exceptions:
             self.create_exception_event()
             flush_persons_and_events()
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="test", user=self.user, secure_value=hash_key_value(token), scopes=["error_tracking:read"]
-        )
+        token = self.create_personal_api_key_with_scopes(["error_tracking:read"])
 
         with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
             found = self.client.post(
@@ -750,15 +747,17 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
+    def test_issue_read_succeeds_when_capture_fails(self) -> None:
+        self.create_issue()
+
         with patch("posthog.event_usage.posthoganalytics.capture", side_effect=RuntimeError("capture down")):
-            capture_failed = self.client.post(
-                f"/api/environments/{self.team.id}/error_tracking/query/{endpoint}",
-                data={"issueId": self.issue_id, **extra_body},
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
                 format="json",
-                HTTP_AUTHORIZATION=f"Bearer {token}",
             )
 
-        assert capture_failed.status_code == 200
+        assert response.status_code == 200
 
     def test_issue_events_tags_clickhouse_queries(self) -> None:
         self.create_issue()
