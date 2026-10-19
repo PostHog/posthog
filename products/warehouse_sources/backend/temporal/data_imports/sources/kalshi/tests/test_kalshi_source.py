@@ -15,6 +15,7 @@ class TestKalshiSource:
             ("trades_is_incremental", "trades", True),
             ("historical_trades_is_incremental", "historical_trades", True),
             ("market_candlesticks_is_incremental", "market_candlesticks", True),
+            ("weather_index_is_incremental", "weather_index", True),
             ("markets_is_not", "markets", False),
             ("historical_markets_is_not", "historical_markets", False),
             ("events_is_not", "events", False),

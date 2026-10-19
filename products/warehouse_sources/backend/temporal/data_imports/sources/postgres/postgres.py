@@ -1418,6 +1418,18 @@ def _is_pooler_login_cooldown_error(error: BaseException) -> bool:
     return "server login has been failing" in message and "server_login_retry" in message
 
 
+def _is_activity_cancelled(error: BaseException) -> bool:
+    """True when `error` is Temporal cancelling the activity, not a genuine query failure.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into
+    whatever statement is running when the activity is cancelled or hits its
+    `start_to_close_timeout` — here, typically the catalog query inside a best-effort metadata
+    probe. Match on the type name rather than importing temporalio into this module, mirroring
+    `sync_lock._is_cancellation`.
+    """
+    return type(error).__name__ == "CancelledError"
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1501,6 +1513,9 @@ def _rls_active_from_conn(
         # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). A pooler
         # login-retry cooldown (e.g. a duckgres-backed source's own metadata store momentarily
         # can't log in) is the same self-healing shape — see `_is_pooler_login_cooldown_error`.
+        # Temporal cancelling the activity mid-probe (user cancelled the sync, or the activity hit
+        # its `start_to_close_timeout`) is the same shape too: the sync is ending regardless of
+        # what this best-effort lookup returns, so there's nothing to fix here.
         # Still capture genuinely unexpected failures.
         if (
             not connection.closed
@@ -1510,6 +1525,7 @@ def _rls_active_from_conn(
             and not _is_unsupported_statement_timeout_error(e)
             and not _is_statement_timeout_error(e)
             and not _is_pooler_login_cooldown_error(e)
+            and not _is_activity_cancelled(e)
         ):
             capture_exception(e)
         return {}
