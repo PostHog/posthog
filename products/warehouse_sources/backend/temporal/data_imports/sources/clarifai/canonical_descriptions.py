@@ -92,4 +92,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metrics": "Evaluation metrics of the model version.",
         },
     },
+    "inputs": {
+        "description": "Inputs, such as images, videos, and text, stored in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/resources/api-overview/",
+        "columns": {
+            "id": "Input identifier within the app.",
+            "data": "Input content and metadata, such as the media URL and custom metadata.",
+            "status": "Processing status of the input.",
+            "dataset_ids": "Identifiers of the datasets that contain the input.",
+            "created_at": "Time when the input was added.",
+            "modified_at": "Time when the input was last modified.",
+        },
+    },
+    "concept_relations": {
+        "description": "Relations between concepts in the knowledge graph of the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/concepts/manage/",
+        "columns": {
+            "id": "Concept relation identifier within the app.",
+            "subject_concept": "Concept that is the subject of the relation.",
+            "object_concept": "Concept that is the object of the relation.",
+            "predicate": "Type of relation, such as hypernym, hyponym, or synonym.",
+            "knowledge_graph_id": "Identifier of the knowledge graph that contains the relation.",
+        },
+    },
+    "dataset_versions": {
+        "description": "Snapshots of each dataset in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/datasets/manage/",
+        "columns": {
+            "dataset_id": "Identifier of the dataset that the version belongs to.",
+            "id": "Dataset version identifier.",
+            "status": "Processing status of the dataset version.",
+            "description": "Description of the dataset version.",
+            "metrics": "Metrics of the dataset version, such as input and annotation counts.",
+            "created_at": "Time when the dataset version was created.",
+            "modified_at": "Time when the dataset version was last modified.",
+        },
+    },
+    "workflow_versions": {
+        "description": "All versions of each workflow in the selected Clarifai app.",
+        "docs_url": "https://docs.clarifai.com/create/workflows/manage/",
+        "columns": {
+            "workflow_id": "Identifier of the workflow that the version belongs to.",
+            "id": "Workflow version identifier.",
+            "nodes": "Model nodes and their connections in the workflow version.",
+            "description": "Description of the workflow version.",
+            "is_deprecated": "Whether the workflow version is deprecated.",
+            "created_at": "Time when the workflow version was created.",
+            "modified_at": "Time when the workflow version was last modified.",
+        },
+    },
 }
