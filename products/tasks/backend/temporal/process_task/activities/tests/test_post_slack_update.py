@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from products.slack_app.backend.services.slack_messages import personal_integrations_url
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
     SLACK_DENIAL_STOP_MESSAGE,
     SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT,
@@ -49,12 +48,12 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
         (
             "GitHub user integration for this run requires reauthorization",
             SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
-            "Connect your GitHub in PostHog settings",
+            "<http://localhost:8000/project/42/settings/user-personal-integrations|Connect your GitHub in PostHog settings>",
         ),
         (
             "GitHub user integration requires reauthorization and no team installation is available",
             SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
-            "Connect your GitHub in PostHog settings",
+            "<http://localhost:8000/project/42/settings/user-personal-integrations|Connect your GitHub in PostHog settings>",
         ),
         (
             "Linear integration requires reauthorization",
@@ -63,16 +62,10 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
         ),
     ],
 )
+@override_settings(SITE_URL="http://localhost:8000")
 def test_classify_failure_recovery(error: str, expected_strategy: str, expected_prompt_fragment: str) -> None:
     assert _classify_failure_recovery(error) == expected_strategy
-    assert expected_prompt_fragment in _failure_recovery_prompt(error)
-
-
-@override_settings(SITE_URL="http://localhost:8000")
-def test_reconnect_github_prompt_links_the_settings_flow() -> None:
-    prompt = _failure_recovery_prompt("GitHub user integration for this run requires reauthorization", 42)
-
-    assert f"<{personal_integrations_url(42)}|Connect your GitHub in PostHog settings>" in prompt
+    assert expected_prompt_fragment in _failure_recovery_prompt(error, team_id=42)
 
 
 @patch("products.tasks.backend.models.TaskRun.update_state_atomic")
