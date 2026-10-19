@@ -26,13 +26,14 @@ const meta: Meta<typeof DataTable> = {
     title: 'Queries/DataTable/HarnessColumn',
     component: DataTable,
     parameters: {
-        testOptions: { waitForSelector: '.DataTable img[alt="Claude Code"]' },
+        testOptions: { waitForSelector: '.DataTable [data-attr="hogqlx-brand-mark-label"]' },
     },
 }
 
 export default meta
 
 export const ArbitraryQueryResult: StoryObj<typeof DataTable> = {
+    tags: ['harness-result-visual'],
     render: () => (
         <div className="p-4">
             <DataTable query={query} setQuery={() => {}} cachedResults={cachedResults} readOnly />

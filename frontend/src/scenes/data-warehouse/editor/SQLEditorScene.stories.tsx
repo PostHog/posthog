@@ -6,6 +6,7 @@ import { BindLogic } from 'kea'
 import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -282,9 +283,13 @@ export const HostedTrino: Story = {
 }
 
 export const HarnessLogoInResults: Story = {
+    tags: ['harness-result-visual'],
     parameters: {
         pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
-        testOptions: { waitForSelector: '.rdg img[alt="Claude Code"]', viewport: { width: 1600, height: 900 } },
+        testOptions: {
+            waitForSelector: '.rdg [data-attr="hogqlx-brand-mark-label"]',
+            viewport: { width: 1600, height: 900 },
+        },
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -298,8 +303,11 @@ export const HarnessLogoInResults: Story = {
         )
         const runButton = await canvas.findByRole('button', { name: 'Run' }, { timeout: 15000 })
         await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        mcpHintLogic.actions.recordShown(Date.now())
         await userEvent.click(runButton)
-        await expect(await canvas.findByRole('img', { name: 'Claude Code' }, { timeout: 15000 })).toBeVisible()
+        await expect(
+            await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
+        ).toBeVisible()
         await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
     },
 }
