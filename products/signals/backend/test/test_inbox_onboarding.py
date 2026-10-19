@@ -291,14 +291,14 @@ class TestInboxOnboarding(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(self.url, self.draft, format="json")
         assert response.status_code == 200, response.content
-        log = ActivityLog.objects.filter(team=self.team, scope="SignalTeamConfig").latest("created_at")
+        log = ActivityLog.objects.filter(team_id=self.team.id, scope="SignalTeamConfig").latest("created_at")
+        assert log.detail is not None
         change = next(change for change in log.detail["changes"] if change["field"] == "onboarding")
         assert change["after"] == "masked"
         change["after"] = {"draft": self.draft}
-        assert (
-            next(change for change in log.safe_detail["changes"] if change["field"] == "onboarding")["after"]
-            == "masked"
-        )
+        safe_detail = log.safe_detail
+        assert safe_detail is not None
+        assert next(change for change in safe_detail["changes"] if change["field"] == "onboarding")["after"] == "masked"
 
     @parameterized.expand([("unchanged", True), ("user_paused", False), ("withheld", False)])
     def test_activation_resumes_only_onboarding_operational_pauses(self, state: str, enabled: bool) -> None:
