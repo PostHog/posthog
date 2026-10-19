@@ -3,7 +3,7 @@ from datetime import timedelta
 from functools import partial
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
@@ -851,17 +851,17 @@ class TestDatasetsApi(APIBaseTest):
         flag_client.feature_flags = [{"key": "llm-analytics-datasets", "active": True, "filters": filters}]
         transaction_depth = len(connection.atomic_blocks)
         payload_transaction_depths: list[int] = []
-        read_payload = partial(flag_client.get_feature_flag_payload, only_evaluate_locally=True)
 
-        def read_payload_recording_transaction_depth(*args: object, **kwargs: object) -> object:
+        def record_payload_transaction_depth(*args: object, **kwargs: object) -> object:
             payload_transaction_depths.append(len(connection.atomic_blocks))
-            return read_payload(*args, **kwargs)
+            return DEFAULT
 
         with (
             patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 1),
             patch(
                 "products.ai_observability.backend.dataset_service.posthoganalytics.get_feature_flag_payload",
-                side_effect=read_payload_recording_transaction_depth,
+                side_effect=record_payload_transaction_depth,
+                wraps=partial(flag_client.get_feature_flag_payload, only_evaluate_locally=True),
             ) as get_payload,
         ):
             self._create_dataset("First dataset")
