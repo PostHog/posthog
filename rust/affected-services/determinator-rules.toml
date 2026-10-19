@@ -84,6 +84,12 @@ mark-changed = "all"
 globs = ["../**"]
 mark-changed = []
 
+# Agent guidance is not a build input. The default rules exempt README and
+# LICENSE but not this file, and an unmatched workspace-root file marks every crate.
+[[path-rule]]
+globs = ["AGENTS.md"]
+mark-changed = []
+
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate
 # image trigger is handled in custom code outside the determinator.
