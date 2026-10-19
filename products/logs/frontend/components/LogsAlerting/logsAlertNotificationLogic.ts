@@ -206,7 +206,8 @@ export interface logsAlertNotificationLogicMeta {
         destinationGroups: (existingHogFunctions: HogFunctionType[]) => LogsAlertDestinationGroup[]
         customizedDestinationKeys: (
             destinationGroups: LogsAlertDestinationGroup[],
-            customizedHogFunctionIds: string[]
+            customizedHogFunctionIds: string[],
+            featureFlags: FeatureFlagsSet
         ) => Set<string>
     }
 }
@@ -402,8 +403,15 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 groupLogsAlertDestinations(hogFunctions, () => null),
         ],
         customizedDestinationKeys: [
-            (s) => [s.destinationGroups, s.customizedHogFunctionIds],
-            (groups: LogsAlertDestinationGroup[], customizedIds: string[]): Set<string> => {
+            (s) => [s.destinationGroups, s.customizedHogFunctionIds, s.featureFlags],
+            (
+                groups: LogsAlertDestinationGroup[],
+                customizedIds: string[],
+                featureFlags: FeatureFlagsSet
+            ): Set<string> => {
+                if (!featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION]) {
+                    return new Set()
+                }
                 const customized = new Set(customizedIds)
                 return new Set(
                     groups

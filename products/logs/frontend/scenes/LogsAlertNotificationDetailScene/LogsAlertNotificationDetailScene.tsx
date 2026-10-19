@@ -169,7 +169,9 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                 <p className="text-sm text-muted m-0">
                     These hog functions only run for this alert. Open one to edit the message body, headers, filters, or
                     destination details for the matching lifecycle event.
-                    {customizationEnabled ? ' Changes apply from the next time the alert fires.' : null}
+                    {customizationEnabled
+                        ? ' Changes apply to notifications sent after you save. If the alert is firing now, its resolve message may still use the earlier version.'
+                        : null}
                 </p>
 
                 {loading ? (
