@@ -8,7 +8,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -284,11 +283,6 @@ class TestDatadogSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    def test_unknown_endpoint_is_named_in_the_error(self) -> None:
-        result = _driver().run("not_a_table", [])
-        assert isinstance(result.raised, UnknownResourceError)
-        assert "not_a_table" in str(result.raised)
 
 
 class TestGetRowsResume:

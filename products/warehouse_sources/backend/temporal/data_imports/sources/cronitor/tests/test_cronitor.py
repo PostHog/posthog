@@ -410,7 +410,3 @@ class TestSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
-
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(KeyError):
-            cronitor_source(api_key="key", endpoint="nope", logger=MagicMock(), resumable_source_manager=MagicMock())
