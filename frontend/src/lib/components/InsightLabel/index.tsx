@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { DisplayableEntity, EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -16,7 +16,7 @@ import { formatEventName } from 'scenes/insights/utils'
 import { ResultSeries, getResultSeriesCustomName } from 'scenes/insights/utils/resultSeries'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActionFilter, BreakdownKeyType } from '~/types'
+import { BreakdownKeyType } from '~/types'
 
 import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
@@ -28,12 +28,11 @@ export enum IconSize {
     Large = 'large',
 }
 
-// InsightsLabel pretty prints the action (or event) returned from /insights
+// InsightsLabel pretty prints the series a result row reports
 interface InsightsLabelProps {
     seriesColor?: string
-    /** The result row's series, from `getResultSeries`. Takes precedence over `action`. */
+    /** The result row's series, from `getResultSeries`. */
     series?: ResultSeries | null
-    action?: ActionFilter | null
     value?: string
     className?: string
     breakdownValue?: BreakdownKeyType
@@ -108,7 +107,6 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
 export function InsightLabel({
     seriesColor = '#000000',
     series,
-    action,
     value,
     className,
     breakdownValue,
@@ -133,10 +131,10 @@ export function InsightLabel({
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
 
-    const entity: DisplayableEntity | null | undefined = series ? series.node : action
-    const math = series ? series.math : action
-    const seriesIndex = series ? (series.node ? series.order : undefined) : action?.order
-    const customName = series ? series.node && getResultSeriesCustomName(series.node) : action?.custom_name
+    const entity = series?.node
+    const math = series?.math
+    const seriesIndex = series?.node ? series.order : undefined
+    const customName = entity ? getResultSeriesCustomName(entity) : null
     const displayEntity = entity ? { ...entity, name: formatEventName(entity.name) } : undefined
 
     const eventName = seriesStatus
