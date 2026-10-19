@@ -61,7 +61,6 @@ pub enum Rejection {
 /// partition's reassignment never affects another's in-flight work.
 ///
 /// The ledger counts its rejections and the gap offsets a take walks over.
-/// Callers log a rejection and do not count it again.
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
