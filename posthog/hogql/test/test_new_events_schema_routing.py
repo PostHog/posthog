@@ -12,6 +12,7 @@ from posthog.schema import (
     GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
+    InsightActorsQuery,
     PersonsOnEventsMode,
     QueryStatus,
     SessionTableVersion,
@@ -54,29 +55,46 @@ class TestNewEventsClusterRouting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("hogql", HogQLQuery(query="SELECT 1"), True),
-            ("typed_insight", TrendsQuery(series=[EventsNode(event="$pageview")]), True),
-            ("unsupported_kind", GroupsQuery(group_type_index=0), False),
-            ("warehouse_connection", HogQLQuery(query="SELECT 1", connectionId="example-connection"), False),
+            (
+                "typed_insight_keeps_its_modifiers",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
+                ),
+                HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsCluster=True, useNewEventsSchema=True
+                ),
+            ),
+            ("hogql_workload_unknown_before_printing", HogQLQuery(query="SELECT * FROM logs LIMIT 10"), None),
+            ("unsupported_kind", GroupsQuery(group_type_index=0), None),
             (
                 "explicit_schema_choice",
-                HogQLQuery(query="SELECT 1", modifiers=HogQLQueryModifiers(useNewEventsSchema=True)),
-                False,
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")], modifiers=HogQLQueryModifiers(useNewEventsSchema=True)
+                ),
+                None,
+            ),
+            (
+                "nested_source_opt_out",
+                InsightActorsQuery(
+                    source=TrendsQuery(
+                        series=[EventsNode(event="$pageview")],
+                        modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
+                    )
+                ),
+                None,
             ),
         ]
     )
     def test_rollout_flag_opts_in_only_queries_the_native_cluster_supports(
-        self, _name: str, query: Any, opted_in: bool
+        self, _name: str, query: Any, expected: HogQLQueryModifiers | None
     ) -> None:
         with patch(
             "posthog.api.services.query.posthoganalytics.feature_enabled",
             side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
         ):
             modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query)
-        self.assertEqual(
-            modifiers,
-            HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True) if opted_in else None,
-        )
+        self.assertEqual(modifiers, expected)
 
     def _enqueue(self, runner: QueryRunner) -> dict[str, Any]:
         with (
@@ -412,12 +430,17 @@ class TestNewEventsClusterPilot(APIBaseTest):
     def test_rollout_flag_routes_app_queries_with_their_own_cache_entry(
         self, _name: str, eligible: bool, modifiers: dict[str, bool], native: bool
     ) -> None:
-        query = {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events", "modifiers": modifiers}
+        query = {
+            "kind": "PropertyValuesQuery",
+            "property_type": "event",
+            "property_key": "browser",
+            "modifiers": modifiers,
+        }
         responses = {}
         workloads = {}
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
-            patch("posthog.hogql.query.sync_execute", return_value=([(7,)], [("n", "UInt64")])) as execute,
+            patch("posthog.hogql.query.sync_execute", return_value=([('"Chrome"',)], [("value", "String")])) as execute,
         ):
             for flag in (False, True):
                 with patch(

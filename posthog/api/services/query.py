@@ -68,6 +68,7 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
+    query_node_modifiers,
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import native_events_cluster_ineligibility
@@ -477,14 +478,12 @@ def process_query_dict(
 def native_events_cluster_modifiers_for_user(
     team: Team, user: User | AnonymousUser | None, query: BaseModel
 ) -> HogQLQueryModifiers | None:
-    if not isinstance(user, User) or not isinstance(query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+    if not isinstance(user, User) or isinstance(query, HogQLQuery):
         return None
-    if isinstance(query, HogQLQuery) and query.connectionId:
+    if not isinstance(query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
         return None
-    query_modifiers = getattr(query, "modifiers", None)
-    if query_modifiers is not None and (
-        query_modifiers.useNewEventsCluster is not None or query_modifiers.useNewEventsSchema is not None
-    ):
+    modifiers = query_node_modifiers(query) or HogQLQueryModifiers()
+    if modifiers.useNewEventsCluster is not None or modifiers.useNewEventsSchema is not None:
         return None
     if native_events_cluster_ineligibility(team.pk) is not None:
         return None
@@ -499,7 +498,7 @@ def native_events_cluster_modifiers_for_user(
     )
     if not enabled:
         return None
-    return HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True)
+    return modifiers.model_copy(update={"useNewEventsCluster": True, "useNewEventsSchema": True})
 
 
 def process_database_schema_query(
