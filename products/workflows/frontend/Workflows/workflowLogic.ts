@@ -33,6 +33,8 @@ import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generate
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
+import { confirmCreateAsBroadcast } from '../Broadcasts/broadcastLifecycle'
+import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
@@ -3351,12 +3353,16 @@ export const workflowLogic = kea<workflowLogicType>([
                     // carries the old value and reads as a transition back to it.
                     const isStatusSave = cache.nextSaveChangesStatus === true
                     cache.nextSaveChangesStatus = false
+                    const createsBroadcast = cache.nextSaveCreatesBroadcast === true
+                    cache.nextSaveCreatesBroadcast = false
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                         if (!props.id || props.id === 'new') {
-                            const result = await api.hogFlows.createHogFlow(updates)
+                            const result = await api.hogFlows.createHogFlow(
+                                createsBroadcast ? { ...updates, origin_product: 'broadcasts' } : updates
+                            )
 
                             if (props.templateId) {
                                 posthog.capture('hog_flow_created_from_template', {
@@ -3367,11 +3373,20 @@ export const workflowLogic = kea<workflowLogicType>([
                             if (props.entrySource) {
                                 saveEntrySource(result.id, props.entrySource)
                             }
-                            // pinned: analytics event name
-                            posthog.capture('workflow draft created', {
-                                workflow_id: result.id,
-                                entry_source: props.entrySource ?? null,
-                            })
+                            if (createsBroadcast) {
+                                // pinned: analytics event name
+                                posthog.capture('broadcast draft created', {
+                                    broadcast_id: result.id,
+                                    entry_source: props.entrySource ?? null,
+                                    created_from: 'workflow_editor',
+                                })
+                            } else {
+                                // pinned: analytics event name
+                                posthog.capture('workflow draft created', {
+                                    workflow_id: result.id,
+                                    entry_source: props.entrySource ?? null,
+                                })
+                            }
                             return result
                         }
 
@@ -3501,7 +3516,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    forms(({ actions, values, cache }) => ({
+    forms(({ actions, values, cache, props }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
             errors: ({ name, actions, status }) => {
@@ -3519,6 +3534,22 @@ export const workflowLogic = kea<workflowLogicType>([
             submit: async (values) => {
                 if (!values) {
                     return
+                }
+
+                // A new workflow that only sends one email to a batch is a broadcast. Offer to create it
+                // as one, so it opens in the broadcast editor and lists under broadcasts.
+                if (
+                    (!props.id || props.id === 'new') &&
+                    !props.editTemplateId &&
+                    isBroadcastShaped(values.actions) &&
+                    canEditInWizard(values.actions, values.edges)
+                ) {
+                    const choice = await confirmCreateAsBroadcast()
+                    posthog.capture('workflow broadcast suggestion answered', { choice: choice ?? 'dismissed' })
+                    if (!choice) {
+                        return
+                    }
+                    cache.nextSaveCreatesBroadcast = choice === 'broadcast'
                 }
 
                 actions.saveWorkflow(values)
@@ -4390,6 +4421,8 @@ export const workflowLogic = kea<workflowLogicType>([
                             action: () => actions.publishDraft(),
                         },
                     })
+                } else if (originalWorkflow.origin_product === 'broadcasts') {
+                    lemonToast.success('Broadcast saved')
                 } else {
                     lemonToast.success('Workflow saved')
                 }
@@ -4400,10 +4433,12 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 if (props.id === 'new' && originalWorkflow.id) {
                     router.actions.replace(
-                        urls.workflow(
-                            originalWorkflow.id,
-                            workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
-                        )
+                        originalWorkflow.origin_product === 'broadcasts'
+                            ? urls.broadcast(originalWorkflow.id)
+                            : urls.workflow(
+                                  originalWorkflow.id,
+                                  workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
+                              )
                     )
                 }
             }

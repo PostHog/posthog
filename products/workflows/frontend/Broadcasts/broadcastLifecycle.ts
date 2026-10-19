@@ -133,3 +133,30 @@ export function confirmOpenInWorkflowEditor(onConfirm: () => void): void {
         secondaryButton: { children: 'Cancel' },
     })
 }
+
+export type CreateAsBroadcastChoice = 'broadcast' | 'workflow'
+
+/** Resolves to null when the user closes the dialog without a choice. */
+export function confirmCreateAsBroadcast(): Promise<CreateAsBroadcastChoice | null> {
+    return new Promise((resolve) => {
+        LemonDialog.open({
+            width: 500,
+            title: 'Create this as a broadcast?',
+            description:
+                'This workflow sends one email to a batch of people. That is a broadcast. A broadcast opens in the broadcast editor, where you set the audience, content and send time step by step, preview the email and send a test before you launch. The Broadcasts list shows its send status. A broadcast does not show in the Workflows list.',
+            primaryButton: {
+                children: 'Create broadcast',
+                type: 'primary',
+                'data-attr': 'workflow-create-as-broadcast-confirm',
+                onClick: () => resolve('broadcast'),
+            },
+            secondaryButton: {
+                children: 'Keep as workflow',
+                'data-attr': 'workflow-create-as-broadcast-decline',
+                onClick: () => resolve('workflow'),
+            },
+            // A button click resolves first, so this only takes effect when the dialog is dismissed.
+            onAfterClose: () => resolve(null),
+        })
+    })
+}
