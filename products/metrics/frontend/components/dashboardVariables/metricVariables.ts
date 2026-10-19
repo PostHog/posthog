@@ -22,6 +22,23 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
+function previousNonSpace(text: string, index: number): number {
+    let before = index - 1
+    while (before >= 0 && /\s/.test(text[before])) {
+        before--
+    }
+    return before
+}
+
+function functionNameBefore(text: string, index: number): string {
+    const end = previousNonSpace(text, index) + 1
+    let start = end
+    while (start > 0 && /[A-Za-z0-9_:]/.test(text[start - 1])) {
+        start--
+    }
+    return text.slice(start, end).toLowerCase()
+}
+
 /** Follows the backend: a `#` comment holds no references, a regex-escaped `$` in a regex is a literal, and
  * `replacements: false` leaves out the replacement argument of label_replace, where `$name` can be a regex group. */
 export function promqlReferencedNames(
@@ -56,8 +73,8 @@ export function promqlReferencedNames(
                 quote = null
             }
         } else if (char === '(' || char === '{') {
-            const name = char === '(' ? (/([A-Za-z0-9_:]*)\s*$/.exec(text.slice(0, index))?.[1] ?? '') : ''
-            groups.push({ bracket: char, name: name.toLowerCase(), argument: 0 })
+            const name = char === '(' ? functionNameBefore(text, index) : ''
+            groups.push({ bracket: char, name, argument: 0 })
         } else if (char === ')' || char === '}') {
             if (groups.at(-1)?.bracket === (char === ')' ? '(' : '{')) {
                 groups.pop()
@@ -72,7 +89,9 @@ export function promqlReferencedNames(
             contexts[index] = char === '#' ? '#' : null
             const call = groups.at(-1)
             const labelReplace = call?.bracket === '(' && call.name === 'label_replace'
-            regex = char !== '#' && (/[=!]~\s*$/.test(text.slice(0, index)) || (labelReplace && call.argument === 4))
+            const before = previousNonSpace(text, index)
+            const afterMatcher = before > 0 && text[before] === '~' && (text[before - 1] === '=' || text[before - 1] === '!')
+            regex = char !== '#' && (afterMatcher || (labelReplace && call.argument === 4))
             replacement = char !== '#' && labelReplace && call.argument === 2
         }
     }
@@ -268,8 +287,10 @@ export function compileVariableRegex(regex: string | null | undefined): RE2JS | 
     if (regexSize(slashed ? slashed[1] : pattern) > MAX_REGEX_SIZE) {
         throw new Error('it repeats too much. Use smaller counts in {}.')
     }
+    // RE2JS has no `\C`, which the server's RE2 reads as any byte, so the check reads it as any character.
+    const body = (slashed ? slashed[1] : pattern).replace(/((?:^|[^\\])(?:\\\\)*)\\C/g, '$1.')
     return RE2JS.compile(
-        slashed ? slashed[1] : pattern,
+        body,
         (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |
             (flags.includes('m') ? RE2JS.MULTILINE : 0) |
             (flags.includes('s') ? RE2JS.DOTALL : 0)

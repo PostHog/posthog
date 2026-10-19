@@ -43,6 +43,10 @@ describe('metricVariables', () => {
         expect(orderVariables([promql('env', 'label_values(up{c="C:\\\\$env"}, env)')]).cycle).toEqual(['env'])
         const namedGroup = 'query_result(label_replace(up, "dst", "$env", "src", "(?P<env>.*)"))'
         expect(orderVariables([promql('env', namedGroup)]).cycle).toEqual([])
+        const longQuery = `query_result(up{a="${'x'.repeat(8000)}"}${' + sum(up)'.repeat(20)})`
+        const started = performance.now()
+        orderVariables([promql('env', longQuery)])
+        expect(performance.now() - started).toBeLessThan(200)
         expect(dependentsOf([cluster, promql('job', namedGroup.replace('$env', '$cluster'))], ['cluster'])).toEqual([
             'job',
         ])
@@ -113,6 +117,7 @@ describe('metricVariables', () => {
         ['a list, which does not use the regex', 'custom', '(', undefined],
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
         ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
+        ['a regex with the RE2 any-byte class', 'promql', '\\C+', undefined],
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
         ['a regex with small counted repeats', 'promql', '\\d{1,3}(\\.\\d{1,3}){3}', undefined],
     ])('checks the regex of %s', (_name, source, regex, field, query = 'label_values(job)') => {
