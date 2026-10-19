@@ -48,8 +48,10 @@ MAX_EXPANDED_VARIABLES = 50
 _FUNCTION = re.compile(r"^\s*(?P<name>label_values|label_names|metrics|query_result)\s*\((?P<args>.*)\)\s*$", re.DOTALL)
 _LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {options}))"
+# An option whose group does not take part in the match has no value, as in the dashboard selects.
 _REGEX_WITH_GROUP_QUERY = (
-    "SELECT arrayDistinct(arrayMap(x -> extract(x, {pattern}), arrayFilter(x -> match(x, {pattern}), {options})))"
+    "SELECT arrayDistinct(arrayFilter(x -> x != '', "
+    "arrayMap(x -> extract(x, {pattern}), arrayFilter(x -> match(x, {pattern}), {options}))))"
 )
 _OPTIONS_CACHE_SECONDS = 60
 # Tiles of one dashboard run at the same time. One of them loads the options and holds a lock while it runs.

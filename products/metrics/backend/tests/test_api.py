@@ -34,6 +34,7 @@ from products.error_tracking.backend.facade.testing import create_issue, create_
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.variable_options import (
     _shared_options,
+    apply_regex,
     cache as options_cache,
     fill_all_values,
     list_variable_options,
@@ -302,6 +303,9 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         substitution = substitute_sql("SELECT 1 WHERE service_name IN $job", filled)
         assert substitution.placeholders == {"metric_variable_job": ast.Tuple(exprs=[])}
+
+    def test_a_regex_group_that_does_not_match_gives_no_option(self) -> None:
+        assert apply_regex(self.team, ["web", "api-web"], "^(api-)?web$") == ["api-"]
 
     def test_a_load_that_outlives_its_lock_keeps_the_new_lock(self) -> None:
         def slow_load() -> list[str]:
