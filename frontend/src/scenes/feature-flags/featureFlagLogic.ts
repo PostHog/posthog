@@ -168,7 +168,11 @@ const BROADCAST_COHORT_POLL_MS = 2000
 const BROADCAST_COHORT_WAIT_MS = 60_000
 // A flag cohort is a snapshot, so reuse it only while it still reflects who has the flag now.
 const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
+// insert_cohort_from_feature_flag stops at a 4-hour soft limit, so a cohort still calculating after that is stuck.
+const FLAG_COHORT_MAX_FILL_MS = 4 * 60 * 60 * 1000
+// pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
 const FLAG_BROADCAST_SOURCE = 'feature_flag'
+export const FINDING_FLAG_PEOPLE_MESSAGE = 'Finding the people who have this flag…'
 
 function flagCohortNamePrefix(flagKey: string): string {
     // Matches the name that create_static_cohort_for_flag gives its cohort. Renaming it there stops reuse here.
@@ -197,7 +201,9 @@ function newestReusableFlagCohort(
             cohort.errors_calculating === 0 &&
             !!cohort.created_at &&
             new Date(cohort.created_at).getTime() >= flagUpdatedAt &&
-            now - new Date(cohort.created_at).getTime() < REUSABLE_FLAG_COHORT_MAX_AGE_MS
+            // A cohort still filling shares its running scan, so a later click doesn't start a second one.
+            now - new Date(cohort.created_at).getTime() <
+                (cohort.is_calculating ? FLAG_COHORT_MAX_FILL_MS : REUSABLE_FLAG_COHORT_MAX_AGE_MS)
     )
     reusable.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())
     return reusable[0] ?? null
@@ -205,10 +211,13 @@ function newestReusableFlagCohort(
 
 /** Why a broadcast to this flag's audience would reach no one, if it would. */
 export function broadcastNoOneReason(
-    flag: Pick<FeatureFlagType, 'deleted' | 'active' | 'filters'> | null | undefined
+    flag: Pick<FeatureFlagType, 'deleted' | 'archived' | 'active' | 'filters'> | null | undefined
 ): string | undefined {
     if (flag?.deleted) {
         return 'This flag is deleted'
+    }
+    if (flag?.archived) {
+        return 'This flag is archived, so no one has it. Unarchive and enable it first.'
     }
     if (!flag?.active) {
         return 'This flag is disabled, so no one has it. Enable it first.'
@@ -4594,7 +4603,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         findOrCreateBroadcastCohort: () => {
             captureMessageAudienceClicked(FLAG_BROADCAST_SOURCE, 'broadcast')
             dismissBroadcastProgress(cache)
-            cache.broadcastToastId = lemonToast.loading('Finding the people who have this flag…', {
+            cache.broadcastToastId = lemonToast.loading(FINDING_FLAG_PEOPLE_MESSAGE, {
                 // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.
                 toastId: `flag-broadcast-${props.id}-${Date.now()}`,
                 autoClose: false,

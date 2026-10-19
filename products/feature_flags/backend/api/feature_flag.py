@@ -5639,6 +5639,7 @@ class FeatureFlagViewSet(
             data={
                 "is_static": True,
                 "key": feature_flag_key,
+                # flagCohortNamePrefix in featureFlagLogic.ts matches this name to reuse the cohort. Rename both together.
                 "name": f"Users with feature flag {feature_flag_key} enabled at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 "is_calculating": True,
             },

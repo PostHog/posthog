@@ -982,6 +982,11 @@ describe('featureFlagLogic', () => {
                 message: 'This flag targets groups, not people, so there is no one to email.',
             },
             {
+                scenario: 'was archived after the page loaded',
+                flag: { archived: true, active: false },
+                message: 'This flag is archived, so no one has it. Unarchive and enable it first.',
+            },
+            {
                 scenario: 'was disabled after the page loaded',
                 flag: { active: false },
                 message: 'This flag is disabled, so no one has it. Enable it first.',
@@ -1044,6 +1049,16 @@ describe('featureFlagLogic', () => {
                 usesCohortId: 42,
             },
             {
+                scenario: 'reuses a cohort still filling past the hour instead of starting a second scan',
+                listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(90)), is_calculating: true }),
+                usesCohortId: 7,
+            },
+            {
+                scenario: 'creates a cohort when the one still filling is past the fill limit',
+                listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(241)), is_calculating: true }),
+                usesCohortId: 42,
+            },
+            {
                 scenario: 'creates a cohort when the recent one failed to fill',
                 listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)), errors_calculating: 1 }),
                 usesCohortId: 42,
@@ -1079,7 +1094,7 @@ describe('featureFlagLogic', () => {
                         listParams.push(new URL(request.url).searchParams)
                         return [200, { count: 1, results: [existing] }]
                     },
-                    '/api/projects/:projectId/cohorts/7/': () => [200, existing],
+                    '/api/projects/:projectId/cohorts/7/': () => [200, { ...existing, is_calculating: false }],
                     '/api/projects/:projectId/cohorts/42/': () => [200, READY],
                 },
             })

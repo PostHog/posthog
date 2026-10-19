@@ -93,7 +93,12 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
-import { FeatureFlagLogicProps, broadcastNoOneReason, featureFlagLogic } from './featureFlagLogic'
+import {
+    FINDING_FLAG_PEOPLE_MESSAGE,
+    FeatureFlagLogicProps,
+    broadcastNoOneReason,
+    featureFlagLogic,
+} from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagRulesV2Editor } from './FeatureFlagRulesV2Editor'
@@ -199,7 +204,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const canCreateFlagCohort = isV1Config && !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
     const broadcastDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ??
-        (broadcastCohortLoading ? 'Finding the people who have this flag…' : broadcastNoOneReason(featureFlag))
+        (broadcastCohortLoading ? FINDING_FLAG_PEOPLE_MESSAGE : broadcastNoOneReason(featureFlag))
 
     // Expose the flag's release conditions to PostHog AI so it can answer "who does this match?"
     // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
