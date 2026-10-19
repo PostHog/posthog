@@ -45,6 +45,7 @@ from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
     PR_LOOP_ENABLED_STATE_KEY,
+    SANDBOX_PROVISIONING_STARTED_STATE_KEY,
     is_same_run_resume_state,
 )
 from products.tasks.backend.dev_stack_image_models import (
@@ -916,6 +917,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
+            if effective_environment == TaskRun.Environment.CLOUD:
+                state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] = False
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,

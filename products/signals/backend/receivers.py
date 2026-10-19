@@ -31,9 +31,11 @@ from products.signals.backend.report_embeddings import (
     render_report_documents,
 )
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
-from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+from products.tasks.backend.facade.task_run_signals import connect_task_run_cost_updated, connect_task_run_post_save
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +47,16 @@ _SNOOZE_SOURCE_STATUSES = frozenset(
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
+
+
+def refresh_spend_after_cost_update(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
+    from products.signals.backend.spend import refresh_task_spend  # noqa: PLC0415 -- keeps accounting off startup
+
+    transaction.on_commit(lambda: refresh_task_spend(team_id=team_id, run_id=str(run_id)), robust=True)
+
+
+def connect_task_run_spend_sync() -> None:
+    connect_task_run_cost_updated(refresh_spend_after_cost_update, dispatch_uid="signals_task_run_spend_sync")
 
 
 def connect_task_run_assignment_sync() -> None:

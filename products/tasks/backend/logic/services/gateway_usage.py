@@ -3,13 +3,14 @@ import time
 import asyncio
 from collections.abc import Iterable
 from datetime import timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -17,8 +18,11 @@ from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
+from posthog.models import Team
+from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunSpend, TaskRunTokenUsage
+from products.tasks.backend.constants import SANDBOX_PROVISIONING_STARTED_STATE_KEY
+from products.tasks.backend.facade.contracts import TaskRunActualCost, TaskRunCost, TaskRunSpend, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
@@ -228,7 +232,11 @@ def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage
 
 
 def get_task_runs_spend(*, team_id: int, task_ids: list[UUID]) -> list[TaskRunSpend]:
-    runs = TaskRun.objects.filter(team_id=team_id, task_id__in=task_ids)
+    if not task_ids:
+        return []
+    canonical_id = resolve_effective_team_id(team_id)
+    environments = Team.objects.filter(Q(id=canonical_id) | Q(parent_team_id=canonical_id)).values("id")
+    runs = TaskRun.objects.filter(team_id__in=environments, task_id__in=task_ids)
     result = []
     for run in runs:
         usage = _token_usage(run)
@@ -240,9 +248,54 @@ def get_task_runs_spend(*, team_id: int, task_ids: list[UUID]) -> list[TaskRunSp
                 complete=usage.complete,
                 is_terminal=run.is_terminal,
                 stage=str((run.state or {}).get("ai_stage") or "task"),
+                trial_grant_id=(run.state or {}).get("self_driving_funding", {}).get("grant_id") or None,
+                environment_id=run.team_id,
             )
         )
     return result
+
+
+def get_task_run_actual_cost(*, run_id: UUID, team_id: int) -> TaskRunActualCost:
+    run = TaskRun.objects.get(id=run_id, team_id=team_id)
+    sessions = list(SandboxSession.objects.for_team(team_id).filter(task_run=run))
+    sources = _cost_sources(run, sessions=sessions)
+    never_provisioned = (
+        run.environment == TaskRun.Environment.CLOUD
+        and run.is_terminal
+        and not sessions
+        and (run.state or {}).get(SANDBOX_PROVISIONING_STARTED_STATE_KEY) is False
+        and not (run.state or {}).get("sandbox_id")
+    )
+    compute = (
+        int((sources.compute_cost_usd * 1_000_000).to_integral_value(rounding=ROUND_CEILING))
+        if sources.compute_cost_usd is not None
+        else None
+    )
+    if never_provisioned:
+        compute = 0
+    compute_complete = (
+        run.is_terminal
+        and compute is not None
+        and (never_provisioned or (bool(sessions) and all(session.ended_at is not None for session in sessions)))
+    )
+    token = (
+        sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(run.state or {}))
+        if gateway_usage_enabled(run)
+        else None
+    )
+    no_gateway_usage = (
+        never_provisioned
+        and not (run.state or {}).get("unprocessed_request_ids")
+        and not (run.state or {}).get("token_cost_incomplete")
+    )
+    if no_gateway_usage:
+        token = token or 0
+    return TaskRunActualCost(
+        token_cost_microusd=token,
+        compute_cost_microusd=compute,
+        complete=compute_complete and (no_gateway_usage or sources.token_cost_microusd is not None),
+        compute_complete=compute_complete,
+    )
 
 
 def _token_cost_microusd(run: TaskRun) -> int | None:

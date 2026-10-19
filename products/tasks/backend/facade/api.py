@@ -1097,6 +1097,26 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def trial_research_has_started(*, team_id: int, report_pass_key: str) -> bool:
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        state__self_driving_funding__report_pass_key=report_pass_key,
+        state__self_driving_funding__stage="research",
+        state__sandbox_provisioning_started=True,
+    ).exists()
+
+
+def iter_trial_task_runs(*, team_id: int, grant_id: str) -> Iterator[contracts.TaskRunDTO]:
+    runs = TaskRun.objects.filter(
+        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+        state__self_driving_funding__funding="trial",
+        state__self_driving_funding__grant_id=grant_id,
+    ).select_related("task", "task__created_by")
+    for run in runs.iterator(chunk_size=500):
+        yield _task_run_to_dto(run)
+
+
 def find_signal_implementation_run(
     *, team_id: int, repository: str, head_branch: str | None
 ) -> contracts.SignalImplementationRunDTO | None:
