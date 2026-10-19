@@ -7613,7 +7613,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "insight-data-checks"
+        "feature_flag": "insight-trust-check"
     },
     "insight-update": {
         "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results. Query uses the same format as insight-create. Replacing query replaces the entire definition; include all filters and visualization settings you want to retain.",
