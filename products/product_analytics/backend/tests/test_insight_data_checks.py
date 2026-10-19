@@ -951,4 +951,5 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert tagged == ["checks-run-1"]
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.status_code == 499, response.content
+        assert response.content == b""

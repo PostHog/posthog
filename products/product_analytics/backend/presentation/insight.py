@@ -2626,7 +2626,10 @@ When set, the specified dashboard's filters and date range override will be appl
                     user=cast(User, self.request.user),
                     email_access=self._team_email_access(),
                 )
-        except (ExposedHogQLError, ExposedCHQueryError, CHQueryErrorQueryWasCancelled, ResolutionError) as error:
+        except CHQueryErrorQueryWasCancelled:
+            # The client cancelled the run, so nothing reads a body. 499 is Nginx's "Client Closed Request".
+            return Response(status=499)
+        except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)
 
