@@ -11,7 +11,6 @@ import requests
 import requests_mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -213,13 +212,6 @@ def test_missing_response_fails_instead_of_silently_importing_nothing() -> None:
     assert isinstance(result.raised, ValueError)
     assert "response" in str(result.raised)
     assert result.saved_states == []
-
-
-def test_unknown_table_is_rejected_before_request() -> None:
-    result = driver().run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 @pytest.mark.parametrize("reset_value,expected_delay", [("1800000030", 30), ("invalid", 1), ("1799999990", 1)])

@@ -194,6 +194,13 @@ export function HogFunctionList({
                                     {hogFunction.type === 'internal_destination' && (
                                         <NotificationContextTag hogFunction={hogFunction} />
                                     )}
+                                    {hogFunction.draft_updated_at && (
+                                        <Tooltip title="Staged changes are waiting to be published. Open it to review them.">
+                                            <LemonTag size="small" type="warning" className="ml-1">
+                                                Unpublished changes
+                                            </LemonTag>
+                                        </Tooltip>
+                                    )}
                                 </>
                             }
                             description={hogFunction.description}

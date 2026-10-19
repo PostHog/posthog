@@ -49,6 +49,8 @@ export const INBOX_EVENTS = {
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    // Cloud-only for now: the desktop inbox has no model sorts.
+    RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
@@ -568,6 +570,21 @@ export function captureInboxReportScrolled(params: {
         rank: params.rank,
         list_size: params.listSize,
         time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
+/** The hover card on a report's model score opened, under one of the model sorts. */
+export function captureInboxRankingDetailsViewed(params: {
+    report: SignalReport
+    head: string
+    state: 'scored' | 'stale' | 'unscored'
+    strength: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
+        ...baseReportProperties(params.report),
+        ranking_head: params.head,
+        ranking_state: params.state,
+        ranking_strength: params.strength,
     })
 }
 

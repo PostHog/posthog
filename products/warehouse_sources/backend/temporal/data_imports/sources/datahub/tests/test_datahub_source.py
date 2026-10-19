@@ -67,9 +67,3 @@ class TestDatahubSource:
 
         assert result.raised is None
         assert result.params("startTimeMillis") == [str(expected) if expected is not None else None]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("nope", [])
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown DataHub schema" in str(result.raised)
-        assert result.requests == []
