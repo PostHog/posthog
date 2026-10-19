@@ -1397,7 +1397,7 @@
           }
           if (!view.config) {
             this.ui.changelogStatus.replaceChildren(
-              el("div", { class: "muted", style: "padding: 6px 14px 8px" }, "Not seeded."));
+              el("div", { class: "muted", style: "padding: 6px 14px 8px" }, "Not seeded. Every personhog service waits at startup until the changelog is seeded."));
             return;
           }
           const c = view.config;
@@ -1433,7 +1433,7 @@
               error.replaceChildren(el("div", { class: "error-box" }, "Enter the topic and the writer's consumer group."));
               return;
             }
-            if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata.`)) return;
+            if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata. Every personhog participant adopts this object.`)) return;
             button.disabled = true;
             try {
               await fetchJSON("api/personhog/changelog/seed", {
@@ -1464,7 +1464,7 @@
               ? el("span", { class: "pill good", title: `lease ${data.leader.lease_id}${data.leader.lease_ttl_secs !== null ? ` · ttl ${data.leader.lease_ttl_secs}s` : ""}` }, `coordinator ${data.leader.holder}`)
               : el("span", { class: "pill bad" }, "no coordinator"),
             el("span", { class: "pill muted" },
-              data.total_partitions === null ? "total_partitions missing" : `${fmtInt(data.total_partitions)} partitions`),
+              data.total_partitions === null ? "changelog not seeded" : `${fmtInt(data.total_partitions)} partitions`),
             el("span", { class: `pill ${readyPods === data.pods.length && readyPods > 0 ? "good" : "warn"}` },
               `${fmtInt(readyPods)}/${fmtInt(data.pods.length)} pods ready`),
             el("span", { class: "pill muted" }, `${fmtInt(data.routers.length)} router${data.routers.length === 1 ? "" : "s"}`),

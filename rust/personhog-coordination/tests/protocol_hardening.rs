@@ -979,7 +979,10 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
     let store = test_store("advance-not-cleanup").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(1).await.expect("partitions");
+    assert!(store
+        .seed_changelog_config("personhog_updates", 1, vec![])
+        .await
+        .expect("partitions"));
 
     // The new owner is registered (directly — it never warms, so the
     // handoff parks in Warming where we can observe it). The old owner
@@ -4550,7 +4553,10 @@ async fn a_replaced_handoff_reaches_the_old_owner_it_no_longer_names() {
 #[tokio::test]
 async fn a_plan_records_its_freeze_quorum_once_and_collects_it_after() {
     let store = test_store("freeze-quorum-by-reference").await;
-    store.set_total_partitions(2).await.expect("set partitions");
+    assert!(store
+        .seed_changelog_config("personhog_updates", 2, vec![])
+        .await
+        .expect("set partitions"));
     let cancel = CancellationToken::new();
 
     // A registered router that never acks parks every handoff in
@@ -4857,7 +4863,10 @@ async fn a_leader_that_goes_between_the_read_and_the_watch_is_still_delivered() 
 #[tokio::test]
 async fn the_sweep_spares_a_membership_a_live_handoff_refers_to() {
     let store = test_store("freeze-quorum-sweep-spares").await;
-    store.set_total_partitions(2).await.expect("set partitions");
+    assert!(store
+        .seed_changelog_config("personhog_updates", 2, vec![])
+        .await
+        .expect("set partitions"));
     let cancel = CancellationToken::new();
 
     // A registered router that never acks parks the handoffs in

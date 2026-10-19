@@ -112,6 +112,43 @@ pub struct WarmingConfig {
     pub retry: WarmingRetryPolicy,
 }
 
+/// The topic's partition count from broker metadata, for the boot check.
+pub async fn changelog_partition_count(
+    kafka: &KafkaConfig,
+    topic: &str,
+    timeout: Duration,
+) -> CoordResult<u32> {
+    let consumer = make_consumer(kafka, "personhog-leader-boot")
+        .map_err(|e| CoordError::invalid_state(format!("create metadata client: {e}")))?;
+    let topic_name = topic.to_string();
+    tokio::task::spawn_blocking(move || {
+        let metadata = consumer
+            .fetch_metadata(Some(&topic_name), timeout)
+            .map_err(|e| {
+                CoordError::invalid_state(format!("fetch metadata for {topic_name}: {e}"))
+            })?;
+        let topic_metadata = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic_name)
+            .ok_or_else(|| {
+                CoordError::invalid_state(format!(
+                    "topic {topic_name} is absent from broker metadata"
+                ))
+            })?;
+        if let Some(error) = topic_metadata.error() {
+            return Err(CoordError::invalid_state(format!(
+                "topic {topic_name}: {error:?}"
+            )));
+        }
+        u32::try_from(topic_metadata.partitions().len()).map_err(|_| {
+            CoordError::invalid_state(format!("topic {topic_name} partition count overflow"))
+        })
+    })
+    .await
+    .map_err(|e| CoordError::invalid_state(format!("fetch metadata join: {e}")))?
+}
+
 /// Build a consumer used by warming. Auto-commit and auto-offset-store are
 /// disabled so this is safe to instantiate with any group id — including
 /// the writer's, where mutating stored offsets would corrupt the writer's

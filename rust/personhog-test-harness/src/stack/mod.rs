@@ -32,6 +32,7 @@ const REPLICA_METRICS_PORT: u16 = 24151;
 const IDENTITY_METRICS_PORT: u16 = 24152;
 const WRITER_METRICS_PORT: u16 = 24153;
 const ROUTER_METRICS_BASE_PORT: u16 = 24154;
+const WRITER_CONSUMER_GROUP: &str = "personhog-test-harness-writer";
 const LEADER_METRICS_BASE_PORT: u16 = 24160;
 /// Above the leader range, which grows with every scale-up.
 const PUBLISHER_METRICS_BASE_PORT: u16 = 24200;
@@ -228,7 +229,7 @@ impl Stack {
         );
 
         let store = etcd::connect(&config.etcd_endpoints, ETCD_PREFIX).await?;
-        etcd::reset(&store, config.partitions).await?;
+        etcd::reset(&store, &topic, config.partitions, WRITER_CONSUMER_GROUP).await?;
         let publish_topics = config.publish.as_ref().map(|_| PublishTopics {
             distinct_ids: format!("{topic}_distinct_ids"),
             merge_events: format!("{topic}_merge_events"),
@@ -259,11 +260,9 @@ impl Stack {
             &[
                 ("DATABASE_URL", config.persons_db_url.clone()),
                 ("KAFKA_HOSTS", config.kafka_hosts.clone()),
-                ("KAFKA_TOPIC", topic.clone()),
-                (
-                    "KAFKA_CONSUMER_GROUP",
-                    "personhog-test-harness-writer".to_string(),
-                ),
+                ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+                ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
+                ("KAFKA_CONSUMER_GROUP", WRITER_CONSUMER_GROUP.to_string()),
                 ("PG_TARGET_TABLE", config.pg_target_table.clone()),
                 (
                     "FLUSH_INTERVAL_MS",
@@ -527,14 +526,10 @@ impl Stack {
                 ("ETCD_ENDPOINTS", self.config.etcd_endpoints.clone()),
                 ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                 ("KAFKA_HOSTS", self.config.kafka_hosts.clone()),
-                ("KAFKA_PERSON_STATE_TOPIC", self.topic.clone()),
                 // Must match the spawned writer's consumer group or the
                 // leader's committed-offset queries (warming ranges, dirty
                 // index pruning) silently see no progress at all.
-                (
-                    "WRITER_CONSUMER_GROUP",
-                    "personhog-test-harness-writer".to_string(),
-                ),
+                ("WRITER_CONSUMER_GROUP", WRITER_CONSUMER_GROUP.to_string()),
                 ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
                 // Pair the fallback with the spawned writer's target: the
                 // dirty index treats an unmarked person's PG row as

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::from_utf8;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use assignment_coordination::store::EtcdStore;
@@ -39,7 +38,6 @@ enum StoreKey<'a> {
     FreezeQuorumsPrefix,
     Leader,
     Generation,
-    TotalPartitions,
     ChangelogConfig,
 }
 
@@ -73,7 +71,6 @@ impl StoreKey<'_> {
             StoreKey::FreezeQuorumsPrefix => format!("{prefix}freeze_quorums/"),
             StoreKey::Leader => format!("{prefix}coordinator/leader"),
             StoreKey::Generation => format!("{prefix}generation"),
-            StoreKey::TotalPartitions => format!("{prefix}config/total_partitions"),
             StoreKey::ChangelogConfig => format!("{prefix}config/changelog"),
         }
     }
@@ -1188,29 +1185,18 @@ impl PersonhogStore {
 
     // ── Config operations ───────────────────────────────────────
 
-    pub async fn get_total_partitions(&self) -> Result<u32> {
-        count_call("get_total_partitions");
-        let key = self.key(StoreKey::TotalPartitions);
-        let bytes = self
-            .inner
-            .get_raw(&key)
-            .await?
-            .ok_or_else(|| Error::NotFound(key))?;
-        let s = from_utf8(&bytes)
-            .map_err(|e| Error::invalid_state(format!("non-utf8 total_partitions: {e}")))?;
-        s.parse::<u32>()
-            .map_err(|e| Error::invalid_state(format!("invalid total_partitions: {e}")))
-    }
-
-    pub async fn set_total_partitions(&self, count: u32) -> Result<()> {
-        let key = self.key(StoreKey::TotalPartitions);
-        Ok(self.inner.put_raw(&key, count.to_string()).await?)
-    }
-
     pub async fn get_changelog_config(&self) -> Result<Option<ChangelogConfig>> {
         count_call("get_changelog_config");
         let key = self.key(StoreKey::ChangelogConfig);
         Ok(self.inner.get(&key).await?)
+    }
+
+    pub async fn get_changelog_config_with_revision(
+        &self,
+    ) -> Result<(Option<ChangelogConfig>, i64)> {
+        count_call("get_changelog_config_with_revision");
+        let key = self.key(StoreKey::ChangelogConfig);
+        Ok(self.inner.get_with_revision(&key).await?)
     }
 
     /// Create-if-absent at epoch 1; only a flip may move a live config.
@@ -1235,6 +1221,19 @@ impl PersonhogStore {
             .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
         let resp = self.inner.txn(txn).await?;
         Ok(resp.succeeded())
+    }
+
+    /// Bypasses the protocol: see the crate's `test-support` feature.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn put_changelog_config(&self, config: &ChangelogConfig) -> Result<()> {
+        let key = self.key(StoreKey::ChangelogConfig);
+        Ok(self.inner.put(&key, config, None).await?)
+    }
+
+    pub async fn watch_changelog_config_from(&self, start_revision: i64) -> Result<WatchStream> {
+        count_call("watch_changelog_config_from");
+        let key = self.key(StoreKey::ChangelogConfig);
+        Ok(self.inner.watch_key_from(&key, start_revision).await?)
     }
 
     pub async fn get_generation(&self) -> Result<String> {

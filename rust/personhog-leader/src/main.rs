@@ -14,6 +14,7 @@ use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_common::metrics::{WARM_LATENCY_BUCKETS_MS, WRITE_PATH_LATENCY_BUCKETS_MS};
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -40,7 +41,9 @@ use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::prune_and_settle_tick;
-use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
+use personhog_leader::warming::{
+    changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
+};
 use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
@@ -96,7 +99,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
     tracing::info!("etcd prefix: {}", config.etcd_prefix);
     tracing::info!("Pod name: {}", config.pod_name);
-    tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
     // Shutdown order matters: the coordination drain (phase 0) hands this
     // pod's partitions off, which requires the gRPC server to keep serving
@@ -349,14 +351,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
-    // Read total_partitions from etcd (set by kafka-assigner) — the same
-    // source the router hashes against, so partition validation can never
-    // drift between the two.
-    let num_partitions = store
-        .get_total_partitions()
+    // The same source the router hashes against.
+    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
         .await
-        .expect("Failed to read total_partitions from etcd");
-    tracing::info!(num_partitions, "loaded partition count from etcd");
+        .expect("Failed to load the changelog config from etcd");
+    let changelog_topic = loaded.topic.clone();
+    let num_partitions = loaded.partitions;
+    let topic_partitions =
+        changelog_partition_count(&config.kafka, &changelog_topic, Duration::from_secs(10))
+            .await
+            .expect("Failed to read the changelog topic's metadata");
+    assert_eq!(
+        topic_partitions, num_partitions,
+        "changelog topic {changelog_topic} has {topic_partitions} partitions but the config says {num_partitions}"
+    );
+    tracing::info!(
+        num_partitions,
+        topic = %changelog_topic,
+        epoch = loaded.epoch,
+        "loaded changelog config"
+    );
 
     let locks = Arc::new(DashMap::new());
     let fences: personhog_leader::fence::FenceMap = Arc::new(DashMap::new());
@@ -372,7 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recovery = Arc::new(
         ChangelogRecovery::new(RecoveryConfig {
             kafka: config.kafka.clone(),
-            topic: config.kafka_person_state_topic.clone(),
+            topic: changelog_topic.clone(),
             pod_name: config.pod_name.clone(),
             recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
             pool_size: config.recovery_pool_size,
@@ -413,7 +427,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fenced = Arc::new(
         FencedChangelogProducers::new(FencedProducerConfig {
             kafka: fencing_kafka,
-            topic: config.kafka_person_state_topic.clone(),
+            topic: changelog_topic.clone(),
             init_timeout: config.fencing_init_timeout(),
             commit_timeout: config.fencing_txn_timeout(),
             broker_txn_timeout: config.fencing_broker_txn_timeout(),
@@ -503,7 +517,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&dirty_index),
         WarmingConfig {
             kafka: config.kafka.clone(),
-            topic: config.kafka_person_state_topic.clone(),
+            topic: changelog_topic.clone(),
             pod_name: config.pod_name.clone(),
             writer_consumer_group: config.writer_consumer_group.clone(),
             lookback_offsets: config.warm_lookback_offsets,
@@ -650,7 +664,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&cache),
         Arc::clone(&locks),
         Arc::clone(&warm_pools),
-        config.kafka_person_state_topic.clone(),
+        changelog_topic.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
     ));

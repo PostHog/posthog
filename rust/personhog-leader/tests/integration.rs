@@ -71,7 +71,10 @@ async fn service_accepts_requests_after_coordination_warmup() {
     let store = test_store("leader-warmup").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, vec![])
+        .await
+        .unwrap());
 
     let _coord = start_coordinator(
         Arc::clone(&store),
@@ -700,7 +703,10 @@ async fn release_partition_stops_serving() {
     let store = test_store("leader-release").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, vec![])
+        .await
+        .unwrap());
 
     let _coord = start_coordinator(
         Arc::clone(&store),
@@ -818,7 +824,10 @@ async fn rewarm_after_pod_crash() {
     let store = test_store("leader-rewarm").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, vec![])
+        .await
+        .unwrap());
 
     let _coord = start_coordinator(
         Arc::clone(&store),

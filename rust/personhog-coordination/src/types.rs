@@ -335,6 +335,14 @@ impl ChangelogConfig {
             draining: Vec::new(),
         }
     }
+
+    /// A flip raises the epoch. Within an epoch only a retire changes the
+    /// object, and a retire only shrinks `draining`, so a same-epoch object
+    /// with more generations is an older one delivered late.
+    pub fn supersedes(&self, adopted: &ChangelogConfig) -> bool {
+        self.epoch > adopted.epoch
+            || (self.epoch == adopted.epoch && self.draining.len() < adopted.draining.len())
+    }
 }
 
 #[cfg(test)]
@@ -360,6 +368,35 @@ mod tests {
         assert!(h.freeze_quorum.is_none());
         assert_eq!(h.created_at_ms, 0);
         assert_eq!(h.phase_entered_at_ms, 0);
+    }
+
+    #[test]
+    fn a_config_supersedes_by_epoch_then_by_retired_generations() {
+        let generation = |epoch| Generation {
+            topic: format!("g{epoch}"),
+            partitions: 64,
+            epoch,
+        };
+        let config = |epoch: u64, generations: &[u64]| ChangelogConfig {
+            epoch,
+            draining: generations.iter().map(|e| generation(*e)).collect(),
+            ..ChangelogConfig::new("g", 128)
+        };
+        let adopted = config(3, &[2]);
+        let cases = [
+            ("a newer epoch", config(4, &[2, 3]), true),
+            ("a retire at the same epoch", config(3, &[]), true),
+            ("the same object", config(3, &[2]), false),
+            (
+                "the pre-retire object delivered late",
+                config(3, &[1, 2]),
+                false,
+            ),
+            ("an older epoch", config(2, &[]), false),
+        ];
+        for (name, candidate, expected) in cases {
+            assert_eq!(candidate.supersedes(&adopted), expected, "{name}");
+        }
     }
 
     #[test]

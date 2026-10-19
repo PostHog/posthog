@@ -140,9 +140,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    #[envconfig(default = "personhog_updates")]
-    pub kafka_person_state_topic: String,
-
     // ── Warming ──────────────────────────────────────────────────
     /// Consumer group name used by the writer pod. The leader queries this
     /// group's committed offsets during warming: any Kafka message at or

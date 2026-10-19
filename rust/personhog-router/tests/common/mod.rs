@@ -9,6 +9,8 @@ use std::time::Duration;
 use dashmap::DashMap;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::NOT_APPLIED_HEADER;
+use personhog_coordination::changelog::LiveChangelog;
+use personhog_coordination::types::ChangelogConfig;
 use personhog_proto::personhog::identity::v1 as identity;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::{
     PersonHogIdentity, PersonHogIdentityServer,
@@ -987,11 +989,12 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
     let leader_url = format!("http://{}", leader_addr);
     let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
         Arc::new(move |_pod_name| Some(leader_url.clone()));
+    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", num_partitions));
     Arc::new(LeaderBackend::new(
         routing_table,
         address_resolver,
         LeaderBackendConfig {
-            num_partitions,
+            changelog,
             timeout: Duration::from_secs(5),
             num_channels: 1,
             http2_windows: Http2Windows::default(),
@@ -1021,11 +1024,12 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
                 Some("http://192.0.2.1:1".to_string())
             }
         });
+    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", num_partitions));
     Arc::new(LeaderBackend::new(
         routing_table,
         address_resolver,
         LeaderBackendConfig {
-            num_partitions,
+            changelog,
             timeout: Duration::from_millis(200),
             num_channels: 1,
             http2_windows: Http2Windows::default(),

@@ -19,7 +19,7 @@ fn admin_client(kafka_hosts: &str) -> Result<AdminClient<DefaultClientContext>> 
 }
 
 /// Create a per-run topic with exactly `partitions` partitions. For the
-/// changelog the count must match `total_partitions` in etcd — a mismatch
+/// changelog the count must match `config/changelog` in etcd — a mismatch
 /// is a silent mis-shard — so an existing topic with a different count is
 /// an error rather than something to adopt.
 pub async fn create_topic(kafka_hosts: &str, topic: &str, partitions: u32) -> Result<()> {

@@ -21,6 +21,7 @@ use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY}
 const FENCED_METADATA_KEY: &str = "x-person-fenced";
 const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 use personhog_common::partitioning::partition_for_person;
+use personhog_coordination::changelog::LiveChangelog;
 
 use super::stash::{StashDecision, StashTable};
 use crate::config::Http2Windows;
@@ -117,7 +118,7 @@ pub enum ForwardDecision {
 /// Static configuration for `LeaderBackend`. Bundles the knobs that come
 /// from `Config` so the constructor stays narrow as we add fields.
 pub struct LeaderBackendConfig {
-    pub num_partitions: u32,
+    pub changelog: LiveChangelog,
     pub timeout: Duration,
     pub num_channels: usize,
     pub http2_windows: Http2Windows,
@@ -177,8 +178,8 @@ impl LeaderBackend {
         stash: StashTable,
     ) -> Self {
         assert!(
-            config.num_partitions > 0,
-            "num_partitions must be > 0 to avoid division by zero in partition_for_person"
+            config.changelog.partitions() > 0,
+            "the changelog must have partitions to avoid division by zero in partition_for_person"
         );
         Self {
             routing_table,
@@ -195,6 +196,11 @@ impl LeaderBackend {
         self.stash.clone()
     }
 
+    /// The live config this backend routes on.
+    pub fn changelog(&self) -> &LiveChangelog {
+        &self.config.changelog
+    }
+
     /// Remove the cached gRPC channel for a pod so the next request
     /// reconnects. Called during partition handoff cutover to drop the
     /// connection to the old leader pod.
@@ -207,7 +213,7 @@ impl LeaderBackend {
     /// Compute the Kafka partition for a person using murmur2.
     /// The key is `team_id:person_id`, matching the Kafka topic key.
     pub fn partition_for_person(&self, team_id: i64, person_id: i64) -> u32 {
-        partition_for_person(team_id, person_id, self.config.num_partitions)
+        partition_for_person(team_id, person_id, self.config.changelog.partitions())
     }
 
     /// Resolve the leader gRPC channel for a given partition, building and
@@ -543,10 +549,15 @@ mod tests {
     }
 
     use super::*;
+    use personhog_coordination::types::ChangelogConfig;
+
+    fn changelog(num_partitions: u32) -> LiveChangelog {
+        LiveChangelog::new(ChangelogConfig::new("personhog_updates", num_partitions))
+    }
 
     fn test_config(num_partitions: u32) -> LeaderBackendConfig {
         LeaderBackendConfig {
-            num_partitions,
+            changelog: changelog(num_partitions),
             timeout: Duration::from_secs(5),
             num_channels: 4,
             http2_windows: Http2Windows::default(),

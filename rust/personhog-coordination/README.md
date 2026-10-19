@@ -123,6 +123,10 @@ Several failure modes are handled explicitly:
 
 **Mid-stream watch reconnects don't replay missed events — bounded by reconciliation**: The snapshot-to-watch-attach gap is closed (watches are revision-anchored to the snapshot that seeded them), but if an *established* etcd watch stream drops and the underlying client reconnects, events that fired during the disconnect are not replayed. Every participant now bounds the resulting staleness with its level-triggered truth path — the coordinator's tick (which also wakes the planner unconditionally), the router's reconcile pass, and the pod's converge-all tick — so a missed event costs at most one reconcile interval, not correctness.
 
+## Changelog config
+
+`config/changelog` (`{topic, partitions, epoch, gated_groups, draining}`) is the one live object every participant reads. Every service loads it at boot; the router and the identity service also follow it through a watch, so the partition count they hash under is the live one.
+
 ## Modules
 
 | Module | Responsibility |

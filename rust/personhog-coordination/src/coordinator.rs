@@ -1281,14 +1281,11 @@ impl Coordinator {
         max_txn_ops: usize,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
-        let total_partitions = match store.get_total_partitions().await {
-            Ok(n) => n,
-            Err(Error::NotFound(_)) => {
-                tracing::debug!("total_partitions not set, skipping assignment");
-                return Ok(());
-            }
-            Err(e) => return Err(e),
+        let Some(changelog) = store.get_changelog_config().await? else {
+            tracing::debug!("changelog config not seeded, skipping assignment");
+            return Ok(());
         };
+        let total_partitions = changelog.partitions;
 
         // K8s-aware placement policies for smarter rebalancing
         let members = match k8s_awareness {

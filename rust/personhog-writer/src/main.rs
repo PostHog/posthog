@@ -1,11 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
+use personhog_coordination::store::PersonhogStore;
 use tokio::sync::mpsc;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -41,7 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     tracing::info!("Starting personhog-writer");
-    tracing::info!("Kafka topic: {}", config.kafka_topic);
     tracing::info!("Consumer group: {}", config.kafka_consumer_group);
     tracing::info!("Flush interval: {}ms", config.flush_interval_ms);
     tracing::info!("Flush buffer size: {}", config.flush_buffer_size);
@@ -49,6 +51,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Writer lanes: {}", config.writer_lanes);
     tracing::info!("Upsert concurrency: {}", config.upsert_concurrency);
     tracing::info!("Metrics port: {}", config.metrics_port);
+
+    let store = EtcdStore::connect(StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    })
+    .await?;
+    let loaded =
+        load_changelog_config(&PersonhogStore::new(store), CHANGELOG_BOOT_POLL_INTERVAL).await?;
+    tracing::info!(
+        topic = %loaded.topic,
+        epoch = loaded.epoch,
+        "loaded changelog config"
+    );
 
     let mut manager = Manager::builder("personhog-writer")
         .with_global_shutdown_timeout(Duration::from_secs(30))
@@ -152,9 +167,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.kafka,
         &config.kafka_consumer_group,
         &config.kafka_consumer_offset_reset,
-        config.kafka_topic.clone(),
+        loaded.topic.clone(),
     )?);
-    tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
+    tracing::info!("Subscribed to Kafka topic: {}", loaded.topic);
 
     // One statement-concurrency budget for the whole pod: every lane's
     // chunk and per-row statements draw from it, so lanes can overlap
