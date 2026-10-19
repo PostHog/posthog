@@ -184,6 +184,9 @@ export function useLocalChats({
   // Read once per chat: a long log takes a moment to parse, and the panes change more often than their chats.
   const coldLoaded = useRef(coldSessions);
   coldLoaded.current = coldSessions;
+  // An agent that outlived a hot reload is watched again rather than read from disk, so its turn keeps showing.
+  const adopt = useRef(localFor);
+  adopt.current = localFor;
   useEffect(() => {
     const wanted = new Set(coldIds ? coldIds.split(",") : []);
     setColdSessions((current) =>
@@ -193,6 +196,10 @@ export function useLocalChats({
     );
     let left = false;
     for (const id of wanted) {
+      if (runningLocals.has(id)) {
+        void adopt.current(id).catch(() => {});
+        continue;
+      }
       if (coldLoaded.current.has(id)) continue;
       void localHistory(localChats, id).then(
         (cold) => {
