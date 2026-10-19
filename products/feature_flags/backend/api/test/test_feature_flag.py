@@ -7371,8 +7371,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             created_by=self.user,
             key="legacy-malformed-cohort-value",
-            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": "not-a-cohort-id"}]}]},
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": "not-a-cohort-id"}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": True}]},
+                ]
+            },
         )
+        # A live cohort with id 1 is what a boolean value would wrongly resolve to.
+        Cohort.objects.get_or_create(pk=1, defaults={"team": self.team, "name": "First cohort", "groups": groups})
         unsupported_flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -7411,8 +7418,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
         )
         self.assertEqual(
-            get_filters(malformed_flag.id)["groups"][0]["properties"][0],
-            {"key": "id", "type": "cohort", "value": "not-a-cohort-id", "cohort_name": None, "cohort_deleted": True},
+            [group["properties"][0] for group in get_filters(malformed_flag.id)["groups"]],
+            [
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    "value": "not-a-cohort-id",
+                    "cohort_name": None,
+                    "cohort_deleted": True,
+                },
+                {"key": "id", "type": "cohort", "value": True, "cohort_name": None, "cohort_deleted": True},
+            ],
         )
         self.assertEqual(
             get_filters(unsupported_flag.id)["groups"][0]["properties"][0],

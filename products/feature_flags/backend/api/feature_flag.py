@@ -1360,7 +1360,10 @@ def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> di
 
 
 def _condition_cohort_id(value: Any) -> int | None:
-    """Normalize a cohort condition's value the way ``references`` does."""
+    """Return the cohort id a condition's value names, or None when the value is not an id."""
+    # A JSON true is the Python integer 1. The flag evaluator and the write check both reject it.
+    if isinstance(value, bool):
+        return None
     try:
         return int(value)
     except (TypeError, ValueError, OverflowError):
