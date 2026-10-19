@@ -55,6 +55,7 @@ class TestSigningSecretAPI(APIBaseTest):
         )
         assert log.user == self.user
         assert log.activity == "updated"
+        assert log.detail is not None
         assert row.secret not in str(log.detail)
         change = log.detail["changes"][0]
         assert change["action"] == "changed"
