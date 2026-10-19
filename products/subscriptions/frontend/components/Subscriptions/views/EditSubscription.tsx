@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconChevronLeft, IconInfo, IconSend } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -13,7 +13,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -247,7 +246,7 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const {
         subscription,
@@ -273,7 +272,13 @@ export function EditSubscription({
     const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
     const slackReconnectRestriction = useIntegrationManagementRestriction()
 
-    useOnMountEffect(ensureAllMembersLoaded)
+    const hasEmailRecipients = subscription?.target_type === 'email' && Boolean(subscription.target_value)
+
+    useEffect(() => {
+        if (hasEmailRecipients && !members) {
+            ensureAllMembersLoaded()
+        }
+    }, [hasEmailRecipients, members, ensureAllMembersLoaded])
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -503,6 +508,7 @@ export function EditSubscription({
                                             options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
                                             caseInsensitiveOptionMatching
+                                            onFocus={ensureAllMembersLoaded}
                                             placeholder="Enter an email address"
                                         />
                                     )}

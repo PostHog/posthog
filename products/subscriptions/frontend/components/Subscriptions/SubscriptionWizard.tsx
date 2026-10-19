@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronLeft, IconGraph } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -15,7 +15,6 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -358,13 +357,19 @@ function SubscriptionDeliveryStep({
     subscription: SubscriptionType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { integrations, slackIntegrations } = useValues(integrationsLogic)
     const { preflight } = useValues(preflightLogic)
     const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
 
-    useOnMountEffect(ensureAllMembersLoaded)
+    const hasEmailRecipients = subscription?.target_type === 'email' && Boolean(subscription.target_value)
+
+    useEffect(() => {
+        if (hasEmailRecipients && !members) {
+            ensureAllMembersLoaded()
+        }
+    }, [hasEmailRecipients, members, ensureAllMembersLoaded])
 
     return (
         <div className="flex flex-col gap-4">
@@ -391,6 +396,7 @@ function SubscriptionDeliveryStep({
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
                                 caseInsensitiveOptionMatching
+                                onFocus={ensureAllMembersLoaded}
                                 placeholder="Enter an email address"
                             />
                         )}
