@@ -2054,6 +2054,70 @@ export interface TeamEmailReputationResponseApi {
     readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
+export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown }
+
+export interface SendCalendarBatchJobApi {
+    /** ID of the batch run. */
+    readonly id: string
+    /** Status of the batch run.
+     *
+     * * `waiting` - Waiting
+     * * `queued` - Queued
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `failed` - Failed */
+    readonly status: HogFlowBatchJobStateEnumApi
+    /** When the batch run started. */
+    readonly created_at: string
+}
+
+export interface SendCalendarFlowApi {
+    /** ID of the workflow. */
+    readonly id: string
+    /**
+     * Name of the workflow.
+     * @nullable
+     */
+    readonly name: string | null
+    /** The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi | null
+    /** User who created the workflow. */
+    readonly created_by: UserBasicApi | null
+    /**
+     * The reader's access level on the workflow.
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** The trigger type: batch or schedule. */
+    readonly trigger_type: string
+    /** The property filters of a batch trigger's audience. Empty for a schedule trigger. */
+    readonly audience_properties: readonly SendCalendarFlowApiAudiencePropertiesItem[]
+    /**
+     * persons or accounts for a batch trigger's audience. Null when the trigger does not set it.
+     * @nullable
+     */
+    readonly audience_type: string | null
+    /**
+     * The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.
+     * @nullable
+     */
+    readonly email_to: string | null
+    /**
+     * ID of the message category of the first email step.
+     * @nullable
+     */
+    readonly message_category_id: string | null
+    /** The schedules that still have sends to come. */
+    readonly schedules: readonly HogFlowScheduleApi[]
+    /** The batch runs that started inside the requested range. */
+    readonly batch_jobs: readonly SendCalendarBatchJobApi[]
+}
+
 /**
  * Property filters to apply
  */
@@ -2899,4 +2963,15 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
+}
+
+export type HogFlowsSendCalendarRetrieveParams = {
+    /**
+     * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
+     */
+    end: string
+    /**
+     * Start of the shown range, inclusive, as an ISO 8601 datetime.
+     */
+    start: string
 }
