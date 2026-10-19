@@ -104,14 +104,16 @@ export function Navigation({
         [registerSceneTakeoverElement]
     )
 
+    const deferSceneMeasurementsDuringResize = sceneConfig?.deferSceneMeasurementsDuringResize ?? false
+
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {
-            setMainContentRef(mainRef)
+            setMainContentRef(mainRef, deferSceneMeasurementsDuringResize)
             // Set main content rect so we can measure the width of the scene layout in logic
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
-    }, [mainRef, setMainContentRef, setMainContentRect])
+    }, [mainRef, setMainContentRef, setMainContentRect, deferSceneMeasurementsDuringResize])
 
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
