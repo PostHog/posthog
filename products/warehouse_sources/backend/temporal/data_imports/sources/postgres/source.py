@@ -1405,6 +1405,13 @@ class PostgresSource(
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # Sibling of the jsonb_each case above: a view's own definition deletes a key/path from a
+            # jsonb column with the `#-` operator (or `jsonb_delete_path()`) and the column is a scalar
+            # jsonb value (not an object or array) for at least one row — Postgres can only delete a
+            # path from inside an object or array. We only ever run `SELECT ... FROM <relation>`; the
+            # expression lives in the customer's view definition, so it's deterministic against the
+            # source data and retrying re-evaluates the same view into the same row.
+            "cannot delete path in scalar": "A view you're syncing deletes a key or path from a JSON value with the #- operator (or jsonb_delete_path()), and that value is a scalar for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only delete the path when jsonb_typeof(col) is 'object' or 'array'), or remove that view from the sync.",
             # A selected relation's own definition calls date_trunc()/extract() with a unit
             # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
             # `date_trunc('week', some_interval_column)`, since week truncation is only defined
@@ -2102,7 +2109,7 @@ class PostgresSource(
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
             )
 
-        def no_op_tick() -> SourceResponse:
+        def no_op_tick(*, reset_handed_over: bool = False) -> SourceResponse:
             # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
             # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
             # the workflow completes the job on this response — so the stamp comes off, or a batch
@@ -2117,18 +2124,20 @@ class PostgresSource(
                 cdc_write_mode=first_lane.write_mode,
                 # A change stream carries no seekable key, and `supports_resume` defaults to True.
                 supports_resume=False,
+                reset_handed_over=reset_handed_over,
             )
 
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
-        # replays over it; every reset writer does that. Merging the buffer into a wiped table
-        # instead would leave only the rows changed since.
+        # replays over it. Merging the buffer into a wiped table instead would leave only the rows
+        # changed since. A reset that reaches a streaming table anyway goes to capture, which puts the
+        # table back into snapshot mode. Refusing it would fail every run of the table until a manual reset.
+        # This run must not delete the table itself: capture waits for queued batches to land first.
         if inputs.reset_pipeline:
-            raise ValueError(
-                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
-                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
-            )
+            inputs.logger.warning("cdc_buffered_reset_handed_to_capture", schema_name=schema.name)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick(reset_handed_over=True)
 
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a previous

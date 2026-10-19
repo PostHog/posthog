@@ -114,6 +114,10 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # The platform's own bookkeeping, shared by every source: its check history and the default
+    # user of its evaluation worker. A source's checks keep their own user, so a new source never
+    # takes from another source's budget.
+    ALERTS_PLATFORM = "alerts_platform"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -241,13 +245,14 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     Retrieve ClickHouse credentials for the specified user.
 
     This function retrieves the credentials associated with a given ClickHouse
-    user. Most missing dedicated users fall back to the default user credentials.
+    user. Most missing dedicated users fall back to the ClickHouseUser.DEFAULT
+    credentials, which belong to the pod's CLICKHOUSE_USER.
     Business Knowledge fails closed so a deployment cannot silently bypass its
     isolated query limit.
 
-    The user and password must be properly passed as ENVs:
+    The user and a password or token file must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
-        CLICKHOUSE_<USER_NAME>_PASSWORD
+        CLICKHOUSE_<USER_NAME>_PASSWORD or CLICKHOUSE_<USER_NAME>_PASSWORD_FILE
 
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need

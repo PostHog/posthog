@@ -241,6 +241,8 @@ export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
+// The task list endpoint caps a page at this many rows (TasksPagination.max_limit).
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
@@ -3269,7 +3271,10 @@ export class PostHogAPIClient {
     const maxPages = pagination?.fetchAll
       ? Number.POSITIVE_INFINITY
       : (pagination?.maxPages ?? 1);
-    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const pageSize = Math.min(
+      options?.limit ?? TASK_LIST_MAX_PAGE_SIZE,
+      TASK_LIST_MAX_PAGE_SIZE,
+    );
     const tasks: Task[] = [];
     let count = 0;
 
@@ -3398,7 +3403,6 @@ export class PostHogAPIClient {
     // the largest page, then pull any remaining pages in parallel by offset. The
     // old code walked `next` one blocking request at a time, so a large sidebar
     // turned into a chain of serial round-trips on every inbox open.
-    const PAGE_LIMIT = 100;
     const MAX_PAGES = 50;
     const teamId = await this.getTeamId();
     const basePath = `/api/projects/${teamId}/tasks/summaries/`;
@@ -3406,7 +3410,7 @@ export class PostHogAPIClient {
     const fetchPage = async (
       offset: number,
     ): Promise<TaskSummariesResponse> => {
-      const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
+      const urlPath = `${basePath}?limit=${TASK_LIST_MAX_PAGE_SIZE}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
         url: new URL(`${this.api.baseUrl}${urlPath}`),
@@ -3425,15 +3429,19 @@ export class PostHogAPIClient {
 
     const first = await fetchPage(0);
     const all: TaskSummaryDTO[] = [...first.results];
-    const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
-    if (first.count > PAGE_LIMIT * MAX_PAGES) {
+    const capped = Math.min(first.count, TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES);
+    if (first.count > TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES) {
       log.warn(
         `getTaskSummaries capped at ${MAX_PAGES} pages; returning partial results`,
         { ids: ids.length, count: first.count },
       );
     }
     const offsets: number[] = [];
-    for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
+    for (
+      let offset = TASK_LIST_MAX_PAGE_SIZE;
+      offset < capped;
+      offset += TASK_LIST_MAX_PAGE_SIZE
+    ) {
       offsets.push(offset);
     }
     // Cap how many page POSTs are in flight at once. A large sidebar can span

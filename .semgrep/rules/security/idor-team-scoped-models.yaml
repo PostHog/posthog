@@ -401,6 +401,7 @@ rules:
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
+                              |SignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -413,6 +414,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
@@ -861,6 +863,7 @@ rules:
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
+                        |SignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -873,6 +876,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
@@ -1231,7 +1235,6 @@ rules:
                         |UserGroup
                         |UserInterview
                         |UserInterviewTopic
-                        |UserProductList
                         |UserRepoPreference
                         |WarehouseSuggestionTeamConfig
                         |WebAnalyticsFilterPreset
@@ -1651,7 +1654,6 @@ rules:
                               |SessionRecordingViewed
                               |UserFacetSettings
                               |UserHomeSettings
-                              |UserProductList
                               |UserScenePersonalisation
                               |WebAnalyticsUserConfig
                           )$
@@ -1725,7 +1727,6 @@ rules:
                         |SessionRecordingViewed
                         |UserFacetSettings
                         |UserHomeSettings
-                        |UserProductList
                         |UserScenePersonalisation
                         |WebAnalyticsUserConfig
                     )$

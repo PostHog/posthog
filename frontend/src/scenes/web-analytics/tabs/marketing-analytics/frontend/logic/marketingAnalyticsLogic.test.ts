@@ -93,6 +93,27 @@ describe('marketingAnalyticsLogic', () => {
         })
     })
 
+    it('keeps the campaign breakdown query while sources refresh in the background', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const breakdown = tiles.values.campaignCostsBreakdown
+        expect(breakdown).not.toBeNull()
+
+        // A window focus or sync poll reloads sources. The table must not be dropped
+        // (and remounted) while the refresh is in flight.
+        logic.actions.loadSources()
+        expect(logic.values.loading).toBe(true)
+        expect(tiles.values.campaignCostsBreakdown).toBe(breakdown)
+
+        await expectLogic(logic).toFinishAllListeners()
+        // Deep-equal so dataNodeLogic sees the same query and doesn't refetch.
+        expect(tiles.values.campaignCostsBreakdown).toEqual(breakdown)
+        tiles.unmount()
+    })
+
     it('keeps a connected Search Console integration selected after refreshing sources', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()

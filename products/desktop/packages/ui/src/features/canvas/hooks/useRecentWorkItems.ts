@@ -1,3 +1,4 @@
+import { TASK_LIST_MAX_PAGE_SIZE } from "@posthog/api-client/posthog-client";
 import {
   buildChannelItems,
   type ChannelItemModel,
@@ -35,6 +36,14 @@ function keepPinsAndCapRecent(
     (item) =>
       (item.kind === "task" && item.pinned) || recent++ < RECENT_WORK_CAP,
   );
+}
+
+/**
+ * The server cuts the page before pins are set apart, so the page leaves a row for each pin.
+ * Otherwise the newest tasks could all be pins and leave Recent empty.
+ */
+export function recentWorkPageSize(pinCount: number): number {
+  return Math.min(RECENT_WORK_CAP + pinCount, TASK_LIST_MAX_PAGE_SIZE);
 }
 
 export function selectRecentWorkItems({
@@ -91,14 +100,17 @@ export function useRecentWorkItems({
   items: RecentWorkItem[];
   isLoading: boolean;
 } {
-  // Nothing past the cap shows, so the page asks for no more than that. The server cuts the page
-  // from the newest activity: by creation date, a session started last week and still in use is
-  // already off the page when scheduled runs create many tasks.
-  const { data: tasks = [], isLoading: tasksLoading } = useTasks({
-    sources,
-    limit: RECENT_WORK_CAP,
-    ordering: "-last_activity_at",
-  });
+  const { pinnedTaskIds, isLoading: pinIdsLoading } = usePinnedTasks();
+  // The server cuts the page from the newest activity: by creation date, a session started last
+  // week and still in use is already off the page when scheduled runs create many tasks.
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(
+    {
+      sources,
+      limit: recentWorkPageSize(pinnedTaskIds.size),
+      ordering: "-last_activity_at",
+    },
+    { keepPreviousPage: true },
+  );
   const { data: pinnedTasks = [], isLoading: pinnedLoading } =
     usePinnedTaskRecords();
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();
@@ -106,7 +118,6 @@ export function useRecentWorkItems({
     (state) => state.lastViewedAtByCanvasId,
   );
   const archivedTaskIds = useArchivedTaskIds();
-  const { pinnedTaskIds, isLoading: pinIdsLoading } = usePinnedTasks();
   const sessionFacts = useChannelSessionFacts();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });

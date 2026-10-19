@@ -27,23 +27,57 @@ class SplitChange:
     after: Split
 
 
+class BucketingSetting(StrEnum):
+    # The flag settings besides the split that are inputs of the variant draw, in the order the findings name them.
+    KEY = "key"
+    AGGREGATION = "aggregation"
+    BUCKETING_IDENTIFIER = "bucketing_identifier"
+    EXPERIENCE_CONTINUITY = "experience_continuity"
+
+
 @frozen
-class SplitHistory:
-    """The changes of the flag's split after launch that can have moved exposed people to another variant."""
+class BucketingChange:
+    changed_at: datetime
+    setting: BucketingSetting
+    # The key as a string, the aggregation as a group type index or None for persons, the identifier as
+    # "distinct_id" or "device_id", the continuity as a bool.
+    before: str | int | bool | None
+    after: str | int | bool | None
+
+
+@frozen
+class FlagHistory:
+    """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
+    before them. A change before the first exposure moved nobody, so it does not count."""
 
     launched_at: datetime
     team_timezone: str
-    # From the first change with an exposure before it, or with an unknown answer, to the last change.
-    # Empty when nobody was exposed before any change: those changes moved nobody.
-    counted_changes: tuple[SplitChange, ...]
+    split_changes: tuple[SplitChange, ...]
+    bucketing_changes: tuple[BucketingChange, ...]
+    # The time of the first change, of any kind, with an exposure before it or an unknown answer. Every change
+    # from then on counts. None when nobody was exposed before any change.
+    counted_since: datetime | None
     # None when unknown: the exposure query failed, or the request ran out of queries or time.
     exposed_before_first: bool | None
-    # Asked only when the last change sets the split back to what it was before the first. None when not
-    # asked, or unknown.
-    exposed_between: bool | None
+    # Asked per kind only when its last counted change sets back what its first changed. None when not asked,
+    # or unknown.
+    split_exposed_between: bool | None
+    bucketing_exposed_between: bool | None
+
+    @property
+    def counted_split_changes(self) -> tuple[SplitChange, ...]:
+        return _counted(self.split_changes, self.counted_since)
+
+    @property
+    def counted_bucketing_changes(self) -> tuple[BucketingChange, ...]:
+        return _counted(self.bucketing_changes, self.counted_since)
 
 
-class SplitHistoryNotCheckedReason(StrEnum):
+def _counted[C: (SplitChange, BucketingChange)](changes: tuple[C, ...], since: datetime | None) -> tuple[C, ...]:
+    return () if since is None else tuple(change for change in changes if change.changed_at >= since)
+
+
+class FlagHistoryNotCheckedReason(StrEnum):
     # pinned: the finding's `evidence.reason`.
     NO_HISTORY_ACCESS = "no_history_access"
     NO_QUERY_ACCESS = "no_query_access"
@@ -53,14 +87,15 @@ class SplitHistoryNotCheckedReason(StrEnum):
 
 
 @frozen
-class SplitHistoryNotChecked:
-    """A split history that was not compared with the exposures, and the reason."""
+class FlagHistoryNotChecked:
+    """A flag history that was not compared with the exposures, and the reason. Every change counts."""
 
-    reason: SplitHistoryNotCheckedReason
+    reason: FlagHistoryNotCheckedReason
     launched_at: datetime
     team_timezone: str
-    # Every split change since launch. Empty for NO_HISTORY_ACCESS, which does not read them.
-    changes: tuple[SplitChange, ...]
+    # Every change since launch. Empty for NO_HISTORY_ACCESS, which does not read them.
+    split_changes: tuple[SplitChange, ...]
+    bucketing_changes: tuple[BucketingChange, ...]
 
 
 @frozen
@@ -84,6 +119,20 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
+
+
+@frozen
+class ConditionSetTraffic:
+    """The flag's `$feature_flag_called` events of the last days, by the release condition that served each person."""
+
+    # The latest of launch, the flag's last save and the start of the window.
+    since: datetime
+    team_timezone: str
+    # People by the condition set that served their latest call of the flag's current version.
+    people_by_set: Mapping[int, int]
+    # The calls that returned a variant, and those of them that the flag service evaluated, which alone name a set.
+    calls: int
+    remotely_evaluated_calls: int
 
 
 @frozen
@@ -111,7 +160,11 @@ class HealthContext:
     secondary_metric_count: int
     exposures: ExposureTotals | None
     # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
-    split_history: SplitHistory | SplitHistoryNotChecked | None
+    flag_history: FlagHistory | FlagHistoryNotChecked | None
+    # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
+    condition_set_traffic: ConditionSetTraffic | None
+    # The variants that the analysis leaves out of the results.
+    excluded_variant_keys: frozenset[str]
 
 
 def parse_flag_state(
@@ -197,7 +250,7 @@ def load_health_context(
     experiment: Experiment,
     exposures: ExposureTotals | None = None,
     *,
-    split_history: SplitHistory | SplitHistoryNotChecked | None = None,
+    flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
 ) -> HealthContext:
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(
@@ -211,5 +264,7 @@ def load_health_context(
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,
-        split_history=split_history,
+        flag_history=flag_history,
+        condition_set_traffic=None,
+        excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )

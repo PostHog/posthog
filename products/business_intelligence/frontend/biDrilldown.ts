@@ -18,6 +18,7 @@ import {
     buildBITopMembership,
     fieldExpression,
     getBIResultDimensions,
+    isDateTimeBIField,
 } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
 import { getBIMemberLabel } from './biMemberAliases'
@@ -113,7 +114,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (other && typeof value === 'string' && value.startsWith('Other') && value.endsWith(' (category)')) {
                 value = value.slice(0, -11)
             }
-            const shiftedDate = previous && ['date', 'datetime'].includes(field.type)
+            const shiftedDate = previous && isDateTimeBIField(field)
             const expression = fieldExpression(
                 shiftedDate ? { ...field, expression: getBIComparisonDateExpression(field) } : field
             )
@@ -126,7 +127,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (typeof value === 'number' && !Number.isFinite(value)) {
                 continue
             }
-            if (typeof value === 'number' && field.type === 'date') {
+            if (typeof value === 'number' && field.type === 'date' && isDateTimeBIField(field)) {
                 const date = dayjs.unix(value).utc()
                 if (!date.isValid()) {
                     continue

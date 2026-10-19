@@ -170,6 +170,25 @@ graph LR
 | **SSO**                         | Via Vercel (`/login/vercel`)           | PostHog login            |
 | **Uninstall**                   | Resets to `billing_provider=posthog`   | N/A                      |
 
+The billing page also treats Vercel customers differently:
+
+- A banner says billing for the organization is managed by Vercel. The "View invoices in Vercel" button links to the Vercel invoices page when `external_billing_provider_invoices_url` is set.
+- The "Downgrade to free plan" card is hidden.
+- With an active subscription, add-ons, platform plan switches, and billing limits work as usual.
+- Without an active subscription, the page locks self-serve billing the same way it does for a paying partner, through `selfServeBillingDisabledReason` in `billingLogic`:
+  - The upgrade hero and the add-on upgrade banner are hidden.
+  - `BillingUpgradeCTA`, pay gate, and startup program upgrade buttons are disabled.
+  - `startPaymentEntryFlow` and `handleProductUpgrade` show a toast and stop before they call `api/billing/activate`.
+  - The banner, the toast, and the usage limit alert tell the customer to contact support to change their plan.
+
+The billing service refuses these requests for Vercel customers with a 400 and the code `billing_managed_by_provider`:
+
+- `POST /api/activate` when the customer has no subscription
+- card authorization at `POST /api/activate/authorize`
+- `GET /api/billing/portal`
+
+PostHog's `api/billing/activate` and `api/billing/activate/authorize` pass the refusal on as a 400 with billing's message and the same code. `api/billing/portal` redirects to the Vercel invoices page instead, and returns that 400 only when the organization's Vercel integration has no account URL.
+
 ### The `billing_provider` field
 
 On the Customer model (`billing/models/customer.py`):

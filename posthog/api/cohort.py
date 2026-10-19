@@ -86,7 +86,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
-from posthog.utils import format_query_params_absolute_url, str_to_bool
+from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.filters import build_behavioral_event_expr
@@ -105,6 +105,7 @@ from products.cohorts.backend.models.dependencies import (
 )
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    close_open_population_attempts,
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -131,11 +132,15 @@ from products.product_analytics.backend.facade.models import Insight
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_active_workflows_using_realtime_cohort,
+    team_has_active_workflows_using_cohorts,
 )
 from products.workflows.backend.facade.contracts import CohortDependentWorkflow, HogFlowReference
 
 
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
+    # Most teams have no active cohort workflows, so skip loading every cohort in the project for them.
+    if not team_has_active_workflows_using_cohorts(team_id=cohort.team_id):
+        return []
     # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
     # also relies on this one. Load the project's cohort references in one query and walk them in memory.
     dependents: defaultdict[int, set[int]] = defaultdict(set)
@@ -153,28 +158,44 @@ def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow
     return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
 
 
+def _visible_workflows(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    team_id: int,
+    workflows: list[CohortDependentWorkflow],
+) -> list[CohortDependentWorkflow]:
+    # The caller sees the workflows it can view. Callers count every workflow.
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if user_access_control is None or (
+        scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
+    ):
+        return []
+    references = [
+        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
+    ]
+    visible_ids = {
+        reference.id
+        for reference in filter_hog_flow_references_by_access_level(
+            team_id, {"blocking": references}, user_access_control
+        ).get("blocking", [])
+    }
+    return [workflow for workflow in workflows if workflow.id in visible_ids]
+
+
 def _workflow_names_suffix(
     request: Request,
     user_access_control: Optional[UserAccessControl],
     team_id: int,
     workflows: list[CohortDependentWorkflow],
 ) -> str:
-    # The caller sees the names of the workflows it can view. The count covers every workflow.
-    scopes = get_authenticator_scopes(request.successful_authenticator)
-    if user_access_control is None or (
-        scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
-    ):
-        return ""
-    references = [
-        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
-    ]
-    visible = filter_hog_flow_references_by_access_level(team_id, {"blocking": references}, user_access_control).get(
-        "blocking", []
-    )
+    visible = _visible_workflows(request, user_access_control, team_id, workflows)
     if not visible:
         return ""
     hidden = len(workflows) - len(visible)
-    return f": {', '.join(reference.name for reference in visible)}" + (f" and {hidden} more" if hidden else "")
+    return f": {', '.join(workflow.name for workflow in visible)}" + (f" and {hidden} more" if hidden else "")
+
+
+COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -403,6 +424,37 @@ def _single_value_operator_value(operator: str | None, value: Any) -> Any:
     return value
 
 
+_COMPUTED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "conditionHash"})
+
+
+def _canonical_criteria(node: Any) -> Any:
+    """The criteria with server-computed keys removed and single-child groups collapsed.
+
+    The editor wraps conditions in an extra group and the server recompiles bytecode on every save,
+    so comparing raw filters would count a save that touched no criteria as a change.
+    """
+    if isinstance(node, list):
+        return [_canonical_criteria(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    canonical = {key: _canonical_criteria(value) for key, value in node.items() if key not in _COMPUTED_FILTER_KEYS}
+    values = canonical.get("values")
+    if (
+        canonical.get("type") in ("AND", "OR")
+        and isinstance(values, list)
+        and len(values) == 1
+        and isinstance(values[0], dict)
+        and values[0].get("type") in ("AND", "OR")
+    ):
+        return values[0]
+    return canonical
+
+
+def _criteria_key(filters: Any) -> str:
+    # JSON keeps 1 and 1.0 apart, which Python equality does not, and they compile to different criteria.
+    return json.dumps(_canonical_criteria(filters), sort_keys=True, default=str)
+
+
 def _coerce_stored_filter_values(filters: Any) -> Any:
     """Apply the single-value unwrap to a stored filters dict, without re-running validation.
 
@@ -591,6 +643,14 @@ class CohortUsedInCohortSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Cohort display name; falls back to 'Unnamed' when empty")
 
 
+class CohortUsedInWorkflowSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Workflow ID (UUID)")
+    name = serializers.CharField(allow_blank=True, help_text="Workflow display name")
+    status = serializers.CharField(
+        help_text="Workflow status. Always 'active', because only active workflows rely on the cohort"
+    )
+
+
 class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
     results = CohortUsedInFlagSerializer(
         many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
@@ -618,6 +678,22 @@ class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when more cohorts exist beyond the truncation cap")
 
 
+class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInWorkflowSerializer(
+        many=True,
+        help_text=(
+            f"Active workflows relying on this cohort that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+        ),
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of active workflows relying on this cohort, including ones the caller cannot view"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of relying workflows the caller cannot view. They count toward total but are never listed"
+    )
+    has_more = serializers.BooleanField(help_text="True when some relying workflows are not listed in results")
+
+
 class CohortUsedInResponseSerializer(serializers.Serializer):
     feature_flags = CohortUsedInFlagsBlockSerializer(
         help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata",
@@ -627,6 +703,12 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     )
     cohorts = CohortUsedInCohortsBlockSerializer(
         help_text="Other cohorts that include this cohort as a criterion, with truncation metadata"
+    )
+    workflows = CohortUsedInWorkflowsBlockSerializer(
+        help_text=(
+            "Active workflows that trigger on this cohort or branch on its membership. While any exist, the "
+            "cohort cannot be deleted or edited in a way that stops it updating in real time."
+        )
     )
 
 
@@ -1212,6 +1294,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
         logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
+        # A killed import leaves its history row open. The stuck-cohort sweep resets a cohort whose newest row stays
+        # open past its cutoff. That row stays the newest until the task of this upload starts. A run that is still
+        # alive overwrites this stamp when it finishes.
+        close_open_population_attempts(cohort.pk, finished_at=timezone.now())
         calculate_cohort_from_list.delay(
             cohort.pk,
             ids,
@@ -1335,6 +1421,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return str_to_bool(self.initial_data["is_static"])
         return bool(getattr(self.instance, "is_static", False))
 
+    def _reactivates_static_cohort(self, attrs: dict) -> bool:
+        instance = cast(Optional[Cohort], self.instance)
+        return instance is not None and instance.is_static and attrs.get("is_static") is False
+
     def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
         # Derive the properties that survive the save, mirroring Cohort.properties precedence:
         # filters win over the legacy groups field, so clearing filters re-activates preserved
@@ -1396,7 +1486,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
         instance = cast(Optional[Cohort], self.instance)
         # Flipping a static cohort to dynamic activates its preserved definition.
-        reactivating_static = instance is not None and instance.is_static and attrs.get("is_static") is False
+        reactivating_static = self._reactivates_static_cohort(attrs)
         if not reactivating_static and not any(field in attrs for field in ("filters", "groups", "query")):
             return
         team = self._team_for_warehouse_access_check()
@@ -1440,20 +1530,75 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # Only access denials gate saving; other compile problems surface elsewhere.
             return
 
+    def _validate_cohort_references(self, attrs: dict) -> None:
+        """Reject criteria that include a cohort that is deleted or does not exist.
+
+        The flag evaluator loads only non-deleted cohorts. A flag on a cohort that includes a
+        deleted one therefore fails on every request. This check covers only this cohort's own
+        references. Each included cohort's own save checks its references. A deeper check here
+        would block this save because of a fault in another cohort.
+        """
+        instance = cast(Optional[Cohort], self.instance)
+        # The delete call sends the whole cohort, criteria included. Checking it would block
+        # deleting a cohort that includes a deleted cohort.
+        if instance is not None and attrs.get("deleted"):
+            return
+        restoring = instance is not None and instance.deleted and attrs.get("deleted") is False
+        if not (restoring or self._reactivates_static_cohort(attrs) or "filters" in attrs or "groups" in attrs):
+            return
+        # Static criteria run once, when the cohort is created. The editor resends them on every save.
+        if instance is not None and self._cohort_will_be_static():
+            return
+
+        team = _team_from_serializer_context(self.context)
+        if team is None:
+            return
+        effective = self._effective_filters_after_update(attrs, team=team)
+        if not effective:
+            return
+        referenced_ids = [
+            prop.value for prop in parse_property_group_data(effective.get("properties")).flat if prop.type == "cohort"
+        ]
+        if not referenced_ids:
+            return
+
+        # The lookup includes deleted cohorts so that the error can name the cohort.
+        cohorts_by_id = Cohort.objects.filter(team__project_id=team.project_id).in_bulk(
+            {cohort_id for cohort_id in map(safe_int, referenced_ids) if cohort_id is not None}
+        )
+        # A deleted cohort's page has no criteria editor. The restore messages therefore do not ask the user to remove the criterion.
+        for value in referenced_ids:
+            cohort = cohorts_by_id.get(safe_int(value))
+            if cohort is None:
+                detail = (
+                    f"This cohort can't be restored because it includes cohort with id {value}, which does not exist. Create a new cohort instead."
+                    if restoring
+                    else f"Cohort with id {value} does not exist. Choose another cohort or remove this criterion."
+                )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
+            if cohort.deleted:
+                label = f"'{cohort.name}' (ID {cohort.pk})" if cohort.name else f"with id {cohort.pk}"
+                detail = (
+                    f"This cohort includes cohort {label}, which has been deleted. Restore that cohort first."
+                    if restoring
+                    else f"Cohort {label} has been deleted. Choose another cohort or remove this criterion."
+                )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
+
     def validate(self, attrs: dict) -> dict:
         # Field-level validate_filters only runs when the PATCH body includes `filters`. This
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
 
+        self._validate_cohort_references(attrs)
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
 
-        instance = cast(Cohort, self.instance)
-        if instance.is_static and attrs.get("is_static") is False:
+        if self._reactivates_static_cohort(attrs):
             effective_filters = self._effective_filters_after_update(attrs)
             if effective_filters is not None and cohort_filters_have_values(effective_filters):
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
@@ -1534,7 +1679,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
-        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
+        try:
+            nested_cohort = Cohort.objects.get(
+                pk=prop.value, team__project_id=self.context["project_id"], deleted=False
+            )
+        except Cohort.DoesNotExist:
+            # _validate_cohort_references reports a missing or deleted cohort with an error that names it.
+            return
         dependency_cohorts = get_all_cohort_dependencies(nested_cohort, stop_traversal_at_static=True)
 
         for dependency_cohort in [nested_cohort, *dependency_cohorts]:
@@ -1554,8 +1705,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
-            cohort.filters
+        filters_changed = "filters" in validated_data and _criteria_key(validated_data.get("filters")) != _criteria_key(
+            _coerce_stored_filter_values(cohort.filters)
         )
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
@@ -1590,16 +1741,28 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.
-        if was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME):
-            workflows_relying_on_realtime = _workflows_relying_on_cohort(cohort)
-            if workflows_relying_on_realtime:
+        stops_realtime = was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME)
+        # A criteria edit makes the stream processor re-evaluate every person and send `entered` again for
+        # current members, so cohort-triggered workflows would run again for people who never left.
+        if stops_realtime or filters_changed:
+            workflows_relying_on_cohort = _workflows_relying_on_cohort(cohort)
+            if workflows_relying_on_cohort:
+                count = len(workflows_relying_on_cohort)
                 names = _workflow_names_suffix(
-                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_realtime
+                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_cohort
                 )
+                if stops_realtime:
+                    raise ValidationError(
+                        f"This change stops the cohort updating in real time, and {count} "
+                        f"active workflow(s) rely on that{names}. "
+                        "Please remove the cohort from these workflows before making this change.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
+                    )
                 raise ValidationError(
-                    f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
-                    f"active workflow(s) rely on that{names}. "
-                    "Please remove the cohort from these workflows before making this change."
+                    f"This cohort is used in {count} active workflow(s){names}. Changing its criteria would send "
+                    "its current members through them again. "
+                    "Please remove the cohort from these workflows before changing its criteria.",
+                    code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
 
         deleted_state = cast(bool | None, validated_data.get("deleted"))
@@ -1628,7 +1791,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     )
                     raise ValidationError(
                         f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "
-                        "Please remove the cohort from these workflows before deleting it."
+                        "Please remove the cohort from these workflows before deleting it.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                     )
 
                 # Check if cohort is used in test_account_filters
@@ -1751,6 +1915,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 def _used_in_block(page: list[dict], total: int) -> dict[str, Any]:
     """Build one ``{results, total, has_more}`` block of the used_in response."""
     return {"results": page, "total": total, "has_more": total > len(page)}
+
+
+def _workflows_block(
+    request: Request, user_access_control: Optional[UserAccessControl], cohort: Cohort
+) -> dict[str, Any]:
+    workflows = _workflows_relying_on_cohort(cohort)
+    visible = _visible_workflows(request, user_access_control, cohort.team_id, workflows)
+    page = [
+        {"id": workflow.id, "name": workflow.name, "status": workflow.status}
+        for workflow in visible[:COHORT_USED_IN_PAGE_SIZE]
+    ]
+    return {**_used_in_block(page, len(workflows)), "hidden": len(workflows) - len(visible)}
 
 
 def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
@@ -1881,6 +2057,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
 
 def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     """Return other cohorts that include this cohort as criteria."""
+    # Legacy groups can store the cohort id as a string.
+    path_vars = json.dumps({"id": cohort.id, "id_text": str(cohort.id)})
     return (
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(
@@ -1890,9 +2068,10 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
         .exclude(id=cohort.id)
         .extra(
             where=[
-                """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                # Cohort.properties reads groups only when filters is empty.
+                """jsonb_path_exists(COALESCE(NULLIF(filters, '{}'::jsonb), groups), '$.** ? (@.type == "cohort" && (@.value == $id || @.value == $id_text))', %s::jsonb)"""
             ],
-            params=[cohort.id, cohort.id],
+            params=[path_vars],
         )
         .order_by("id")
     )
@@ -2327,8 +2506,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
                 "insights": _used_in_block(insights_data, insights_total),
                 "cohorts": _used_in_block(cohorts_data, cohorts_total),
+                "workflows": _workflows_block(request, uac, cohort),
             }
         )
+
+    @extend_schema(
+        description="Active workflows that block deleting this cohort or editing it so it stops updating in real time.",
+        responses=CohortUsedInWorkflowsBlockSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def blocking_workflows(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        return Response(_workflows_block(request, self.user_access_control, cohort))
 
     def perform_create(self, serializer):
         serializer.save()
@@ -2557,6 +2746,23 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     started_at = timezone.now()
     start_monotonic = time.monotonic()
     eval_errors_count = 0
+    # The stuck-cohort sweep measures a run that has an open history row from the row's start. Without that row, the
+    # sweep measures the run from created_at. That measure also counts the time that the task waited in the queue. A
+    # failed insert must not stop the population. Django then keeps the row unsaved. The save of the outcome inserts it.
+    history = CohortCalculationHistory(
+        team_id=team_id, cohort=cohort, filters=cohort.filters or {}, started_at=started_at
+    )
+    try:
+        history.save()
+    except Exception as err:
+        logger.warning(
+            "cohort_from_feature_flag_history_open_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            flag_key=feature_flag.key,
+            exc_info=True,
+        )
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
     try:
         uuids_to_add_to_cohort: list[str] = []
         cursor = 0
@@ -2636,15 +2842,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # store the friendly message; raw exception details (internal URLs, instance
         # config) stay in logs and error tracking only. This path only ever populates a
         # static cohort, and nothing re-runs one, so the message must not ask for that.
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            error=get_friendly_error_message(error_code, will_retry=False),
-            error_code=error_code,
-        )
+        history.finished_at = timezone.now()
+        history.error = get_friendly_error_message(error_code, will_retry=False)
+        history.error_code = error_code
+        history.save()
         raise
 
     # The save above finalized cohort state, including the recomputed count. Recording the run
@@ -2653,14 +2854,11 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # the block above: the population is already committed, so a failure to record it must not
     # report a finished run as a failed one.
     try:
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            count=cohort.count,
-        )
+        history.finished_at = timezone.now()
+        history.count = cohort.count
+        # The full save also clears an INTERRUPTED stamp that the stuck-cohort sweep or a CSV upload wrote while this
+        # run was alive.
+        history.save()
     except Exception as err:
         logger.warning(
             "cohort_from_feature_flag_history_write_failed",

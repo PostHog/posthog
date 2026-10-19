@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    VEEQO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo import (
     VeeqoResumeConfig,
@@ -102,7 +103,9 @@ The API key gives full account access, so store it securely.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Fan-out tables make one request per shipment or bundle, so they are opt-in.
+        should_sync_default = {name: False for name, config in VEEQO_ENDPOINTS.items() if config.fanout is not None}
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=should_sync_default)
 
     def validate_credentials(
         self, config: VeeqoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

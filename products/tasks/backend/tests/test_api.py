@@ -87,8 +87,11 @@ from products.tasks.backend.logic.services.workflow_dispatch import materialize_
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
+    get_task_run_stream_completed_key,
+    get_task_run_stream_generation,
     get_task_run_stream_key,
     get_task_run_stream_watched_key,
+    reset_task_run_stream,
 )
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -116,7 +119,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskSerializer,
 )
 from products.tasks.backend.presentation.views import api as views_api
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
@@ -2834,17 +2837,20 @@ class TestTaskAPI(BaseTaskAPITest):
         from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Signal Task",
-                "description": "From a signal report",
-                "origin_product": "signal_report",
-                "signal_report": str(report.id),
-                "signal_report_task_relationship": "implementation",
-            },
-            format="json",
-        )
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Signal Task",
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": "implementation",
+                },
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
@@ -3038,17 +3044,20 @@ class TestTaskAPI(BaseTaskAPITest):
         from products.signals.backend.models import SignalReport, SignalScoutNote
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Discuss report",
-                "description": _DISCUSS_PROMPT,
-                "origin_product": "signal_report",
-                "signal_report": str(report.id),
-                "signal_report_task_relationship": relationship,
-            },
-            format="json",
-        )
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Discuss report",
+                    "description": _DISCUSS_PROMPT,
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": relationship,
+                },
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         notes = SignalScoutNote.objects.for_team(self.team.id).filter(origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
         if should_forward:
@@ -3235,17 +3244,20 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
     def _post_signal_report_task(self, report_id, relationship, title="Report task"):
-        return self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": title,
-                "description": "From a signal report",
-                "origin_product": "signal_report",
-                "signal_report": str(report_id),
-                "signal_report_task_relationship": relationship,
-            },
-            format="json",
-        )
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            return self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": title,
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report_id),
+                    "signal_report_task_relationship": relationship,
+                },
+                format="json",
+            )
 
     def _create_implementation_task_with_runs(self, report, run_specs, deleted=False):
         from products.signals.backend.models import SignalReportTask
@@ -11450,7 +11462,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             extra_state={"pending_dispatch": {"user_id": self.user.id, "posthog_mcp_scopes": "read_only"}},
         )
 
-        def complete_stream(run_id: str, use_dedicated: bool) -> bool:
+        def complete_stream(run_id: str, use_dedicated: bool, *, expected_generation: str) -> bool:
+            assert expected_generation == "initial"
             self.assertEqual(len(connection.atomic_blocks), transaction_depth)
             cancelled_run = TaskRun.objects.get(id=run_id)
             assert cancelled_run.status == TaskRun.Status.CANCELLED
@@ -11550,16 +11563,11 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         )
         sandbox = MagicMock()
         sandbox.stop_agent_server.return_value.exit_code = 0
+        assert reset_task_run_stream(str(run.id))
 
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
-                **{"return_value.get_by_id.return_value": sandbox},
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
-                return_value=True,
-            ) as publish_complete,
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox},
         ):
             response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
@@ -11573,7 +11581,13 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
                 call.destroy(),
             ],
         )
-        publish_complete.assert_called_once_with(str(run.id), False)
+        redis = get_tasks_stream_redis_sync()
+        stream_key = get_task_run_stream_key(str(run.id))
+        assert redis.exists(get_task_run_stream_completed_key(stream_key))
+        assert json.loads(redis.xrevrange(stream_key, count=1)[0][1][b"data"]) == {
+            "type": "STREAM_STATUS",
+            "status": "complete",
+        }
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
         self.assertIsNotNone(run.completed_at)
@@ -11615,27 +11629,43 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
 
+    @parameterized.expand([False, True])
+    @override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=True)
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
     @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
-    def test_cancel_retry_repairs_stream_after_workflow_gone(self, _mock_signal, _mock_send_cancel, _mock_token):
+    def test_cancel_retry_repairs_stream_after_workflow_gone(
+        self, resume_before_retry, _mock_signal, _mock_send_cancel, _mock_token
+    ):
         task = self.create_task()
         run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
         sandbox = MagicMock()
         sandbox.stop_agent_server.return_value.exit_code = 0
+        assert reset_task_run_stream(str(run.id))
+        generation = get_task_run_stream_generation(str(run.id))
+        TaskRun.update_state_atomic(run.id, updates={"stream_generation": generation})
 
         with (
+            patch(
+                "products.tasks.backend.facade.cancellation.get_task_run_stream_generation",
+                side_effect=ConnectionError("Redis unavailable"),
+            ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
                 **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
-                side_effect=[False, True],
-            ) as publish_complete,
+                return_value=False,
+            ),
         ):
             first_response = self.client.post(self._cancel_url(task, run), {}, format="json")
-            second_response = self.client.post(self._cancel_url(task, run), {}, format="json")
+        run.refresh_from_db()
+        assert run.state["cancel_fallback_stream_generation"] == generation
+        assert run.status == TaskRun.Status.CANCELLED
+        if resume_before_retry:
+            assert reset_task_run_stream(str(run.id))
+        second_response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
         self.assertEqual(first_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
@@ -11648,7 +11678,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
                 call.destroy(),
             ],
         )
-        self.assertEqual(publish_complete.call_count, 2)
+        completed_key = get_task_run_stream_completed_key(get_task_run_stream_key(str(run.id)))
+        self.assertEqual(bool(get_tasks_stream_redis_sync().exists(completed_key)), not resume_before_retry)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
         self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
@@ -16889,6 +16920,36 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_resume.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("inbox_task", True, status.HTTP_200_OK),
+            ("plain_task", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.warm_task_resume_sandbox", return_value=None)
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_warm_resume_code_access_exempts_inbox_tasks(
+        self, _name, inbox, expected_status, _mock_gate, _mock_warm_enabled, mock_warm
+    ):
+        self.set_tasks_feature_flag(False)
+        task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT) if inbox else self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/warm/",
+            {"resume_from_run_id": str(run.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_warm.called, inbox)
+
     def test_exemption_ignores_cross_team_report_link(self):
         # The write serializer blocks cross-team report links, so forge one at the ORM level:
         # the exemption query must re-check the report's team rather than trust the FK alone.
@@ -16945,8 +17006,14 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), expected)
 
-    def test_create_signal_report_task_ignores_channel_repository(self):
-        from products.signals.backend.models import SignalReport
+    @parameterized.expand(
+        [
+            ("web", None, status.HTTP_400_BAD_REQUEST),
+            ("desktop", TaskClientProvenance.POSTHOG_DESKTOP, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_pr_without_resolvable_repository(self, _name, client_provenance, expected_status):
+        from products.signals.backend.models import SignalReport, SignalReportTask
         from products.tasks.backend.models import Channel
 
         report = SignalReport.objects.create(team=self.team)
@@ -16954,6 +17021,10 @@ class TestCloudUsageGate(BaseTaskAPITest):
         with (
             patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=None),
             patch("products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value=None),
+            patch(
+                "products.tasks.backend.presentation.views.api.get_task_client_provenance",
+                return_value=client_provenance,
+            ),
         ):
             response = self.client.post(
                 "/api/projects/@current/tasks/",
@@ -16967,7 +17038,12 @@ class TestCloudUsageGate(BaseTaskAPITest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["detail"], tasks_facade.REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED)
+            self.assertFalse(Task.objects.filter(signal_report=report).exists())
+            self.assertFalse(SignalReportTask.objects.filter(report=report).exists())
+            return
         task = Task.objects.get(id=response.json()["id"])
         self.assertIsNone(task.repository)
         self.assertNotIn("attacker/repo", task.repositories)

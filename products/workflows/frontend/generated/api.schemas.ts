@@ -329,12 +329,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `transactional_emails` - Transactional emails
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 /**
@@ -676,7 +678,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -777,7 +780,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -878,7 +882,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1149,6 +1154,30 @@ export interface PatchedHogFlowGraphUpdateApi {
     base_updated_at?: string
     /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
     operations?: HogFlowGraphOperationApi[]
+}
+
+/**
+ * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+ * @nullable
+ */
+export type HogFlowInFlightApiByAction = { [key: string]: number } | null
+
+export interface HogFlowInFlightApi {
+    /**
+     * About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.
+     * @nullable
+     */
+    count: number | null
+    /**
+     * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+     * @nullable
+     */
+    by_action: HogFlowInFlightApiByAction
+    /**
+     * In-flight runs whose current step could not be read. Null when the count is unavailable.
+     * @nullable
+     */
+    position_unknown: number | null
 }
 
 export interface HogInvocationResultApi {
@@ -2025,6 +2054,70 @@ export interface TeamEmailReputationResponseApi {
     readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
+export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown }
+
+export interface SendCalendarBatchJobApi {
+    /** ID of the batch run. */
+    readonly id: string
+    /** Status of the batch run.
+     *
+     * * `waiting` - Waiting
+     * * `queued` - Queued
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `failed` - Failed */
+    readonly status: HogFlowBatchJobStateEnumApi
+    /** When the batch run started. */
+    readonly created_at: string
+}
+
+export interface SendCalendarFlowApi {
+    /** ID of the workflow. */
+    readonly id: string
+    /**
+     * Name of the workflow.
+     * @nullable
+     */
+    readonly name: string | null
+    /** The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi | null
+    /** User who created the workflow. */
+    readonly created_by: UserBasicApi | null
+    /**
+     * The reader's access level on the workflow.
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** The trigger type: batch or schedule. */
+    readonly trigger_type: string
+    /** The property filters of a batch trigger's audience. Empty for a schedule trigger. */
+    readonly audience_properties: readonly SendCalendarFlowApiAudiencePropertiesItem[]
+    /**
+     * persons or accounts for a batch trigger's audience. Null when the trigger does not set it.
+     * @nullable
+     */
+    readonly audience_type: string | null
+    /**
+     * The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.
+     * @nullable
+     */
+    readonly email_to: string | null
+    /**
+     * ID of the message category of the first email step.
+     * @nullable
+     */
+    readonly message_category_id: string | null
+    /** The schedules that still have sends to come. */
+    readonly schedules: readonly HogFlowScheduleApi[]
+    /** The batch runs that started inside the requested range. */
+    readonly batch_jobs: readonly SendCalendarBatchJobApi[]
+}
+
 /**
  * Property filters to apply
  */
@@ -2360,6 +2453,65 @@ export interface PeopleImportApi {
     dropped_too_large: number
 }
 
+/**
+ * * `channel` - Channel
+ * * `domain` - Domain
+ * * `opt-outs` - Opt-outs
+ * * `sending-rules` - Sending rules
+ * * `email-template` - Email template
+ * * `first-workflow` - First workflow
+ */
+export type SetupStepKeyEnumApi = (typeof SetupStepKeyEnumApi)[keyof typeof SetupStepKeyEnumApi]
+
+export const SetupStepKeyEnumApi = {
+    Channel: 'channel',
+    Domain: 'domain',
+    OptOuts: 'opt-outs',
+    SendingRules: 'sending-rules',
+    EmailTemplate: 'email-template',
+    FirstWorkflow: 'first-workflow',
+} as const
+
+export interface WorkflowSetupStepApi {
+    /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    key: SetupStepKeyEnumApi
+    /** Whether the project has done this step. */
+    done: boolean
+    /** The step's name, as the app shows it. */
+    title: string
+    /** What the person does to finish the step. */
+    next_step: string
+    /** Link to the place in the app where the person does this step. */
+    app_url: string
+}
+
+export interface WorkflowSetupStatusApi {
+    /** Every messaging setup step, in order. */
+    steps: WorkflowSetupStepApi[]
+    /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
+    ready_to_send_email: boolean
+    /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
+    email_sending_paused: boolean
+    /** The first step that is not done, or null when every step is done.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    next_open_step: SetupStepKeyEnumApi | null
+    /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
+    data_suggestions_available: boolean
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -2460,6 +2612,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
@@ -2869,4 +3022,15 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
+}
+
+export type HogFlowsSendCalendarRetrieveParams = {
+    /**
+     * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
+     */
+    end: string
+    /**
+     * Start of the shown range, inclusive, as an ISO 8601 datetime.
+     */
+    start: string
 }

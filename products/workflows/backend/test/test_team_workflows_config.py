@@ -49,13 +49,15 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
         }
 
     def test_patch_enables_capture(self) -> None:
-        # APIBaseTest.setUp may trigger the workflows_config cached_property (which calls
+        # APIBaseTest.setUp may trigger the workflows_config accessor (which calls
         # get_or_create_team_extension) so the extension row can already exist with the default
         # value. Either way, the patch must end with the row present and capture enabled.
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": True}})
@@ -113,6 +115,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
