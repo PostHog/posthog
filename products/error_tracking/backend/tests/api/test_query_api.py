@@ -697,15 +697,23 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("issue", {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
-            ("issue_events", {}, {}),
+            ("issue", True, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
+            ("issue", False, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
+            ("issue_events", True, {}, {}),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_reads_capture_an_event_for_existing_issues_only(
-        self, endpoint: str, extra_body: dict[str, object], expected_properties: dict[str, object]
+        self,
+        endpoint: str,
+        has_exceptions: bool,
+        extra_body: dict[str, object],
+        expected_properties: dict[str, object],
     ) -> None:
         self.create_issue()
+        if has_exceptions:
+            self.create_exception_event()
+            flush_persons_and_events()
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="test", user=self.user, secure_value=hash_key_value(token), scopes=["error_tracking:read"]
@@ -741,6 +749,16 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 **expected_properties,
             }
         ]
+
+        with patch("posthog.event_usage.posthoganalytics.capture", side_effect=RuntimeError("capture down")):
+            capture_failed = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{endpoint}",
+                data={"issueId": self.issue_id, **extra_body},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert capture_failed.status_code == 200
 
     def test_issue_events_tags_clickhouse_queries(self) -> None:
         self.create_issue()
