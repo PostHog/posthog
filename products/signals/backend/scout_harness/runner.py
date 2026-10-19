@@ -82,6 +82,7 @@ from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
 )
+from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
@@ -452,6 +453,9 @@ async def _arun_signals_scout(
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
+    if trial is None:
+        free_trial_runtime = await database_sync_to_async(trial_scout_runtime, thread_sensitive=False)(team)
+        agent_runtime = free_trial_runtime or agent_runtime
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter
         model: str | None = agent_runtime.model
