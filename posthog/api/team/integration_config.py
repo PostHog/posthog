@@ -1,5 +1,6 @@
 """Serializers and handlers for product-specific project settings."""
 
+from decimal import Decimal
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -279,6 +280,17 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
                 f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
             ),
+        )
+        # The frequentist engine derives alpha as 1 - confidence level, so anything outside (0, 1)
+        # is meaningless. The field stores two decimal places, so these bounds are that open range.
+        default_experiment_confidence_level = serializers.DecimalField(
+            max_digits=3,
+            decimal_places=2,
+            min_value=Decimal("0.01"),
+            max_value=Decimal("0.99"),
+            required=False,
+            allow_null=True,
+            help_text="Default confidence level for new experiments, above 0 and below 1, for example 0.95.",
         )
 
         class Meta:
