@@ -112,7 +112,10 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
                 f"Each sync imports the latest crawl, with a sample of up to {MAX_PAGE_ROWS} pages. "
                 "Page data requires verified project ownership. "
                 "Domain Rating, metrics history, and backlinks report on the Site Audit project's target. "
-                f"History tables start {HISTORY_DAYS} days back, and backlinks import up to {MAX_BACKLINK_ROWS} live links."
+                f"History tables start {HISTORY_DAYS} days back, and backlinks import up to {MAX_BACKLINK_ROWS} live links. "
+                "Link intersect tables compare the target with the project's competitors in Ahrefs. "
+                "Brand Radar web pages come from the Brand Radar reports linked to the project. "
+                "The top domains table is free and has 1 million rows."
             ),
             fields=cast(
                 list[FieldType],

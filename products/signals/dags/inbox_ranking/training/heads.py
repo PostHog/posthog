@@ -14,8 +14,9 @@ cloud inbox list emits them, and a report reached from Slack, the desktop app or
 The dataset keeps them for position bias.
 
 `action` counts intent from any surface: the inbox UI, external coding agents over MCP, the CLI,
-Slack and the desktop app. Self-driving's own `task` and `system` writes are excluded, because
-they are internal operational work and not a person acting on the report.
+Slack and the desktop app. A thumbs up on the report counts too, and a thumbs down does not.
+Self-driving's own `task` and `system` writes are excluded, because they are internal operational
+work and not a person acting on the report.
 
 Only the heads the inbox reads are trained: `open`, `action` and `fixed` (`HeadRanker` in
 `products/signals/backend/ranking/inbox_sort.py`). The dataset dag still snapshots the label columns
@@ -62,7 +63,11 @@ SERVER_ACTION_COLUMNS = (
     "slack_discussion_count",
     "reasoned_resolution_count",
 )
-ACTION_LABEL_COLUMNS = UI_ACTION_COLUMNS + SERVER_ACTION_COLUMNS
+# A thumbs up says a person found the report useful, often without any other action on it. It stays
+# out of `UI_ACTION_COLUMNS`, because the `action` project vector reads only the `Inbox report
+# action` stream. A thumbs down is a negative judgment, not intent, so it is not a label column.
+FEEDBACK_ACTION_COLUMNS = ("feedback_positive_count",)
+ACTION_LABEL_COLUMNS = UI_ACTION_COLUMNS + SERVER_ACTION_COLUMNS + FEEDBACK_ACTION_COLUMNS
 
 
 def acted(frame: pd.DataFrame) -> pd.Series:
