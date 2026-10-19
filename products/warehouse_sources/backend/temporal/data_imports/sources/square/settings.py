@@ -25,6 +25,9 @@ class SquareEndpointConfig:
     paginated: bool = True
     # Static query params applied to every request (sort order, catalog types, ...).
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Whether the endpoint needs one request chain per location. Without `location_id`,
+    # Square returns only the rows of the seller's main location.
+    per_location: bool = False
 
 
 def _created_at_incremental_field() -> list[IncrementalField]:
@@ -39,13 +42,15 @@ def _created_at_incremental_field() -> list[IncrementalField]:
 
 
 # Endpoints are deliberately limited to the GET, cursor-paginated resources that
-# work with a single Personal Access Token and no per-location fan-out. Orders,
+# work with a single Personal Access Token. Orders,
 # Invoices, Inventory and Team members all require POST `/search` calls scoped to
 # `location_ids`, so they're intentionally left out of this alpha implementation.
 SQUARE_ENDPOINTS: dict[str, SquareEndpointConfig] = {
     # Payments and Refunds expose `begin_time`, a server-side filter on `created_at`,
     # so they support incremental sync. Square sorts these DESC by default; we force
-    # ASC so the pipeline's cursor watermark advances correctly.
+    # ASC so a restart after an expired cursor can resume from the last value seen.
+    # Both return only the main location unless `location_id` is set, so they sync
+    # once per location.
     "payments": SquareEndpointConfig(
         name="payments",
         path="/v2/payments",
@@ -55,6 +60,7 @@ SQUARE_ENDPOINTS: dict[str, SquareEndpointConfig] = {
         time_filter_param="begin_time",
         incremental_fields=_created_at_incremental_field(),
         extra_params={"sort_order": "ASC"},
+        per_location=True,
     ),
     "refunds": SquareEndpointConfig(
         name="refunds",
@@ -65,6 +71,7 @@ SQUARE_ENDPOINTS: dict[str, SquareEndpointConfig] = {
         time_filter_param="begin_time",
         incremental_fields=_created_at_incremental_field(),
         extra_params={"sort_order": "ASC"},
+        per_location=True,
     ),
     # `GET /v2/customers` has no server-side `created_at`/`updated_at` filter (only
     # the POST `/v2/customers/search` endpoint does), so this is full refresh. We

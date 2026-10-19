@@ -67,6 +67,8 @@ class SquareResumeConfig:
     # after ~5 minutes, so a resume that lands outside that window will re-fetch
     # the stream from the start (merge dedupes on the primary key).
     cursor: str
+    # The location the cursor belongs to, on an endpoint that syncs once per location.
+    location_id: Optional[str] = None
 
 
 def _base_url(environment: str) -> str:
@@ -158,14 +160,12 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = SQUARE_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
-    url = f"{_base_url(environment)}{config.path}"
+    base_url = _base_url(environment)
+    url = f"{base_url}{config.path}"
 
-    initial_params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
+    base_params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor: Optional[str] = resume_config.cursor if resume_config else None
-    if cursor:
-        logger.debug(f"Square: resuming {endpoint} from saved cursor")
 
     @retry(
         retry=retry_if_exception_type((SquareRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -173,17 +173,21 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch_page(params: dict[str, str]) -> dict[str, Any]:
-        response = make_tracked_session().get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    def fetch_page(request_url: str, params: dict[str, str]) -> dict[str, Any]:
+        response = make_tracked_session().get(
+            request_url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
+        )
 
         if response.status_code == 429 or response.status_code >= 500:
-            raise SquareRetryableError(f"Square API error (retryable): status={response.status_code}, url={url}")
+            raise SquareRetryableError(
+                f"Square API error (retryable): status={response.status_code}, url={request_url}"
+            )
 
         if _is_invalid_cursor_error(response):
             raise SquareInvalidCursorError(f"Square rejected the pagination cursor for {endpoint}")
 
         if not response.ok:
-            logger.error(f"Square API error: status={response.status_code}, body={response.text}, url={url}")
+            logger.error(f"Square API error: status={response.status_code}, body={response.text}, url={request_url}")
             response.raise_for_status()
 
         return response.json()
@@ -191,66 +195,108 @@ def get_rows(
     # The record field the server-side time filter applies to (e.g. created_at), if any.
     # Tracked so a restart can resume from the last value seen rather than from zero.
     time_field = _time_filter_field(config)
-    last_seen_value: Optional[str] = None
 
-    restarts_remaining = MAX_CURSOR_RESTARTS
-    while True:
-        # Square ties a cursor to the exact query it was issued for, so every follow-up
-        # request must repeat the original params and add the cursor. Sending the cursor
-        # alone drops sort/filter/limit, which Square rejects as an incompatible cursor.
-        params = {**initial_params, "cursor": cursor} if cursor else initial_params
+    def paginate(location_id: Optional[str], cursor: Optional[str]) -> Iterator[list[dict[str, Any]]]:
+        initial_params = {**base_params, "location_id": location_id} if location_id else base_params
+        last_seen_value: Optional[str] = None
+        restarts_remaining = MAX_CURSOR_RESTARTS
+        while True:
+            # Square ties a cursor to the exact query it was issued for, so every follow-up
+            # request must repeat the original params and add the cursor. Sending the cursor
+            # alone drops sort/filter/limit, which Square rejects as an incompatible cursor.
+            params = {**initial_params, "cursor": cursor} if cursor else initial_params
+            try:
+                data = fetch_page(url, params)
+            except SquareInvalidCursorError:
+                # An expired cursor can't be recovered by retrying it, so restart the stream
+                # (merge dedupes on the primary key). A cursor-less initial request can't
+                # trigger this error, so a rejection there signals a malformed query rather
+                # than expiry — surface it instead of looping. The restart budget bounds the
+                # work when a stream keeps outliving its cursor.
+                if cursor is None or restarts_remaining <= 0:
+                    raise
+                restarts_remaining -= 1
+                cursor = None
+                # On an endpoint with a server-side time filter, resume from the last value
+                # we saw so the restart re-scans only the unfinished tail rather than the
+                # whole stream — otherwise it just hits the same ~5 min TTL wall again.
+                # Endpoints without one (e.g. customers) fall back to a full restart.
+                if time_field is not None and last_seen_value is not None and config.time_filter_param is not None:
+                    initial_params = {**initial_params, config.time_filter_param: _format_rfc3339(last_seen_value)}
+                    logger.warning(f"Square: cursor for {endpoint} was rejected, resuming from last seen {time_field}")
+                else:
+                    logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
+                # Overwrite the stale cursor in the resume store now. Otherwise, if the
+                # restart finishes within a single page (no fresh next_cursor to save),
+                # the expired cursor lingers until its TTL and every later sync re-scans
+                # the whole stream. An empty cursor is falsy, so the next load resumes
+                # from the start rather than replaying the bad value.
+                if config.paginated:
+                    resumable_source_manager.save_state(SquareResumeConfig(cursor="", location_id=location_id))
+                continue
+
+            items = data.get(config.data_key, [])
+            next_cursor = data.get("cursor")
+
+            if items:
+                yield items
+                # Advance the time watermark so a later cursor expiry can resume from here.
+                if time_field is not None:
+                    for item in items:
+                        value = item.get(time_field)
+                        if isinstance(value, str) and (last_seen_value is None or value > last_seen_value):
+                            last_seen_value = value
+                # Save state only after yielding, so a crash re-yields the last batch
+                # rather than skipping it (merge dedupes on the primary key). No point
+                # persisting a cursor for non-paginated endpoints — there's nothing to
+                # resume into.
+                if config.paginated and next_cursor:
+                    resumable_source_manager.save_state(SquareResumeConfig(cursor=next_cursor, location_id=location_id))
+
+            if not config.paginated or not next_cursor:
+                return
+
+            cursor = next_cursor
+
+    def list_location_ids() -> list[str]:
         try:
-            data = fetch_page(params)
-        except SquareInvalidCursorError:
-            # An expired cursor can't be recovered by retrying it, so restart the stream
-            # (merge dedupes on the primary key). A cursor-less initial request can't
-            # trigger this error, so a rejection there signals a malformed query rather
-            # than expiry — surface it instead of looping. The restart budget bounds the
-            # work when a stream keeps outliving its cursor.
-            if cursor is None or restarts_remaining <= 0:
-                raise
-            restarts_remaining -= 1
-            cursor = None
-            # On an endpoint with a server-side time filter, resume from the last value
-            # we saw so the restart re-scans only the unfinished tail rather than the
-            # whole stream — otherwise it just hits the same ~5 min TTL wall again.
-            # Endpoints without one (e.g. customers) fall back to a full restart.
-            if time_field is not None and last_seen_value is not None and config.time_filter_param is not None:
-                initial_params = {**initial_params, config.time_filter_param: _format_rfc3339(last_seen_value)}
-                logger.warning(f"Square: cursor for {endpoint} was rejected, resuming from last seen {time_field}")
-            else:
-                logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
-            # Overwrite the stale cursor in the resume store now. Otherwise, if the
-            # restart finishes within a single page (no fresh next_cursor to save),
-            # the expired cursor lingers until its TTL and every later sync re-scans
-            # the whole stream. An empty cursor is falsy, so the next load resumes
-            # from the start rather than replaying the bad value.
-            if config.paginated:
-                resumable_source_manager.save_state(SquareResumeConfig(cursor=""))
-            continue
+            data = fetch_page(f"{base_url}/v2/locations", {})
+        except requests.HTTPError as error:
+            # Without MERCHANT_PROFILE_READ the token cannot list locations. Square then
+            # returns only the main location, which is what this endpoint synced before.
+            if error.response is not None and error.response.status_code == 403:
+                logger.warning(
+                    f"Square: the access token cannot list locations, so {endpoint} syncs only the main "
+                    "location. Grant MERCHANT_PROFILE_READ to sync every location."
+                )
+                return []
+            raise
+        return [location["id"] for location in data.get("locations", []) if location.get("id")]
 
-        items = data.get(config.data_key, [])
-        next_cursor = data.get("cursor")
+    location_ids = list_location_ids() if config.per_location else []
 
-        if items:
-            yield items
-            # Advance the time watermark so a later cursor expiry can resume from here.
-            if time_field is not None:
-                for item in items:
-                    value = item.get(time_field)
-                    if isinstance(value, str) and (last_seen_value is None or value > last_seen_value):
-                        last_seen_value = value
-            # Save state only after yielding, so a crash re-yields the last batch
-            # rather than skipping it (merge dedupes on the primary key). No point
-            # persisting a cursor for non-paginated endpoints — there's nothing to
-            # resume into.
-            if config.paginated and next_cursor:
-                resumable_source_manager.save_state(SquareResumeConfig(cursor=next_cursor))
+    if not location_ids:
+        cursor = resume_config.cursor if resume_config and resume_config.location_id is None else None
+        if cursor:
+            logger.debug(f"Square: resuming {endpoint} from saved cursor")
+        yield from paginate(None, cursor)
+        return
 
-        if not config.paginated or not next_cursor:
-            break
+    # A state from before the per-location fan-out holds a cursor for the query without a
+    # location, which Square rejects, so only a state that names a known location resumes.
+    start_index = 0
+    cursor = None
+    if resume_config and resume_config.location_id in location_ids:
+        start_index = location_ids.index(resume_config.location_id)
+        cursor = resume_config.cursor or None
+        logger.debug(f"Square: resuming {endpoint} from saved location")
 
-        cursor = next_cursor
+    for index in range(start_index, len(location_ids)):
+        yield from paginate(location_ids[index], cursor)
+        cursor = None
+        # Point the resume state at the next location, so a retry does not walk this one again.
+        if index + 1 < len(location_ids):
+            resumable_source_manager.save_state(SquareResumeConfig(cursor="", location_id=location_ids[index + 1]))
 
 
 def square_source(
@@ -281,4 +327,8 @@ def square_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        # Each location is ascending on its own, but the stream as a whole is not. `desc`
+        # makes the pipeline save the watermark only after a fully successful sync, so one
+        # location's progress cannot skip the rows of a location that has not synced yet.
+        sort_mode="desc" if config.per_location else "asc",
     )
