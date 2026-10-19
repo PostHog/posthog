@@ -536,24 +536,7 @@ depends_on = [
     "products.product_analytics",
     "products.product_tours",
     "products.surveys", "products.access_control",
-]
-layer = "modules"
-[[modules]]
-path = "products.feature_flags"
-depends_on = [
-    "products.cohorts",
-    "ee",
-    "posthog",
-    "products.alerts",
-    "products.approvals",
-    "products.dashboards",
-    "products.early_access_features",
-    "products.experiments",
-    "products.exports",
     "products.notifications",
-    "products.product_analytics",
-    "products.product_tours",
-    "products.surveys", "products.access_control",
 ]
 layer = "modules"
 
