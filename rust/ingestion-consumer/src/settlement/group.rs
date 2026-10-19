@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use super::{
-    Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted,
+    Accounting, Admission, ChargedSlice, Commit, PartitionBudget, Pause, Resume, Settlement,
+    Uncommitted,
 };
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
@@ -35,11 +36,7 @@ impl<A: Accounting, D: Admission> GroupSettlement<A, D> {
         let mut resume = Vec::new();
         for topic_partition in offsets.keys() {
             let uncommitted = self.accounting.held(topic_partition).charge;
-            if self
-                .admission
-                .handed_out(topic_partition, uncommitted)
-                .is_some()
-            {
+            if let Some(Resume) = self.admission.handed_out(topic_partition, uncommitted) {
                 resume.push(topic_partition.clone());
             }
         }
@@ -112,7 +109,6 @@ mod tests {
     use common_kafka_consumer::{Held, LedgerError};
 
     use super::super::fakes::{FakeAccounting, FakeAdmission, Settled};
-    use super::super::Resume;
     use super::*;
 
     fn p(partition: i32) -> TopicPartition {
