@@ -705,9 +705,9 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert kwargs["modifiers"].cookielessTrafficIsRegular is enabled
         assert kwargs["modifiers"].sessionIdPushdown is True
         assert insert_modifiers.cookielessTrafficIsRegular is not enabled
-        assert kwargs.get("cache_key_context") == (
-            {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
-        )
+        assert kwargs.get("cache_key_context") == {
+            "traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1" if enabled else "sdk-missing-ua-v1"
+        }
 
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))

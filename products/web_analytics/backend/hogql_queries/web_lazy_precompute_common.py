@@ -624,11 +624,14 @@ def web_ensure_precomputed(
         # Use the runner's value, which can carry a per-query override, so the INSERT and the job hash match the read.
         modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
     kwargs["modifiers"] = modifiers
+    # Precomputed rows store the bot classification, so a change to it needs a new job hash.
+    traffic_classification = "sdk-missing-ua-v1"
     if modifiers.cookielessTrafficIsRegular:
-        kwargs["cache_key_context"] = {
-            **(kwargs.get("cache_key_context") or {}),
-            "traffic_classification": "cookieless-missing-ua-v1",
-        }
+        traffic_classification = f"cookieless-missing-ua-v1+{traffic_classification}"
+    kwargs["cache_key_context"] = {
+        **(kwargs.get("cache_key_context") or {}),
+        "traffic_classification": traffic_classification,
+    }
     background = is_background_warming_request()
     forced = is_forced_refresh_request()
     if "stale_while_revalidate_seconds" not in kwargs:
