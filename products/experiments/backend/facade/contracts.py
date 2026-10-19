@@ -109,6 +109,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
+    BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
 
 
 class HealthExposureInputsStatus(LabeledStrEnum):

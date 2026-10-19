@@ -418,6 +418,7 @@ export namespace Schemas {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -539,6 +540,7 @@ export namespace Schemas {
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
       HogFunction: 'hog_function',
+      Inbox: 'inbox',
       IngestionWarning: 'ingestion_warning',
       Insight: 'insight',
       InsightVariable: 'insight_variable',
@@ -660,6 +662,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -904,6 +907,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -1311,6 +1315,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -44612,6 +44617,7 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44628,6 +44634,7 @@ export namespace Schemas {
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
     } as const;
 
     /**
@@ -44686,7 +44693,8 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
-       * * `split_changed_mid_run` - Split Changed Mid Run */
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45305,34 +45313,60 @@ export namespace Schemas {
       before: ExperimentHealthInputsVariant[];
       /** The split after the change. */
       after: ExperimentHealthInputsVariant[];
-      /** Whether the split-change check counts this change: it and every later change count from the first with an exposure before it, or an unknown answer. False for every change when not checked. */
+      /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
       counted: boolean;
     }
 
-    export interface ExperimentHealthInputsSplitHistory {
-      /** Whether the split changes were compared with the exposures. False when not_checked_reason is set. */
+    export interface ExperimentHealthInputsBucketingChange {
+      /** When the setting changed. */
+      changed_at: string;
+      /** The flag setting that decides the variant draw: 'key', 'aggregation' (the group type the flag matches by), 'bucketing_identifier' or 'experience_continuity' (persist the flag across authentication steps). */
+      setting: string;
+      /**
+         * The value before the change: the key, the group type index, 'distinct_id' or 'device_id', or 'true' or 'false'. Null for an aggregation by persons, or an unreadable key.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * The value after the change, in the same form.
+         * @nullable
+         */
+      after: string | null;
+      /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
+      counted: boolean;
+    }
+
+    export interface ExperimentHealthInputsFlagHistory {
+      /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
       checked: boolean;
       /**
-         * Why the split changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
          * @nullable
          */
       not_checked_reason: string | null;
       /** When the experiment launched. */
       launched_at: string;
-      /** The project's time zone, which the finding uses for times. */
+      /** The project's time zone, which the findings use for times. */
       team_timezone: string;
       /** Every split change since launch. Empty for 'no_history_access', which does not read them. */
-      changes: ExperimentHealthInputsSplitChange[];
+      split_changes: ExperimentHealthInputsSplitChange[];
+      /** Every change since launch of a setting that decides the variant draw, one per setting and save. Empty for 'no_history_access'. */
+      bucketing_changes: ExperimentHealthInputsBucketingChange[];
       /**
          * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
          * @nullable
          */
       exposed_before_first: boolean | null;
       /**
-         * Whether anyone was exposed between the first and the last change. Asked only when the last change restores the split from before the first. Null when not asked or unknown.
+         * Whether anyone was exposed between the first and the last counted split change. Asked only when the last restores the split from before the first. Null when not asked or unknown.
          * @nullable
          */
-      exposed_between: boolean | null;
+      split_exposed_between: boolean | null;
+      /**
+         * Whether anyone was exposed between the first and the last counted bucketing change. Asked only when every setting was set back. Null when not asked or unknown.
+         * @nullable
+         */
+      bucketing_exposed_between: boolean | null;
     }
 
     /**
@@ -45376,9 +45410,9 @@ export namespace Schemas {
     }
 
     export interface ExperimentHealthInputsReaderAccess {
-      /** Whether the reader may read the flag's history, which the split-change check needs. */
+      /** Whether the reader may read the flag's history, which the flag-change checks need. */
       can_read_flag_history: boolean;
-      /** Whether the reader may query events, which the split-change and forced-variant checks need. */
+      /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
       can_query_events: boolean;
       /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
       denied_event_properties: string[];
@@ -45653,8 +45687,8 @@ export namespace Schemas {
       secondary_metric_count: number;
       /** The experiment's feature flag. Null when it has none. */
       flag: ExperimentHealthInputsFlag | null;
-      /** The changes of the flag's split since launch. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
-      split_history: ExperimentHealthInputsSplitHistory | null;
+      /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
+      flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
        *
        * * `read` - Read
@@ -67120,6 +67154,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
