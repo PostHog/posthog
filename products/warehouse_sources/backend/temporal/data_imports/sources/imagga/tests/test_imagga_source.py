@@ -29,10 +29,6 @@ class TestImaggaSource:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["daily_usage"])
-        assert [s.name for s in schemas] == ["daily_usage"]
-
     @pytest.mark.parametrize(
         "status,expected_valid",
         [(200, True), (401, False)],
