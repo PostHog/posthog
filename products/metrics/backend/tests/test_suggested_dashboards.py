@@ -224,37 +224,31 @@ class TestSuggestedDashboards(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("all_by_default", "instance", False, [], [], True),
-            ("one_value_when_not_multi", "env", False, ["production", "staging"], ["production"], False),
-            ("several_values_when_multi", "env", True, ["production", "staging"], ["production", "staging"], False),
-            ("service_names_are_not_listed", "service_name", False, ["checkout"], [], True),
+            ("attribute", "instance", False),
+            ("several_values", "env", True),
+            ("service", "service_name", False),
         ]
     )
-    def test_attribute_variable_selects_listed_values_or_all(
-        self,
-        _name: str,
-        attribute: str,
-        multi: bool,
-        selected: list[str],
-        expected_values: list[str],
-        expected_all: bool,
+    def test_a_drafted_variable_selects_all_and_lists_the_values_of_the_opening_project(
+        self, _name: str, attribute: str, multi: bool
     ) -> None:
         converted = _convert(
             [self._draft("orders", "orders_total", 0, filters=[BuilderFilter(key=attribute, op="eq", value="$scope")])],
             Team(id=1),
             CATALOG,
-            variables=[DraftVariable(name="scope", label="Scope", attribute=attribute, multi=multi, selected=selected)],
+            variables=[DraftVariable(name="scope", label="Scope", attribute=attribute, multi=multi)],
             attributes={"orders_total": ["instance", "env"]},
-            attribute_values={"env": ["production", "staging"]},
         )
 
         assert len(converted.variables) == 1
         variable = MetricsDashboardVariable.model_validate(converted.variables[0])
         assert variable.current is not None
-        assert (variable.current.values, variable.current.all) == (expected_values, expected_all)
-        assert variable.includeAll is True
+        assert (variable.current.values, variable.current.all) == ([], True)
+        assert (variable.includeAll, variable.multi) == (True, multi)
         assert (variable.query or "").startswith(
-            "SELECT DISTINCT service_name" if attribute == "service_name" else "SELECT DISTINCT attribute_value"
+            "SELECT DISTINCT service_name FROM posthog.metric_names"
+            if attribute == "service_name"
+            else "SELECT DISTINCT attribute_value FROM posthog.metric_attributes"
         )
 
     def test_convert_drops_variables_with_unknown_attributes_or_no_panel(self) -> None:
@@ -280,7 +274,6 @@ class TestSuggestedDashboards(SimpleTestCase):
                 DraftVariable(name="__interval", label="Interval", attribute="instance"),
             ],
             attributes={"orders_total": ["instance", "job"]},
-            attribute_values={},
         )
 
         assert [variable["name"] for variable in converted.variables] == ["instance"]

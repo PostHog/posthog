@@ -62,8 +62,7 @@ service_name, the service that sends the metric, is always available for a varia
 for those. Use at most 2 variables.
 - Every panel whose metrics have the attribute refers to the variable with a filter: key is the attribute, op is \
 eq and value is $ and the variable name, for example {{"key": "service_name", "op": "eq", "value": "$service"}}.
-- Leave selected empty, so that the dashboard opens with All, unless one value from attribute_values suits every \
-project, such as production.
+- A variable selects All when the dashboard opens. A user then picks a value from their own project.
 
 Layout on the 12-column grid:
 - Row 1: 3 or 4 stat panels with the key numbers, such as throughput, error ratio, latency and saturation. \

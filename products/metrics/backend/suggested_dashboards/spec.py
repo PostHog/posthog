@@ -87,10 +87,6 @@ class DraftVariable(_Model):
     label: str = Field(description="A short label in sentence case, for example 'Service'.")
     attribute: str = Field(description="The attribute whose values the variable lists.")
     multi: bool = Field(default=False, description="True when a user can select more than one value.")
-    selected: list[str] = Field(
-        default_factory=list,
-        description="The values selected when the dashboard opens, from attribute_values. Empty selects All.",
-    )
 
 
 class DashboardDraft(_Model):

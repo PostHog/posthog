@@ -146,12 +146,10 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
     )
 
 
-def attribute_variable(
-    *, name: str, label: str, attribute: str, multi: bool = False, selected: Sequence[str] = ()
-) -> dict[str, Any]:
+def attribute_variable(*, name: str, label: str, attribute: str, multi: bool = False) -> dict[str, Any]:
     """A dashboard variable whose options are the values of one attribute in the team that opens the dashboard.
 
-    With no selected value, the variable selects All, so its filters match everything until the user picks a value.
+    It selects All, so its filters match everything until the user picks a value.
     """
     if attribute in SERVICE_ATTRIBUTES:
         # The name table has far fewer rows than the attribute table, and holds every service too.
@@ -162,7 +160,6 @@ def attribute_variable(
             "SELECT DISTINCT attribute_value FROM posthog.metric_attributes "
             f"WHERE attribute_key = '{key}' AND {OPTIONS_RANGE}"
         )
-    values = list(selected if multi else selected[:1])
     return MetricsDashboardVariable(
         name=name,
         label=label or None,
@@ -170,7 +167,7 @@ def attribute_variable(
         query=query,
         multi=multi,
         includeAll=True,
-        current=MetricsDashboardVariableSelection(values=values, all=not values),
+        current=MetricsDashboardVariableSelection(values=[], all=True),
     ).model_dump(mode="json", exclude_none=True)
 
 

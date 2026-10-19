@@ -234,7 +234,10 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         dashboard = Dashboard.objects.get(id=preview.json()["dashboard_id"])
         assert [variable["name"] for variable in dashboard.filters["metricVariables"]] == ["instance"]
         # The reviewer renames the variable and selects an instance of this project, which other projects must not see.
-        edited = attribute_variable(name="instance", label="Host", attribute="instance", selected=["web-1"])
+        edited = {
+            **attribute_variable(name="instance", label="Host", attribute="instance"),
+            "current": {"values": ["web-1"]},
+        }
         dashboard.filters = {**dashboard.filters, "metricVariables": [edited]}
         dashboard.save(update_fields=["filters"])
         approved = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/approve/")
@@ -262,9 +265,7 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         self.user.save(update_fields=["is_staff"])
         template = _template("generated-queue", "pending_review", "queue_depth", source="generated")
         _with_variable_filter(template.panels[0], "instance")
-        template.variables = [
-            attribute_variable(name="instance", label="Instance", attribute="instance", selected=["production"])
-        ]
+        template.variables = [attribute_variable(name="instance", label="Instance", attribute="instance")]
         template.source_team_id = self.team.id
         template.save(update_fields=["panels", "variables", "source_team_id"])
 
@@ -276,10 +277,8 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
 
         assert approved.status_code == status.HTTP_200_OK
         template.refresh_from_db()
-        # The template keeps its own definition, with the selection that passed the generation checks.
-        assert template.variables == [
-            attribute_variable(name="instance", label="Instance", attribute="instance", selected=["production"])
-        ]
+        # The template keeps its own definition.
+        assert template.variables == [attribute_variable(name="instance", label="Instance", attribute="instance")]
 
     @parameterized.expand(
         [

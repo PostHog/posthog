@@ -134,10 +134,9 @@ def _shared_variables(edited: Sequence[Any], original: Sequence[dict[str, Any]])
     """The variables of the preview, safe to give to every project, then the template's variables that it lacks.
 
     A definition that does not parse is left out, so the template keeps its own. So is a custom list, because its
-    values come from the preview's project, not from the project that opens the dashboard. A selection that the
-    reviewer changed can name a host or a service of the preview's project, so it becomes All.
+    values come from the preview's project, not from the project that opens the dashboard. A selection can name a
+    host or a service of the preview's project, so every variable selects All.
     """
-    previous = {str(variable.get("name")): variable.get("current") for variable in original}
     shared: list[dict[str, Any]] = []
     for item in edited:
         try:
@@ -146,11 +145,9 @@ def _shared_variables(edited: Sequence[Any], original: Sequence[dict[str, Any]])
             continue
         if variable.source == MetricsDashboardVariableSource.CUSTOM or variable.customValues:
             continue
-        current = variable.current.model_dump(mode="json", exclude_none=True) if variable.current else None
-        if current != previous.get(variable.name):
-            variable = variable.model_copy(
-                update={"includeAll": True, "current": MetricsDashboardVariableSelection(values=[], all=True)}
-            )
+        variable = variable.model_copy(
+            update={"includeAll": True, "current": MetricsDashboardVariableSelection(values=[], all=True)}
+        )
         shared.append(variable.model_dump(mode="json", exclude_none=True))
     names = {variable["name"] for variable in shared}
     return [*shared, *(variable for variable in original if variable.get("name") not in names)]

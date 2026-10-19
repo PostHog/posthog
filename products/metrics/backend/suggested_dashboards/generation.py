@@ -187,12 +187,8 @@ class _Converted:
     accepted_variables: tuple[DraftVariable, ...] = ()
 
 
-def _valid_variables(
-    drafts: Sequence[DraftVariable],
-    attributes: Mapping[str, Sequence[str]],
-    attribute_values: Mapping[str, Sequence[str]],
-) -> list[DraftVariable]:
-    """The drafted variables that list a known attribute. A selected value that is not listed makes the variable All."""
+def _valid_variables(drafts: Sequence[DraftVariable], attributes: Mapping[str, Sequence[str]]) -> list[DraftVariable]:
+    """The drafted variables that list a known attribute, with unique names."""
     known = {key for keys in attributes.values() for key in keys} | SERVICE_ATTRIBUTES
     valid: list[DraftVariable] = []
     for draft in drafts:
@@ -205,10 +201,7 @@ def _valid_variables(
             or any(variable.name == draft.name for variable in valid)
         ):
             continue
-        listed = set(attribute_values.get(draft.attribute, ()))
-        # An unlisted value, such as a service name, belongs to one project, and the template is for every project.
-        selected = draft.selected if all(value in listed for value in draft.selected) else []
-        valid.append(draft.model_copy(update={"selected": selected if draft.multi else selected[:1]}))
+        valid.append(draft)
     return valid
 
 
@@ -232,13 +225,13 @@ def _convert(
     *,
     variables: Sequence[DraftVariable] = (),
     attributes: Mapping[str, Sequence[str]] | None = None,
-    attribute_values: Mapping[str, Sequence[str]] | None = None,
 ) -> _Converted:
     """Check each drafted query as PostHog would run it, and keep the panels that pass, with no overlapping boxes.
 
-    A drafted variable stays when it lists a known attribute and a kept panel refers to it.
+    A drafted variable stays when it lists a known attribute and a kept panel refers to it. It selects All, because
+    the template is for every project and a value of the source project must not reach the others.
     """
-    valid_variables = _valid_variables(variables, attributes or {}, attribute_values or {})
+    valid_variables = _valid_variables(variables, attributes or {})
     drafts = [_with_known_references(draft, {variable.name for variable in valid_variables}) for draft in drafts]
     validator = PanelValidator(team=team, catalog=catalog, promql_available=False)
     queries = {draft.key: PanelQuery(language="builder", builder=draft.query) for draft in drafts}
@@ -284,7 +277,6 @@ def _convert(
                 label=" ".join(variable.label.split())[:100],
                 attribute=variable.attribute,
                 multi=variable.multi,
-                selected=variable.selected,
             )
             for variable in kept_variables
         ),
@@ -328,7 +320,6 @@ def draft_template(template_id: str) -> int:
         context.catalog,
         variables=draft.variables,
         attributes=attributes.keys,
-        attribute_values=attributes.values,
     )
     template.name = " ".join(draft.name.split())[:200] or template.name
     template.description = " ".join(draft.description.split())[:300] or template.description
@@ -454,7 +445,6 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
             context.catalog,
             variables=critique.variables,
             attributes=record.attributes,
-            attribute_values=record.attribute_values,
         )
         if converted.panels:
             current.revised = True
