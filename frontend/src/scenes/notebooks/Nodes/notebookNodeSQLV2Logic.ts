@@ -130,6 +130,8 @@ export interface RunQueryOptions {
     // code to it verbatim. Absent means PostHog's own ClickHouse.
     connectionId?: string | null
     sendRawQuery?: boolean
+    // Python cells only: the warehouse table to save the result dataframe to.
+    warehouseTableName?: string | null
 }
 
 // What an open editor holds right now, for the callers that can read it — the document only
@@ -678,6 +680,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         ...(variables.length ? { variables } : {}),
                         node_type: opts.nodeType,
                         output_name: opts.outputName,
+                        ...(opts.warehouseTableName ? { warehouse_table_name: opts.warehouseTableName } : {}),
                         // Omitted entirely for a PostHog cell — the backend's defaults say the same
                         // thing, and every existing run body stays byte-identical.
                         ...(opts.connectionId
@@ -732,7 +735,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 // downstream cells reference, which is what a rerouted run has to bind.
                 const opts: RunQueryOptions =
                     self.nodeType === NotebookNodeType.PythonV2
-                        ? { nodeType: 'python', outputName: self.returnVariable }
+                        ? {
+                              nodeType: 'python',
+                              outputName: self.returnVariable,
+                              warehouseTableName: self.warehouseTableName,
+                          }
                         : {
                               outputName: self.returnVariable,
                               connectionId:

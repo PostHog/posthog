@@ -187,6 +187,17 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
             "first. Ignored without connection_id, and incompatible with references to other cells."
         ),
     )
+    warehouse_table_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=128,
+        help_text=(
+            "Python nodes only: also save the result dataframe as a data warehouse table with this name, "
+            "replacing the table a previous notebook run saved. Omit or leave empty to save no table."
+        ),
+    )
 
 
 class NotebookSQLV2PageRequestSerializer(serializers.Serializer):
@@ -274,6 +285,15 @@ class NotebookSQLV2FrameSerializer(serializers.Serializer):
     )
 
 
+class NotebookSQLV2WarehouseTableSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the data warehouse table the run saved its dataframe to.")
+    error = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Why the table wasn't saved. Absent or null when the save succeeded.",
+    )
+
+
 class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop).")
     frames = NotebookSQLV2FrameSerializer(
@@ -345,6 +365,13 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=True,
         help_text="Error message when status is 'error'.",
+    )
+    warehouse_table = NotebookSQLV2WarehouseTableSerializer(
+        required=False,
+        help_text=(
+            "Python nodes only: the outcome of saving the result dataframe as a data warehouse table. "
+            "Absent when the run didn't ask to save one."
+        ),
     )
     timings = LenientTimingsField(
         required=False,

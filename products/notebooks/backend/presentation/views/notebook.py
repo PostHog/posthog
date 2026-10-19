@@ -2022,6 +2022,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             send_raw_query=bool(serializer.validated_data["send_raw_query"]) and connection_id is not None,
             reuse_results=serializer.validated_data["reuse_results"],
             allow_sandbox=full_compute_enabled,
+            warehouse_table_name=(serializer.validated_data["warehouse_table_name"] or "").strip() or None,
         )
         try:
             dispatch = dispatch_cell_run(

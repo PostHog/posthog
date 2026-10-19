@@ -35,11 +35,13 @@ import uuid
 import base64
 import logging
 import warnings
+import urllib.request
 from typing import Any, NamedTuple
 
 import duckdb
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 from IPython.core.displayhook import DisplayHook
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.utils.capture import capture_output
@@ -49,6 +51,7 @@ from . import envelope
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PREVIEW_ROWS = 50
+_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS = 300
 # The envelope is stored whole in a Postgres row (the full frame stays in a local Arrow
 # file), so every unbounded piece gets a cap here; the callback endpoint enforces a total
 # byte limit as the backstop.
@@ -393,7 +396,7 @@ class KernelSession:
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         # result_id keys the on-disk frame for paging — only advertise one that actually exists.
         result_id = self._write_result_frame(result_df) if result_df is not None else None
-        return envelope.from_python_execution(
+        result = envelope.from_python_execution(
             status="ok",
             stdout=stdout,
             stderr=stderr,
@@ -406,6 +409,9 @@ class KernelSession:
             result_id=result_id,
             result_text=result_text,
         )
+        if upload_url := node.get("warehouse_upload_url"):
+            result["warehouse_upload"] = self._upload_warehouse_table(result_df, str(upload_url))
+        return result
 
     def _result_text(self, value: Any, code: str) -> str:
         """The cell's last value as Jupyter's `Out[n]` shows it. A frame shows as the table instead.
@@ -601,6 +607,25 @@ class KernelSession:
             media.append({"mime_type": "image/png", "data": data})
         self._plt.close("all")
         return media, omitted
+
+    def _upload_warehouse_table(self, df: "pd.DataFrame | None", upload_url: str) -> dict[str, Any]:
+        """PUT the frame as Parquet to the presigned warehouse URL; return {"ok": bool, "error": str}."""
+        if df is None:
+            return {"ok": False, "error": "This run didn't produce a dataframe to save."}
+        try:
+            buffer = io.BytesIO()
+            pq.write_table(pa.Table.from_pandas(df, preserve_index=False), buffer)
+            request = urllib.request.Request(upload_url, data=buffer.getvalue(), method="PUT")
+            # upload_url is a presigned object-store URL from the signed run payload, never user-controlled.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(request, timeout=_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS):
+                pass
+        except (pa.ArrowException, ValueError, TypeError) as exc:
+            return {"ok": False, "error": f"The dataframe can't be written as a table: {exc}"}
+        except Exception:  # noqa: BLE001 — a failed upload must not fail a run whose compute succeeded
+            logger.exception("nb_kernel warehouse table upload failed")
+            return {"ok": False, "error": "The dataframe couldn't be uploaded to the warehouse."}
+        return {"ok": True}
 
     def _write_result_frame(self, df: "pd.DataFrame") -> str | None:
         """Write the frame for later paging; return its result_id, or None if the write failed."""

@@ -1,10 +1,14 @@
+import io
 import os
 import json
 import tempfile
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.notebooks.backend.sandbox.kernel.bootstrap import _MEDIA_MAX_FIGURES, KernelSession
@@ -34,6 +38,26 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["columns"], ["a", "b"])
         self.assertEqual(envelope["first_page"], [[1, 3], [2, 4]])
         self.assertEqual(envelope["row_count"], 2)
+
+    @parameterized.expand(
+        [
+            ("frame", "import pandas as pd\npd.DataFrame({'a': [1, 2]})", {"ok": True}),
+            ("no_frame", "x = 1", {"ok": False, "error": "This run didn't produce a dataframe to save."}),
+        ]
+    )
+    def test_uploads_the_frame_as_parquet_to_the_warehouse_url(self, _name, code, expected):
+        with patch("products.notebooks.backend.sandbox.kernel.bootstrap.urllib.request.urlopen") as urlopen:
+            envelope = self.session.run_node(
+                {"node": {"type": "python", "code": code, "warehouse_upload_url": "https://bucket.example.com/put"}}
+            )
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["warehouse_upload"], expected)
+        if expected["ok"]:
+            request = urlopen.call_args.args[0]
+            self.assertEqual((request.method, request.full_url), ("PUT", "https://bucket.example.com/put"))
+            self.assertEqual(pq.read_table(io.BytesIO(request.data)).to_pydict(), {"a": [1, 2]})
+        else:
+            urlopen.assert_not_called()
 
     def test_output_name_frame_is_previewed_over_last_expression(self):
         envelope = self._run("import pandas as pd\nresult = pd.DataFrame({'x': [9]})\n1 + 1", output_name="result")

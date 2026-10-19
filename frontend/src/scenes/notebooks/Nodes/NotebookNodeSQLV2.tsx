@@ -36,6 +36,12 @@ import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
 
+export type NotebookNodeSQLV2WarehouseTable = {
+    name: string
+    // Why the save failed, or null when it worked.
+    error?: string | null
+}
+
 export type NotebookNodeSQLV2Result = {
     columns: string[]
     types?: [string, string][]
@@ -49,6 +55,8 @@ export type NotebookNodeSQLV2Result = {
     media?: NotebookNodeSQLV2Media[]
     // A Python node's last expression as text, for a value that is not a dataframe.
     result_text?: string
+    // A Python node's save of its dataframe to a warehouse table, when the run asked for one.
+    warehouse_table?: NotebookNodeSQLV2WarehouseTable
 }
 
 export type NotebookNodeSQLV2Attributes = {

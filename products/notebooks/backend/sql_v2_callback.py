@@ -6,6 +6,7 @@ posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 """
 
 import json
+from typing import Any
 
 from django.core import signing
 from django.db.models import Q
@@ -15,6 +16,9 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import NotebookTableError, save_notebook_table
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
@@ -98,6 +102,9 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         "interrupted": NotebookNodeRun.Status.INTERRUPTED,
     }
     run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
+    warehouse_upload = envelope.pop("warehouse_upload", None)
+    if run.status == NotebookNodeRun.Status.DONE and run.warehouse_table_name:
+        envelope["warehouse_table"] = _save_warehouse_table(run, team_id, warehouse_upload)
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
@@ -130,6 +137,26 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         record_node_run_terminal(run, outcome_for_status(run.status))
 
     return JsonResponse({"ok": True})
+
+
+def _save_warehouse_table(run: NotebookNodeRun, team_id: int, upload: Any) -> dict[str, str | None]:
+    """Point the run's warehouse table at the Parquet object the sandbox uploaded.
+
+    The name comes from the run row, not the envelope: the sandbox runs user code, so it only
+    reports whether the upload worked.
+    """
+    name = run.warehouse_table_name or ""
+    if not isinstance(upload, dict) or upload.get("ok") is not True:
+        error = upload.get("error") if isinstance(upload, dict) else None
+        return {"name": name, "error": str(error or "The sandbox didn't upload the dataframe.")}
+    try:
+        save_notebook_table(team_id, name, run.user_id)
+    except NotebookTableError as e:
+        return {"name": name, "error": str(e)}
+    except Exception as e:
+        capture_exception(e)
+        return {"name": name, "error": "The warehouse table couldn't be saved."}
+    return {"name": name, "error": None}
 
 
 def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: int) -> None:

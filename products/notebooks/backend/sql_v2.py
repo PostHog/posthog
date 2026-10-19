@@ -27,6 +27,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
+from products.data_warehouse.backend.facade.api import presign_notebook_table_upload
 from products.notebooks.backend.kernel_package import (
     BAKED_PACKAGE_ROOT,
     BAKED_VERSION_PATH,
@@ -454,6 +455,12 @@ def dispatch_sql_v2_run(
             "output_name": output_name,
             "variables": variables or {},
         }
+        if run.warehouse_table_name:
+            # The URL only reaches the key for this team and table name, so the sandbox can't
+            # write anywhere else in the bucket.
+            payload["node"]["warehouse_upload_url"] = presign_notebook_table_upload(
+                notebook.team_id, run.warehouse_table_name
+            )
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code

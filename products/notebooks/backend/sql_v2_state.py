@@ -78,6 +78,8 @@ class NotebookCellState:
     # cell's own terms — not just the editor, which passes them per request — needs them.
     connection_id: str | None = None
     send_raw_query: bool = False
+    # A Python cell's data warehouse table for its result dataframe, or None to save no table.
+    warehouse_table_name: str | None = None
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
@@ -175,6 +177,11 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         if cell_type == "saved_insight" and not (isinstance(code, str) and code.strip()):
             dataframe_name = ""
         connection_id = props.get("connectionId")
+        warehouse_table_name = props.get("warehouseTableName")
+        if not (
+            cell_type == "python" and props.get("saveToWarehouse") is True and isinstance(warehouse_table_name, str)
+        ):
+            warehouse_table_name = None
         cells.append(
             NotebookCellState(
                 node_id=node_id,
@@ -183,6 +190,7 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
                 code=code if isinstance(code, str) else "",
                 connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
                 send_raw_query=props.get("sendRawQuery") is True,
+                warehouse_table_name=warehouse_table_name.strip() or None if warehouse_table_name else None,
                 visualization=_visualization_from_props(props) if tag_name == "SQLV2" else None,
             )
         )

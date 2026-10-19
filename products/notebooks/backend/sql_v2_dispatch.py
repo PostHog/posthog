@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
+from products.data_warehouse.backend.facade.api import NotebookTableError, validate_notebook_table_name
 from products.notebooks.backend.compute_pricing import get_compute_rates
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -104,6 +105,8 @@ class NodeRunRequest:
     allow_sandbox: bool = True
     # Set when a whole-notebook run started this cell, so the status endpoint can find it.
     notebook_run_id: UUID | None = None
+    # Python cells only: the data warehouse table the result dataframe is also saved to.
+    warehouse_table_name: str | None = None
 
 
 @frozen
@@ -433,6 +436,14 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
     ):
         raise NodeRunInvalid(INVALID_CONNECTION_ID_ERROR)
 
+    if request.warehouse_table_name:
+        if request.node_type != "python":
+            raise NodeRunInvalid("Only Python cells can save their dataframe as a warehouse table.")
+        try:
+            validate_notebook_table_name(team.id, request.warehouse_table_name, user.id if user is not None else None)
+        except NotebookTableError as e:
+            raise NodeRunInvalid(str(e)) from e
+
     plan = _build_plan(request, resolve_refs(team.id, notebook, request))
 
     # Reading a sibling's kernel frame reroutes a hogql request to the sandbox's DuckDB, so the
@@ -478,6 +489,7 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
             node_type=plan.node_type,
             connection_id=request.connection_id,
             send_raw_query=request.send_raw_query,
+            warehouse_table_name=request.warehouse_table_name or None,
             status=NotebookNodeRun.Status.RUNNING,
         )
     except Exception:

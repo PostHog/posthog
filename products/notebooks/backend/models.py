@@ -344,6 +344,10 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # are transient (starting/stopped/discarded/error) and run history must not be coupled
     # to their churn.
     kernel_runtime_id = models.UUIDField(null=True, blank=True)
+    # The data warehouse table this run writes its result dataframe to, or null for no table.
+    # Stored at dispatch, so the callback saves the table the user asked for, never a name the
+    # sandbox reports.
+    warehouse_table_name = models.CharField(max_length=128, null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -712,6 +712,7 @@ depends_on = [
     "posthog",
     "products.canvas",
     "products.dashboards",
+    "products.data_warehouse",
     "products.product_analytics",
     "products.tasks", "products.access_control",
 ]
