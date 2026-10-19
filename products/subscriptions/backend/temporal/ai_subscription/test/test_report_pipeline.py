@@ -13,8 +13,8 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryErr
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
-from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.charts import (
     ChartFailureReason,
     ChartRenderFailure,

@@ -103,7 +103,7 @@ function DashboardEmptyActions({
                                 'data-attr': 'dashboard-add-dropdown',
                             }}
                         >
-                            Add an existing chart
+                            Add a chart
                         </LemonButton>
                     </AccessControlAction>
                 )}
