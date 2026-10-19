@@ -21,8 +21,8 @@ ENABLE_WAITING_MAX_RETRIES = 5
 
 enable_waiting_failed_total = Counter(
     "workflows_enable_waiting_failed_total",
-    "Verified email senders whose waiting workflows could not go live after the last retry. "
-    "Those workflows keep waiting until a person enables them again.",
+    "Verified email senders whose waiting workflows could not go live, because the task could not be queued "
+    "or failed after its last retry. Those workflows keep waiting until a person enables them again.",
 )
 
 
@@ -48,6 +48,15 @@ def enable_waiting_workflows_task(self, team_id: int, sender_ids: list[int]) -> 
         enable_waiting_failed_total.inc()
         return
     _send_events(team_id, changes)
+
+
+# Runs after the verification committed, so a broker failure must not fail the request that verified the domain.
+def queue_enable_waiting_workflows(*, team_id: int, sender_ids: list[int]) -> None:
+    try:
+        enable_waiting_workflows_task.delay(team_id=team_id, sender_ids=sender_ids)
+    except Exception:
+        logger.exception("workflows.enable_waiting.failed", team_id=team_id, sender_ids=sender_ids)
+        enable_waiting_failed_total.inc()
 
 
 def _send_events(team_id: int, changes: Sequence[StatusChange]) -> None:
