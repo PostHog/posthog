@@ -11,7 +11,6 @@ export const ERROR_TRACKING_TICKET_TITLE = `{substring(replaceAll(notEmpty(${EXC
 // A Markdown list because GitLab joins consecutive plain lines into one paragraph.
 export const ERROR_TRACKING_TICKET_DESCRIPTION = [
     `{${EXCEPTION_MESSAGE}}\n`,
-    ticketLine('URL', 'event.properties.$current_url'),
     ticketLine('Browser', "trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))"),
     ticketLine('OS', "trim(concat(event.properties.$os, ' ', event.properties.$os_version))"),
     ticketLine('Release', 'event.properties.$exception_release.version'),

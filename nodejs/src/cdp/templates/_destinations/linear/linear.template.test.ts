@@ -50,7 +50,7 @@ describe('linear template', () => {
                 properties: {
                     $exception_types: ['RangeError'],
                     $exception_values: ['Invalid Date'],
-                    $current_url: 'https://example.com/checkout',
+                    $current_url: 'https://example.com/reset?token=secret',
                     $session_id: 'session-1',
                     $exception_list: [
                         {
@@ -74,8 +74,9 @@ describe('linear template', () => {
         expect(response.error).toBeUndefined()
         const mutation = parseJSON((response.invocation.queueParameters as any).body).query
         expect(mutation).toContain('title: "RangeError: Invalid Date"')
+        expect(mutation).not.toContain('token=secret')
         expect(mutation).toContain(
-            'description: "Invalid Date\\n\\n- URL: https://example.com/checkout\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1\\n\\n```\\n  File \\"src/checkout.ts\\", line: 42, in: parseDate\\n```"'
+            'description: "Invalid Date\\n\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1\\n\\n```\\n  File \\"src/checkout.ts\\", line: 42, in: parseDate\\n```"'
         )
     })
 })

@@ -32,7 +32,6 @@ const ERROR_TRACKING_TICKET_TITLE =
 
 const ERROR_TRACKING_TICKET_DESCRIPTION = [
     '{event.properties.description}\n',
-    errorTrackingTicketLine('URL', 'event.properties.$current_url'),
     errorTrackingTicketLine(
         'Browser',
         "trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))"

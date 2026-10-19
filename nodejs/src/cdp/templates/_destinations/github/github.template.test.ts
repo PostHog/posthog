@@ -37,9 +37,18 @@ describe('github template', () => {
         expect(body.body).toContain(expectedLinkPart)
     })
 
+    const appFrame = (name: string): Record<string, any> => ({
+        source: `src/${name}.ts`,
+        line: 1,
+        resolved_name: name,
+        resolved: true,
+        in_app: true,
+    })
+    const minifiedFrame = { source: 'main.3f9a.js', line: 1, mangled_name: 't.e', resolved: false, in_app: true }
+
     it.each<[string, Record<string, any>, string, string]>([
         [
-            'adds a line for each context property and the resolved in-app frames, crash site first',
+            'adds the context lines and the resolved in-app frames, crash site first',
             {
                 $exception_types: ['RangeError'],
                 $exception_values: ['Invalid Date\nvalue: abc'],
@@ -54,12 +63,20 @@ describe('github template', () => {
                                     resolved: true,
                                     in_app: false,
                                 },
-                                { source: 'src/main.ts', line: 3, resolved_name: 'main', resolved: true, in_app: true },
-                                { source: 'main.3f9a.js', line: 1, mangled_name: 't.e', resolved: false, in_app: true },
                                 {
-                                    source: 'src/checkout.ts',
+                                    source: '/Users/alice/projects/shop/src/main.ts',
+                                    line: 3,
+                                    resolved_name: 'main',
+                                    resolved: true,
+                                    in_app: true,
+                                    code_variables: { password: 'hunter2' },
+                                    context: { line: { number: 3, line: 'const apiKey = "sk_live_example"' } },
+                                },
+                                minifiedFrame,
+                                {
+                                    source: 'https://app.example.com/static/js/src/checkout.ts?token=secret#frag',
                                     line: 42,
-                                    resolved_name: 'parseDate',
+                                    resolved_name: 'parse`Date`',
                                     resolved: true,
                                     in_app: true,
                                 },
@@ -67,7 +84,7 @@ describe('github template', () => {
                         },
                     },
                 ],
-                $current_url: 'https://example.com/checkout',
+                $current_url: 'https://example.com/reset?token=secret#access_token=abc',
                 $browser: 'Chrome',
                 $browser_version: 129,
                 $os: 'Mac OS X',
@@ -77,26 +94,50 @@ describe('github template', () => {
                 $recording_status: 'active',
             },
             'RangeError: Invalid Date value: abc',
-            'Invalid Date\nvalue: abc\n\n- URL: https://example.com/checkout\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "src/checkout.ts", line: 42, in: parseDate\n  File "src/main.ts", line: 3, in: main\n```',
+            'Invalid Date\nvalue: abc\n\n- Browser: Chrome 129\n- OS: Mac OS X 10.15.7\n- Release: 1.4.2\n- Session replay: https://us.posthog.com/projects/1/replay/session%2F1\n\n```\n  File "js/src/checkout.ts", line: 42, in: parse\'Date\'\n  File "shop/src/main.ts", line: 3, in: main\n```',
         ],
         [
             'leaves out missing lines, replay when recording was off, and a trace with no resolved frame',
             {
                 $exception_types: ['RangeError'],
                 $exception_values: [''],
-                $exception_list: [
-                    {
-                        stacktrace: {
-                            frames: [{ source: 'main.3f9a.js', mangled_name: 't.e', resolved: false, in_app: true }],
-                        },
-                    },
-                ],
+                $exception_list: [{ stacktrace: { frames: [minifiedFrame] } }],
                 $browser: 'Chrome',
                 $session_id: 'session-1',
                 $recording_status: 'disabled',
             },
             'RangeError',
             '\n\n- Browser: Chrome',
+        ],
+        [
+            'shows at most 5 frames',
+            {
+                $exception_types: ['RangeError'],
+                $exception_values: ['Invalid Date'],
+                $exception_list: [{ stacktrace: { frames: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(appFrame) } }],
+            },
+            'RangeError: Invalid Date',
+            'Invalid Date\n\n\n```\n  File "src/g.ts", line: 1, in: g\n  File "src/f.ts", line: 1, in: f\n  File "src/e.ts", line: 1, in: e\n  File "src/d.ts", line: 1, in: d\n  File "src/c.ts", line: 1, in: c\n```',
+        ],
+        [
+            'reads only the last 50 frames of a deep stack',
+            {
+                $exception_types: ['RangeError'],
+                $exception_values: ['Invalid Date'],
+                $exception_list: [{ stacktrace: { frames: [appFrame('a'), ...Array(50).fill(minifiedFrame)] } }],
+            },
+            'RangeError: Invalid Date',
+            'Invalid Date\n',
+        ],
+        [
+            'leaves out the trace of a stack over 2000 frames',
+            {
+                $exception_types: ['RangeError'],
+                $exception_values: ['Invalid Date'],
+                $exception_list: [{ stacktrace: { frames: [...Array(2000).fill(minifiedFrame), appFrame('a')] } }],
+            },
+            'RangeError: Invalid Date',
+            'Invalid Date\n',
         ],
     ])('%s', async (_name, properties, expectedTitle, expectedDescription) => {
         const { title: _title, description: _description, ...inputs } = baseInputs
@@ -105,6 +146,9 @@ describe('github template', () => {
         expect(response.error).toBeUndefined()
         const body = parseJSON((response.invocation.queueParameters as any).body)
         expect(body.title).toEqual(expectedTitle)
+        for (const secret of ['token=', 'access_token', 'alice', 'hunter2', 'sk_live']) {
+            expect(JSON.stringify(body)).not.toContain(secret)
+        }
         expect(body.body).toEqual(
             `${expectedDescription}\n\n[View in PostHog](https://us.posthog.com/projects/1/error-tracking/issue-uuid)`
         )
