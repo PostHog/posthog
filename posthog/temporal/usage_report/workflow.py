@@ -52,16 +52,20 @@ from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounter
 # with ~40 simultaneous heavy queries.
 QUERY_CONCURRENCY = 4
 SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
-SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+WORKFLOW_AI_CREDITS_QUERY_PATCH_ID = "usage-report-workflow-ai-credits-query-2026-10"
+# Histories recorded before a patch never scheduled its query, so replay must skip it.
+PATCHED_QUERY_NAMES = {
+    SANDBOX_COMPUTE_QUERY_PATCH_ID: "sandbox_compute_usage",
+    WORKFLOW_AI_CREDITS_QUERY_PATCH_ID: "teams_with_workflow_ai_credits_used_in_period",
+}
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
 AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"
 
 
-def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
-    if patch_applied:
-        return QUERIES
-    return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+def _queries_for_applied_patches(applied_patch_ids: set[str]) -> list[QuerySpec]:
+    skipped_names = {name for patch_id, name in PATCHED_QUERY_NAMES.items() if patch_id not in applied_patch_ids}
+    return [spec for spec in QUERIES if spec.name not in skipped_names]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -123,7 +127,9 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         status = "FAILED"
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
-            queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_applied_patches(
+                {patch_id for patch_id in PATCHED_QUERY_NAMES if workflow.patched(patch_id)}
+            )
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(
                     plan_usage_counters,

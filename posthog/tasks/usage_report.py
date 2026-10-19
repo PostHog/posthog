@@ -296,6 +296,7 @@ class UsageReportCounters:
 
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
+    workflow_ai_credits_used_in_period: int
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
@@ -1804,6 +1805,9 @@ POSTHOG_AI_PRODUCTS = [
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis", "account_audit")
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
+# Also in POSTHOG_AI_PRODUCTS until billing prices a Workflows AI credits line.
+WORKFLOWS_AI_PRODUCTS = ["workflows"]
+
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
     """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
@@ -2057,6 +2061,23 @@ def get_teams_with_ai_credits_used_in_period(
         end,
         ai_products=POSTHOG_AI_PRODUCTS,
         usage_report_tag="ai_credits",
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_ai_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, credits) rows are the usage-report contract the other AI credits queries share.
+) -> list[tuple[int, int]]:
+    """Workflows AI credits — generations tagged ai_product='workflows', at cost plus the PostHog AI markup."""
+    return _get_teams_with_ai_credits_for_products(
+        begin,
+        end,
+        ai_products=WORKFLOWS_AI_PRODUCTS,
+        usage_report_tag="workflow_ai_credits",
+        product_tag=Product.WORKFLOWS,
     )
 
 
@@ -2914,6 +2935,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
+        or report.workflow_ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
@@ -3216,6 +3238,9 @@ def _get_all_usage_data(
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
+        "teams_with_workflow_ai_credits_used_in_period": get_teams_with_workflow_ai_credits_used_in_period(
+            period_start, period_end
+        ),
         "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
         "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
@@ -3461,6 +3486,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
+        workflow_ai_credits_used_in_period=all_data["teams_with_workflow_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
             all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),

@@ -89,6 +89,7 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_logs_bytes_in_period": {team_a_id: 3_500_000, team_b_id: 600_000},
         "teams_with_logs_retention_30d_bytes_in_period": {team_a_id: 2_500_000},
         "teams_with_posthog_code_credits_used_in_period": {team_a_id: 321},
+        "teams_with_workflow_ai_credits_used_in_period": {team_a_id: 120, team_b_id: 24},
         "teams_with_sandbox_compute_credits_used_in_period": {team_a_id: 9},
         "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": {team_b_id: 1_000},
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": {team_b_id: 2_000},
@@ -462,6 +463,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         16 if resolved_mode == "realtime" else 24
     )
     assert temporal_per_org[str(org_a.id)]["posthog_code_credits_used_in_period"] == 321 + 9
+    assert temporal_per_org[str(org_a.id)]["workflow_ai_credits_used_in_period"] == 120 + 24
     assert temporal_per_org[str(org_a.id)]["sandbox_compute_memory_mib_seconds_in_period"] == 2_000
     assert temporal_per_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 4
     assert (str(idle_org.id) in temporal_per_org) == (resolved_mode == "realtime")

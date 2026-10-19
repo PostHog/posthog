@@ -2395,6 +2395,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("logs_bytes", "logs_bytes_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
             ("posthog_code_credits", "posthog_code_credits_used_in_period"),
+            ("workflow_ai_credits", "workflow_ai_credits_used_in_period"),
         ]
     )
     def test_has_non_zero_usage(self, _name: str, non_zero_field: str | None) -> None:
@@ -5135,10 +5136,17 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertEqual(result, [])
 
+    @parameterized.expand(
+        [
+            ("posthog_code_bills_at_cost", "posthog_code", "get_teams_with_posthog_code_credits_used_in_period", 200),
+            ("workflows_bills_with_markup", "workflows", "get_teams_with_workflow_ai_credits_used_in_period", 240),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_posthog_code_credits_only_counts_posthog_code_events(self, mock_region: MagicMock) -> None:
-        """The posthog_code query only counts generations tagged ai_product='posthog_code'."""
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+    def test_product_credits_only_count_their_own_ai_product(
+        self, _name: str, ai_product: str, query_name: str, expected_credits: int, mock_region: MagicMock
+    ) -> None:
+        from posthog.tasks import usage_report
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -5148,7 +5156,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         period = get_previous_day(at=now() + relativedelta(days=1))
 
-        # PostHog Desktop event — should appear only in posthog_code credits
         _create_event(
             event="$ai_generation",
             team=analytics_team,
@@ -5159,12 +5166,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_posthog_code",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
-                "ai_product": "posthog_code",
+                "ai_product": ai_product,
                 "$group_1": "https://us.posthog.com",
             },
         )
 
-        # Event tagged with a different ai_product — must never leak into posthog_code credits.
+        # Event tagged with a different ai_product — must never leak into this product's credits.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
@@ -5190,7 +5197,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_task_analysis",
                 "$ai_total_cost_usd": 5.0,
                 "$ai_billable": True,
-                "ai_product": "posthog_code",
+                "ai_product": ai_product,
                 "task_origin_product": "task_analysis",
                 "$group_1": "https://us.posthog.com",
             },
@@ -5206,7 +5213,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_account_audit",
                 "$ai_total_cost_usd": 5.0,
                 "$ai_billable": True,
-                "ai_product": "posthog_code",
+                "ai_product": ai_product,
                 "task_origin_product": "account_audit",
                 "$group_1": "https://us.posthog.com",
             },
@@ -5214,10 +5221,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
+        result = getattr(usage_report, query_name)(period.start, period.end)
 
-        # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
-        self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 200)])
+        self.assertEqual(result, [(self.org_1_team_1.id, expected_credits)])
 
     @parameterized.expand(
         [

@@ -26,7 +26,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
-    add_pre_sandbox_compute_patch_defaults,
+    add_pre_patch_query_defaults,
     build_manifest,
     iter_chunk_lines,
     load_all_data,
@@ -157,19 +157,25 @@ def test_load_all_data_multi_output_missing_source_key_yields_empty() -> None:
     assert all_data["teams_with_ruby_events_count_in_period"] == {}
 
 
-def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None:
+def test_load_all_data_defaults_patched_queries_for_pre_patch_workflow_history() -> None:
     all_data: dict[str, dict[int, int]] = {}
-    add_pre_sandbox_compute_patch_defaults(all_data, [])
+    add_pre_patch_query_defaults(all_data, [])
 
-    assert all_data["teams_with_sandbox_compute_credits_used_in_period"] == {}
-    assert all_data["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"] == {}
-    assert all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"] == {}
+    assert all_data == {
+        "teams_with_sandbox_compute_credits_used_in_period": {},
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": {},
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period": {},
+        "teams_with_workflow_ai_credits_used_in_period": {},
+    }
 
 
-def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:
+def test_load_all_data_does_not_default_patched_queries_for_patched_workflow_history() -> None:
     all_data: dict[str, dict[int, int]] = {}
-    results = [RunQueryToS3Result(query_name="sandbox_compute_usage", s3_key="unused", duration_ms=1)]
-    add_pre_sandbox_compute_patch_defaults(all_data, results)
+    results = [
+        RunQueryToS3Result(query_name=query_name, s3_key="unused", duration_ms=1)
+        for query_name in ("sandbox_compute_usage", "teams_with_workflow_ai_credits_used_in_period")
+    ]
+    add_pre_patch_query_defaults(all_data, results)
 
     assert all_data == {}
 

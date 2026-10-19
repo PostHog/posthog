@@ -47,11 +47,11 @@ from posthog.temporal.usage_report.types import (
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
+    PATCHED_QUERY_NAMES,
     QUERY_CONCURRENCY,
-    SANDBOX_COMPUTE_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
-    _queries_for_sandbox_compute_patch,
+    _queries_for_applied_patches,
     build_context,
 )
 from posthog.usage_counters import (
@@ -63,9 +63,11 @@ from posthog.usage_counters import (
 )
 
 
-def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
-    assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
-    assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
+@parameterized.expand(PATCHED_QUERY_NAMES.items())
+def test_patched_query_is_versioned_for_existing_histories(patch_id: str, query_name: str) -> None:
+    other_patch_ids = set(PATCHED_QUERY_NAMES) - {patch_id}
+    assert query_name not in [spec.name for spec in _queries_for_applied_patches(other_patch_ids)]
+    assert query_name in [spec.name for spec in _queries_for_applied_patches(set(PATCHED_QUERY_NAMES))]
 
 
 @parameterized.expand(
