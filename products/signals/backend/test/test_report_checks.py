@@ -87,6 +87,7 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    authored_monitoring_interval_minutes,
     parse_check_config,
     validate_metric_check_for_write,
 )
@@ -462,6 +463,31 @@ class TestAgentCheckConfig(SimpleTestCase):
 
 
 class TestCheckScheduleValidation(SimpleTestCase):
+    @parameterized.expand(
+        [("metric_threshold", _threshold_config()), ("agent", {"instructions": "Check the issue again."})]
+    )
+    def test_research_cannot_add_monitoring_cadence_to_other_checks(self, kind: str, config: dict[str, object]) -> None:
+        with self.assertRaises(PydanticValidationError):
+            CheckSpec.model_validate(
+                {"title": "Check recovery", "kind": kind, "config": config, "run_interval_minutes": 360}
+            )
+
+    @parameterized.expand(
+        [
+            ("short", 4, None, None),
+            ("exact_floor", 6, None, None),
+            ("one_sample", 8, None, 360),
+            ("daily", 24, None, 360),
+            ("two_days", 48, None, 720),
+            ("weekly", 168, None, 1440),
+            ("authored", 24, 480, 480),
+        ]
+    )
+    def test_monitoring_cadence_fits_the_window(
+        self, _name: str, soak_hours: int, interval: int | None, expected: int | None
+    ) -> None:
+        assert authored_monitoring_interval_minutes(soak_hours * 60, interval) == expected
+
     @parameterized.expand(
         [
             ("first_run_in_the_past", {"next_run_at": "2020-01-01T00:00:00Z"}, "next_run_at"),
@@ -2898,19 +2924,89 @@ class TestResearchAuthoredChecks(APIBaseTest):
         payload.update(overrides)
         return CheckSpec.model_validate(payload)
 
-    def test_a_spec_becomes_a_pending_check_carrying_the_metrics_query(self) -> None:
-        with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
-            written = create_checks_from_specs(
-                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-            ).created
+    @parameterized.expand(
+        [("legacy", False, False), ("enabled", True, True), ("disabled", True, False), ("unavailable", True, None)]
+    )
+    def test_a_spec_becomes_a_pending_check_carrying_the_metrics_query(
+        self, _name: str, monitoring: bool, flag_result: bool | None
+    ) -> None:
+        spec = self._spec()
+        if monitoring:
+            spec.config["monitoring"] = {
+                "reference_period_minutes": 1440,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 1440,
+            }
+        with (
+            patch(_CAPTURE) as capture,
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_result),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = create_checks_from_specs(
+                report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
+            )
+        if monitoring and flag_result is not True:
+            assert not result.applied
+            assert not self.report.checks.exists()
+            return
+        written = result.created
 
         assert len(written) == 1
         check = written[0]
         assert check.status == SignalReportCheck.Status.PENDING
         assert check.soak_minutes == DEFAULT_CHECK_SOAK_HOURS * 60
+        assert check.run_interval_minutes == (360 if monitoring else None)
         assert check.config["query"] == _PAGEVIEWS
         assert capture.call_args.kwargs["event"] == "signals_report_check_created"
         assert capture.call_args.kwargs["properties"]["check_status"] == SignalReportCheck.Status.PENDING
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, True, False),
+            ("unchanged", {"run_interval_minutes": 1440}, True, False),
+            ("revised", {"run_interval_minutes": 720}, True, True),
+            ("inherited_interval_does_not_fit", {"soak_hours": 12}, False, False),
+            ("interval_equals_window", {"soak_hours": 24}, False, False),
+            ("revised_window_and_interval", {"soak_hours": 12, "run_interval_minutes": 360}, True, True),
+        ]
+    )
+    def test_monitoring_cadence_revisions_preserve_checks_until_valid(
+        self, _name: str, overrides: dict[str, int], applied: bool, replaced: bool
+    ) -> None:
+        config = self._spec().config
+        config["monitoring"] = {
+            "reference_period_minutes": 1440,
+            "threshold_scaling": "fixed",
+            "baseline_period_minutes": 1440,
+        }
+        spec = self._spec(config=config, soak_hours=48, run_interval_minutes=1440)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            existing = create_checks_from_specs(
+                report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
+            ).created[0]
+            existing.approved_at = timezone.now()
+            existing.save(update_fields=["approved_at", "updated_at"])
+            version = existing.updated_at
+            revised = self._spec(config=spec.config, existing_check_id=existing.id, **overrides)
+            result = create_checks_from_specs(
+                report=self.report,
+                specs=[revised],
+                attribution=ArtefactAttribution.system(),
+                checks_snapshot=check_versions([existing]),
+            )
+
+        existing.refresh_from_db()
+        assert result.applied is applied
+        assert existing.status == (SignalReportCheck.Status.CANCELLED if replaced else SignalReportCheck.Status.PENDING)
+        if replaced:
+            assert result.created[0].run_interval_minutes == overrides["run_interval_minutes"]
+            assert result.created[0].soak_minutes == overrides.get("soak_hours", 48) * 60
+            assert result.created[0].approved_at is None
+            assert result.created[0].runs_remaining == existing.runs_remaining
+        else:
+            assert not result.created
+            assert existing.updated_at == version
+            assert existing.approved_at is not None
 
     @parameterized.expand([("no_lane", False), ("lane", True)])
     def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(self, _name: str, has_lane: bool) -> None:

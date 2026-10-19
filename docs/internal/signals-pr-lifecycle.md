@@ -67,6 +67,8 @@ With `signals-report-metrics` enabled, research gathers short-window baselines b
 
 The server refuses new Monitoring definitions when `signals-report-monitoring` is disabled or unavailable and omits the definition from check responses. Stored definitions remain intact. Research carries its definition-visibility decision into reconciliation, so flag recovery during a run does not replace an unchanged check or reset its approval and schedule. Existing definitions, charts, check schedules, and Resolved outcomes otherwise follow their current behavior.
 
+Enabled research can author `run_interval_minutes` for a metric check with a Monitoring definition. The interval must be at least six hours and strictly shorter than the check's observation window. A new check without an interval defaults to a quarter of that window, bounded to six hours through one day. A 24-hour window therefore stores a six-hour cadence, allowing interim measurements at hours 6, 12, and 18 when interim execution is available. Windows of six hours or less retain their evidence-backed duration and have no interim samples. Cadence is independent of query bucket size and the target reference period. Omitted intervals preserve existing checks' schedules; explicit cadence revisions replace the check and clear approval. Revised windows must still accommodate inherited intervals. This authoring policy does not change existing null-interval checks, execution, or final outcomes.
+
 ## Inbox value summary
 
 The `signals-inbox-value-summary` flag shows project-wide counts above the web

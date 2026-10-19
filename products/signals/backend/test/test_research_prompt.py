@@ -299,7 +299,12 @@ class TestBuildFixVerificationPrompt:
             agent_checks_enabled=agent_checks_enabled,
         )
         preferred = metric_checks_enabled
-        for field in ("reference_period_minutes", "threshold_scaling", "baseline_period_minutes"):
+        for field in (
+            "reference_period_minutes",
+            "threshold_scaling",
+            "baseline_period_minutes",
+            "run_interval_minutes",
+        ):
             assert (field in prompt) is (metric_checks_enabled and monitoring_enabled)
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
