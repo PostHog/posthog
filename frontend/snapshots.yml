@@ -5284,6 +5284,10 @@ snapshots:
         hash: v1.k794b7964.7c71ed6873f129ca5bcd6bfc799c99150b622d71e8c1704f1c43df4fbbb76549.2Ho5GXNsKrQZBkH-BDJmoOPANdExoh7swpQKiSPAm54
     lemon-ui-lemon-markdown--mermaid-diagrams--light:
         hash: v1.k794b7964.5f1d7a14bc8d292185ea2e8757aacea1b1592621474a40a0f2800689bdc967b4.nX6LZuh3nECdwHBEofLKwHYMbt5-wreAHYJTpyarEzA
+    lemon-ui-lemon-markdown--mixed-width-table--dark:
+        hash: v1.k794b7964.d9ee2b2f8b60c33589726536d9aa3d686ae17aeffd19ef0d02ab55d199577bfc.0LmTzNxmZkyAZ806BqQ-bxhOwkfztpZQCKo6ag9oMx4
+    lemon-ui-lemon-markdown--mixed-width-table--light:
+        hash: v1.k794b7964.a6f91589aae73c98f4d629b51c371af7cc01ed89207a1dd6d482393802a61235.2eqNRUHEh_ZBja6QNjBbNrj8DzMHI8R-8Pmx-x84goQ
     lemon-ui-lemon-markdown--strikethrough--dark:
         hash: v1.k794b7964.6f43730a305fab3c583f6afcb4a0ff8777a74ca784de794c252ea9692f6793c2.IeFouIlnojE5FLab-REEZEF6yehG0OQlawod7eMKOwY
     lemon-ui-lemon-markdown--strikethrough--light:
