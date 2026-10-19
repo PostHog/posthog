@@ -98,3 +98,29 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         email_config = next(a for a in actions if a["type"] == "function_email")["config"]
         assert "utm_tags_enabled" not in email_config
         assert "utm_params" not in email_config
+
+    @parameterized.expand([("staging the draft", True), ("publishing", False)])
+    def test_an_email_step_only_in_the_staged_draft_is_not_seeded(self, _name: str, stage_draft: bool) -> None:
+        # The step was staged before the team turned on defaults, so it carries no UTM settings.
+        email = _email_action()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Live flow",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            actions=[TRIGGER],
+            draft={"actions": [TRIGGER, email]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"actions": [TRIGGER, email], **({"stage_draft": True} if stage_draft else {})},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        flow.refresh_from_db()
+        saved = (flow.draft or {}).get("actions") if stage_draft else flow.actions
+        email_config = next(a for a in saved if a["type"] == "function_email")["config"]
+        assert "utm_tags_enabled" not in email_config
+        assert "utm_params" not in email_config

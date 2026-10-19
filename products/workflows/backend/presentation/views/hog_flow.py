@@ -3367,7 +3367,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if isinstance(submitted_actions, list) and get_team is not None:
             # A test invocation passes the workflow through the context rather than as the instance.
             stored_actions = stored.actions if stored and isinstance(stored.actions, list) else []
-            existing_ids = [str(a["id"]) for a in stored_actions if isinstance(a, dict) and a.get("id")]
+            # A step saved only in the staged draft of an active workflow already exists too, so it is never seeded.
+            draft_actions = (stored.draft or {}).get("actions") if stored else None
+            existing_ids = [
+                str(a["id"])
+                for a in [*stored_actions, *(draft_actions if isinstance(draft_actions, list) else [])]
+                if isinstance(a, dict) and a.get("id")
+            ]
             utm_defaults = load_team_utm_defaults(get_team().id)
             seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
             if stored:
