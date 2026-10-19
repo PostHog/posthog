@@ -8,13 +8,15 @@ from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.user import User
+from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -98,9 +100,16 @@ class InboxOnboardingStateSerializer(serializers.Serializer):
     )
 
 
+class InboxOnboardingPermission(BasePermission):
+    message = "Task agents cannot change onboarding settings."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return request.method in SAFE_METHODS or not is_sandbox_oauth_request(request)
+
+
 class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, InboxOnboardingPermission]
     scope_object = "task"
     requires_resource_level_access = True
     serializer_class = InboxOnboardingStateSerializer
@@ -169,6 +178,8 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def complete(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = InboxOnboardingDraftSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if any(source["source_product"] == "signals_scout" for source in serializer.validated_data["sources"]):
+            self._check_scout_access(request)
         try:
             return Response(self._service().complete(dict(serializer.data)))
         except InboxOnboardingValidationError as error:

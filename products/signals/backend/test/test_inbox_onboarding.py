@@ -10,14 +10,20 @@ from requests import Timeout
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.models import OAuthApplication
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
+from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.tasks import reconcile_inbox_onboarding
 
 
@@ -210,9 +216,17 @@ class TestInboxOnboarding(APIBaseTest):
         config.refresh_from_db()
         assert bool((config.onboarding or {}).get("completed_at")) is (enabled is not False)
 
-    @parameterized.expand([(False, True, 403), (True, True, 200), (False, False, 200)])
+    @parameterized.expand(
+        [
+            (False, "scout", 403),
+            (True, "scout", 200),
+            (False, "source", 403),
+            (True, "source", 200),
+            (False, "none", 200),
+        ]
+    )
     def test_child_completion_checks_parent_scout_access(
-        self, parent_access: bool, with_scout: bool, expected_status: int
+        self, parent_access: bool, selection: str, expected_status: int
     ) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         SignalSourceConfig.objects.create(
@@ -220,8 +234,15 @@ class TestInboxOnboarding(APIBaseTest):
         )
         SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name)
         Integration.objects.create(team=child, kind="github")
-        if with_scout:
+        if selection == "scout":
             self.draft["suggestions"] = [self.suggestion]
+        elif selection == "source":
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="signals_scout", source_type="cross_source_issue", enabled=True
+            )
+            self.draft["sources"] = [
+                {"source_product": "signals_scout", "source_type": "cross_source_issue", "enabled": True}
+            ]
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="onboarding",
@@ -241,6 +262,71 @@ class TestInboxOnboarding(APIBaseTest):
                 HTTP_AUTHORIZATION=f"Bearer {raw}",
             )
         assert response.status_code == expected_status, response.content
+
+    @parameterized.expand([("",), ("complete/",), ("expose/",), ("reconcile/",)])
+    def test_onboarding_writes_require_a_non_sandbox_credential(self, action: str) -> None:
+        application = OAuthApplication.objects.create(
+            client_id=sorted(SANDBOX_OAUTH_APP_CLIENT_IDS)[0],
+            name="Onboarding test",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_onboarding_test_token",
+            scope="task:read task:write internal_run:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        response = self.client.post(f"{self.url}{action}", self.draft, format="json")
+        assert response.status_code == 403, response.content
+        assert self.client.get(self.url).status_code == 200
+        assert SignalTeamConfig.objects.get(team=self.team).onboarding is None
+
+    def test_onboarding_activity_masks_scout_drafts(self) -> None:
+        self.draft["suggestions"] = [{**self.suggestion, "draft_body": "Investigate example checkout errors."}]
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url, self.draft, format="json")
+        assert response.status_code == 200, response.content
+        log = ActivityLog.objects.filter(team=self.team, scope="SignalTeamConfig").latest("created_at")
+        change = next(change for change in log.detail["changes"] if change["field"] == "onboarding")
+        assert change["after"] == "masked"
+        change["after"] = {"draft": self.draft}
+        assert (
+            next(change for change in log.safe_detail["changes"] if change["field"] == "onboarding")["after"]
+            == "masked"
+        )
+
+    @parameterized.expand([("unchanged", True), ("user_paused", False), ("withheld", False)])
+    def test_activation_resumes_only_onboarding_operational_pauses(self, state: str, enabled: bool) -> None:
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id, enable_new_configs=False)
+        scout = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name="signals-scout-inbox-validation")
+        register_missing_configs(self.team.id)
+        scout.refresh_from_db()
+        assert not scout.enabled
+        if state == "user_paused":
+            scout.status_changed_at = timezone.now() + timedelta(seconds=1)
+            scout.save(update_fields=["status_changed_at"])
+        withheld = [scout.skill_name] if state == "withheld" else []
+        with (
+            patch.object(
+                GitHubIntegration, "list_repositories", return_value=([{"full_name": "example/product"}], False)
+            ),
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value={"default_team_config": {"withheld_skills": withheld}},
+            ),
+        ):
+            Integration.objects.create(team=self.team, kind="github")
+            response = self.client.post(f"{self.url}complete/", self.draft, format="json")
+        assert response.status_code == 200, response.content
+        scout.refresh_from_db()
+        assert scout.enabled is enabled
+        assert not SignalScoutConfig.objects.for_team(self.team.id).get(skill_name="signals-scout-general").enabled
 
     @parameterized.expand([("expose",), ("reconcile",)])
     def test_child_scoped_credential_cannot_start_parent_reconciliation(self, action: str) -> None:

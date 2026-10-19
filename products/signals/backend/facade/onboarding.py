@@ -22,7 +22,9 @@ from products.signals.backend.models import (
     signal_source_product_choices,
 )
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
+from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.scout_harness.create_access import can_create_scout
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 
 if TYPE_CHECKING:
     from django.utils.functional import Promise
@@ -119,8 +121,13 @@ class InboxOnboarding:
 
         selected_source = False
         for source in draft["sources"]:
+            source_team_id = (
+                self.team.parent_team_id or self.team_id
+                if source["source_product"] == "signals_scout"
+                else self.team_id
+            )
             persisted = SignalSourceConfig.objects.filter(
-                team_id=self.team_id,
+                team_id=source_team_id,
                 source_product=source["source_product"],
                 source_type=source["source_type"],
             ).first()
@@ -144,6 +151,13 @@ class InboxOnboarding:
         if not (selected_source or draft["scanner_ids"] or draft["suggestions"]):
             raise InboxOnboardingValidationError("Select at least one usable signal source or scout.")
 
+        scout_team_id = self.team.parent_team_id or self.team_id
+        resume_operational_scouts = (
+            scout_team_id == self.team_id
+            or bool(draft["suggestions"])
+            or any(source["source_product"] == "signals_scout" for source in draft["sources"])
+        )
+        withheld = withheld_skills_for_team(scout_team_id) if resume_operational_scouts else set()
         user = self.user
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
@@ -160,6 +174,8 @@ class InboxOnboarding:
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
+                if resume_operational_scouts:
+                    InboxOnboardingScouts.resume(scout_team_id, withheld)
                 transaction.on_commit(lambda: self._report_completion(user, state.get("variant")), robust=True)
         return self._state(config)
 

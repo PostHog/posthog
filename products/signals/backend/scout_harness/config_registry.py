@@ -31,6 +31,7 @@ from posthog.models.activity_logging.model_activity import ActivityTriggerContex
 from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
@@ -353,7 +354,10 @@ def register_missing_configs(
 
         # `team_id` must be passed as a kwarg: `get_or_create` builds the created row from
         # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
-        _, created = configs.get_or_create(team_id=team_id, skill_name=name, defaults=defaults)
+        with transaction.atomic():
+            scout, created = configs.get_or_create(team_id=team_id, skill_name=name, defaults=defaults)
+            if created and operational and not enable_new_configs:
+                InboxOnboardingScouts.record_pause(scout)
         if not created:
             continue
         if seed_enabled:
