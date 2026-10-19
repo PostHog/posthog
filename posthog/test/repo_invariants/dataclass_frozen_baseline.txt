@@ -489,7 +489,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/docuseal/docuseal.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/docuseal/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/docusign/docusign.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/docusign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dodopayments/dodopayments.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/doppler/doppler.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/doppler/settings.py
