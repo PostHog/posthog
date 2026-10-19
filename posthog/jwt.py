@@ -38,6 +38,7 @@ class PosthogJwtAudience(Enum):
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
     WORKFLOW_CLASSIFY = "posthog:workflows:classify"
+    WORKFLOW_ADD_STATIC_COHORT_MEMBER = "posthog:workflows:add_static_cohort_member"
     WORKFLOW_VISION_REQUEST = "posthog:workflows:vision_request"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"

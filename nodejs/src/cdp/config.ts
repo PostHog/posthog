@@ -232,6 +232,7 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOW_SCOUT_RUN_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's classify calls to Django. Its own key, for the same reason.
     WORKFLOW_CLASSIFY_JWT_SECRET: string
+    WORKFLOW_ADD_STATIC_COHORT_MEMBER_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's Replay Vision scan calls to Django. Its own key for the
     // same reason as the run-scout one, with the same rotation and fail-closed-when-empty semantics.
     WORKFLOW_VISION_REQUEST_JWT_SECRET: string
@@ -446,6 +447,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_CLASSIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-classify-jwt' : '',
+        WORKFLOW_ADD_STATIC_COHORT_MEMBER_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflow-add-static-cohort-member-jwt' : '',
         WORKFLOW_VISION_REQUEST_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-vision-request-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,

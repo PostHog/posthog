@@ -39,6 +39,7 @@ import { template as posthogUpdateAccountTemplate } from './_destinations/postho
 import { template as posthogReplayVisionTemplate } from './_destinations/posthog_replay_vision/posthog-replay-vision.template'
 import { template as posthogRunScoutTemplate } from './_destinations/posthog_signals/posthog-run-scout.template'
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
+import { template as posthogAddPersonToStaticCohortTemplate } from './_destinations/posthog_workflows/posthog-add-person-to-static-cohort.template'
 import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
@@ -114,6 +115,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
     posthogClassifyTemplate,
+    posthogAddPersonToStaticCohortTemplate,
     posthogReplayVisionTemplate,
     posthogCreateAccountTemplate,
     posthogCreateCustomerTaskTemplate,

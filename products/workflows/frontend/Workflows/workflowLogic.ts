@@ -143,6 +143,24 @@ export const NEW_WORKFLOW: HogFlow = {
 // Step types that depend on person data and so cannot run for person-less (row-scoped)
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
+export const PERSON_DEPENDENT_TEMPLATE_IDS = new Set(['template-posthog-add-person-to-static-cohort'])
+
+export function isPersonDependentAction(action: Pick<HogFlowAction, 'type' | 'config'>): boolean {
+    return (
+        PERSON_DEPENDENT_ACTION_TYPES.has(action.type) ||
+        (action.type === 'function' &&
+            'template_id' in action.config &&
+            PERSON_DEPENDENT_TEMPLATE_IDS.has(action.config.template_id))
+    )
+}
+
+export function isPersonlessTrigger(trigger: TriggerAction['config'] | undefined): boolean {
+    return (
+        ROW_SCOPED_TRIGGER_TYPES.has(trigger?.type ?? '') ||
+        trigger?.type === 'schedule' ||
+        (trigger?.type === 'batch' && (trigger.filters.audience_type ?? 'persons') === 'accounts')
+    )
+}
 
 // Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
 // row, and an internal event are all things no PostHog person is attached to. Keep in sync with
@@ -287,6 +305,7 @@ export interface workflowLogicValues {
     hogFunctionTemplatesByIdLoading: boolean
     isAutoSave: boolean
     isAutoSavePending: boolean
+    isPersonlessTrigger: boolean
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
     isSyncingExternalEdit: boolean
@@ -3882,12 +3901,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveAttemptedActionIds: string[] | null,
                 integrations: IntegrationType[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
-                // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
-                // Person-dependent step types make no sense without a person, so we block them at
-                // save time.
+                // Some triggers do not attach a person to the run, so block person-dependent steps.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
-                const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && ROW_SCOPED_TRIGGER_TYPES.has(triggerAction.config?.type)
+                const triggerIsPersonless =
+                    triggerAction?.type === 'trigger' && isPersonlessTrigger(triggerAction.config)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3898,11 +3915,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             warnings: {},
                         }
 
-                        if (isRowScopedTrigger && PERSON_DEPENDENT_ACTION_TYPES.has(action.type)) {
+                        if (triggerIsPersonless && isPersonDependentAction(action)) {
                             result.valid = false
                             result.errors = {
-                                _action:
-                                    'This step relies on person data, which is not available for data warehouse table triggers',
+                                _action: 'This step needs person data, which is not available for this trigger.',
                             }
                             acc[action.id] = result
                             return acc
@@ -4079,6 +4095,11 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.triggerAction],
             (triggerAction: TriggerAction | null): boolean =>
                 ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type ?? ''),
+        ],
+
+        isPersonlessTrigger: [
+            (s) => [s.triggerAction],
+            (triggerAction: TriggerAction | null): boolean => isPersonlessTrigger(triggerAction?.config),
         ],
 
         workflowSanitized: [

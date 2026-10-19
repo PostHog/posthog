@@ -18,7 +18,7 @@ import '../registry'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
+import { isPersonDependentAction, workflowLogic } from '../../workflowLogic'
 import { setHogFlowDragImage } from '../dragPreview'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { StepView } from '../steps/components/StepView'
@@ -171,6 +171,12 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
 ]
 
 export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
+    {
+        type: 'function',
+        name: 'Add person to static cohort',
+        description: 'Add the workflow person to an existing static cohort.',
+        config: { template_id: 'template-posthog-add-person-to-static-cohort', inputs: {} },
+    },
     {
         type: 'function',
         name: 'Set variable',
@@ -371,13 +377,16 @@ export function HogFlowEditorPanelBuild({
 } = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { isRowScopedTrigger } = useValues(workflowLogic)
+    const { isPersonlessTrigger, isRowScopedTrigger } = useValues(workflowLogic)
 
     const registeredCategories = getRegisteredActionNodeCategories(featureFlags)
 
     // Warehouse-triggered workflows have no person, so don't offer person-dependent steps at all.
     const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>
-        isRowScopedTrigger ? nodes.filter((node) => !PERSON_DEPENDENT_ACTION_TYPES.has(node.type)) : nodes
+        isRowScopedTrigger ? nodes.filter((node) => !isPersonDependentAction(node as HogFlowAction)) : nodes
+
+    const hideIfPersonless = (nodes: CreateActionType[]): CreateActionType[] =>
+        isPersonlessTrigger ? nodes.filter((node) => !isPersonDependentAction(node as HogFlowAction)) : nodes
 
     // Scouts and Replay Vision belong to the project's main environment, and the server refuses their steps
     // elsewhere. currentTeam is required: while it loads, both sides of the comparison are undefined.
@@ -478,7 +487,7 @@ export function HogFlowEditorPanelBuild({
             )}
 
             <HogFlowEditorToolbarSection title="PostHog actions">
-                {POSTHOG_NODES_TO_SHOW.map((action, index) => (
+                {hideIfPersonless(POSTHOG_NODES_TO_SHOW).map((action, index) => (
                     <HogFlowEditorToolbarNode
                         key={`${action.type}-${index}`}
                         action={action}

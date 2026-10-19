@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -104,6 +104,18 @@ PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
     "random_cohort_branch",
 }
 
+PERSON_DEPENDENT_TEMPLATE_IDS: Final[set[str]] = {
+    "template-posthog-add-person-to-static-cohort",
+}
+
+
+def is_person_dependent_action(action: dict[str, Any]) -> bool:
+    return action.get("type") in PERSON_DEPENDENT_ACTION_TYPES or (
+        action.get("type") == "function"
+        and (action.get("config") or {}).get("template_id") in PERSON_DEPENDENT_TEMPLATE_IDS
+    )
+
+
 # Trigger types that start a run with no person attached: a synced warehouse row and a Slack message
 # are both authored by something PostHog has no person record for. Keep in sync with the frontend's
 # ROW_SCOPED_TRIGGER_TYPES.
@@ -112,6 +124,15 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-view",
     "internal-event",
 }
+
+
+def is_personless_trigger(trigger: dict[str, Any]) -> bool:
+    trigger_type = trigger.get("type")
+    return (
+        trigger_type in ROW_SCOPED_TRIGGER_TYPES
+        or trigger_type == "schedule"
+        or (trigger_type == "batch" and (trigger.get("filters") or {}).get("audience_type", "persons") == "accounts")
+    )
 
 
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:

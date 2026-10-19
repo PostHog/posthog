@@ -1,3 +1,4 @@
+import './add-person-to-static-cohort'
 import './classify'
 import './conversations'
 import './create-customer-task'

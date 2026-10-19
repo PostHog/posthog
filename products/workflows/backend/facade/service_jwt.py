@@ -6,6 +6,7 @@ The plugin server mints tokens for the "Create AI task", "Run scout", "Classify 
 
 from products.workflows.backend.service_jwt import (
     TASKS_CREATE_PURPOSE,
+    WORKFLOW_ADD_STATIC_COHORT_MEMBER_PURPOSE,
     WORKFLOW_CLASSIFY_PURPOSE,
     WORKFLOW_SCOUT_RUN_PURPOSE,
     WORKFLOW_VISION_REQUEST_PURPOSE,
@@ -13,6 +14,7 @@ from products.workflows.backend.service_jwt import (
 
 __all__ = [
     "TASKS_CREATE_PURPOSE",
+    "WORKFLOW_ADD_STATIC_COHORT_MEMBER_PURPOSE",
     "WORKFLOW_CLASSIFY_PURPOSE",
     "WORKFLOW_SCOUT_RUN_PURPOSE",
     "WORKFLOW_VISION_REQUEST_PURPOSE",

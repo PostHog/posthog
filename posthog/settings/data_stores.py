@@ -631,6 +631,13 @@ WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
 )
 
+WORKFLOW_ADD_STATIC_COHORT_MEMBER_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_STATIC_COHORT_MEMBER_JWT_SECRET",
+        "local-dev-workflow-add-static-cohort-member-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's Replay Vision step calls back with. Its own
 # key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
 WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(

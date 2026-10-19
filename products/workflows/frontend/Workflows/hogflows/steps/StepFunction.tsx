@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { workflowLogic } from '../../workflowLogic'
+import { AddPersonToStaticCohortConfiguration } from './components/AddPersonToStaticCohortConfiguration'
 import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompare'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -19,19 +20,27 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
         <>
             <StepSchemaErrors />
             {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
-            <HogFlowFunctionConfiguration
-                // Remount per node: the input renderer snapshots its values on mount, so switching to
-                // another step of the same template must remount to show the newly selected node's inputs.
-                key={node.id}
-                templateId={templateId}
-                inputs={inputs}
-                setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
-                mappings={mappings}
-                setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
-                errors={validationResult?.errors}
-                warnings={validationResult?.warnings}
-                emailFieldErrors={validationResult?.emailErrors}
-            />
+            {templateId === 'template-posthog-add-person-to-static-cohort' ? (
+                <AddPersonToStaticCohortConfiguration
+                    inputs={inputs}
+                    setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+                    error={validationResult?.errors?.cohort_id}
+                />
+            ) : (
+                <HogFlowFunctionConfiguration
+                    // Remount per node: the input renderer snapshots its values on mount, so switching to
+                    // another step of the same template must remount to show the newly selected node's inputs.
+                    key={node.id}
+                    templateId={templateId}
+                    inputs={inputs}
+                    setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+                    mappings={mappings}
+                    setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
+                    errors={validationResult?.errors}
+                    warnings={validationResult?.warnings}
+                    emailFieldErrors={validationResult?.emailErrors}
+                />
+            )}
         </>
     )
 }
