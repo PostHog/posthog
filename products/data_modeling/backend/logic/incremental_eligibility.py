@@ -290,9 +290,38 @@ def _advances_with_time(select: ast.SelectQuery, column: str) -> bool:
             expression = expression.args[0] if expression.args else None
     if not isinstance(expression, ast.Field):
         return False
-    source_column = str(expression.chain[-1])
-    source = next((leaf for leaf in _source_selects(select) if source_column in _output_names(leaf)), None)
-    return source is None or _advances_with_time(source, source_column)
+    source = _row_source(select, expression.chain)
+    if source is None:
+        return False
+    if not isinstance(source, (ast.SelectQuery, ast.SelectSetQuery)):
+        return True
+    return all(_advances_with_time(leaf, str(expression.chain[-1])) for leaf in _leaf_selects(source))
+
+
+def _row_source(select: ast.SelectQuery, chain: list[str | int]) -> Optional[ast.Expr]:
+    joins: list[ast.JoinExpr] = []
+    join = select.select_from
+    while join is not None:
+        joins.append(join)
+        join = join.next_join
+    if len(chain) > 1:
+        qualifier = str(chain[0])
+        found = next((join for join in joins if qualifier in (join.alias, _table_name(join))), None)
+    else:
+        found = joins[0] if len(joins) == 1 else None
+    if found is None:
+        return None
+    table_name = _table_name(found)
+    cte = (select.ctes or {}).get(table_name) if table_name else None
+    if cte is not None and cte.cte_type == "subquery":
+        return cte.expr
+    return found.table
+
+
+def _table_name(join: ast.JoinExpr) -> Optional[str]:
+    if isinstance(join.table, ast.Field) and join.table.chain:
+        return str(join.table.chain[-1])
+    return None
 
 
 def _value_expressions(select: ast.SelectQuery) -> list[ast.Expr]:

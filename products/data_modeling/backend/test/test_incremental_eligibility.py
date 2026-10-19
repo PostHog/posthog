@@ -662,6 +662,44 @@ class TestProposeIncrementalConfig(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("key_from_the_view_that_advances", "a", DAY_KEY),
+            ("key_from_the_view_that_wraps", "b", None),
+        ]
+    )
+    def test_a_joined_time_key_is_checked_in_the_view_it_comes_from(
+        self, _name: str, key_view: str, expected: Optional[IncrementalConfig]
+    ) -> None:
+        database = Database()
+        database._add_views(
+            TableNode(
+                children={
+                    name: TableNode(
+                        name=name,
+                        table=SavedQuery(
+                            id=name,
+                            name=name,
+                            query=f"SELECT {expression} AS ts FROM events GROUP BY ts",
+                            fields={"ts": DateTimeDatabaseField(name="ts")},
+                        ),
+                    )
+                    for name, expression in (
+                        ("a", "toStartOfDay(timestamp)"),
+                        ("b", "toDate(subtractYears(timestamp, toYear(timestamp) - 2000))"),
+                    )
+                }
+            )
+        )
+
+        proposed = propose_incremental_config(
+            f"SELECT toStartOfDay({key_view}.ts) AS day, count() AS c FROM a CROSS JOIN b GROUP BY day",
+            {"day": "DateTime", "c": "UInt64"},
+            database=database,
+        )
+
+        assert proposed == expected
+
+    @parameterized.expand(
+        [
             ("moving_window", "SELECT timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY"),
             ("cohort_filter", "SELECT timestamp FROM events WHERE person_id IN COHORT 1"),
         ]
