@@ -820,6 +820,9 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             # The scanner name is user-editable, so it stays out of model-visible tool output; this
             # preview is rendered to the user who owns it, not fed back to the model.
             what = f"the saved scanner '{scanner.name}'" if scanner else f"the saved scanner (id {scanner_id})"
+        # The scan refuses this many anyway, so the preview skips the unbounded recordings lookup.
+        if len(sessions) > MAX_SESSIONS_PER_SCAN:
+            return f"**Scan {len(sessions)} session(s)**: {MAX_SESSIONS_PER_SCAN} is the most one scan can take, so nothing will be scanned or charged."
         missing = len(_missing_recordings(self._team, sessions))
         to_scan = len(sessions) - missing
         if not to_scan:
