@@ -7,8 +7,10 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from itertools import batched
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import pyarrow as pa
+from requests.adapters import BaseAdapter
 from requests.exceptions import ConnectTimeout, RequestException, Timeout
 
 from posthog.dataclasses import frozen
@@ -53,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
+    from requests import PreparedRequest, Response
     from trino.dbapi import Connection, Cursor
 
 
@@ -75,6 +78,7 @@ TRINO_TLS_CERTIFICATE_ERROR = (
     "Check the certificate or turn off certificate verification."
 )
 TRINO_CONNECTION_ERROR = "PostHog could not connect to Trino."
+TRINO_CONNECTION_DESTINATION_ERROR = "Trino returned an unsupported connection destination. Check the connection host."
 TRINO_CONNECT_TIMEOUT_ERROR = (
     "Connection to Trino timed out. Check the host and port, and that PostHog's egress IP addresses are "
     "allowed through your firewall."
@@ -127,20 +131,19 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
         TRINO_ACCESS_DENIED_ERROR,
     }
 )
-POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
-    {
-        "trino.dw.dev.postwh.com",
-        "trino.dw.eu.postwh.com",
-        "trino.dw.us.postwh.com",
-    }
-)
+POSTHOG_MANAGED_TRINO_HOST_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.dw\.(?:dev|eu|us)\.postwh\.com")
 # Trino's OPA access control can issue one column-filter request per table, so keep
 # discovery batches comfortably below the HTTP client's outstanding-request limit.
 TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE = 100
 
 
+def _normalize_trino_host(host: str) -> str | None:
+    return host.lower().removesuffix(".") if host.isascii() else None
+
+
 def is_posthog_managed_trino_host(host: str) -> bool:
-    return host.lower().rstrip(".") in POSTHOG_MANAGED_TRINO_HOSTS
+    normalized = _normalize_trino_host(host)
+    return normalized is not None and POSTHOG_MANAGED_TRINO_HOST_PATTERN.fullmatch(normalized) is not None
 
 
 @frozen
@@ -166,7 +169,49 @@ class TrinoSchemaDiscoveryError(Exception):
 
 
 class TrinoConfigurationError(ValueError):
-    """A connection setting Trino cannot be reached with, found before PostHog opens the connection."""
+    """A connection setting or server response that PostHog cannot use safely."""
+
+
+class _TrinoOriginAdapter(BaseAdapter):
+    def __init__(self, adapter: BaseAdapter, host: str) -> None:
+        self._adapter = adapter
+        self._host = _normalize_trino_host(host)
+
+    def send(
+        self,
+        request: PreparedRequest,
+        stream: bool = False,
+        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
+        verify: bool | str = True,
+        cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
+        proxies: Mapping[str, str] | None = None,
+    ) -> Response:
+        # The driver follows nextUri itself, outside the session's HTTP redirect policy.
+        try:
+            target = urlsplit(request.url or "")
+            allowed = (
+                self._host is not None
+                and target.scheme == "https"
+                and _normalize_trino_host(target.hostname or "") == self._host
+                and target.port in (None, 443)
+                and target.username is None
+                and target.password is None
+            )
+        except ValueError:
+            allowed = False
+        if not allowed or verify is not True:
+            raise TrinoConfigurationError(TRINO_CONNECTION_DESTINATION_ERROR)
+
+        response = self._adapter.send(
+            request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies
+        )
+        if 300 <= response.status_code < 400:
+            response.close()
+            raise TrinoConfigurationError(TRINO_CONNECTION_DESTINATION_ERROR)
+        return response
+
+    def close(self) -> None:
+        self._adapter.close()
 
 
 def _timeout_in_chain(error: BaseException) -> Timeout | None:
@@ -263,6 +308,9 @@ def connect_trino(config: TrinoSourceConfig, *, timezone: str | None = None) -> 
     session = make_tracked_session(redact_values=redacted, allow_redirects=False)
     if is_posthog_managed_trino_host(config.host) and config.port == 443 and config.use_ssl and config.verify_ssl:
         session.trust_env = False
+        adapter = _TrinoOriginAdapter(session.get_adapter("https://"), config.host)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
     session.verify = config.verify_ssl
     log_connection_open(db_host=config.host, via="trino_https" if config.use_ssl else "trino_http")
     connection: Connection | None = None
